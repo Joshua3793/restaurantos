@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const startDate = searchParams.get('startDate')
+  const endDate = searchParams.get('endDate')
+  const itemId = searchParams.get('itemId')
+  const reason = searchParams.get('reason')
+
+  const logs = await prisma.wastageLog.findMany({
+    where: {
+      AND: [
+        startDate ? { date: { gte: new Date(startDate) } } : {},
+        endDate ? { date: { lte: new Date(endDate) } } : {},
+        itemId ? { inventoryItemId: itemId } : {},
+        reason ? { reason } : {},
+      ],
+    },
+    include: { inventoryItem: true },
+    orderBy: { date: 'desc' },
+  })
+  return NextResponse.json(logs)
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json()
+  const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date } = body
+
+  const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
+  const ppbu = item ? parseFloat(String(item.pricePerBaseUnit)) : 0
+  const costImpact = parseFloat(qtyWasted) * ppbu
+
+  const log = await prisma.wastageLog.create({
+    data: {
+      inventoryItemId,
+      date: date ? new Date(date) : new Date(),
+      qtyWasted: parseFloat(qtyWasted),
+      unit,
+      reason: reason || 'UNKNOWN',
+      costImpact,
+      loggedBy: loggedBy || 'System',
+      notes,
+    },
+    include: { inventoryItem: true },
+  })
+  return NextResponse.json(log, { status: 201 })
+}
