@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model StorageArea {
+  id    String          @id @default(cuid())
+  name  String
+  items InventoryItem[]
+}
+
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String
+  contactName   String?
+  phone         String?
+  email         String?
+  orderPlatform String?
+  cutoffDays    String?
+  deliveryDays  String?
+  inventory     InventoryItem[]
+  invoices      Invoice[]
+  createdAt     DateTime @default(now())
+}
+
+model InventoryItem {
+  id                 String       @id @default(cuid())
+  itemName           String
+  category           String       @default("DRY")
+  supplierId         String?
+  supplier           Supplier?    @relation(fields: [supplierId], references: [id])
+  storageAreaId      String?
+  storageArea        StorageArea? @relation(fields: [storageAreaId], references: [id])
+  purchaseUnit       String
+  qtyPerPurchaseUnit Decimal      @default(1)
+  purchasePrice      Decimal      @default(0)
+  baseUnit           String       @default("each")
+  conversionFactor   Decimal      @default(1)
+  pricePerBaseUnit   Decimal      @default(0)
+  stockOnHand        Decimal      @default(0)
+  lastUpdated        DateTime     @default(now()) @updatedAt
+  abbreviation       String?
+  location           String?
+  isActive           Boolean      @default(true)
+  lastCountDate      DateTime?
+  lastCountQty       Decimal?
+  invoiceLineItems   InvoiceLineItem[]
+  recipeIngredients  RecipeIngredient[]
+  wastageLogs        WastageLog[]
+}
+
+model Invoice {
+  id            String          @id @default(cuid())
+  supplierId    String
+  supplier      Supplier        @relation(fields: [supplierId], references: [id])
+  invoiceDate   DateTime
+  invoiceNumber String
+  imageUrl      String?
+  totalAmount   Decimal         @default(0)
+  status        String          @default("PENDING")
+  ocrRawData    String?
+  createdAt     DateTime        @default(now())
+  lineItems     InvoiceLineItem[]
+}
+
+model InvoiceLineItem {
+  id              String        @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  qtyPurchased    Decimal
+  unitPrice       Decimal
+  lineTotal       Decimal       @default(0)
+  priceOverride   Decimal?
+  rawDescription  String?
+}
+
+model Recipe {
+  id          String             @id @default(cuid())
+  name        String
+  category    String             @default("OTHER")
+  yieldQty    Decimal            @default(1)
+  yieldUnit   String             @default("portions")
+  menuPrice   Decimal?
+  notes       String?
+  createdAt   DateTime           @default(now())
+  ingredients RecipeIngredient[]
+}
+
+model RecipeIngredient {
+  id              String        @id @default(cuid())
+  recipeId        String
+  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  qtyUsed         Decimal
+  unit            String
+  lineCost        Decimal       @default(0)
+}
+
+model WastageLog {
+  id              String        @id @default(cuid())
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  date            DateTime      @default(now())
+  qtyWasted       Decimal
+  unit            String
+  reason          String        @default("UNKNOWN")
+  costImpact      Decimal       @default(0)
+  loggedBy        String        @default("System")
+  notes           String?
+}
+
+model SalesEntry {
+  id           String   @id @default(cuid())
+  date         DateTime
+  totalRevenue Decimal
+  foodSalesPct Decimal  @default(0.7)
+  covers       Int?
+  notes        String?
+  createdAt    DateTime @default(now())
+}
