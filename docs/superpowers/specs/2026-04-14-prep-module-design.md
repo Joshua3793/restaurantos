@@ -74,6 +74,7 @@ One record per prep item per day. Created by "Generate Today's Prep" or on first
 | `dueTime` | `String?` | e.g. "09:00" |
 | `note` | `String?` | Per-day note |
 | `blockedReason` | `String?` | Auto-populated from ingredient check |
+| `inventoryAdjusted` | `Boolean @default(false)` | Whether inventory impact has been applied |
 | `createdAt` | `DateTime @default(now())` | |
 | `updatedAt` | `DateTime @updatedAt` | |
 | **Relations** | `prepItem PrepItem` | |
@@ -151,7 +152,68 @@ When a `PrepItem` has `linkedRecipeId`:
 
 ---
 
-## 7. API Routes
+## 7. Inventory Impact on Completion
+
+When a `PrepLog` transitions to `DONE` or `PARTIAL` **and** `inventoryAdjusted = false`, the system applies a **prep completion transaction** — a single atomic database update that keeps inventory accurate.
+
+This only fires if `PrepItem.linkedRecipeId` is set.
+
+### 7.1 Scale Factor
+
+The recipe defines a canonical batch (e.g. yields 10 kg of smoked brisket from a list of ingredients).  
+The prep log records how many units were actually made (`actualPrepQty` in `PrepItem.unit`).
+
+```
+If PrepItem.unit = 'batch':
+  scale = actualPrepQty                  // 1 batch = 1× the recipe
+
+If PrepItem.unit matches Recipe.yieldUnit:
+  scale = actualPrepQty / Recipe.baseYieldQty   // e.g. 7 kg / 10 kg = 0.7×
+
+Otherwise (unit mismatch — no automatic scaling):
+  scale = 1  (apply one full batch, surface a warning in the UI)
+```
+
+For `PARTIAL`, `actualPrepQty` must be entered by the chef before confirming. The same scale logic applies — it just results in a partial ingredient deduction and a partial yield credit.
+
+### 7.2 Ingredient Deduction
+
+For each `RecipeIngredient` on the linked recipe that has an `inventoryItemId`:
+
+```
+deductQty = ingredient.qtyBase × scale
+InventoryItem.stockOnHand -= deductQty
+```
+
+Sub-recipe ingredients (where `linkedRecipeId` is set on the ingredient) are **not** deducted in v1 — only direct inventory items. This avoids recursive complexity while still covering the common case.
+
+### 7.3 Output Credit
+
+If `Recipe.inventoryItemId` is set (the recipe output is tracked as an inventory item):
+
+```
+creditQty = Recipe.baseYieldQty × scale   // in Recipe.yieldUnit
+InventoryItem.stockOnHand += creditQty
+```
+
+Example: Raw brisket recipe yields 10 kg → `scale = 0.7` → credit 7 kg of "Smoked Brisket" to inventory, deduct all raw ingredients × 0.7.
+
+### 7.4 Idempotency
+
+`inventoryAdjusted` is set to `true` after the transaction. The endpoint checks this flag — re-marking an already-adjusted log as DONE a second time does **not** re-apply the transaction. To re-apply (e.g. chef corrects `actualPrepQty`), there is a **Revert & Reapply** action in the detail panel that:
+1. Reverses the previous adjustment (adds ingredients back, subtracts output)
+2. Re-applies with the corrected qty
+3. Requires the previous `actualPrepQty` to be stored (it is, on the log)
+
+### 7.5 Guardrails
+
+- If `actualPrepQty` is null when marking DONE, prompt the chef to enter qty first
+- If a deduction would push `stockOnHand` below zero, still apply it but show a warning ("Inventory went negative — check your stock")
+- All adjustments are applied in a single Prisma `$transaction` — partial failures roll back entirely
+
+---
+
+## 8. API Routes
 
 All under `/api/prep/`.
 
@@ -165,20 +227,21 @@ All under `/api/prep/`.
 | `POST` | `/api/prep/generate` | Generate today's `PrepLog` rows for all active items (idempotent — skips existing) |
 | `GET` | `/api/prep/logs` | Get logs for a date (`?date=YYYY-MM-DD`, defaults to today) |
 | `POST` | `/api/prep/logs` | Create or upsert a log entry for an item+date |
-| `PUT` | `/api/prep/logs/[id]` | Update log status, qty, note, assignedTo |
+| `PUT` | `/api/prep/logs/[id]` | Update log status, qty, note, assignedTo — triggers inventory transaction on DONE/PARTIAL |
+| `POST` | `/api/prep/logs/[id]/revert` | Reverse a previous inventory adjustment and re-apply with corrected qty |
 
 ---
 
-## 8. Page Layout (`/prep`)
+## 9. Page Layout (`/prep`)
 
-### 8.1 Header
+### 9.1 Header
 - Title: **Prep** | Subtitle: *Daily kitchen production board*
 - Buttons: `Generate Today's Prep` · `+ Add Prep Item`
 
-### 8.2 KPI Summary Strip (6 cards)
+### 9.2 KPI Summary Strip (6 cards)
 Total Items · 911 · Needed Today · Low Stock · Done Today · Blocked
 
-### 8.3 Filters
+### 9.3 Filters
 - Search (by name)
 - Filter by Priority (`All | 911 | Needed Today | Low Stock | Later`)
 - Filter by Status (`All | Not Started | In Progress | Done | Blocked | Partial`)
@@ -187,7 +250,7 @@ Total Items · 911 · Needed Today · Low Stock · Done Today · Blocked
 - Toggle: Active only (default on)
 - Toggle: Today / All Items / Needs Action Only
 
-### 8.4 Main Prep List
+### 9.4 Main Prep List
 
 Four collapsible priority sections rendered in order:
 
@@ -205,12 +268,16 @@ Each row displays:
 - Blocked indicator (🚫 + tooltip with reason)
 - `···` action menu: Start · Mark Done · Mark Partial · Mark Blocked · Skip · Change Priority · Edit · View Recipe
 
-### 8.5 Side Detail Panel (right drawer on row click)
+### 9.5 Side Detail Panel (right drawer on row click)
 - Name + priority badge
-- Status with action buttons
+- Status with action buttons (Start / Mark Done / Mark Partial / Mark Blocked / Skip)
+- **Actual Prep Qty input** — required before marking Done or Partial (triggers inventory transaction)
 - On Hand / Par / Suggested Qty
 - Linked recipe (with open button)
-- Ingredient availability summary (green ✓ / red ✗ per ingredient)
+- Ingredient availability summary (green ✓ / red ✗ per ingredient, with qty deduction preview)
+- **Inventory impact preview**: "Completing this will deduct X kg brisket, credit 7 kg smoked brisket"
+- `inventoryAdjusted` indicator: green badge "Inventory Updated" after completion
+- **Revert & Reapply** button (appears after adjustment is applied, if qty needs correcting)
 - Notes field (editable inline)
 - Last prepared date
 - Blocked reason (if any)
@@ -218,7 +285,7 @@ Each row displays:
 
 ---
 
-## 9. Creating Prep Items
+## 10. Creating Prep Items
 
 ### Manual (Add Prep Item button)
 Form fields:
@@ -238,7 +305,7 @@ A "Create Prep Item from this recipe" shortcut in the Recipe Book. Out of scope 
 
 ---
 
-## 10. Navigation
+## 11. Navigation
 
 ### Desktop Sidebar
 Add **Prep** (icon: `ChefHat` or `FlameKindling`) after Count in the kitchen ops cluster.
@@ -257,7 +324,7 @@ Add **Prep** to the "More" drawer alongside Recipes, Menu, Sales, etc.
 
 ---
 
-## 11. Design / Visual System
+## 12. Design / Visual System
 
 Follow the existing design system exactly:
 - White card panels with `border border-gray-100 shadow-sm rounded-xl`
@@ -273,7 +340,7 @@ Follow the existing design system exactly:
 
 ---
 
-## 12. Out of Scope for v1
+## 13. Out of Scope for v1
 
 - Weather / reservation-based forecasting
 - Complex labour planning
@@ -284,17 +351,18 @@ Follow the existing design system exactly:
 
 ---
 
-## 13. Files to Create
+## 14. Files to Create
 
 ### Prisma
-- `prisma/schema.prisma` — add `PrepItem` and `PrepLog` models
+- `prisma/schema.prisma` — add `PrepItem` and `PrepLog` models (with `inventoryAdjusted` field)
 
 ### API Routes
 - `src/app/api/prep/items/route.ts`
 - `src/app/api/prep/items/[id]/route.ts`
 - `src/app/api/prep/generate/route.ts`
 - `src/app/api/prep/logs/route.ts`
-- `src/app/api/prep/logs/[id]/route.ts`
+- `src/app/api/prep/logs/[id]/route.ts` — includes inventory transaction on DONE/PARTIAL
+- `src/app/api/prep/logs/[id]/revert/route.ts` — revert & reapply inventory adjustment
 
 ### Pages / Components
 - `src/app/prep/page.tsx`
@@ -315,4 +383,6 @@ Follow the existing design system exactly:
 - [ ] No existing page is modified (except Navigation.tsx)
 - [ ] Prep uses existing Prisma client (`@/lib/prisma`)
 - [ ] Prep follows existing `'use client'` + fetch pattern
+- [ ] Inventory adjustments wrapped in `prisma.$transaction` — atomic, no partial writes
+- [ ] `inventoryAdjusted` flag prevents double-application
 - [ ] Prisma migration run via `npx prisma db push`
