@@ -15,13 +15,14 @@ export async function GET(req: NextRequest) {
       ...(type ? { type } : {}),
       ...(categoryId ? { categoryId } : {}),
       ...(isActiveParam !== null ? { isActive: isActiveParam === 'true' } : {}),
-      ...(search ? { name: { contains: search } } : {}),
+      ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
     },
     include: {
       category: true,
+      _count: { select: { usedInRecipes: true } },
       ingredients: {
         include: {
-          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true } },
+          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
           linkedRecipe: {
             include: {
               ingredients: { include: { inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } } } },
@@ -77,6 +78,8 @@ export async function GET(req: NextRequest) {
       totalCost,
       costPerPortion,
       foodCostPct,
+      usedInCount: recipe._count.usedInRecipes,
+      allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => ing.inventoryItem?.allergens ?? []))),
     }
   })
 

@@ -3,6 +3,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { formatCurrency, formatDate, WASTAGE_REASONS } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { Plus, X, AlertTriangle } from 'lucide-react'
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+} from 'recharts'
 
 interface WastageLog {
   id: string
@@ -25,22 +29,24 @@ interface InventoryItem {
 }
 
 const REASON_COLORS: Record<string, string> = {
-  SPOILAGE: 'bg-red-100 text-red-700',
+  SPOILAGE:       'bg-red-100 text-red-700',
   OVERPRODUCTION: 'bg-orange-100 text-orange-700',
-  PREP_TRIM: 'bg-yellow-100 text-yellow-700',
-  BURNT: 'bg-gray-100 text-gray-700',
-  DROPPED: 'bg-blue-100 text-blue-700',
-  EXPIRED: 'bg-purple-100 text-purple-700',
-  STAFF_MEAL: 'bg-green-100 text-green-700',
-  UNKNOWN: 'bg-gray-100 text-gray-600',
+  PREP_TRIM:      'bg-yellow-100 text-yellow-700',
+  BURNT:          'bg-gray-100 text-gray-700',
+  DROPPED:        'bg-blue-100 text-blue-700',
+  EXPIRED:        'bg-purple-100 text-purple-700',
+  STAFF_MEAL:     'bg-green-100 text-green-700',
+  UNKNOWN:        'bg-gray-100 text-gray-600',
 }
+
+const CHART_COLORS = ['#ef4444','#f97316','#eab308','#6b7280','#3b82f6','#a855f7','#22c55e','#9ca3af']
 
 export default function WastagePage() {
   const [logs, setLogs] = useState<WastageLog[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [reasonFilter, setReasonFilter] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10) })
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({
     inventoryItemId: '',
@@ -84,6 +90,36 @@ export default function WastagePage() {
   const previewCost = selectedItem && form.qtyWasted
     ? parseFloat(form.qtyWasted) * parseFloat(String(selectedItem.pricePerBaseUnit))
     : 0
+
+  // ── Charts data ────────────────────────────────────────────────────────────
+
+  // Pie: cost by reason
+  const byReason = Object.entries(
+    logs.reduce((acc, l) => {
+      const r = l.reason
+      acc[r] = (acc[r] ?? 0) + parseFloat(String(l.costImpact))
+      return acc
+    }, {} as Record<string, number>)
+  )
+    .map(([reason, cost]) => ({ reason, cost }))
+    .sort((a, b) => b.cost - a.cost)
+
+  // Bar: cost by week (group logs into 7-day buckets)
+  const byWeek = (() => {
+    const buckets: Record<string, number> = {}
+    logs.forEach(l => {
+      const d = new Date(l.date)
+      // Snap to Monday of that week
+      const day = d.getDay()
+      const diff = (day === 0 ? -6 : 1 - day)
+      d.setDate(d.getDate() + diff)
+      const key = d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+      buckets[key] = (buckets[key] ?? 0) + parseFloat(String(l.costImpact))
+    })
+    return Object.entries(buckets)
+      .map(([week, cost]) => ({ week, cost: parseFloat(cost.toFixed(2)) }))
+      .slice(-6)
+  })()
 
   return (
     <div className="space-y-4">
@@ -143,6 +179,66 @@ export default function WastagePage() {
           </button>
         )}
       </div>
+
+      {/* Charts — only show when there's data */}
+      {logs.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Pie: by reason */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <div className="text-sm font-semibold text-gray-700 mb-3">Cost by Reason</div>
+            <div className="flex items-center gap-4">
+              <ResponsiveContainer width={140} height={140}>
+                <PieChart>
+                  <Pie
+                    data={byReason}
+                    dataKey="cost"
+                    nameKey="reason"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={38}
+                    outerRadius={60}
+                    paddingAngle={2}
+                  >
+                    {byReason.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-1.5 min-w-0">
+                {byReason.map((d, i) => (
+                  <div key={d.reason} className="flex items-center gap-2 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                    <span className="text-gray-600 truncate flex-1">{d.reason}</span>
+                    <span className="font-semibold text-gray-800 shrink-0">{formatCurrency(d.cost)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Bar: weekly trend */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <div className="text-sm font-semibold text-gray-700 mb-3">Weekly Trend</div>
+            {byWeek.length > 1 ? (
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={byWeek} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
+                  <Tooltip formatter={(v) => [formatCurrency(Number(v)), 'Cost']} />
+                  <Bar dataKey="cost" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[140px] flex items-center justify-center text-sm text-gray-400">
+                Not enough data for trend — expand date range
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Logs Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

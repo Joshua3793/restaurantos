@@ -1,12 +1,13 @@
 'use client'
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import {
-  Search, Plus, X, ArrowUpDown, Download, ClipboardCheck,
+  Search, Plus, X, Download, ClipboardCheck,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
-  ChevronsUpDown, ChevronUp, Pencil, Trash2,
+  ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy,
 } from 'lucide-react'
 
 interface StorageArea { id: string; name: string }
@@ -21,12 +22,14 @@ interface InventoryItem {
   packSize: number; packUOM: string; countUOM: string
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number; abbreviation?: string | null
+  allergens?: string[]
   isActive: boolean
   lastCountDate?: string | null; lastCountQty?: number | null
+  recipe?: { id: string; name: string } | null
 }
 
 type SortMode  = 'category' | 'all'
-type ColKey    = 'item' | 'category' | 'value'
+type ColKey    = 'item' | 'category' | 'supplier' | 'price' | 'stock' | 'value'
 type ColDir    = 'asc' | 'desc'
 type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'active' | 'inactive'
 
@@ -39,12 +42,14 @@ interface EditForm {
   packSize: string; packUOM: string; countUOM: string
   stockOnHand: string
   abbreviation: string; isActive: boolean
+  allergens: string[]
 }
 
-const SORT_OPTIONS: { value: SortMode; label: string }[] = [
-  { value: 'category', label: 'Group by Category' },
-  { value: 'all',      label: 'Group by All' },
-]
+// First-click direction per column: text cols go A→Z, numeric cols go high→low
+const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
+  item: 'asc', category: 'asc', supplier: 'asc',
+  price: 'desc', stock: 'desc', value: 'desc',
+}
 
 const CATEGORY_HEADER: Record<string, string> = {
   BREAD: 'bg-amber-50 border-amber-200 text-amber-800',
@@ -61,7 +66,7 @@ const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
   purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
   baseUnit: 'g', conversionFactor: '1', stockOnHand: '0',
-  abbreviation: '', location: '',
+  abbreviation: '', location: '', allergens: [] as string[],
 }
 
 function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
@@ -122,13 +127,43 @@ function isCountedThisWeek(item: InventoryItem) {
 
 function SortIcon({ col, colSort }: { col: ColKey; colSort: { col: ColKey; dir: ColDir } | null }) {
   if (!colSort || colSort.col !== col)
-    return <ChevronsUpDown size={11} className="text-gray-300 ml-1 inline-block" />
+    return <ChevronsUpDown size={10} className="text-gray-300 ml-0.5 inline-block shrink-0" />
   return colSort.dir === 'asc'
-    ? <ChevronUp size={11} className="text-blue-600 ml-1 inline-block" />
-    : <ChevronDown size={11} className="text-blue-600 ml-1 inline-block" />
+    ? <ChevronUp size={10} className="text-blue-600 ml-0.5 inline-block shrink-0" />
+    : <ChevronDown size={10} className="text-blue-600 ml-0.5 inline-block shrink-0" />
+}
+
+function SortTh({ col, label, colSort, onSort, className = '' }: {
+  col: ColKey; label: string
+  colSort: { col: ColKey; dir: ColDir } | null
+  onSort: (c: ColKey) => void
+  className?: string
+}) {
+  const active = colSort?.col === col
+  return (
+    <th className={`px-3 py-3 ${className}`}>
+      <button
+        onClick={() => onSort(col)}
+        className={`inline-flex items-center gap-0.5 text-xs font-medium rounded transition-colors group
+          ${active ? 'text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-800'}`}
+      >
+        {label}
+        <SortIcon col={col} colSort={colSort} />
+      </button>
+    </th>
+  )
 }
 
 export default function InventoryPage() {
+  return (
+    <Suspense fallback={null}>
+      <InventoryPageInner />
+    </Suspense>
+  )
+}
+
+function InventoryPageInner() {
+  const searchParams = useSearchParams()
   const [items,        setItems]        = useState<InventoryItem[]>([])
   const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
@@ -147,13 +182,22 @@ export default function InventoryPage() {
   const [bulkAction,        setBulkAction]        = useState('')
   const [showBulkMenu,      setShowBulkMenu]      = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [countedFlash,  setCountedFlash]  = useState<string | null>(null) // item id that just got counted
+  const [syncingPrepd,  setSyncingPrepd]  = useState(false)
+  const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
+  const [showOrderList, setShowOrderList] = useState(false)
+  const [orderQtys,    setOrderQtys]    = useState<Record<string, string>>({})
+  const [priceHistory, setPriceHistory] = useState<Array<{
+    invoiceDate: string; invoiceNumber: string; supplierName: string;
+    qtyPurchased: number; unitPrice: number; lineTotal: number
+  }>>([])
   const [editMode,     setEditMode]     = useState(false)
   const [editForm,     setEditForm]     = useState<EditForm>({
     itemName: '', category: '', supplierId: '', supplierName: '',
     storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
     packSize: '1', packUOM: 'each', countUOM: 'each',
-    stockOnHand: '0', abbreviation: '', isActive: true,
+    stockOnHand: '0', abbreviation: '', isActive: true, allergens: [],
   })
 
   const fetchItems = useCallback(() => {
@@ -165,10 +209,48 @@ export default function InventoryPage() {
   }, [search, catFilter, supplierFilter])
 
   useEffect(() => { fetchItems() }, [fetchItems])
+
+  // Deep-link: ?item=id opens that item's drawer; ?orderList=1 opens the order list
+  useEffect(() => {
+    const itemId    = searchParams.get('item')
+    const orderList = searchParams.get('orderList')
+    if (orderList === '1') {
+      setShowOrderList(true)
+    }
+    if (itemId) {
+      fetch('/api/inventory').then(r => r.json()).then((all: InventoryItem[]) => {
+        const match = all.find(i => i.id === itemId)
+        if (match) setSelected(match)
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // run once on mount
+
+  // Fetch price history whenever an item is selected
+  useEffect(() => {
+    if (!selected) { setPriceHistory([]); return }
+    fetch(`/api/inventory/${selected.id}/price-history`)
+      .then(r => r.json())
+      .then(setPriceHistory)
+      .catch(() => setPriceHistory([]))
+  }, [selected])
+
   useEffect(() => {
     fetch('/api/suppliers').then(r => r.json()).then(setSuppliers)
     fetch('/api/storage-areas').then(r => r.json()).then(setStorageAreas)
     fetch('/api/categories').then(r => r.json()).then(setCategories)
+    fetch('/api/count/sessions').then(r => r.json()).then((sessions: Array<{ status: string; totalCountedValue: number; label: string; sessionDate: string; finalizedAt: string | null }>) => {
+      const finalized = sessions.filter(s => s.status === 'FINALIZED').sort((a, b) =>
+        new Date(b.finalizedAt ?? b.sessionDate).getTime() - new Date(a.finalizedAt ?? a.sessionDate).getTime()
+      )
+      if (finalized.length > 0) {
+        setLastCount({
+          totalCountedValue: parseFloat(String(finalized[0].totalCountedValue)),
+          label: finalized[0].label,
+          sessionDate: finalized[0].sessionDate,
+        })
+      }
+    })
   }, [])
 
   // Default form category once categories load
@@ -201,50 +283,54 @@ export default function InventoryPage() {
     }
   }, [items, activePill, catNames])
 
-  // Column sort toggle (cycles: none → asc → desc → none)
+  // Column sort: first click → smart default direction; same column → flip direction
   const toggleColSort = (col: ColKey) => {
     setColSort(prev => {
-      if (!prev || prev.col !== col) return { col, dir: 'asc' }
-      if (prev.dir === 'asc')        return { col, dir: 'desc' }
-      return null
+      if (!prev || prev.col !== col) return { col, dir: COL_DEFAULT_DIR[col] }
+      return { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
     })
   }
+
+  const invValue = (i: InventoryItem) =>
+    parseFloat(String(i.stockOnHand)) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit))
 
   // Sort
   const sortedItems = useMemo(() => {
     const copy = [...pillFiltered]
-    if (sortBy === 'all') {
-      if (colSort?.col === 'item') {
-        return copy.sort((a, b) => {
-          const c = a.itemName.localeCompare(b.itemName)
-          return colSort.dir === 'asc' ? c : -c
-        })
+    const dir   = colSort?.dir === 'asc' ? 1 : -1
+
+    // Per-column comparator (applied to both modes)
+    const byCol = (col: ColKey) => (a: InventoryItem, b: InventoryItem): number => {
+      switch (col) {
+        case 'item':     return a.itemName.localeCompare(b.itemName) * dir
+        case 'category': return (a.category.localeCompare(b.category) || a.itemName.localeCompare(b.itemName)) * dir
+        case 'supplier': return ((a.supplier?.name ?? '').localeCompare(b.supplier?.name ?? '')) * dir
+        case 'price':    return (parseFloat(String(a.purchasePrice)) - parseFloat(String(b.purchasePrice))) * dir
+        case 'stock':    return (parseFloat(String(a.stockOnHand))   - parseFloat(String(b.stockOnHand)))   * dir
+        case 'value':    return (invValue(a) - invValue(b)) * dir
+        default:         return 0
       }
-      if (colSort?.col === 'category') {
-        return copy.sort((a, b) => {
-          const cc = a.category.localeCompare(b.category)
-          if (cc !== 0) return colSort.dir === 'asc' ? cc : -cc
-          return a.itemName.localeCompare(b.itemName) // items always A-Z within category
-        })
-      }
-      if (colSort?.col === 'value') {
-        const val = (i: InventoryItem) => parseFloat(String(i.stockOnHand)) * parseFloat(String(i.pricePerBaseUnit))
-        return copy.sort((a, b) => colSort.dir === 'asc' ? val(a) - val(b) : val(b) - val(a))
-      }
-      // default: A-Z
-      return copy.sort((a, b) => a.itemName.localeCompare(b.itemName))
     }
-    // category group mode: sort by category order then item name
-    return copy.sort((a, b) => {
-      const ia = catNames.indexOf(a.category), ib = catNames.indexOf(b.category)
-      const ci = (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
-      return ci !== 0 ? ci : a.itemName.localeCompare(b.itemName)
-    })
+
+    if (sortBy === 'category') {
+      // Always keep category groups together; sort items *within* each group by active column
+      const itemSort = colSort ? byCol(colSort.col) : (a: InventoryItem, b: InventoryItem) => a.itemName.localeCompare(b.itemName)
+      return copy.sort((a, b) => {
+        const ia = catNames.indexOf(a.category), ib = catNames.indexOf(b.category)
+        const ci = (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
+        return ci !== 0 ? ci : itemSort(a, b)
+      })
+    }
+
+    // Flat mode — sort entirely by active column, default A-Z by name
+    if (colSort) return copy.sort(byCol(colSort.col))
+    return copy.sort((a, b) => a.itemName.localeCompare(b.itemName))
   }, [pillFiltered, sortBy, colSort, catNames])
 
   // Category groups (only in 'category' mode)
   const categoryGroups = useMemo(() => {
     if (sortBy !== 'category') return null
+
     const map = new Map<string, InventoryItem[]>()
     for (const cat of catNames) map.set(cat, [])
     for (const item of sortedItems) {
@@ -277,8 +363,21 @@ export default function InventoryPage() {
     fetchItems()
   }
 
+  const syncAllPrepd = async () => {
+    setSyncingPrepd(true)
+    await fetch('/api/inventory/sync-prepd', { method: 'POST' })
+    fetchItems()
+    setSyncingPrepd(false)
+  }
+
   const markCounted = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
+    // Optimistic update — turn green immediately
+    setItems(prev => prev.map(it =>
+      it.id === id ? { ...it, lastCountDate: new Date().toISOString() } : it
+    ))
+    setCountedFlash(id)
+    setTimeout(() => setCountedFlash(null), 2000)
     await fetch(`/api/inventory/count/${id}`, { method: 'POST' })
     fetchItems()
   }
@@ -310,6 +409,7 @@ export default function InventoryPage() {
         stockOnHand: editForm.stockOnHand,
         abbreviation: editForm.abbreviation,
         isActive: editForm.isActive,
+        allergens: editForm.allergens,
       }),
     })
     const updated = await res.json()
@@ -323,7 +423,7 @@ export default function InventoryPage() {
   // Row renderer
   const renderRow = (item: InventoryItem) => {
     const counted  = isCountedThisWeek(item)
-    const invValue = parseFloat(String(item.stockOnHand)) * parseFloat(String(item.conversionFactor)) * parseFloat(String(item.pricePerBaseUnit))
+    const itemValue = invValue(item)
     return (
       <tr
         key={item.id}
@@ -348,16 +448,16 @@ export default function InventoryPage() {
           {item.supplier?.name || <span className="text-gray-300">&mdash;</span>}
         </td>
         <td className="px-3 py-3 text-right">
-          <div className="text-sm font-medium text-orange-600">{formatCurrency(parseFloat(String(item.purchasePrice)))}</div>
-          <div className="text-xs text-gray-400">(1 {item.purchaseUnit} = {parseFloat(String(item.qtyPerPurchaseUnit))} {item.baseUnit})</div>
+          <div className="text-sm font-medium text-orange-600">{formatCurrency(parseFloat(String(item.purchasePrice)))}<span className="text-gray-400 font-normal text-xs">/{item.purchaseUnit}</span></div>
+          <div className="text-xs text-gray-400">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
         <td className="px-3 py-3 text-right text-sm text-gray-700">
           {parseFloat(String(item.stockOnHand)).toFixed(1)}
           <span className="text-xs text-gray-400 ml-1">{item.countUOM || item.purchaseUnit}</span>
         </td>
         <td className="px-3 py-3 text-right">
-          <span className={`text-sm font-mono font-semibold ${invValue > 10 ? 'text-gray-800' : 'text-gray-500'}`}>
-            {formatCurrency(invValue)}
+          <span className={`text-sm font-mono font-semibold ${itemValue > 10 ? 'text-gray-800' : 'text-gray-500'}`}>
+            {formatCurrency(itemValue)}
           </span>
         </td>
         <td className="px-3 py-3 text-center hidden sm:table-cell">
@@ -367,9 +467,16 @@ export default function InventoryPage() {
           <button
             onClick={e => markCounted(e, item.id)}
             title={counted ? `Counted ${item.lastCountDate ? new Date(item.lastCountDate).toLocaleDateString() : ''}` : 'Mark as counted'}
-            className={`p-1.5 rounded-lg transition-colors ${counted ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400 hover:bg-blue-100 hover:text-blue-600'}`}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all ${
+              countedFlash === item.id
+                ? 'bg-green-500 text-white scale-105'
+                : counted
+                  ? 'bg-green-100 text-green-600 hover:bg-green-200'
+                  : 'bg-gray-100 text-gray-400 hover:bg-blue-100 hover:text-blue-600'
+            }`}
           >
-            <ClipboardCheck size={15} />
+            <ClipboardCheck size={14} />
+            {countedFlash === item.id && <span>Counted!</span>}
           </button>
         </td>
       </tr>
@@ -395,6 +502,20 @@ export default function InventoryPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={syncAllPrepd}
+            disabled={syncingPrepd}
+            title="Re-sync all PREPD item prices from their recipes"
+            className="flex items-center gap-2 border border-purple-200 bg-purple-50 text-purple-700 px-3 py-2 rounded-lg text-sm hover:bg-purple-100 transition-colors disabled:opacity-50"
+          >
+            {syncingPrepd ? '⟳ Syncing…' : '⟳ Sync PREPD'}
+          </button>
+          <button
+            onClick={() => { setShowOrderList(true); setOrderQtys({}) }}
+            className="flex items-center gap-2 border border-green-200 bg-green-50 text-green-700 px-3 py-2 rounded-lg text-sm hover:bg-green-100 transition-colors"
+          >
+            <ShoppingCart size={15} /> Order List
+          </button>
+          <button
             onClick={() => window.location.href = '/api/inventory/export'}
             className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
           >
@@ -413,7 +534,7 @@ export default function InventoryPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'CURRENT STOCK VALUE',  value: formatCurrency(kpis.totalValue), sub: `${kpis.activeCount} active items`, accent: 'text-blue-600',   alert: false },
-          { label: 'PREVIOUS STOCK VALUE', value: '$0.00',                          sub: 'No prior count',                   accent: 'text-gray-400',   alert: false },
+          { label: 'PREVIOUS STOCK VALUE', value: lastCount ? formatCurrency(lastCount.totalCountedValue) : '$0.00', sub: lastCount ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}` : 'No prior count', accent: lastCount ? 'text-purple-600' : 'text-gray-400', alert: false },
           { label: 'COUNTED THIS WEEK',    value: String(kpis.counted),             sub: `of ${kpis.activeCount} active`,    accent: 'text-green-600',  alert: false },
           { label: 'NOT YET COUNTED',      value: String(kpis.notCounted),          sub: 'items need counting',              accent: 'text-orange-500', alert: kpis.notCounted > 0 },
           { label: 'ACTIVE ITEMS',         value: String(kpis.activeCount),         sub: `${kpis.totalCount} total`,         accent: 'text-gray-700',   alert: false },
@@ -463,15 +584,20 @@ export default function InventoryPage() {
           <option value="">All Suppliers</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <div className="relative">
-          <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <select
-            value={sortBy}
-            onChange={e => { setSortBy(e.target.value as SortMode); setColSort(null) }}
-            className="pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium text-gray-700"
-          >
-            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+        <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
+          {([['category','⊞ Grouped'],['all','≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
+            <button
+              key={mode}
+              onClick={() => setSortBy(mode)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                sortBy === mode
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -549,6 +675,71 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {/* Order List Modal */}
+      {showOrderList && (() => {
+        const activeItems = items.filter(i => i.isActive && i.category !== 'PREPD')
+        const outOfStock  = activeItems.filter(i => parseFloat(String(i.stockOnHand)) <= 0)
+        const bySupplier  = new Map<string, { supplierName: string; items: InventoryItem[] }>()
+        for (const item of outOfStock) {
+          const key  = item.supplierId ?? '__none__'
+          const name = item.supplier?.name ?? 'No Supplier'
+          if (!bySupplier.has(key)) bySupplier.set(key, { supplierName: name, items: [] })
+          bySupplier.get(key)!.items.push(item)
+        }
+        const copyText = Array.from(bySupplier.values()).map(({ supplierName, items: grp }) =>
+          `${supplierName}:\n` + grp.map(i => `  - ${i.itemName}  ${orderQtys[i.id] ?? ''}  ${i.purchaseUnit}  @${formatCurrency(parseFloat(String(i.purchasePrice)))}`).join('\n')
+        ).join('\n\n')
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+            <div className="bg-white w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart size={18} className="text-green-600" />
+                  <h2 className="font-semibold text-gray-900">Order List</h2>
+                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{outOfStock.length} items</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { navigator.clipboard.writeText(copyText) }}
+                    className="flex items-center gap-1.5 text-xs border border-gray-200 px-2.5 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50">
+                    <Copy size={12} /> Copy
+                  </button>
+                  <button onClick={() => setShowOrderList(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
+                </div>
+              </div>
+              <div className="overflow-y-auto flex-1 p-4 space-y-4">
+                {outOfStock.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400 text-sm">All active items are in stock</div>
+                ) : (
+                  Array.from(bySupplier.values()).map(({ supplierName, items: grp }) => (
+                    <div key={supplierName}>
+                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{supplierName}</div>
+                      <div className="space-y-1">
+                        {grp.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-800 truncate">{item.itemName}</div>
+                              <div className="text-xs text-gray-400">{formatCurrency(parseFloat(String(item.purchasePrice)))} / {item.purchaseUnit}</div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <input type="number" min="1" step="1"
+                                value={orderQtys[item.id] ?? ''}
+                                onChange={e => setOrderQtys(q => ({ ...q, [item.id]: e.target.value }))}
+                                placeholder="qty"
+                                className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                              <span className="text-xs text-gray-500">{item.purchaseUnit}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Delete confirmation modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -589,41 +780,36 @@ export default function InventoryPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
+                {/* Checkbox */}
                 <th className="pl-4 py-3 pr-2 w-8">
                   <button onClick={toggleAll} className="text-gray-400 hover:text-blue-600">
                     {checkedIds.size === sortedItems.length && sortedItems.length > 0
                       ? <CheckSquare size={15} className="text-blue-600" /> : <Square size={15} />}
                   </button>
                 </th>
-                {/* Item — sortable in 'all' mode */}
-                <th className="text-left px-3 py-3 font-medium text-gray-600 text-xs">
-                  {sortBy === 'all' ? (
-                    <button onClick={() => toggleColSort('item')} className="flex items-center hover:text-blue-600">
-                      Item <SortIcon col="item" colSort={colSort} />
-                    </button>
-                  ) : 'Item'}
-                </th>
-                {/* Category col only in 'all' mode */}
+
+                {/* Item — always sortable */}
+                <SortTh col="item" label="Item" colSort={colSort} onSort={toggleColSort} className="text-left" />
+
+                {/* Category — only visible in flat mode, sortable */}
                 {sortBy === 'all' && (
-                  <th className="text-left px-3 py-3 font-medium text-gray-600 text-xs hidden sm:table-cell">
-                    <button onClick={() => toggleColSort('category')} className="flex items-center hover:text-blue-600">
-                      Category <SortIcon col="category" colSort={colSort} />
-                    </button>
-                  </th>
+                  <SortTh col="category" label="Category" colSort={colSort} onSort={toggleColSort} className="text-left hidden sm:table-cell" />
                 )}
-                <th className="text-left px-3 py-3 font-medium text-gray-600 text-xs hidden md:table-cell">Supplier</th>
-                <th className="text-right px-3 py-3 font-medium text-gray-600 text-xs">Purchase Price</th>
-                <th className="text-right px-3 py-3 font-medium text-gray-600 text-xs">Current Stock</th>
-                {/* Inv Value — sortable in 'all' mode */}
-                <th className="text-right px-3 py-3 font-medium text-gray-600 text-xs">
-                  {sortBy === 'all' ? (
-                    <button onClick={() => toggleColSort('value')} className="flex items-center justify-end w-full hover:text-blue-600">
-                      Inv Value <SortIcon col="value" colSort={colSort} />
-                    </button>
-                  ) : 'Inv Value'}
-                </th>
-                <th className="text-center px-3 py-3 font-medium text-gray-600 text-xs hidden sm:table-cell">Status</th>
-                <th className="text-center px-3 py-3 font-medium text-gray-600 text-xs">Count</th>
+
+                {/* Supplier — sortable, hidden on small screens */}
+                <SortTh col="supplier" label="Supplier" colSort={colSort} onSort={toggleColSort} className="text-left hidden md:table-cell" />
+
+                {/* Purchase Price — sortable */}
+                <SortTh col="price" label="Purchase Price" colSort={colSort} onSort={toggleColSort} className="text-right" />
+
+                {/* Current Stock — sortable */}
+                <SortTh col="stock" label="Current Stock" colSort={colSort} onSort={toggleColSort} className="text-right" />
+
+                {/* Inv Value — sortable */}
+                <SortTh col="value" label="Inv Value" colSort={colSort} onSort={toggleColSort} className="text-right" />
+
+                <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Status</th>
+                <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Count</th>
               </tr>
             </thead>
             <tbody>
@@ -711,6 +897,7 @@ export default function InventoryPage() {
                         stockOnHand: String(selected.stockOnHand),
                         abbreviation: selected.abbreviation || '',
                         isActive: selected.isActive,
+                        allergens: selected.allergens ?? [],
                       })
                       setEditMode(true)
                     }}
@@ -798,44 +985,68 @@ export default function InventoryPage() {
                 </div>
 
                 {/* Numeric / text fields */}
-                {/* Purchase structure */}
+                {/* PREPD items: price fields are managed by recipe */}
+                {selected?.recipe && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-xs text-purple-700 flex items-start gap-2">
+                    <span className="text-purple-400 mt-0.5">⟳</span>
+                    <span><strong>Price is managed by recipe:</strong> {selected.recipe.name}. Edit the recipe to change costs. You can only change Count UOM and stock fields here.</span>
+                  </div>
+                )}
+
+                {/* Purchase structure — hidden for PREPD items */}
+                {!selected?.recipe && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
+                      <input value={editForm.purchaseUnit} placeholder="case, dozen…"
+                        onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Case</label>
+                      <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
+                        onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Pack Size</label>
+                      <input type="number" step="any" value={editForm.packSize} placeholder="e.g. 480, 9, 1"
+                        onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Pack UOM</label>
+                      <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
+                      <input type="number" step="any" value={editForm.purchasePrice}
+                        onChange={e => setEditForm(f => ({ ...f, purchasePrice: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Stock + Count fields — always shown */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                    <input value={editForm.purchaseUnit} placeholder="case, dozen…"
-                      onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Case</label>
-                    <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
-                      onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Pack Size</label>
-                    <input type="number" step="any" value={editForm.packSize} placeholder="e.g. 480, 9, 1"
-                      onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Pack UOM</label>
-                    <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                      {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
-                    <input type="number" step="any" value={editForm.purchasePrice}
-                      onChange={e => setEditForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Count UOM</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Count UOM
+                      {selected?.recipe && (
+                        <span className="ml-1 text-purple-500 font-normal">
+                          ({getUnitDimension(selected.baseUnit)}-compatible)
+                        </span>
+                      )}
+                    </label>
                     <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                      {COUNT_UOMS.map(u => <option key={u}>{u}</option>)}
+                      {(selected?.recipe
+                        ? compatibleCountUnits(selected.baseUnit)
+                        : COUNT_UOMS
+                      ).map(u => <option key={u}>{u}</option>)}
                     </select>
                   </div>
                   <div>
@@ -844,7 +1055,7 @@ export default function InventoryPage() {
                       onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
-                  <div>
+                  <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Abbreviation</label>
                     <input value={editForm.abbreviation}
                       onChange={e => setEditForm(f => ({ ...f, abbreviation: e.target.value }))}
@@ -852,30 +1063,65 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
+                {/* Allergens — Health Canada Big 9 */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-2">Allergens (Health Canada Big 9)</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {['Peanuts','Tree Nuts','Sesame','Milk','Eggs','Fish','Shellfish','Soy','Wheat/Gluten'].map(a => {
+                      const checked = editForm.allergens.includes(a)
+                      return (
+                        <label key={a} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border cursor-pointer text-xs transition-colors ${checked ? 'bg-orange-50 border-orange-300 text-orange-800 font-medium' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setEditForm(f => ({
+                              ...f,
+                              allergens: checked
+                                ? f.allergens.filter(x => x !== a)
+                                : [...f.allergens, a],
+                            }))}
+                            className="sr-only"
+                          />
+                          {a}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
                 {/* Auto-calculated preview */}
                 {(() => {
-                  const pp  = parseFloat(editForm.purchasePrice) || 0
-                  const qty = parseFloat(editForm.qtyPerPurchaseUnit) || 1
-                  const ps  = parseFloat(editForm.packSize) || 1
-                  const pu  = editForm.packUOM
-                  const cu  = editForm.countUOM
-                  const ppbu = calcPricePerBaseUnit(pp, qty, ps, pu)
-                  const cf   = calcConversionFactor(cu, qty, ps, pu)
-                  const bu   = deriveBaseUnit(pu)
+                  const isPrep = !!selected?.recipe
+                  const pp   = parseFloat(editForm.purchasePrice) || 0
+                  const qty  = parseFloat(editForm.qtyPerPurchaseUnit) || 1
+                  const ps   = parseFloat(editForm.packSize) || 1
+                  const pu   = editForm.packUOM
+                  const cu   = editForm.countUOM
+                  const bu   = isPrep ? (selected?.baseUnit ?? deriveBaseUnit(pu)) : deriveBaseUnit(pu)
+                  const ppbu = isPrep
+                    ? parseFloat(String(selected?.pricePerBaseUnit ?? 0))
+                    : calcPricePerBaseUnit(pp, qty, ps, pu)
+                  const cf = isPrep
+                    ? parseFloat(String(selected?.conversionFactor ?? 1))
+                    : calcConversionFactor(cu, qty, ps, pu)
                   return (
-                    <div className="bg-blue-50 rounded-lg p-3 space-y-1.5">
-                      <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Auto-calculated</div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs text-blue-600">Price per {bu}:</span>
-                        <span className="text-lg font-bold text-blue-700">{formatUnitPrice(ppbu)}</span>
+                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>
+                        {isPrep ? 'Recipe-derived cost' : 'Auto-calculated'}
                       </div>
                       <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs text-blue-600">BU × {cu}:</span>
-                        <span className="font-semibold text-blue-700">{cf.toFixed(4)}</span>
-                        <span className="text-xs text-blue-500">(1 {cu} = {cf.toFixed(4)} {bu})</span>
+                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-blue-600'}`}>Price per {bu}:</span>
+                        <span className={`text-lg font-bold ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>{formatUnitPrice(ppbu)}</span>
                       </div>
-                      <div className="text-xs text-blue-500">
-                        ${pp.toFixed(2)} ÷ ({qty} × {ps} {pu}) = {formatUnitPrice(ppbu)}/{bu}
+                      <div className="flex items-baseline gap-1.5">
+                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-blue-600'}`}>1 {cu} =</span>
+                        <span className={`font-semibold ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>{cf.toFixed(4)} {bu}</span>
+                      </div>
+                      <div className={`text-xs ${isPrep ? 'text-purple-500' : 'text-blue-500'}`}>
+                        {isPrep
+                          ? `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
+                          : `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                        }
                       </div>
                     </div>
                   )
@@ -886,40 +1132,93 @@ export default function InventoryPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <CategoryBadge category={selected.category} />
                   <StockStatus stock={parseFloat(String(selected.stockOnHand))} />
+                  {selected.allergens && selected.allergens.length > 0 && selected.allergens.map(a => (
+                    <span key={a} className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
+                  ))}
                   {selected.isActive
                     ? <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 font-medium">Active</span>
                     : <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">Inactive</span>
                   }
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  {([
-                    ['Abbreviation',    selected.abbreviation || '—'],
-                    ['Supplier',        selected.supplier?.name || '—'],
-                    ['Storage Area',    selected.storageArea?.name || '—'],
-                    ['Purchase Unit',   selected.purchaseUnit],
-                    ['Qty per Case',    parseFloat(String(selected.qtyPerPurchaseUnit)).toFixed(0)],
-                    ['Purchase Price',  formatCurrency(parseFloat(String(selected.purchasePrice)))],
-                    ['Pack Size',       `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
-                    ['Count UOM',       selected.countUOM ?? 'each'],
-                    ['Stock On Hand',   `${parseFloat(String(selected.stockOnHand)).toFixed(2)} ${selected.countUOM ?? ''}`],
-                    ['Last Count',      selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
-                    ['Last Count Qty',  selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '—'],
-                  ] as [string, string][]).map(([label, value]) => (
+                {(() => {
+                  const rows: [string, string][] = selected.recipe ? [
+                    ['Abbreviation',   selected.abbreviation || '\u2014'],
+                    ['Supplier',       selected.supplier?.name || '\u2014'],
+                    ['Storage Area',   selected.storageArea?.name || '\u2014'],
+                    ['Linked Recipe',  selected.recipe.name],
+                    ['Yield',          `${parseFloat(String(selected.packSize ?? 1)).toLocaleString()} ${selected.baseUnit}`],
+                    ['Batch Cost',     formatCurrency(parseFloat(String(selected.purchasePrice)))],
+                    ['Count UOM',      selected.countUOM ?? selected.baseUnit],
+                    ['Stock On Hand',  `${parseFloat(String(selected.stockOnHand)).toFixed(2)} ${selected.countUOM ?? ''}`],
+                    ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
+                    ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
+                  ] : [
+                    ['Abbreviation',   selected.abbreviation || '\u2014'],
+                    ['Supplier',       selected.supplier?.name || '\u2014'],
+                    ['Storage Area',   selected.storageArea?.name || '\u2014'],
+                    ['Purchase Unit',  selected.purchaseUnit],
+                    ['Qty per Case',   parseFloat(String(selected.qtyPerPurchaseUnit)).toFixed(0)],
+                    ['Purchase Price', formatCurrency(parseFloat(String(selected.purchasePrice)))],
+                    ['Pack Size',      `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
+                    ['Count UOM',      selected.countUOM ?? 'each'],
+                    ['Stock On Hand',  `${parseFloat(String(selected.stockOnHand)).toFixed(2)} ${selected.countUOM ?? ''}`],
+                    ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
+                    ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
+                  ]
+                  return rows.map(([label, value]) => (
                     <div key={label} className="bg-gray-50 rounded-lg p-3">
                       <div className="text-xs text-gray-500">{label}</div>
                       <div className="font-medium text-gray-800 mt-0.5">{value}</div>
                     </div>
-                  ))}
-                  <div className="bg-blue-50 rounded-lg p-3 col-span-2">
-                    <div className="text-xs text-blue-600 font-medium">Price per {deriveBaseUnit(selected.packUOM ?? 'each')}</div>
-                    <div className="text-lg font-bold text-blue-700 mt-0.5">
-                      {formatUnitPrice(parseFloat(String(selected.pricePerBaseUnit)))} / {deriveBaseUnit(selected.packUOM ?? 'each')}
+                  ))
+                })()}
+                  <div className={`rounded-lg p-3 col-span-2 mt-0 ${selected.recipe ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                    {selected.recipe && (
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full">Recipe</span>
+                        <span className="text-xs text-purple-700 font-medium">{selected.recipe.name}</span>
+                      </div>
+                    )}
+                    <div className={`text-xs font-medium ${selected.recipe ? 'text-purple-600' : 'text-blue-600'}`}>
+                      Price per {selected.baseUnit}
                     </div>
-                    <div className="text-xs text-blue-500 mt-1">
-                      {formatCurrency(parseFloat(String(selected.purchasePrice)))} ÷ ({parseFloat(String(selected.qtyPerPurchaseUnit))} × {parseFloat(String(selected.packSize ?? 1))} {selected.packUOM ?? 'each'}) &nbsp;|&nbsp; 1 {selected.countUOM ?? 'each'} = {parseFloat(String(selected.conversionFactor)).toFixed(4)} {deriveBaseUnit(selected.packUOM ?? 'each')}
+                    <div className={`text-lg font-bold mt-0.5 ${selected.recipe ? 'text-purple-700' : 'text-blue-700'}`}>
+                      {formatUnitPrice(parseFloat(String(selected.pricePerBaseUnit)))} / {selected.baseUnit}
+                    </div>
+                    <div className={`text-xs mt-1 ${selected.recipe ? 'text-purple-500' : 'text-blue-500'}`}>
+                      {selected.recipe
+                        ? <>Recipe total {formatCurrency(parseFloat(String(selected.purchasePrice)))} ÷ {parseFloat(String(selected.packSize ?? 1)).toLocaleString()} {selected.baseUnit} yield</>
+                        : <>{formatCurrency(parseFloat(String(selected.purchasePrice)))} ÷ ({parseFloat(String(selected.qtyPerPurchaseUnit))} × {parseFloat(String(selected.packSize ?? 1))} {selected.packUOM ?? 'each'})</>
+                      }
+                      &nbsp;|&nbsp; 1 {selected.countUOM ?? 'each'} = {parseFloat(String(selected.conversionFactor)).toFixed(4)} {selected.baseUnit}
                     </div>
                   </div>
-                </div>
+                </div>{/* end grid */}
+
+                {/* Price History */}
+                {priceHistory.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Price History</div>
+                    <div className="space-y-1.5">
+                      {priceHistory.map((h, i) => (
+                        <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-xs">
+                          <div className="min-w-0">
+                            <div className="font-medium text-gray-800 truncate">{h.supplierName}</div>
+                            <div className="text-gray-400">
+                              {new Date(h.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {h.invoiceNumber ? ` · #${h.invoiceNumber}` : ''}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-3">
+                            <div className="font-semibold text-gray-900">{formatCurrency(h.unitPrice)}</div>
+                            <div className="text-gray-400">{formatCurrency(h.lineTotal)} total</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

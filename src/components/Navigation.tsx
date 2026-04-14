@@ -12,7 +12,7 @@ import { AlertsBell } from '@/components/AlertsBell'
 type NavItem = {
   href: string
   label: string
-  icon: React.ComponentType<{ size?: number | string }>
+  icon: React.ComponentType<{ size?: number | string; color?: string }>
   dividerBefore?: boolean
 }
 
