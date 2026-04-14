@@ -2,20 +2,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// ── DATABASE ──────────────────────────────────────────────────────────────────
-// LOCAL DEV: SQLite (current). DATABASE_URL = file:./dev.db in .env
-//
-// BEFORE DEPLOYING TO VERCEL + SUPABASE — make these two changes:
-//   1. Change provider to "postgresql", add directUrl line (see below)
-//   2. Set DATABASE_URL (pooler, port 6543) and DIRECT_URL (direct, port 5432) in .env
-//
-// ┌─ Production schema (swap in when deploying) ──────────────────────────────┐
-// │ datasource db {                                                            │
-// │   provider  = "postgresql"                                                 │
-// │   url       = env("DATABASE_URL")   ← Supabase Transaction pooler (6543) │
-// │   directUrl = env("DIRECT_URL")     ← Supabase Direct connection (5432)  │
-// │ }                                                                          │
-// └────────────────────────────────────────────────────────────────────────────┘
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
@@ -70,6 +56,7 @@ model InventoryItem {
   lastUpdated        DateTime     @default(now()) @updatedAt
   abbreviation       String?
   location           String?
+  allergens          String[]     @default([])
   isActive           Boolean      @default(true)
   lastCountDate      DateTime?
   lastCountQty       Decimal?
@@ -80,8 +67,10 @@ model InventoryItem {
   countLines         CountLine[]
   snapshots          InventorySnapshot[]
   invoiceMatches     InvoiceScanItem[]  @relation("InventoryInvoiceMatches")
+  matchRules         InvoiceMatchRule[] @relation("InventoryMatchRules")
   supplierPrices     InventorySupplierPrice[] @relation("InventorySupplierPrices")
   priceAlerts        PriceAlert[]       @relation("InventoryPriceAlerts")
+  prepItems          PrepItem[]         @relation("PrepItemInventory")
 }
 
 model Invoice {
@@ -141,6 +130,7 @@ model Recipe {
   usedInRecipes   RecipeIngredient[] @relation("RecipeAsIngredient")
   saleLineItems   SaleLineItem[]
   recipeAlerts    RecipeAlert[]      @relation("RecipeAlerts")
+  prepItems       PrepItem[]         @relation("PrepItemRecipe")
 }
 
 model RecipeIngredient {
@@ -299,8 +289,12 @@ model InvoiceScanItem {
   previousPrice   Decimal?
   newPrice        Decimal?
   priceDiffPct    Decimal?
-  formatMismatch  Boolean        @default(false)
-  sortOrder       Int            @default(0)
+  formatMismatch     Boolean        @default(false)
+  invoicePackQty     Decimal?
+  invoicePackSize    Decimal?
+  invoicePackUOM     String?
+  needsFormatConfirm Boolean        @default(false)
+  sortOrder          Int            @default(0)
 }
 
 model InventorySupplierPrice {
@@ -330,6 +324,23 @@ model PriceAlert {
   createdAt       DateTime       @default(now())
 }
 
+// Learned invoice→inventory matches. Built up each time a user confirms/overrides a match.
+model InvoiceMatchRule {
+  id              String        @id @default(cuid())
+  rawDescription  String
+  supplierName    String        @default("")   // empty string = no supplier
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation("InventoryMatchRules", fields: [inventoryItemId], references: [id])
+  invoicePackQty  Decimal?
+  invoicePackSize Decimal?
+  invoicePackUOM  String?
+  useCount        Int           @default(1)
+  lastUsed        DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  @@unique([rawDescription, supplierName])
+}
+
 model RecipeAlert {
   id                String         @id @default(uuid())
   sessionId         String
@@ -343,4 +354,45 @@ model RecipeAlert {
   exceededThreshold Boolean        @default(false)
   acknowledged      Boolean        @default(false)
   createdAt         DateTime       @default(now())
+}
+
+model PrepItem {
+  id                     String         @id @default(uuid())
+  name                   String
+  linkedRecipeId         String?
+  linkedRecipe           Recipe?        @relation("PrepItemRecipe", fields: [linkedRecipeId], references: [id])
+  linkedInventoryItemId  String?
+  linkedInventoryItem    InventoryItem? @relation("PrepItemInventory", fields: [linkedInventoryItemId], references: [id])
+  category               String         @default("MISC")
+  station                String?
+  parLevel               Decimal        @default(0)
+  unit                   String         @default("batch")
+  minThreshold           Decimal        @default(0)
+  targetToday            Decimal?
+  shelfLifeDays          Int?
+  notes                  String?
+  manualPriorityOverride String?
+  isActive               Boolean        @default(true)
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  logs                   PrepLog[]
+}
+
+model PrepLog {
+  id                String   @id @default(uuid())
+  prepItemId        String
+  prepItem          PrepItem @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
+  logDate           DateTime
+  status            String   @default("NOT_STARTED")
+  requiredQty       Decimal?
+  actualPrepQty     Decimal?
+  assignedTo        String?
+  dueTime           String?
+  note              String?
+  blockedReason     String?
+  inventoryAdjusted Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([prepItemId, logDate])
 }
