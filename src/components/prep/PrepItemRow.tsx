@@ -92,7 +92,10 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
 
   // ── PLAN TOMORROW MODE ────────────────────────────────────────────────────────
   if (planMode) {
-    const isAtPar = item.onHand >= item.parLevel && !item.manualPriorityOverride
+    const isAtPar = item.onHand >= item.parLevel
+      && !item.manualPriorityOverride
+      && item.priority !== '911'
+      && item.priority !== 'NEEDED_TODAY'
     const currentOverride = item.manualPriorityOverride ?? ''
 
     return (
@@ -122,7 +125,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           {PLAN_CHIPS.map(chip => (
             <button
               key={chip.value || 'auto'}
-              onClick={() => onPriorityChange(item.id, chip.value)}
+              onClick={() => { if (chip.value !== currentOverride) onPriorityChange(item.id, chip.value) }}
               className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
                 currentOverride === chip.value
                   ? chip.activeClass
