@@ -397,3 +397,10 @@ model PrepLog {
 
   @@unique([prepItemId, logDate])
 }
+
+model PrepSettings {
+  id         String   @id @default("singleton")
+  categories String[]
+  stations   String[]
+  updatedAt  DateTime @updatedAt
+}
