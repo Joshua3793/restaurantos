@@ -72,8 +72,8 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
       unit:                  form.unit,
       minThreshold:          form.minThreshold ? parseFloat(form.minThreshold) : 0,
       targetToday:           form.targetToday  ? parseFloat(form.targetToday)  : null,
-      shelfLifeDays:         form.shelfLifeDays ? parseInt(form.shelfLifeDays) : null,
-      estimatedPrepTime:     form.estimatedPrepTime ? parseInt(form.estimatedPrepTime) : null,
+      shelfLifeDays:         form.shelfLifeDays ? parseInt(form.shelfLifeDays, 10) : null,
+      estimatedPrepTime:     form.estimatedPrepTime ? parseInt(form.estimatedPrepTime, 10) : null,
       notes:                 form.notes || null,
       manualPriorityOverride: form.manualPriorityOverride || null,
     }

@@ -17,7 +17,9 @@ export function PrepKpiStrip({ items, onFilterPriority }: Props) {
   const workloadMinutes   = computeWorkloadMinutes(items)
   const formattedWorkload = formatMinutes(workloadMinutes)
 
-  if (total > 0 && done === total) {
+  if (total === 0) return null
+
+  if (done === total) {
     return (
       <div className="flex items-center gap-4 text-sm flex-wrap">
         <span className="font-semibold text-green-600">✓ All done!</span>
