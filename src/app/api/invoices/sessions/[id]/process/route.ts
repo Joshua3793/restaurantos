@@ -59,10 +59,16 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   // ── 1. Load cached OCR results (no API call needed) ───────────────────────
   for (const file of cachedFiles) {
-    const result = JSON.parse(file.ocrRawJson!) as OcrResult
-    mergeResult(result, sessionMeta)
-    allOcrItems = [...allOcrItems, ...result.lineItems]
-    await prisma.invoiceFile.update({ where: { id: file.id }, data: { ocrStatus: 'COMPLETE' } })
+    try {
+      const result = JSON.parse(file.ocrRawJson!) as OcrResult
+      if (!Array.isArray(result.lineItems)) result.lineItems = []
+      mergeResult(result, sessionMeta)
+      allOcrItems = [...allOcrItems, ...result.lineItems]
+      await prisma.invoiceFile.update({ where: { id: file.id }, data: { ocrStatus: 'COMPLETE' } })
+    } catch (err) {
+      console.error(`[process] Cached OCR JSON corrupt for ${file.fileName}:`, err)
+      await prisma.invoiceFile.update({ where: { id: file.id }, data: { ocrStatus: 'PENDING' } })
+    }
   }
 
   // ── 2. ALL image pages → single Claude call (biggest speed win) ───────────
@@ -184,7 +190,23 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     },
   })
 
-  return NextResponse.json({ processed: matched.length, ocrItemCount: allOcrItems.length, status: 'REVIEW' })
+  const errorFiles = session.files.filter(f =>
+    pendingFiles.some(p => p.id === f.id)
+  ).length  // We'll count the re-queried error count from DB instead
+
+  // Re-fetch file statuses to get accurate error count after processing
+  const updatedFiles = await prisma.invoiceFile.findMany({
+    where: { sessionId: params.id },
+    select: { ocrStatus: true },
+  })
+  const ocrErrorCount = updatedFiles.filter(f => f.ocrStatus === 'ERROR').length
+
+  return NextResponse.json({
+    processed: matched.length,
+    ocrItemCount: allOcrItems.length,
+    ocrErrors: ocrErrorCount,
+    status: 'REVIEW',
+  })
 }
 
 // ── DELETE /api/invoices/sessions/[id]/process — cancel processing ─────────

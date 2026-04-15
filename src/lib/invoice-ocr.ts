@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 
 // Use the fastest vision-capable model for daily invoice scanning
 const OCR_MODEL = 'claude-opus-4-6'
-const MAX_TOKENS = 4096
+const MAX_TOKENS = 8096
 
 // Claude API limit is 5MB per image. Phone photos are often 8–15MB.
 // Compress using sharp (native, excluded from webpack via serverExternalPackages).
@@ -154,7 +154,23 @@ function parseOcrResponse(rawText: string): OcrResult {
     .replace(/```json\s*/gi, '')
     .replace(/```\s*/gi, '')
     .trim()
-  return JSON.parse(text) as OcrResult
+
+  if (!text) {
+    throw new Error('Claude returned an empty response — invoice may be unreadable or the image quality is too low')
+  }
+
+  try {
+    const parsed = JSON.parse(text) as OcrResult
+    // Validate minimum shape
+    if (!Array.isArray(parsed.lineItems)) {
+      parsed.lineItems = []
+    }
+    return parsed
+  } catch (e) {
+    // Log the raw text so we can debug what Claude actually returned
+    console.error('[ocr] JSON parse failed. Raw response (first 500 chars):', text.slice(0, 500))
+    throw new Error(`Failed to parse OCR response as JSON: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 // ── Multi-image (ALL pages in ONE API call — fastest approach for photo invoices) ──
