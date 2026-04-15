@@ -90,6 +90,117 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
     if (e.key === 'Enter') handleConfirm('DONE')
   }
 
+  // ── PLAN TOMORROW MODE ────────────────────────────────────────────────────────
+  if (planMode) {
+    const isAtPar = item.onHand >= item.parLevel && !item.manualPriorityOverride
+    const currentOverride = item.manualPriorityOverride ?? ''
+
+    return (
+      <div
+        className={`flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-50 transition-opacity ${priority.borderClass} ${isAtPar ? 'opacity-40 hover:opacity-100' : ''}`}
+      >
+        {/* Stock context */}
+        <div className="shrink-0 text-right w-14">
+          <div className="text-xs font-semibold text-gray-700">
+            {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}
+          </div>
+          <div className="text-xs text-gray-400">
+            / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
+          </div>
+        </div>
+
+        {/* Name + notes */}
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
+          <div className="text-sm font-medium text-gray-800 truncate">{item.name}</div>
+          {item.notes && (
+            <div className="text-xs text-amber-700 truncate">{item.notes}</div>
+          )}
+        </div>
+
+        {/* Priority chips */}
+        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+          {PLAN_CHIPS.map(chip => (
+            <button
+              key={chip.value || 'auto'}
+              onClick={() => onPriorityChange(item.id, chip.value)}
+              className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
+                currentOverride === chip.value
+                  ? chip.activeClass
+                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+              }`}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Detail arrow */}
+        <button onClick={onClick} className="shrink-0 text-gray-400 hover:text-gray-600">
+          <ChevronRight size={16} />
+        </button>
+
+        {/* More menu — plan mode: delete only */}
+        <div className="shrink-0">
+          <button
+            ref={menuButtonRef}
+            onClick={e => {
+              e.stopPropagation()
+              if (menuOpen) {
+                closeMenu()
+              } else {
+                if (menuButtonRef.current) {
+                  const rect = menuButtonRef.current.getBoundingClientRect()
+                  setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                }
+                setMenuOpen(true)
+              }
+            }}
+            className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={closeMenu} />
+              <div
+                className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44 text-sm"
+                style={{ top: menuPos.top, right: menuPos.right }}
+              >
+                {confirmingDelete ? (
+                  <div className="px-3 py-2">
+                    <p className="text-xs text-gray-600 mb-2">Delete this item?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { closeMenu(); onDelete(item.id) }}
+                        className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => setConfirmingDelete(false)}
+                        className="flex-1 px-2 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmingDelete(true)}
+                    className="w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50"
+                  >
+                    Delete item
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+  // ── TODAY / NEEDS-ACTION MODE (existing layout follows) ───────────────────────
+
   return (
     <div
       className={`flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-50 hover:bg-gray-50 transition-colors relative ${priority.borderClass}`}
