@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-
-const DEFAULT_CATEGORIES = [
-  'MISC', 'SAUCE', 'DRESSING', 'PROTEIN', 'BAKED',
-  'GARNISH', 'BASE', 'PICKLED', 'DAIRY',
-]
-const DEFAULT_STATIONS = ['Cold', 'Hot', 'Pastry', 'Butchery', 'Garde Manger']
+import { PREP_CATEGORIES as DEFAULT_CATEGORIES, PREP_STATIONS as DEFAULT_STATIONS } from '@/lib/prep-utils'
 
 export async function GET() {
   try {

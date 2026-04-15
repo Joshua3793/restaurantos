@@ -1,11 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
-import { PREP_PRIORITY_META, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { PREP_CATEGORIES, PREP_STATIONS, PREP_PRIORITY_META, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 import type { PrepItemRich } from './types'
 
-const DEFAULT_CATEGORIES = ['MISC', 'SAUCE', 'DRESSING', 'PROTEIN', 'BAKED', 'GARNISH', 'BASE', 'PICKLED', 'DAIRY']
-const DEFAULT_STATIONS   = ['Cold', 'Hot', 'Pastry', 'Butchery', 'Garde Manger']
 
 interface Recipe { id: string; name: string; yieldUnit: string }
 
@@ -28,8 +26,8 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState<string | null>(null)
-  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
-  const [stations,   setStations]   = useState<string[]>(DEFAULT_STATIONS)
+  const [categories, setCategories] = useState<string[]>(PREP_CATEGORIES)
+  const [stations,   setStations]   = useState<string[]>(PREP_STATIONS)
 
   useEffect(() => {
     fetch('/api/recipes?type=PREP&isActive=true')
@@ -39,7 +37,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
 
   useEffect(() => {
     fetch('/api/prep/settings')
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(); return r.json() })
       .then(data => {
         if (Array.isArray(data.categories)) setCategories(data.categories)
         if (Array.isArray(data.stations))   setStations(data.stations)
@@ -143,13 +141,13 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
           <div className="grid grid-cols-2 gap-3">
             {field('Category', (
               <select className={selCls} value={form.category} onChange={e => set('category', e.target.value)}>
-                {categories.map(c => <option key={c}>{c}</option>)}
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             ))}
             {field('Station', (
               <select className={selCls} value={form.station} onChange={e => set('station', e.target.value)}>
                 <option value="">— None —</option>
-                {stations.map(s => <option key={s}>{s}</option>)}
+                {stations.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             ))}
           </div>
