@@ -14,6 +14,8 @@ interface Props {
   onClick: () => void
   onStatusChange: (itemId: string, status: string, actualQty?: number) => void
   onPriorityChange: (itemId: string, priority: string) => void
+  onDelete: (itemId: string) => void
+  planMode?: boolean
 }
 
 const STATUS_CYCLE: Record<string, string> = {
@@ -27,11 +29,20 @@ const STATUS_CYCLE: Record<string, string> = {
 
 const INLINE_QTY_STATUSES = new Set(['DONE', 'PARTIAL'])
 
-export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }: Props) {
+const PLAN_CHIPS: Array<{ value: string; label: string; activeClass: string }> = [
+  { value: '',             label: 'Auto',  activeClass: 'bg-gray-200 text-gray-700' },
+  { value: 'LATER',        label: 'Later', activeClass: 'bg-gray-200 text-gray-500' },
+  { value: 'LOW_STOCK',    label: 'Low',   activeClass: 'bg-amber-100 text-amber-700' },
+  { value: 'NEEDED_TODAY', label: 'Today', activeClass: 'bg-orange-100 text-orange-700' },
+  { value: '911',          label: '911',   activeClass: 'bg-red-100 text-red-700 font-bold' },
+]
+
+export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, onDelete, planMode = false }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
   const [confirmingDone, setConfirmingDone] = useState(false)
   const [confirmQty, setConfirmQty] = useState('')
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -204,6 +215,33 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }:
                   {PREP_PRIORITY_META[p as PrepPriority].label}
                 </button>
               ))}
+              <div className="border-t border-gray-100 my-1" />
+              {confirmingDelete ? (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-gray-600 mb-2">Delete this item?</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setMenuOpen(false); setConfirmingDelete(false); onDelete(item.id) }}
+                      className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => setConfirmingDelete(false)}
+                      className="flex-1 px-2 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  className="w-full text-left px-3 py-1.5 text-red-600 hover:bg-red-50"
+                >
+                  Delete item
+                </button>
+              )}
             </div>
           </>
         )}
