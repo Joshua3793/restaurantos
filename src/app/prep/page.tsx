@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ChefHat, Plus, RefreshCw, Search } from 'lucide-react'
+import { ChefHat, Plus, RefreshCw, Search, Settings } from 'lucide-react'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import { PrepItemForm }    from '@/components/prep/PrepItemForm'
+import { PrepSettingsModal } from '@/components/prep/PrepSettingsModal'
 import { PrepDetailPanel } from '@/components/prep/PrepDetailPanel'
 import type { PrepItemRich } from '@/components/prep/types'
 
@@ -14,6 +15,7 @@ export default function PrepPage() {
   const [selected,   setSelected]   = useState<PrepItemRich | null>(null)
   const [editing,    setEditing]    = useState<PrepItemRich | null>(null)
   const [showAdd,    setShowAdd]    = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
   // Prevent duplicate concurrent status mutations per item
@@ -174,6 +176,14 @@ export default function PrepPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+            title="Edit categories & stations"
+          >
+            <Settings size={14} />
+            Settings
+          </button>
           <button
             onClick={handleGenerate}
             disabled={generating}
@@ -350,6 +360,14 @@ export default function PrepPage() {
           item={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { load(); setEditing(null) }}
+        />
+      )}
+
+      {/* Settings modal */}
+      {showSettings && (
+        <PrepSettingsModal
+          onClose={() => setShowSettings(false)}
+          onSaved={() => setShowSettings(false)}
         />
       )}
     </div>
