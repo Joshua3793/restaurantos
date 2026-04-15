@@ -16,7 +16,7 @@ const BLANK = {
   name: '', linkedRecipeId: '', linkedInventoryItemId: '',
   category: 'MISC', station: '',
   parLevel: '', unit: 'batch', minThreshold: '',
-  targetToday: '', shelfLifeDays: '', notes: '',
+  targetToday: '', shelfLifeDays: '', estimatedPrepTime: '', notes: '',
   manualPriorityOverride: '',
 }
 
@@ -45,6 +45,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
         minThreshold:          String(item.minThreshold),
         targetToday:           item.targetToday != null ? String(item.targetToday) : '',
         shelfLifeDays:         item.shelfLifeDays != null ? String(item.shelfLifeDays) : '',
+        estimatedPrepTime:     item.estimatedPrepTime != null ? String(item.estimatedPrepTime) : '',
         notes:                 item.notes                ?? '',
         manualPriorityOverride: item.manualPriorityOverride ?? '',
       })
@@ -72,6 +73,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
       minThreshold:          form.minThreshold ? parseFloat(form.minThreshold) : 0,
       targetToday:           form.targetToday  ? parseFloat(form.targetToday)  : null,
       shelfLifeDays:         form.shelfLifeDays ? parseInt(form.shelfLifeDays) : null,
+      estimatedPrepTime:     form.estimatedPrepTime ? parseInt(form.estimatedPrepTime) : null,
       notes:                 form.notes || null,
       manualPriorityOverride: form.manualPriorityOverride || null,
     }
@@ -153,7 +155,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {field('Target Today (optional)', (
               <input className={inputCls} type="number" min="0" step="0.1"
                 value={form.targetToday} onChange={e => set('targetToday', e.target.value)} placeholder="—" />
@@ -161,6 +163,10 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
             {field('Shelf Life (days)', (
               <input className={inputCls} type="number" min="0" step="1"
                 value={form.shelfLifeDays} onChange={e => set('shelfLifeDays', e.target.value)} placeholder="—" />
+            ))}
+            {field('Prep Time (min)', (
+              <input className={inputCls} type="number" min="0" step="1"
+                value={form.estimatedPrepTime} onChange={e => set('estimatedPrepTime', e.target.value)} placeholder="e.g. 45" />
             ))}
           </div>
 

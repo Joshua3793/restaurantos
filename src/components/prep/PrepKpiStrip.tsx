@@ -1,3 +1,4 @@
+import { computeWorkloadMinutes, formatMinutes } from '@/lib/prep-utils'
 import type { PrepItemRich } from './types'
 
 interface Props {
@@ -13,27 +14,42 @@ export function PrepKpiStrip({ items, onFilterPriority }: Props) {
   const done        = items.filter(i => i.todayLog?.status === 'DONE').length
   const blocked     = items.filter(i => i.isBlocked || i.todayLog?.status === 'BLOCKED').length
 
-  const cards = [
-    { label: 'Total Items',  value: total,       color: 'text-gray-900',   bg: 'bg-white',     border: 'border-gray-100',   filter: '' },
-    { label: '911',          value: urgent,      color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-200',    filter: '911' },
-    { label: 'Needed Today', value: neededToday, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', filter: 'NEEDED_TODAY' },
-    { label: 'Low Stock',    value: lowStock,    color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  filter: 'LOW_STOCK' },
-    { label: 'Done Today',   value: done,        color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-200',  filter: '' },
-    { label: 'Blocked',      value: blocked,     color: 'text-red-500',    bg: 'bg-white',     border: 'border-gray-100',   filter: '' },
-  ]
+  const workloadMinutes   = computeWorkloadMinutes(items)
+  const formattedWorkload = formatMinutes(workloadMinutes)
+
+  if (total > 0 && done === total) {
+    return (
+      <div className="flex items-center gap-4 text-sm flex-wrap">
+        <span className="font-semibold text-green-600">✓ All done!</span>
+        <span className="text-gray-400">{done} / {total} done</span>
+      </div>
+    )
+  }
 
   return (
-    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-      {cards.map(card => (
-        <button
-          key={card.label}
-          onClick={() => card.filter && onFilterPriority(card.filter)}
-          className={`${card.bg} border ${card.border} rounded-xl p-3 text-left shadow-sm transition-all ${card.filter ? 'hover:shadow-md hover:scale-[1.02] cursor-pointer' : 'cursor-default'}`}
-        >
-          <div className="text-xs font-medium text-gray-500 mb-1">{card.label}</div>
-          <div className={`text-2xl font-bold ${card.color}`}>{card.value}</div>
+    <div className="flex items-center gap-4 text-sm flex-wrap">
+      {urgent > 0 && (
+        <button onClick={() => onFilterPriority('911')} className="font-semibold text-red-600 hover:underline cursor-pointer">
+          {urgent} × 911
         </button>
-      ))}
+      )}
+      {neededToday > 0 && (
+        <button onClick={() => onFilterPriority('NEEDED_TODAY')} className="font-semibold text-orange-600 hover:underline cursor-pointer">
+          {neededToday} needed today
+        </button>
+      )}
+      {lowStock > 0 && (
+        <button onClick={() => onFilterPriority('LOW_STOCK')} className="text-amber-600 hover:underline cursor-pointer">
+          {lowStock} low stock
+        </button>
+      )}
+      <span className="text-gray-400">{done} / {total} done</span>
+      {workloadMinutes > 0 && (
+        <span className="text-gray-500">{formattedWorkload} remaining</span>
+      )}
+      {blocked > 0 && (
+        <span className="text-red-500">{blocked} blocked</span>
+      )}
     </div>
   )
 }
