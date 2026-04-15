@@ -1,15 +1,10 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { ChefHat, Plus, RefreshCw, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChefHat, Plus, RefreshCw, Search } from 'lucide-react'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import { PrepItemForm }    from '@/components/prep/PrepItemForm'
 import { PrepDetailPanel } from '@/components/prep/PrepDetailPanel'
-import {
-  PREP_PRIORITY_ORDER,
-  PREP_PRIORITY_META,
-  type PrepPriority,
-} from '@/lib/prep-utils'
 import type { PrepItemRich } from '@/components/prep/types'
 
 export default function PrepPage() {
@@ -25,10 +20,8 @@ export default function PrepPage() {
   const [filterPriority, setFilterPriority] = useState('ALL')
   const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
-  const [filterStation,  setFilterStation]  = useState('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
   const [viewMode,       setViewMode]       = useState<'today' | 'needs-action'>('today')
-  const [collapsed,      setCollapsed]      = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -46,27 +39,37 @@ export default function PrepPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Silently generate today's logs on first load if none exist yet
+  useEffect(() => {
+    if (items.length > 0 && items.every(i => i.todayLog === null)) {
+      fetch('/api/prep/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }).then(() => load())
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]) // intentionally not including load — runs once when items first populate
+
+  // Auto-refresh every 60 seconds
+  useEffect(() => {
+    const id = setInterval(load, 60_000)
+    return () => clearInterval(id)
+  }, [load])
+
   const filtered = useMemo(() => items.filter(item => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
     if (filterPriority !== 'ALL' && item.priority !== filterPriority)     return false
     if (filterCategory !== 'ALL' && item.category !== filterCategory)     return false
-    if (filterStation  !== 'ALL' && item.station  !== filterStation)      return false
     const s = item.todayLog?.status ?? 'NOT_STARTED'
     if (filterStatus !== 'ALL' && s !== filterStatus) return false
     if (viewMode === 'needs-action' && (s === 'DONE' || s === 'SKIPPED')) return false
     return true
-  }), [items, search, filterPriority, filterCategory, filterStation, filterStatus, viewMode])
+  }), [items, search, filterPriority, filterCategory, filterStatus, viewMode])
 
-  const sections = useMemo(() => {
-    const map: Record<PrepPriority, PrepItemRich[]> = {
-      '911': [], NEEDED_TODAY: [], LOW_STOCK: [], LATER: [],
-    }
-    filtered.forEach(i => map[i.priority].push(i))
-    return map
-  }, [filtered])
+  const inProgress = useMemo(() => items.filter(i => i.todayLog?.status === 'IN_PROGRESS'), [items])
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
-  const stations   = useMemo(() => [...new Set(items.map(i => i.station).filter(Boolean) as string[])].sort(), [items])
 
   const handleGenerate = async () => {
     setGenerating(true)
@@ -111,9 +114,6 @@ export default function PrepPage() {
     load()
   }
 
-  const toggleSection = (p: string) =>
-    setCollapsed(prev => ({ ...prev, [p]: !prev[p] }))
-
   const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
 
   return (
@@ -124,7 +124,9 @@ export default function PrepPage() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ChefHat size={24} className="text-blue-600" /> Prep
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">Daily kitchen production board</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -133,7 +135,7 @@ export default function PrepPage() {
             className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw size={14} className={generating ? 'animate-spin' : ''} />
-            {generating ? 'Generating…' : "Generate Today's Prep"}
+            {generating ? 'Refreshing…' : 'Refresh'}
           </button>
           <button
             onClick={() => setShowAdd(true)}
@@ -176,12 +178,6 @@ export default function PrepPage() {
             <option value="ALL">All Categories</option>
             {categories.map(c => <option key={c}>{c}</option>)}
           </select>
-          {stations.length > 0 && (
-            <select className={selCls} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
-              <option value="ALL">All Stations</option>
-              {stations.map(s => <option key={s}>{s}</option>)}
-            </select>
-          )}
         </div>
         <div className="flex items-center gap-4 text-sm flex-wrap">
           <label className="flex items-center gap-2 cursor-pointer">
@@ -203,7 +199,25 @@ export default function PrepPage() {
         </div>
       </div>
 
-      {/* Priority sections */}
+      {/* Currently Making */}
+      {inProgress.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 flex items-center gap-2 border-b border-blue-100">
+            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Currently Making</span>
+            <span className="text-xs text-blue-500">{inProgress.length} in progress</span>
+          </div>
+          <div className="divide-y divide-blue-50">
+            {inProgress.map(item => (
+              <PrepItemRow key={item.id} item={item}
+                onClick={() => setSelected(item)}
+                onStatusChange={handleStatusChange}
+                onPriorityChange={handlePriorityChange} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main list */}
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -211,47 +225,26 @@ export default function PrepPage() {
       ) : filtered.length === 0 ? (
         <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
           <ChefHat size={32} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-500 text-sm">No prep items match your filters.</p>
-          <p className="text-gray-400 text-xs mt-1">Click &ldquo;Generate Today&rsquo;s Prep&rdquo; to populate today&rsquo;s board.</p>
+          <p className="text-gray-500 text-sm">
+            {items.length === 0 ? 'No prep items yet.' : 'Nothing matches your filters.'}
+          </p>
+          {items.length === 0 && (
+            <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-blue-600 hover:text-blue-700">
+              Add your first prep item →
+            </button>
+          )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {PREP_PRIORITY_ORDER.map(priority => {
-            const sectionItems = sections[priority]
-            if (sectionItems.length === 0) return null
-            const meta   = PREP_PRIORITY_META[priority]
-            const isOpen = !collapsed[priority]
-            return (
-              <div key={priority} className={`border rounded-xl overflow-hidden ${priority === '911' ? 'border-red-200' : priority === 'NEEDED_TODAY' ? 'border-orange-200' : priority === 'LOW_STOCK' ? 'border-amber-200' : 'border-gray-200'}`}>
-                {/* Section header */}
-                <button
-                  onClick={() => toggleSection(priority)}
-                  className={`w-full flex items-center justify-between px-4 py-3 ${meta.bgClass} hover:opacity-90 transition-opacity`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{meta.emoji}</span>
-                    <span className={`font-semibold text-sm ${meta.headingClass}`}>{meta.label}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${meta.badgeClass}`}>{sectionItems.length}</span>
-                  </div>
-                  {isOpen ? <ChevronUp size={16} className={meta.headingClass} /> : <ChevronDown size={16} className={meta.headingClass} />}
-                </button>
-                {/* Items */}
-                {isOpen && (
-                  <div className="divide-y divide-gray-50">
-                    {sectionItems.map(item => (
-                      <PrepItemRow
-                        key={item.id}
-                        item={item}
-                        onClick={() => setSelected(item)}
-                        onStatusChange={handleStatusChange}
-                        onPriorityChange={handlePriorityChange}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+          {filtered.map(item => (
+            <PrepItemRow
+              key={item.id}
+              item={item}
+              onClick={() => setSelected(item)}
+              onStatusChange={handleStatusChange}
+              onPriorityChange={handlePriorityChange}
+            />
+          ))}
         </div>
       )}
 
