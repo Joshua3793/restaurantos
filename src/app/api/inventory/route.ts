@@ -13,14 +13,18 @@ export async function GET(req: NextRequest) {
   const items = await prisma.inventoryItem.findMany({
     where: {
       AND: [
-        search ? { itemName: { contains: search } } : {},
+        search ? { itemName: { contains: search, mode: 'insensitive' } } : {},
         category ? { category } : {},
         supplierId ? { supplierId } : {},
         storageAreaId ? { storageAreaId } : {},
         isActive !== null && isActive !== '' ? { isActive: isActive === 'true' } : {},
       ],
     },
-    include: { supplier: true, storageArea: true },
+    include: {
+      supplier: true,
+      storageArea: true,
+      recipe: { select: { id: true, name: true } },
+    },
     orderBy: { itemName: 'asc' },
   })
   return NextResponse.json(items)

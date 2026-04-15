@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: { id: string; ingredientId: string } }
 ) {
   const body = await req.json()
-  const { qtyBase, unit, notes, sortOrder, recipePercent } = body
+  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId } = body
 
   const updated = await prisma.recipeIngredient.update({
     where: { id: params.ingredientId },
@@ -17,6 +17,7 @@ export async function PATCH(
       ...(notes !== undefined ? { notes } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),
+      ...(inventoryItemId !== undefined ? { inventoryItemId, linkedRecipeId: null } : {}),
     },
   })
 

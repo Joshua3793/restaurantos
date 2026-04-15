@@ -5,7 +5,7 @@ import React, {
 } from 'react'
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
-  Circle, ClipboardList, Minus, Plus, SkipForward, X,
+  Circle, ClipboardList, Minus, Pencil, Plus, SkipForward, Trash2, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency } from '@/lib/utils'
@@ -52,9 +52,9 @@ interface Session {
   lines?: Line[]
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Types (storage areas) ────────────────────────────────────────────────────
 
-const AREA_OPTIONS = ['Walk-in & fridge', 'Freezer', 'Dry storage', 'Prep area', 'Catering']
+interface StorageArea { id: string; name: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -114,6 +114,12 @@ export default function CountPage() {
   const [toast,         setToast]         = useState<string | null>(null)
   const [showModal,     setShowModal]     = useState(false)
   const [finalizing,    setFinalizing]    = useState(false)
+  const [deleteTarget,  setDeleteTarget]  = useState<Session | null>(null)
+  const [deleting,      setDeleting]      = useState(false)
+  const [editTarget,    setEditTarget]    = useState<Session | null>(null)
+  const [editLabel,     setEditLabel]     = useState('')
+  const [editCountedBy, setEditCountedBy] = useState('')
+  const [editDate,      setEditDate]      = useState('')
 
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
@@ -122,12 +128,15 @@ export default function CountPage() {
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted'>('all')
 
+  // ── Storage areas (for partial count picker) ─────────────────────────────
+  const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
+
   // ── New-session form ──────────────────────────────────────────────────────
   const [form, setForm] = useState({
     label: '', countedBy: '',
     type: 'FULL' as 'FULL' | 'PARTIAL',
     sessionDate: new Date().toISOString().slice(0, 10),
-    areas: [] as string[],
+    areas: [] as string[], // stores storageArea IDs
   })
 
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -143,6 +152,11 @@ export default function CountPage() {
   }, [])
 
   useEffect(() => { loadSessions() }, [loadSessions])
+  useEffect(() => {
+    fetch('/api/storage-areas').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) setStorageAreas(d)
+    })
+  }, [])
 
   // Reset qty input when card opens
   useEffect(() => {
@@ -280,6 +294,48 @@ export default function CountPage() {
     setTimeout(() => { setView('list'); setActive(null); setFinalizing(false) }, 2000)
   }
 
+  const handleDeleteSession = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    await fetch(`/api/count/sessions/${deleteTarget.id}`, { method: 'DELETE' })
+    setDeleteTarget(null)
+    setDeleting(false)
+    await loadSessions()
+    setToast('Count session deleted.')
+  }
+
+  const openEditModal = (s: Session) => {
+    setEditTarget(s)
+    setEditLabel(s.label)
+    setEditCountedBy(s.countedBy)
+    setEditDate(s.sessionDate.slice(0, 10))
+  }
+
+  const handleEditSession = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editTarget) return
+    await fetch(`/api/count/sessions/${editTarget.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: editLabel.trim(), countedBy: editCountedBy.trim(), sessionDate: editDate }),
+    })
+    setEditTarget(null)
+    await loadSessions()
+  }
+
+  const handleReopenAndEdit = async (s: Session) => {
+    if (s.status === 'FINALIZED') {
+      await fetch(`/api/count/sessions/${s.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'IN_PROGRESS' }),
+      })
+      await loadSessions()
+    }
+    const full = await loadSession(s.id)
+    if (full) { setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count') }
+  }
+
   const backFromCount = () => {
     if (counted > 0 && !confirm('Leave count session? All confirmed items are saved.')) return
     setView('list'); setActive(null); setOpenId(null)
@@ -355,24 +411,28 @@ export default function CountPage() {
               {form.type === 'PARTIAL' && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Areas to count</label>
-                  <div className="flex flex-wrap gap-2">
-                    {AREA_OPTIONS.map(a => {
-                      const on = form.areas.includes(a)
-                      return (
-                        <button key={a} type="button"
-                          onClick={() => setForm(f => ({
-                            ...f,
-                            areas: on ? f.areas.filter(x => x !== a) : [...f.areas, a],
-                          }))}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                            on ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >
-                          {a}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  {storageAreas.length === 0 ? (
+                    <p className="text-xs text-gray-400">No storage areas configured yet.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {storageAreas.map(area => {
+                        const on = form.areas.includes(area.id)
+                        return (
+                          <button key={area.id} type="button"
+                            onClick={() => setForm(f => ({
+                              ...f,
+                              areas: on ? f.areas.filter(x => x !== area.id) : [...f.areas, area.id],
+                            }))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                              on ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            {area.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
               {/* Date */}
@@ -407,8 +467,14 @@ export default function CountPage() {
       {sessions.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <ClipboardList size={44} className="mx-auto mb-4 opacity-30" />
-          <p className="font-medium text-gray-500">No count sessions yet.</p>
-          <p className="text-sm mt-1">Start your first count to track inventory accurately.</p>
+          <p className="font-semibold text-gray-700 text-base">No count sessions yet</p>
+          <p className="text-sm mt-1 mb-5">Regular stock counts keep your inventory accurate and food costs on target.</p>
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={16} /> Start First Count
+          </button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -430,30 +496,158 @@ export default function CountPage() {
                       : ` · ${counts.counted}/${counts.total} items`}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <StatusBadge status={s.status} />
                   {s.status === 'IN_PROGRESS' && (
                     <button onClick={() => openSession(s, 'count')}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 ml-1">
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 ml-1 mr-1">
                       Continue →
                     </button>
                   )}
                   {s.status === 'PENDING_REVIEW' && (
                     <button onClick={() => openSession(s, 'count')}
-                      className="text-xs font-semibold text-amber-600 hover:text-amber-700 ml-1">
+                      className="text-xs font-semibold text-amber-600 hover:text-amber-700 ml-1 mr-1">
                       Review →
                     </button>
                   )}
                   {s.status === 'FINALIZED' && (
                     <button onClick={() => openSession(s, 'review')}
-                      className="text-xs font-semibold text-green-700 hover:text-green-800 ml-1">
-                      View report
+                      className="text-xs font-semibold text-green-700 hover:text-green-800 ml-1 mr-1">
+                      Report
                     </button>
                   )}
+                  {/* Edit metadata */}
+                  <button
+                    onClick={e => { e.stopPropagation(); openEditModal(s) }}
+                    title="Edit session details"
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  {/* Reopen & edit counts */}
+                  <button
+                    onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
+                    title={s.status === 'FINALIZED' ? 'Reopen & edit counts' : 'Edit counts'}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-amber-600 transition-colors"
+                  >
+                    <ClipboardList size={13} />
+                  </button>
+                  {/* Delete */}
+                  <button
+                    onClick={e => { e.stopPropagation(); setDeleteTarget(s) }}
+                    title="Delete session"
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Count cadence reminder — shown below session list when sessions exist */}
+      {sessions.length > 0 && (() => {
+        const lastFinalized = sessions.find(s => s.status === 'FINALIZED')
+        const nextCountDate = new Date()
+        if (lastFinalized) {
+          const last = new Date(lastFinalized.sessionDate)
+          nextCountDate.setTime(last.getTime())
+          nextCountDate.setDate(nextCountDate.getDate() + 7)
+        }
+        const isOverdue = nextCountDate <= new Date()
+        const dateStr = nextCountDate.toLocaleDateString('en-CA', { weekday: 'long', month: 'short', day: 'numeric' })
+        return (
+          <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-3 ${isOverdue ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'}`}>
+            <div>
+              <p className={`text-xs font-medium ${isOverdue ? 'text-amber-700' : 'text-gray-600'}`}>
+                {isOverdue ? 'Count overdue' : 'Next count recommended'}
+              </p>
+              <p className={`text-sm font-semibold ${isOverdue ? 'text-amber-900' : 'text-gray-700'}`}>{dateStr}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Count weekly for accurate COGS and inventory tracking</p>
+            </div>
+            <button
+              onClick={() => setShowModal(true)}
+              className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${isOverdue ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            >
+              <Plus size={14} /> Start Count
+            </button>
+          </div>
+        )
+      })()}
+
+      {/* ── Delete confirmation modal ───────────────────────────────────────── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Delete count session?</h3>
+                <p className="text-xs text-gray-500 mt-0.5">&ldquo;{deleteTarget.label || 'Untitled'}&rdquo; — {fmtDate(deleteTarget.sessionDate)}</p>
+              </div>
+            </div>
+            {deleteTarget.status === 'FINALIZED' && (
+              <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs text-amber-700 mb-3">
+                This session is finalized. Deleting it won&apos;t revert inventory stock levels.
+              </div>
+            )}
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setDeleteTarget(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={handleDeleteSession} disabled={deleting}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60">
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit session metadata modal ────────────────────────────────────── */}
+      {editTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-900">Edit session details</h3>
+              <button onClick={() => setEditTarget(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleEditSession} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Label</label>
+                <input value={editLabel} onChange={e => setEditLabel(e.target.value)}
+                  placeholder="e.g. Full count Apr 12"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Counted by</label>
+                <input value={editCountedBy} onChange={e => setEditCountedBy(e.target.value)} required
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
+                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setEditTarget(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button type="submit"
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700">
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

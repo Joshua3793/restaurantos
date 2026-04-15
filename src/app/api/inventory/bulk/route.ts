@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
 export async function POST(req: NextRequest) {
+  try {
   const { ids, action, value } = await req.json()
 
   switch (action) {
@@ -21,11 +22,38 @@ export async function POST(req: NextRequest) {
       await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { category: value } })
       break
     case 'delete':
-      await prisma.inventoryItem.deleteMany({ where: { id: { in: ids } } })
+      await prisma.$transaction([
+        // Null out nullable FKs so recipe ingredients / PREP links are preserved but unlinked
+        prisma.recipeIngredient.updateMany({
+          where: { inventoryItemId: { in: ids } },
+          data:  { inventoryItemId: null },
+        }),
+        prisma.recipe.updateMany({
+          where: { inventoryItemId: { in: ids } },
+          data:  { inventoryItemId: null },
+        }),
+        prisma.invoiceScanItem.updateMany({
+          where: { matchedItemId: { in: ids } },
+          data:  { matchedItemId: null },
+        }),
+        // Delete records with non-nullable FKs
+        prisma.invoiceLineItem.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+        prisma.countLine.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+        prisma.inventorySnapshot.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+        prisma.wastageLog.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+        prisma.priceAlert.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+        prisma.invoiceMatchRule.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+        // Finally delete the items (supplierPrices cascade automatically)
+        prisma.inventoryItem.deleteMany({ where: { id: { in: ids } } }),
+      ])
       break
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   }
 
   return NextResponse.json({ success: true, affected: ids.length })
+  } catch (err) {
+    console.error('[bulk] error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "restaurant-os",
+  "name": "controla-os",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -24,6 +24,8 @@
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^3.8.1",
+    "resend": "^6.11.0",
+    "sharp": "^0.34.5",
     "uploadthing": "^7.7.4",
     "xlsx": "^0.18.5"
   },

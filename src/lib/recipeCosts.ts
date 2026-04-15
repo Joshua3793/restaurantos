@@ -44,23 +44,27 @@ export interface RecipeWithCost {
   foodCostPct: number | null
 }
 
+// Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
+// (Decimal implements toNumber() and toString() so Number() works on all three)
+type Numeric = number | string | { toNumber(): number; toString(): string }
+
 /** Compute cost for a recipe, applying unit conversions for every ingredient. */
 export function computeRecipeCost(
   recipe: {
-    baseYieldQty: number | string
-    portionSize: number | string | null
-    menuPrice: number | string | null
+    baseYieldQty: Numeric
+    portionSize: Numeric | null
+    menuPrice: Numeric | null
     ingredients: Array<{
       id: string
       sortOrder: number
-      qtyBase: number | string
+      qtyBase: Numeric
       unit: string
       notes: string | null
-      recipePercent?: number | string | null
+      recipePercent?: Numeric | null
       inventoryItemId: string | null
       linkedRecipeId: string | null
-      inventoryItem: { itemName: string; baseUnit: string; pricePerBaseUnit: number | string } | null
-      linkedRecipe: { name: string; baseYieldQty: number | string; portionSize: number | string | null } | null
+      inventoryItem: { itemName: string; baseUnit: string; pricePerBaseUnit: Numeric } | null
+      linkedRecipe: { name: string; baseYieldQty: Numeric; portionSize: Numeric | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
     }>
@@ -197,18 +201,41 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
 
 /**
  * After any ingredient change on a PREP recipe, sync cost to its linked InventoryItem.
+ * Updates ALL pricing fields so the inventory display matches the recipe exactly.
  */
 export async function syncPrepToInventory(recipeId: string) {
   const recipe = await fetchRecipeWithCost(recipeId)
   if (!recipe || recipe.type !== 'PREP' || !recipe.inventoryItemId) return
 
-  const pricePerBaseUnit = recipe.baseYieldQty > 0 ? recipe.totalCost / recipe.baseYieldQty : 0
+  const baseYieldQty     = recipe.baseYieldQty > 0 ? recipe.baseYieldQty : 1
+  const yieldUnit        = recipe.yieldUnit
+  const pricePerBaseUnit = recipe.totalCost / baseYieldQty
+
+  // Preserve the user-chosen countUOM; only recompute conversionFactor from it
+  const current = await prisma.inventoryItem.findUnique({
+    where:  { id: recipe.inventoryItemId },
+    select: { countUOM: true },
+  })
+  const countUOM = current?.countUOM ?? yieldUnit
+
+  // conversionFactor = how many yieldUnits per 1 countUnit
+  // e.g. countUOM='l', yieldUnit='ml' → convertQty(1,'l','ml') = 1000
+  let conversionFactor = convertQty(1, countUOM, yieldUnit)
+  // 'batch' is a special pseudo-unit: 1 batch = full recipe yield
+  if (countUOM.toLowerCase() === 'batch') conversionFactor = baseYieldQty
+  // If incompatible dimensions, convertQty returns 1 unchanged — that's our fallback
 
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },
     data: {
-      purchasePrice: recipe.totalCost,
-      pricePerBaseUnit,
+      purchasePrice:      recipe.totalCost,   // cost of making one batch
+      pricePerBaseUnit,                        // cost per yieldUnit (e.g. $/ml)
+      baseUnit:           yieldUnit,           // e.g. 'ml', 'g', 'each'
+      packUOM:            yieldUnit,           // pack unit = yield unit
+      packSize:           baseYieldQty,        // how much one batch produces
+      qtyPerPurchaseUnit: 1,                   // 1 batch per "purchase"
+      purchaseUnit:       'batch',
+      conversionFactor,
       lastUpdated: new Date(),
     },
   })

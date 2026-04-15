@@ -14,9 +14,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const li of invoice.lineItems) {
     const item = li.inventoryItem
     const newPurchasePrice = parseFloat(String(li.priceOverride ?? li.unitPrice))
-    const qty = parseFloat(String(item.qtyPerPurchaseUnit))
-    const cf = parseFloat(String(item.conversionFactor))
-    const newPPBU = calcPricePerBaseUnit(newPurchasePrice, qty, cf)
+    const qty      = parseFloat(String(item.qtyPerPurchaseUnit))
+    const packSize = parseFloat(String(item.packSize))
+    const packUOM  = item.packUOM
+    const newPPBU  = calcPricePerBaseUnit(newPurchasePrice, qty, packSize, packUOM)
     const newStock = parseFloat(String(item.stockOnHand)) + parseFloat(String(li.qtyPurchased))
 
     await prisma.inventoryItem.update({

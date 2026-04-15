@@ -35,15 +35,16 @@ async function main() {
     const counted = Math.max(0, expected + variance)
     const countedRounded = Math.round(counted * 100) / 100
     const v = countedRounded - expected
-    const vc = v * Number(item.pricePerBaseUnit) * Number(item.conversionFactor)
+    const variancePct = expected > 0 ? (v / expected) * 100 : 0
+    const varianceCost = v * Number(item.pricePerBaseUnit)
     return {
       inventoryItemId: item.id,
       expectedQty: expected,
       countedQty: countedRounded,
-      countUom: item.countUOM,
+      selectedUom: item.countUOM,
       priceAtCount: item.pricePerBaseUnit,
-      variance: v,
-      varianceCost: vc,
+      variancePct,
+      varianceCost,
     }
   })
 
@@ -52,22 +53,32 @@ async function main() {
     return s + l.countedQty * Number(item.conversionFactor) * Number(item.pricePerBaseUnit)
   }, 0)
 
-  const session = await prisma.countSession.create({
-    data: {
-      sessionDate,
-      type: 'FULL',
-      status: 'FINALIZED',
-      countedBy: 'Fergie',
-      totalCountedValue,
-      startedAt: sessionDate,
-      finalizedAt,
-      notes: 'Sample seeded count session',
-      lines: {
-        create: lineData,
-      },
+ const session = await prisma.countSession.create({
+  data: {
+    label: 'Sample full inventory count',
+    sessionDate,
+    type: 'FULL',
+    status: 'FINALIZED',
+    countedBy: 'System Seed',
+    totalCountedValue,
+    startedAt: sessionDate,
+    finalizedAt,
+    notes: 'Sample seeded count session',
+    lines: {
+      create: lineData.map((line) => ({
+        inventoryItem: {
+          connect: { id: line.inventoryItemId },
+        },
+        selectedUom: line.selectedUom,
+        expectedQty: line.expectedQty,
+        countedQty: line.countedQty,
+        priceAtCount: Number(line.priceAtCount),
+        variancePct: line.variancePct,
+        varianceCost: line.varianceCost,
+      })),
     },
-  })
-
+  },
+})
   // Create snapshots
   const snapshots = items.map(item => {
     const line = lineData.find(l => l.inventoryItemId === item.id)!

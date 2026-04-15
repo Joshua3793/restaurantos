@@ -16,7 +16,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   let itemsSkipped = 0
   let totalVarianceCost = 0
 
-  const stockUpdates: Parameters<typeof prisma.$transaction>[0] = []
+  const stockUpdates: ReturnType<typeof prisma.inventoryItem.update>[] = []
   const snapshotData: {
     sessionId: string; inventoryItemId: string; snapshotDate: Date
     qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number; category: string

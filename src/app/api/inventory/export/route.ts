@@ -22,7 +22,7 @@ export async function GET() {
 
   // KPI sheet
   const kpiData = [
-    ['RestaurantOS Inventory Export'],
+    ['CONTROLA OS Inventory Export'],
     ['Generated:', new Date().toLocaleString()],
     [],
     ['KPI Summary'],

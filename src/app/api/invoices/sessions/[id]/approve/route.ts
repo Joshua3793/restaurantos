@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
+import { saveMatchRule } from '@/lib/invoice-matcher'
 
 // POST /api/invoices/sessions/[id]/approve
 // Applies all approved scan items: updates inventory prices, creates supplier price records,
@@ -105,20 +106,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
 
       // ── CREATE_NEW ────────────────────────────────────────────────────────
-      if (scanItem.action === 'CREATE_NEW' && scanItem.newItemData) {
-        const newData = JSON.parse(scanItem.newItemData)
+      if (scanItem.action === 'CREATE_NEW') {
+        const newData = scanItem.newItemData ? JSON.parse(scanItem.newItemData) : {}
         const created = await tx.inventoryItem.create({
           data: {
             itemName:          newData.itemName || scanItem.rawDescription,
-            category:          newData.category || 'UNCATEGORIZED',
+            category:          newData.category || 'DRY',
             purchaseUnit:      newData.purchaseUnit || scanItem.rawUnit || 'each',
-            qtyPerPurchaseUnit: newData.qtyPerPurchaseUnit || 1,
-            purchasePrice:     scanItem.newPrice || 0,
-            baseUnit:          newData.baseUnit || 'each',
-            packSize:          newData.packSize || 1,
+            qtyPerPurchaseUnit: Number(newData.qtyPerPurchaseUnit) || 1,
+            purchasePrice:     Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0,
+            baseUnit:          newData.baseUnit || newData.packUOM || 'each',
+            packSize:          Number(newData.packSize) || 1,
             packUOM:           newData.packUOM || 'each',
-            conversionFactor:  newData.conversionFactor || 1,
-            pricePerBaseUnit:  scanItem.newPrice || 0,
+            conversionFactor:  Number(newData.conversionFactor) || 1,
+            pricePerBaseUnit:  Number(newData.pricePerBaseUnit) || Number(scanItem.newPrice) || 0,
             supplierId:        session.supplierId || null,
           },
         })
@@ -143,6 +144,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       data: { status: 'APPROVED', approvedBy, approvedAt: new Date() },
     })
   })
+
+  // Save learned match rules (outside transaction — non-critical)
+  for (const scanItem of itemsToProcess) {
+    if (scanItem.matchedItemId && scanItem.action !== 'SKIP') {
+      await saveMatchRule(
+        scanItem.rawDescription,
+        scanItem.matchedItemId,
+        session.supplierName,
+        scanItem.invoicePackQty ? {
+          packQty: Number(scanItem.invoicePackQty),
+          packSize: Number(scanItem.invoicePackSize),
+          packUOM: scanItem.invoicePackUOM ?? 'each',
+        } : undefined
+      ).catch(() => {}) // ignore errors — learning is best-effort
+    }
+  }
 
   // Recalculate recipe costs for changed items (outside transaction)
   if (updatedItemIds.length > 0) {

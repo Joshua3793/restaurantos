@@ -9,7 +9,33 @@ export const UNIT_CONV: Record<string, number> = {
 }
 
 export const PACK_UOMS = ['each', 'g', 'kg', 'lb', 'oz', 'ml', 'l'] as const
-export const COUNT_UOMS = ['each', 'pkg', 'case', 'kg', 'lb', 'g', 'l', 'ml', 'oz'] as const
+
+// Grouped count UOMs by dimension
+export const WEIGHT_COUNT_UOMS = ['g', 'kg', 'lb', 'oz'] as const
+export const VOLUME_COUNT_UOMS = ['ml', 'cl', 'l', 'fl oz', 'cup', 'tsp', 'tbsp'] as const
+export const EACH_COUNT_UOMS   = ['each', 'pkg', 'case', 'portion', 'serve', 'batch'] as const
+
+export const COUNT_UOMS = [
+  ...EACH_COUNT_UOMS,
+  ...WEIGHT_COUNT_UOMS,
+  ...VOLUME_COUNT_UOMS,
+] as const
+
+/** Returns 'weight', 'volume', or 'count' for a given unit string */
+export function getUnitDimension(unit: string): 'weight' | 'volume' | 'count' {
+  const u = unit?.toLowerCase() ?? 'each'
+  if (['g', 'mg', 'kg', 'lb', 'oz'].includes(u)) return 'weight'
+  if (['ml', 'cl', 'dl', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'pt', 'qt', 'gal'].includes(u)) return 'volume'
+  return 'count'
+}
+
+/** Returns the valid Count UOM options for a given base unit */
+export function compatibleCountUnits(baseUnit: string): string[] {
+  const dim = getUnitDimension(baseUnit)
+  if (dim === 'weight') return [...WEIGHT_COUNT_UOMS, 'batch']
+  if (dim === 'volume') return [...VOLUME_COUNT_UOMS, 'batch']
+  return [...EACH_COUNT_UOMS]
+}
 
 export function getUnitConv(uom: string): number {
   return UNIT_CONV[uom?.toLowerCase()] ?? 1
@@ -61,6 +87,14 @@ export function formatUnitPrice(amount: number): string {
 
 export function formatDate(date: Date | string): string {
   return new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+/** Format a qty+unit pair with automatic up-conversion (1000g→1 kg, 1000ml→1 L). */
+export function formatQtyUnit(qty: number, unit: string): string {
+  const u = unit.toLowerCase()
+  if (u === 'g' && qty >= 1000)  return `${+(qty / 1000).toPrecision(4).replace(/\.?0+$/, '')} kg`
+  if (u === 'ml' && qty >= 1000) return `${+(qty / 1000).toPrecision(4).replace(/\.?0+$/, '')} L`
+  return `${qty} ${unit}`
 }
 
 export const CATEGORY_COLORS: Record<string, string> = {

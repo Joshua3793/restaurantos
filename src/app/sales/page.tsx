@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpDown, BarChart2, Calendar, Check, ChevronDown, ChevronUp,
-  Download, Pencil, Plus, Search, Trash2, TrendingUp, Upload, Users, X,
+  Pencil, Plus, Search, Trash2, TrendingUp, Upload, Users, X,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
@@ -336,128 +336,262 @@ function DayDetail({ sale, onEdit, onClose }: { sale: Sale; onEdit: () => void; 
   )
 }
 
-// ─── Import Modal ─────────────────────────────────────────────────────────────
+// ─── Import Modal (Toast POS ProductMix) ─────────────────────────────────────
+
+interface ParsedItem {
+  rawName: string
+  qtySold: number
+  matchedRecipeId: string | null
+  matchedRecipeName: string | null
+  matchConfidence: 'exact' | 'fuzzy' | 'none'
+}
+
+interface ParseResult {
+  date: string
+  totalSales: number
+  foodSales: number
+  items: ParsedItem[]
+}
+
+function ConfidenceBadge({ c }: { c: ParsedItem['matchConfidence'] }) {
+  if (c === 'exact')  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-100 text-green-700">matched</span>
+  if (c === 'fuzzy')  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">fuzzy</span>
+  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">unmatched</span>
+}
 
 function ImportModal({ menuRecipes, onImport, onClose }: {
   menuRecipes: RecipeSummary[]
-  onImport: (rows: { date: string; totalRevenue: string; covers: string; foodSalesPct: string; notes: string; lineItems: { recipeId: string; qtySold: number }[] }[]) => Promise<void>
+  onImport: (row: { date: string; totalRevenue: string; covers: string; foodSalesPct: string; notes: string; lineItems: { recipeId: string; qtySold: number }[] }) => Promise<void>
   onClose: () => void
 }) {
-  const [file,       setFile]       = useState<File | null>(null)
-  const [preview,    setPreview]    = useState<string[][]>([])
-  const [error,      setError]      = useState('')
-  const [importing,  setImporting]  = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [step,     setStep]     = useState<'upload' | 'review'>('upload')
+  const [file,     setFile]     = useState<File | null>(null)
+  const [parsing,  setParsing]  = useState(false)
+  const [parseErr, setParseErr] = useState('')
+  const [parsed,   setParsed]   = useState<ParseResult | null>(null)
+  const [saving,   setSaving]   = useState(false)
 
-  const TEMPLATE_ROWS = [
-    ['date', 'total_revenue', 'covers', 'food_sales_pct', 'notes'],
-    ['2026-04-01', '5000', '120', '0.70', 'Friday night'],
-    ['2026-04-02', '3200', '80', '0.75', ''],
-  ]
-  const downloadTemplate = () => {
-    const csv = TEMPLATE_ROWS.map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sales_template.csv'; a.click()
-  }
+  // Editable review fields
+  const [date,       setDate]       = useState('')
+  const [totalSales, setTotalSales] = useState('')
+  const [foodSales,  setFoodSales]  = useState('')
+  const [qtys,       setQtys]       = useState<Record<string, number>>({})
+  // recipeId overrides for unmatched/fuzzy items
+  const [overrides,  setOverrides]  = useState<Record<string, string>>({})
 
-  const parseFile = (f: File) => {
-    setError('')
-    const reader = new FileReader()
-    reader.onload = e => {
-      const text = e.target?.result as string
-      const rows = text.trim().split('\n').map(r => r.split(',').map(c => c.trim().replace(/^"|"$/g, '')))
-      if (rows.length < 2) { setError('File must have at least a header row and one data row'); return }
-      setPreview(rows.slice(0, 6))
+  const handleFile = async (f: File) => {
+    setFile(f)
+    setParseErr('')
+    setParsing(true)
+    try {
+      const form = new FormData()
+      form.append('file', f)
+      const res = await fetch('/api/sales/import', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Parse failed')
+      const result = data as ParseResult
+      setParsed(result)
+      setDate(result.date)
+      setTotalSales(String(result.totalSales))
+      setFoodSales(String(result.foodSales))
+      // Initialise qtys from parsed items (keyed by rawName, then recipeId when confirmed)
+      const qMap: Record<string, number> = {}
+      for (const item of result.items) {
+        if (item.matchedRecipeId) qMap[item.matchedRecipeId] = item.qtySold
+      }
+      setQtys(qMap)
+      setOverrides({})
+      setStep('review')
+    } catch (err: unknown) {
+      setParseErr(err instanceof Error ? err.message : 'Failed to parse file')
+    } finally {
+      setParsing(false)
     }
-    reader.readAsText(f)
   }
 
-  const handleFile = (f: File) => { setFile(f); parseFile(f) }
+  const handleSave = async () => {
+    if (!parsed) return
+    setSaving(true)
+    const total = parseFloat(totalSales) || 0
+    const food  = parseFloat(foodSales)  || 0
+    const foodSalesPct = total > 0 ? String((food / total).toFixed(4)) : '0.7'
 
-  const handleImport = async () => {
-    if (!file) return
-    setImporting(true)
-    const reader = new FileReader()
-    reader.onload = async e => {
-      const text = e.target?.result as string
-      const rows = text.trim().split('\n').map(r => r.split(',').map(c => c.trim().replace(/^"|"$/g, '')))
-      const headers = rows[0].map(h => h.toLowerCase().replace(/\s+/g, '_'))
-      const data = rows.slice(1).filter(r => r[0]).map(r => {
-        const row: Record<string, string> = {}
-        headers.forEach((h, i) => { row[h] = r[i] ?? '' })
-        return {
-          date: row['date'],
-          totalRevenue: row['total_revenue'] || '0',
-          covers: row['covers'] || '',
-          foodSalesPct: row['food_sales_pct'] || '0.7',
-          notes: row['notes'] || '',
-          lineItems: [] as { recipeId: string; qtySold: number }[],
-        }
-      })
-      await onImport(data)
-      setImporting(false)
+    // Build lineItems from matched items (respecting overrides)
+    const lineItems: { recipeId: string; qtySold: number }[] = []
+    for (const item of parsed.items) {
+      const recipeId = overrides[item.rawName] ?? item.matchedRecipeId
+      if (!recipeId) continue
+      const qty = qtys[recipeId] ?? item.qtySold
+      if (qty > 0) lineItems.push({ recipeId, qtySold: qty })
     }
-    reader.readAsText(file)
+
+    await onImport({ date, totalRevenue: totalSales, covers: '', foodSalesPct, notes: '', lineItems })
+    setSaving(false)
   }
+
+  const foodPct = (() => {
+    const t = parseFloat(totalSales) || 0
+    const f = parseFloat(foodSales)  || 0
+    return t > 0 ? Math.round((f / t) * 100) : 0
+  })()
+
+  const matched   = parsed?.items.filter(i => (overrides[i.rawName] ?? i.matchedRecipeId) !== null) ?? []
+  const unmatched = parsed?.items.filter(i => (overrides[i.rawName] ?? i.matchedRecipeId) === null) ?? []
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
-      <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">Import Sales from CSV</h2>
+      <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Import from Toast POS</h2>
+            {step === 'review' && <p className="text-xs text-gray-400 mt-0.5">Review and confirm before saving</p>}
+          </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
         </div>
-        <div className="px-5 py-4 space-y-4">
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
-            Upload a CSV with columns: <code className="bg-blue-100 px-1 rounded text-xs">date, total_revenue, covers, food_sales_pct, notes</code>.
-            Dates must be in YYYY-MM-DD format. Export from Excel as &ldquo;CSV UTF-8&rdquo;.
-          </div>
 
-          <button onClick={downloadTemplate} className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
-            <Download size={14} /> Download template CSV
-          </button>
-
-          {/* Drop zone */}
-          <div
-            onClick={() => fileRef.current?.click()}
-            onDragOver={e => e.preventDefault()}
-            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-            className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 transition-colors"
-          >
-            <Upload size={24} className="mx-auto text-gray-300 mb-2" />
-            <div className="text-sm text-gray-500">{file ? file.name : 'Click or drag a CSV file here'}</div>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
-          </div>
-
-          {error && <div className="text-sm text-red-500">{error}</div>}
-
-          {/* Preview */}
-          {preview.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-gray-100">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50">
-                  <tr>{preview[0].map((h, i) => <th key={i} className="px-2 py-1.5 text-left font-medium text-gray-500">{h}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {preview.slice(1).map((row, ri) => (
-                    <tr key={ri} className="border-t border-gray-50">
-                      {row.map((cell, ci) => <td key={ci} className="px-2 py-1.5 text-gray-700">{cell}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {preview.length >= 6 && <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">Showing first 5 rows…</div>}
+        {/* ── Upload step ── */}
+        {step === 'upload' && (
+          <div className="px-5 py-5 space-y-4">
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
+              Upload the <strong>ProductMix</strong> Excel exported from Toast POS. The system will extract food sales totals and BRUNCH item quantities automatically.
             </div>
-          )}
-        </div>
-        <div className="px-5 pb-5 flex gap-3">
-          <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-          <button onClick={handleImport} disabled={!file || importing}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-            {importing ? 'Importing…' : 'Import'}
-          </button>
-        </div>
+
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+              className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 transition-colors"
+            >
+              {parsing ? (
+                <div className="text-sm text-gray-500">Parsing file…</div>
+              ) : (
+                <>
+                  <Upload size={28} className="mx-auto text-gray-300 mb-2" />
+                  <div className="text-sm font-medium text-gray-600">{file ? file.name : 'Click or drag your ProductMix file here'}</div>
+                  <div className="text-xs text-gray-400 mt-1">Accepts .xlsx or .csv</div>
+                </>
+              )}
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            </div>
+
+            {parseErr && (
+              <div className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{parseErr}</div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Review step ── */}
+        {step === 'review' && parsed && (
+          <>
+            <div className="px-5 py-4 overflow-y-auto flex-1 space-y-5">
+
+              {/* Date + Totals */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
+                  <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                    <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                    Food Sales <span className="text-gray-400 font-normal">({foodPct}%)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                    <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Matched items */}
+              <div>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  BRUNCH items · {parsed.items.length} from Toast · {matched.length} matched
+                </div>
+                <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+                  {parsed.items.map(item => {
+                    const recipeId = overrides[item.rawName] ?? item.matchedRecipeId
+                    const confidence = overrides[item.rawName] ? 'exact' : item.matchConfidence
+                    const qty = recipeId ? (qtys[recipeId] ?? item.qtySold) : item.qtySold
+                    return (
+                      <div key={item.rawName} className="flex items-center gap-3 px-3 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-800 truncate">{item.rawName}</span>
+                            <ConfidenceBadge c={confidence} />
+                          </div>
+                          {/* Recipe selector */}
+                          <select
+                            value={recipeId ?? ''}
+                            onChange={e => {
+                              const val = e.target.value
+                              setOverrides(o => ({ ...o, [item.rawName]: val }))
+                              if (val && !qtys[val]) {
+                                setQtys(q => ({ ...q, [val]: item.qtySold }))
+                              }
+                            }}
+                            className="mt-1 w-full border border-gray-100 rounded-lg px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-gray-50"
+                          >
+                            <option value="">— not matched —</option>
+                            {menuRecipes.map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-xs text-gray-400">×</span>
+                          <input
+                            type="number" min="0" step="1"
+                            value={recipeId ? qty : item.qtySold}
+                            onChange={e => {
+                              const rid = recipeId
+                              if (rid) setQtys(q => ({ ...q, [rid]: parseInt(e.target.value) || 0 }))
+                            }}
+                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {unmatched.length > 0 && (
+                <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                  {unmatched.length} item{unmatched.length > 1 ? 's' : ''} not matched to a menu recipe — they won&apos;t be recorded. Use the dropdown above to assign them.
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 pb-5 pt-3 border-t border-gray-100 shrink-0 flex gap-3">
+              <button onClick={() => setStep('upload')} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                ← Back
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+                {saving ? 'Saving…' : `Save sales for ${date}`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -574,10 +708,8 @@ export default function SalesPage() {
     fetchSales()
   }
 
-  const handleImport = async (rows: Parameters<Parameters<typeof ImportModal>[0]['onImport']>[0]) => {
-    for (const row of rows) {
-      await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row) })
-    }
+  const handleImport = async (row: Parameters<Parameters<typeof ImportModal>[0]['onImport']>[0]) => {
+    await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row) })
     setShowImport(false)
     fetchSales()
   }
@@ -595,7 +727,7 @@ export default function SalesPage() {
         <div className="flex items-center gap-2">
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-            <Upload size={15} /> Import CSV
+            <Upload size={15} /> Import
           </button>
           <button onClick={() => setShowAdd(true)}
             className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors">
@@ -624,6 +756,26 @@ export default function SalesPage() {
           </div>
         )}
       </div>
+
+      {/* Onboarding card — shown when no sales have ever been recorded */}
+      {!loading && sales.length === 0 && rangeMode === 'week' && (
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex gap-4 items-start">
+          <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+            <BarChart2 size={20} className="text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-blue-900 text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
+            <p className="text-xs text-blue-700 leading-relaxed mb-3">
+              Add each service day — total revenue, covers, and which menu items sold. This powers the food cost % calculation in your dashboard and analytics.
+              You can also <button onClick={() => setShowImport(true)} className="underline font-medium">import from Toast POS</button> if you have a ProductMix export.
+            </p>
+            <button onClick={() => setShowAdd(true)}
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+              <Plus size={14} /> Add First Sales Day
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

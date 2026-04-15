@@ -85,10 +85,13 @@ async function buildConsumptionMap(since: Date): Promise<Map<string, number>> {
 export async function POST(req: NextRequest) {
   const { label, type = 'FULL', areaFilter, countedBy, sessionDate } = await req.json()
 
+  // areaFilter is a comma-separated list of storageArea IDs
+  const areaIds = areaFilter ? areaFilter.split(',').map((s: string) => s.trim()).filter(Boolean) : []
+
   const items = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
-      ...(areaFilter ? { location: { contains: areaFilter } } : {}),
+      ...(areaIds.length > 0 ? { storageAreaId: { in: areaIds } } : {}),
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
@@ -129,7 +132,7 @@ export async function POST(req: NextRequest) {
     if (!p.inventoryItem) continue
     // qtyReceived is in purchase units; convert to base units
     const unitsPerCase = Number(p.inventoryItem.qtyPerPurchaseUnit) * Number(p.inventoryItem.packSize)
-    const baseUnits = Number(p.qtyOrdered) * unitsPerCase
+    const baseUnits = Number(p.qtyPurchased) * unitsPerCase
     purchaseMap.set(p.inventoryItemId!, (purchaseMap.get(p.inventoryItemId!) ?? 0) + baseUnits)
   }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
+import { computePriority, computeSuggestedQty, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 
 const recipeInclude = {
   select: {
@@ -110,10 +110,9 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  const PRIORITY_ORDER: Record<string, number> = { '911': 0, 'NEEDED_TODAY': 1, 'LOW_STOCK': 2, 'LATER': 3 }
   enriched.sort((a, b) => {
-    const pa = PRIORITY_ORDER[a.priority] ?? 99
-    const pb = PRIORITY_ORDER[b.priority] ?? 99
+    const pa = PREP_PRIORITY_ORDER.indexOf(a.priority)
+    const pb = PREP_PRIORITY_ORDER.indexOf(b.priority)
     if (pa !== pb) return pa - pb
     return a.name.localeCompare(b.name)
   })
