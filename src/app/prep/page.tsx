@@ -27,7 +27,7 @@ export default function PrepPage() {
   const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
-  const [viewMode,       setViewMode]       = useState<'today' | 'needs-action'>('today')
+  const [viewMode,       setViewMode]       = useState<'today' | 'needs-action' | 'plan'>('today')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -68,6 +68,7 @@ export default function PrepPage() {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
     if (filterPriority !== 'ALL' && item.priority !== filterPriority)     return false
     if (filterCategory !== 'ALL' && item.category !== filterCategory)     return false
+    if (viewMode === 'plan') return true  // plan mode: no status filtering
     const s = item.todayLog?.status ?? 'NOT_STARTED'
     if (filterStatus !== 'ALL' && s !== filterStatus) return false
     if (viewMode === 'needs-action' && (s === 'DONE' || s === 'SKIPPED')) return false
@@ -144,6 +145,16 @@ export default function PrepPage() {
     } catch (e) {
       console.error('Failed to update priority', e)
       setActionError('Priority update failed — try again.')
+    }
+  }
+
+  async function handleDelete(itemId: string) {
+    try {
+      await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
+      load()
+    } catch (e) {
+      console.error('Failed to delete prep item', e)
+      setActionError('Delete failed — try again.')
     }
   }
 
@@ -228,12 +239,12 @@ export default function PrepPage() {
             <span className="text-gray-600">Active only</span>
           </label>
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-            {(['today', 'needs-action'] as const).map(m => (
+            {(['today', 'needs-action', 'plan'] as const).map(m => (
               <button key={m}
                 onClick={() => setViewMode(m)}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${viewMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {m === 'today' ? 'Today' : 'Needs Action'}
+                {m === 'today' ? 'Today' : m === 'needs-action' ? 'Needs Action' : 'Plan Tomorrow'}
               </button>
             ))}
           </div>
@@ -241,7 +252,7 @@ export default function PrepPage() {
       </div>
 
       {/* Currently Making */}
-      {inProgress.length > 0 && (
+      {inProgress.length > 0 && viewMode !== 'plan' && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
           <div className="px-4 py-2 flex items-center gap-2 border-b border-blue-100">
             <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Currently Making</span>
@@ -252,8 +263,21 @@ export default function PrepPage() {
               <PrepItemRow key={item.id} item={item}
                 onClick={() => setSelected(item)}
                 onStatusChange={handleStatusChange}
-                onPriorityChange={handlePriorityChange} />
+                onPriorityChange={handlePriorityChange}
+                onDelete={handleDelete}
+                planMode={false} />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Plan Tomorrow banner */}
+      {viewMode === 'plan' && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
+          <span className="text-lg">📋</span>
+          <div>
+            <p className="text-sm font-semibold text-indigo-800">Planning tomorrow's prep</p>
+            <p className="text-xs text-indigo-600 mt-0.5">Tap a priority chip on each item to flag it for your team. Items at par are faded.</p>
           </div>
         </div>
       )}
@@ -267,7 +291,11 @@ export default function PrepPage() {
         <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
           <ChefHat size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-500 text-sm">
-            {items.length === 0 ? 'No prep items yet.' : 'Nothing matches your filters.'}
+            {items.length === 0
+              ? 'No prep items yet.'
+              : viewMode === 'plan'
+              ? 'No items match your filters.'
+              : 'Nothing matches your filters.'}
           </p>
           {items.length > 0 && viewMode === 'needs-action' && filterStatus === 'DONE' && (
             <p className="text-xs text-gray-400 mt-1">Tip: switch to "Today" mode to see completed items.</p>
@@ -287,6 +315,8 @@ export default function PrepPage() {
               onClick={() => setSelected(item)}
               onStatusChange={handleStatusChange}
               onPriorityChange={handlePriorityChange}
+              onDelete={handleDelete}
+              planMode={viewMode === 'plan'}
             />
           ))}
         </div>
