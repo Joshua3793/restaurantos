@@ -29,9 +29,11 @@ const INLINE_QTY_STATUSES = new Set(['DONE', 'PARTIAL'])
 
 export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
   const [confirmingDone, setConfirmingDone] = useState(false)
   const [confirmQty, setConfirmQty] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
 
   const priority      = PREP_PRIORITY_META[item.priority]
   const currentStatus = item.todayLog?.status ?? 'NOT_STARTED'
@@ -151,17 +153,28 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }:
       </button>
 
       {/* More menu */}
-      <div className="relative shrink-0">
+      <div className="shrink-0">
         <button
-          onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
+          ref={menuButtonRef}
+          onClick={e => {
+            e.stopPropagation()
+            if (!menuOpen && menuButtonRef.current) {
+              const rect = menuButtonRef.current.getBoundingClientRect()
+              setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+            }
+            setMenuOpen(v => !v)
+          }}
           className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
         >
           <MoreHorizontal size={16} />
         </button>
         {menuOpen && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-0 top-7 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44 text-sm">
+            <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+            <div
+              className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44 text-sm"
+              style={{ top: menuPos.top, right: menuPos.right }}
+            >
               {['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'PARTIAL', 'BLOCKED', 'SKIPPED'].map(s => (
                 <button
                   key={s}
