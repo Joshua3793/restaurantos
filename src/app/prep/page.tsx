@@ -79,15 +79,9 @@ export default function PrepPage() {
     load()
   }
 
-  async function handleStatusChange(itemId: string, newStatus: string) {
+  async function handleStatusChange(itemId: string, newStatus: string, actualQty?: number) {
     const item = items.find(i => i.id === itemId)
     if (!item) return
-    const NEEDS_QTY = new Set(['DONE', 'PARTIAL'])
-    if (NEEDS_QTY.has(newStatus)) {
-      // Open detail panel for qty entry
-      setSelected(item)
-      return
-    }
     let logId = item.todayLog?.id
     if (!logId) {
       const log = await fetch('/api/prep/logs', {
@@ -100,7 +94,10 @@ export default function PrepPage() {
     await fetch(`/api/prep/logs/${logId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({
+        status: newStatus,
+        ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
+      }),
     })
     load()
   }
