@@ -283,6 +283,12 @@ export default function InvoicesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'UPLOADING' }),
       })
+    } else {
+      // Surface partial OCR failures — when the API succeeded but some files errored
+      const result = await processRes.json().catch(() => ({}))
+      if (result.ocrErrors > 0 && result.ocrItemCount === 0) {
+        setScanError('Claude couldn\'t read the invoice. Make sure the image is clear and well-lit, then try again.')
+      }
     }
 
     // 5. Final refresh
@@ -639,7 +645,11 @@ export default function InvoicesPage() {
               </div>
             ))}
             {session.scanItems.length === 0 && (
-              <div className="py-8 text-center text-sm text-gray-400">No items scanned yet</div>
+              <div className="py-8 text-center text-sm text-gray-400">
+                {session.files?.some(f => f.ocrStatus === 'ERROR')
+                  ? <span className="text-red-500">OCR failed — the invoice couldn&apos;t be read. Check the image quality and try scanning again.</span>
+                  : 'No items scanned yet — add line items manually or start a new scan.'}
+              </div>
             )}
           </div>
 
