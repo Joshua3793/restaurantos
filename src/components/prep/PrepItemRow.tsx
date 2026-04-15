@@ -59,6 +59,11 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
     }
   }, [confirmingDone])
 
+  function closeMenu() {
+    setMenuOpen(false)
+    setConfirmingDelete(false)
+  }
+
   function handleStatusButtonClick(e: React.MouseEvent) {
     e.stopPropagation()
     if (INLINE_QTY_STATUSES.has(nextStatus)) {
@@ -169,11 +174,15 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           ref={menuButtonRef}
           onClick={e => {
             e.stopPropagation()
-            if (!menuOpen && menuButtonRef.current) {
-              const rect = menuButtonRef.current.getBoundingClientRect()
-              setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+            if (menuOpen) {
+              closeMenu()
+            } else {
+              if (menuButtonRef.current) {
+                const rect = menuButtonRef.current.getBoundingClientRect()
+                setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+              }
+              setMenuOpen(true)
             }
-            setMenuOpen(v => !v)
           }}
           className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
         >
@@ -181,7 +190,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
         </button>
         {menuOpen && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+            <div className="fixed inset-0 z-40" onClick={closeMenu} />
             <div
               className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44 text-sm"
               style={{ top: menuPos.top, right: menuPos.right }}
