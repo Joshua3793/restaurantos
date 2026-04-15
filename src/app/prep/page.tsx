@@ -32,9 +32,16 @@ export default function PrepPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const data = await fetch(`/api/prep/items?active=${activeOnly}`).then(r => r.json())
-    setItems(Array.isArray(data) ? data : [])
-    setLoading(false)
+    try {
+      const res  = await fetch(`/api/prep/items?active=${activeOnly}`)
+      const data = await res.json()
+      setItems(Array.isArray(data) ? data : [])
+    } catch (e) {
+      console.error('Failed to load prep items', e)
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
   }, [activeOnly])
 
   useEffect(() => { load() }, [load])

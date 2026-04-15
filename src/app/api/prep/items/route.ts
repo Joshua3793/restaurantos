@@ -23,6 +23,7 @@ const recipeInclude = {
 } as const
 
 export async function GET(req: NextRequest) {
+  try {
   const { searchParams } = new URL(req.url)
   const activeOnly = searchParams.get('active') !== 'false'
 
@@ -109,6 +110,10 @@ export async function GET(req: NextRequest) {
   })
 
   return NextResponse.json(enriched)
+  } catch (err) {
+    console.error('[prep/items GET]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
