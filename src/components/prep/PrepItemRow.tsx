@@ -199,7 +199,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
                 <button
                   key={s}
                   onClick={() => {
-                    setMenuOpen(false)
+                    closeMenu()
                     if (INLINE_QTY_STATUSES.has(s)) {
                       // Route DONE/PARTIAL through inline form to capture qty
                       setConfirmQty(item.suggestedQty > 0 ? item.suggestedQty.toFixed(1) : '')
@@ -218,7 +218,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
               {PREP_PRIORITY_ORDER.map(p => (
                 <button
                   key={p}
-                  onClick={() => { onPriorityChange(item.id, p); setMenuOpen(false) }}
+                  onClick={() => { onPriorityChange(item.id, p); closeMenu() }}
                   className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
                 >
                   {PREP_PRIORITY_META[p as PrepPriority].label}
@@ -230,7 +230,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
                   <p className="text-xs text-gray-600 mb-2">Delete this item?</p>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => { setMenuOpen(false); setConfirmingDelete(false); onDelete(item.id) }}
+                      onClick={() => { closeMenu(); onDelete(item.id) }}
                       className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
                     >
                       Delete
