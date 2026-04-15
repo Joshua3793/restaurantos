@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
+import { calcPricePerBaseUnit } from '@/lib/utils'
 
 // POST /api/invoices/sessions/[id]/approve
 // Applies all approved scan items: updates inventory prices, creates supplier price records,
@@ -42,10 +43,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ) {
         const newPurchasePrice = Number(scanItem.newPrice)
         const item = scanItem.matchedItem!
-        const unitsPerPurchase = Number(item.qtyPerPurchaseUnit) * Number(item.packSize)
-        const newPricePerBase = unitsPerPurchase > 0
-          ? newPurchasePrice / unitsPerPurchase
-          : newPurchasePrice
+        // Use the same formula as the inventory PUT handler — includes getUnitConv(packUOM)
+        // so that volumetric/weight items (L, kg) aren't inflated 1000× vs each-based items.
+        const newPricePerBase = calcPricePerBaseUnit(
+          newPurchasePrice,
+          Number(item.qtyPerPurchaseUnit),
+          Number(item.packSize),
+          item.packUOM,
+        )
 
         // Update inventory item price
         await tx.inventoryItem.update({
