@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { ChevronRight, AlertCircle, MoreHorizontal } from 'lucide-react'
+import { ChevronRight, AlertCircle, MoreHorizontal, X } from 'lucide-react'
 import {
   PREP_PRIORITY_META,
   PREP_STATUS_META,
@@ -57,8 +57,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }:
   }
 
   function handleConfirm(status: 'DONE' | 'PARTIAL') {
-    const qty = parseFloat(confirmQty)
-    onStatusChange(item.id, status, isNaN(qty) ? undefined : qty)
+    const parsed = parseFloat(confirmQty)
+    const qty = !isNaN(parsed) ? Math.max(0, parsed) : undefined
+    onStatusChange(item.id, status, qty)
     setConfirmingDone(false)
   }
 
@@ -122,9 +123,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }:
           </button>
           <button
             onClick={handleCancel}
-            className="h-8 px-2 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 text-xs transition-colors"
+            className="h-8 px-2 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            ✕
+            <X size={12} />
           </button>
         </div>
       ) : (
@@ -164,7 +165,16 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange }:
               {['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'PARTIAL', 'BLOCKED', 'SKIPPED'].map(s => (
                 <button
                   key={s}
-                  onClick={() => { onStatusChange(item.id, s); setMenuOpen(false) }}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    if (INLINE_QTY_STATUSES.has(s)) {
+                      // Route DONE/PARTIAL through inline form to capture qty
+                      setConfirmQty(item.suggestedQty > 0 ? item.suggestedQty.toFixed(1) : '')
+                      setConfirmingDone(true)
+                    } else {
+                      onStatusChange(item.id, s)
+                    }
+                  }}
                   className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
                 >
                   {PREP_STATUS_META[s]?.label ?? s}
