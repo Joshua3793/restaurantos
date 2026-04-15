@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ChefHat, Plus, RefreshCw, Search } from 'lucide-react'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
@@ -14,6 +14,12 @@ export default function PrepPage() {
   const [selected,   setSelected]   = useState<PrepItemRich | null>(null)
   const [editing,    setEditing]    = useState<PrepItemRich | null>(null)
   const [showAdd,    setShowAdd]    = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  // Prevent duplicate concurrent status mutations per item
+  const pendingItems = useRef<Set<string>>(new Set())
+  // Prevent auto-generate from re-firing after the initial attempt
+  const hasAttemptedGenerate = useRef(false)
 
   // Filters
   const [search,         setSearch]         = useState('')
@@ -41,7 +47,8 @@ export default function PrepPage() {
 
   // Silently generate today's logs on first load if none exist yet
   useEffect(() => {
-    if (items.length > 0 && items.every(i => i.todayLog === null)) {
+    if (items.length > 0 && !hasAttemptedGenerate.current && items.every(i => i.todayLog === null)) {
+      hasAttemptedGenerate.current = true
       fetch('/api/prep/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -49,7 +56,7 @@ export default function PrepPage() {
       }).then(() => load())
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]) // intentionally not including load — runs once when items first populate
+  }, [items]) // intentionally not including load — one-shot on first populate
 
   // Auto-refresh every 60 seconds
   useEffect(() => {
@@ -71,47 +78,73 @@ export default function PrepPage() {
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
+  // Keep detail panel in sync with live data — avoids stale snapshot after auto-refresh
+  const selectedLive = useMemo(
+    () => selected ? (items.find(i => i.id === selected.id) ?? selected) : null,
+    [selected, items],
+  )
+
   const handleGenerate = async () => {
     setGenerating(true)
-    await fetch('/api/prep/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    })
-    setGenerating(false)
-    load()
+    try {
+      await fetch('/api/prep/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      await load()
+    } catch (e) {
+      console.error('Failed to refresh prep logs', e)
+      setActionError('Refresh failed — check your connection and try again.')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   async function handleStatusChange(itemId: string, newStatus: string, actualQty?: number) {
+    if (pendingItems.current.has(itemId)) return
     const item = items.find(i => i.id === itemId)
     if (!item) return
-    let logId = item.todayLog?.id
-    if (!logId) {
-      const log = await fetch('/api/prep/logs', {
-        method: 'POST',
+    pendingItems.current.add(itemId)
+    try {
+      let logId = item.todayLog?.id
+      if (!logId) {
+        const log = await fetch('/api/prep/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prepItemId: itemId }),
+        }).then(r => r.json())
+        logId = log.id
+      }
+      await fetch(`/api/prep/logs/${logId}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prepItemId: itemId }),
-      }).then(r => r.json())
-      logId = log.id
+        body: JSON.stringify({
+          status: newStatus,
+          ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
+        }),
+      })
+      load()
+    } catch (e) {
+      console.error('Failed to update prep status', e)
+      setActionError('Status update failed — try again.')
+    } finally {
+      pendingItems.current.delete(itemId)
     }
-    await fetch(`/api/prep/logs/${logId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: newStatus,
-        ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
-      }),
-    })
-    load()
   }
 
   async function handlePriorityChange(itemId: string, priority: string) {
-    await fetch(`/api/prep/items/${itemId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manualPriorityOverride: priority }),
-    })
-    load()
+    try {
+      await fetch(`/api/prep/items/${itemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualPriorityOverride: priority }),
+      })
+      load()
+    } catch (e) {
+      console.error('Failed to update priority', e)
+      setActionError('Priority update failed — try again.')
+    }
   }
 
   const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -146,6 +179,14 @@ export default function PrepPage() {
         </div>
       </div>
 
+      {/* Action error banner */}
+      {actionError && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+        </div>
+      )}
+
       {/* KPI strip */}
       <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
 
@@ -176,7 +217,7 @@ export default function PrepPage() {
           </select>
           <select className={selCls} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="ALL">All Categories</option>
-            {categories.map(c => <option key={c}>{c}</option>)}
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-4 text-sm flex-wrap">
@@ -228,6 +269,9 @@ export default function PrepPage() {
           <p className="text-gray-500 text-sm">
             {items.length === 0 ? 'No prep items yet.' : 'Nothing matches your filters.'}
           </p>
+          {items.length > 0 && viewMode === 'needs-action' && filterStatus === 'DONE' && (
+            <p className="text-xs text-gray-400 mt-1">Tip: switch to "Today" mode to see completed items.</p>
+          )}
           {items.length === 0 && (
             <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-blue-600 hover:text-blue-700">
               Add your first prep item →
@@ -249,12 +293,12 @@ export default function PrepPage() {
       )}
 
       {/* Detail panel */}
-      {selected && (
+      {selectedLive && (
         <PrepDetailPanel
-          item={selected}
+          item={selectedLive}
           onClose={() => setSelected(null)}
           onRefresh={() => { load(); setSelected(null) }}
-          onEdit={() => { setEditing(selected); setSelected(null) }}
+          onEdit={() => { setEditing(selectedLive); setSelected(null) }}
         />
       )}
 
