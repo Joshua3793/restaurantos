@@ -151,6 +151,7 @@ export default function PrepPage() {
   async function handleDelete(itemId: string) {
     try {
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
+      if (selected?.id === itemId) setSelected(null)  // close stale detail panel
       load()
     } catch (e) {
       console.error('Failed to delete prep item', e)
@@ -199,7 +200,10 @@ export default function PrepPage() {
       )}
 
       {/* KPI strip */}
-      <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+      {/* KPI strip — hidden in plan mode (data is today-specific, not relevant for planning) */}
+      {viewMode !== 'plan' && (
+        <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+      )}
 
       {/* Filters */}
       <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
