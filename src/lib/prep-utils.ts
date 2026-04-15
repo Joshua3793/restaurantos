@@ -93,6 +93,29 @@ export function computeSuggestedQty(
  * unit matches recipe yieldUnit → scale = actualPrepQty / baseYieldQty
  * otherwise → scale = 1, unitMismatch = true
  */
+/**
+ * Total estimated minutes of work remaining across all items.
+ * Excludes items whose todayLog status is DONE or SKIPPED.
+ */
+export function computeWorkloadMinutes(
+  items: Array<{ estimatedPrepTime: number | null; todayLog?: { status: string } | null }>,
+): number {
+  return items.reduce((sum, item) => {
+    const status = item.todayLog?.status ?? 'NOT_STARTED'
+    if (status === 'DONE' || status === 'SKIPPED') return sum
+    return sum + (item.estimatedPrepTime ?? 0)
+  }, 0)
+}
+
+export function formatMinutes(minutes: number): string {
+  if (minutes <= 0) return '0min'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m}min`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}min`
+}
+
 export function computeScale(
   actualPrepQty: number,
   unit: string,

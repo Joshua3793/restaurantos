@@ -370,6 +370,7 @@ model PrepItem {
   minThreshold           Decimal        @default(0)
   targetToday            Decimal?
   shelfLifeDays          Int?
+  estimatedPrepTime      Int?
   notes                  String?
   manualPriorityOverride String?
   isActive               Boolean        @default(true)

@@ -85,6 +85,7 @@ export async function GET(req: NextRequest) {
       minThreshold,
       targetToday,
       shelfLifeDays: item.shelfLifeDays,
+      estimatedPrepTime: item.estimatedPrepTime ?? null,
       notes: item.notes,
       manualPriorityOverride: item.manualPriorityOverride,
       isActive: item.isActive,
@@ -109,6 +110,14 @@ export async function GET(req: NextRequest) {
     }
   })
 
+  const PRIORITY_ORDER: Record<string, number> = { '911': 0, 'NEEDED_TODAY': 1, 'LOW_STOCK': 2, 'LATER': 3 }
+  enriched.sort((a, b) => {
+    const pa = PRIORITY_ORDER[a.priority] ?? 99
+    const pb = PRIORITY_ORDER[b.priority] ?? 99
+    if (pa !== pb) return pa - pb
+    return a.name.localeCompare(b.name)
+  })
+
   return NextResponse.json(enriched)
   } catch (err) {
     console.error('[prep/items GET]', err)
@@ -121,7 +130,7 @@ export async function POST(req: NextRequest) {
   const {
     name, linkedRecipeId, linkedInventoryItemId,
     category, station, parLevel, unit, minThreshold,
-    targetToday, shelfLifeDays, notes, manualPriorityOverride,
+    targetToday, shelfLifeDays, estimatedPrepTime, notes, manualPriorityOverride,
   } = body
 
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
@@ -138,6 +147,7 @@ export async function POST(req: NextRequest) {
       minThreshold:          minThreshold ? parseFloat(String(minThreshold)) : 0,
       targetToday:           targetToday  ? parseFloat(String(targetToday))  : null,
       shelfLifeDays:         shelfLifeDays ? parseInt(String(shelfLifeDays)) : null,
+      estimatedPrepTime:     estimatedPrepTime ? parseInt(String(estimatedPrepTime)) : null,
       notes:                 notes || null,
       manualPriorityOverride: manualPriorityOverride || null,
     },

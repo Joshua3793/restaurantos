@@ -92,6 +92,7 @@ export async function PUT(
       ...(body.minThreshold           !== undefined && { minThreshold: parseFloat(String(body.minThreshold)) }),
       ...(body.targetToday            !== undefined && { targetToday: body.targetToday ? parseFloat(String(body.targetToday)) : null }),
       ...(body.shelfLifeDays          !== undefined && { shelfLifeDays: body.shelfLifeDays ? parseInt(String(body.shelfLifeDays)) : null }),
+      ...(body.estimatedPrepTime      !== undefined && { estimatedPrepTime: body.estimatedPrepTime ? parseInt(String(body.estimatedPrepTime)) : null }),
       ...(body.notes                  !== undefined && { notes: body.notes || null }),
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
       ...(body.isActive               !== undefined && { isActive: body.isActive }),

@@ -36,6 +36,7 @@ export interface PrepItemRich {
   minThreshold: number
   targetToday: number | null
   shelfLifeDays: number | null
+  estimatedPrepTime: number | null
   notes: string | null
   manualPriorityOverride: string | null
   isActive: boolean
