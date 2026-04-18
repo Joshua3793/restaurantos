@@ -139,19 +139,24 @@ export function InlineEdit({ value, onSave, className = '' }: { value: string; o
 }
 
 // ─── RecipeCard ───────────────────────────────────────────────────────────────
-export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate }: {
+export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: {
   recipe: Recipe
   onOpen: () => void
   onToggle: () => void
   onDuplicate: () => void
+  onDelete?: () => void
 }) {
   const [showMore, setShowMore] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setShowMore(false)
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setShowMore(false)
+        setConfirmDelete(false)
+      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -250,6 +255,33 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate }: {
               {recipe.isActive ? <Minus size={13} /> : <Check size={13} />}
               {recipe.isActive ? 'Deactivate' : 'Activate'}
             </button>
+            {onDelete && (
+              <>
+                <div className="border-t border-gray-100 my-1" />
+                {confirmDelete ? (
+                  <div className="px-3 py-2">
+                    <p className="text-xs text-gray-500 mb-2">Delete permanently?</p>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => { setShowMore(false); setConfirmDelete(false); onDelete() }}
+                        className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                      >Delete</button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        className="flex-1 px-2 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50"
+                      >Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="w-full px-3 py-2 text-sm text-left text-red-600 hover:bg-red-50 flex items-center gap-2"
+                  >
+                    <Trash2 size={13} /> Delete
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -823,15 +855,35 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">
-                Base Yield
-                {(() => { const f = formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit); const raw = `${recipe.baseYieldQty} ${recipe.yieldUnit}`; return f !== raw ? <span className="ml-1 text-blue-500 font-normal">= {f}</span> : null })()}
+                {isMenu ? 'Portions per batch' : 'Base Yield'}
+                {!isMenu && (() => { const f = formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit); const raw = `${recipe.baseYieldQty} ${recipe.yieldUnit}`; return f !== raw ? <span className="ml-1 text-blue-500 font-normal">= {f}</span> : null })()}
               </label>
               <div className="flex gap-1">
                 <input type="number" min="0" step="0.01" defaultValue={recipe.baseYieldQty} onBlur={e => patchRecipe({ baseYieldQty: e.target.value })}
                   className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <input type="text" defaultValue={recipe.yieldUnit} onBlur={e => patchRecipe({ yieldUnit: e.target.value })}
-                  className="w-16 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <select
+                  value={recipe.yieldUnit}
+                  onChange={e => patchRecipe({ yieldUnit: e.target.value })}
+                  className="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {(isMenu
+                    ? ['portion', 'portions', 'serving', 'servings', 'each', 'piece', 'pieces', 'plate', 'bowl']
+                    : ['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray']
+                  ).map(u => <option key={u} value={u}>{u}</option>)}
+                  {/* Allow the existing value even if not in the list */}
+                  {!(isMenu
+                    ? ['portion', 'portions', 'serving', 'servings', 'each', 'piece', 'pieces', 'plate', 'bowl']
+                    : ['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray']
+                  ).includes(recipe.yieldUnit) && (
+                    <option value={recipe.yieldUnit}>{recipe.yieldUnit}</option>
+                  )}
+                </select>
               </div>
+              <p className="text-xs text-gray-400 mt-1">
+                {isMenu
+                  ? 'How many portions this recipe produces (usually 1)'
+                  : 'Total quantity produced by this recipe'}
+              </p>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">

@@ -87,6 +87,13 @@ function MenuPageInner() {
     setSelectedRecipeId(dup.id)
   }
 
+  const handleDelete = async (id: string) => {
+    await fetch(`/api/recipes/${id}`, { method: 'DELETE' })
+    if (selectedRecipeId === id) setSelectedRecipeId(null)
+    await loadRecipes()
+    await loadCategories()
+  }
+
   const activePill  = 'bg-blue-600 text-white shadow-sm'
   const inactivePill = 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
 
@@ -244,7 +251,10 @@ function MenuPageInner() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Base Yield *</label>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                    Portions per batch *
+                    <span className="ml-1 font-normal text-gray-400">(usually 1)</span>
+                  </label>
                   <div className="flex gap-1">
                     <input
                       required
@@ -256,14 +266,23 @@ function MenuPageInner() {
                       onChange={e => setNewForm(f => ({ ...f, baseYieldQty: e.target.value }))}
                       className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <input
+                    <select
                       required
-                      type="text"
-                      placeholder="each"
                       value={newForm.yieldUnit}
                       onChange={e => setNewForm(f => ({ ...f, yieldUnit: e.target.value }))}
-                      className="w-16 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">Unit…</option>
+                      <option value="portion">portion</option>
+                      <option value="portions">portions</option>
+                      <option value="serving">serving</option>
+                      <option value="servings">servings</option>
+                      <option value="each">each</option>
+                      <option value="piece">piece</option>
+                      <option value="pieces">pieces</option>
+                      <option value="plate">plate</option>
+                      <option value="bowl">bowl</option>
+                    </select>
                   </div>
                 </div>
                 <div>
@@ -321,6 +340,7 @@ function MenuPageInner() {
                 onOpen={() => setSelectedRecipeId(recipe.id)}
                 onToggle={() => handleToggle(recipe.id)}
                 onDuplicate={() => handleDuplicate(recipe)}
+                onDelete={() => handleDelete(recipe.id)}
               />
             ))}
           </div>

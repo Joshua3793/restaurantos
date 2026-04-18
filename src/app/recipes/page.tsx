@@ -70,6 +70,13 @@ export default function RecipesPage() {
     setSelectedRecipeId(dup.id)
   }
 
+  const handleDelete = async (id: string) => {
+    await fetch(`/api/recipes/${id}`, { method: 'DELETE' })
+    if (selectedRecipeId === id) setSelectedRecipeId(null)
+    await loadRecipes()
+    await loadCategories()
+  }
+
   const activePill  = 'bg-emerald-600 text-white shadow-sm'
   const inactivePill = 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
 
@@ -172,14 +179,31 @@ export default function RecipesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Base Yield *</label>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                    Base Yield *
+                    <span className="ml-1 font-normal text-gray-400">(total quantity produced)</span>
+                  </label>
                   <div className="flex gap-1">
-                    <input required type="number" min="0" step="0.01" placeholder="50" value={newForm.baseYieldQty}
+                    <input required type="number" min="0" step="0.01" placeholder="500" value={newForm.baseYieldQty}
                       onChange={e => setNewForm(f => ({ ...f, baseYieldQty: e.target.value }))}
                       className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                    <input required type="text" placeholder="each" value={newForm.yieldUnit}
+                    <select required value={newForm.yieldUnit}
                       onChange={e => setNewForm(f => ({ ...f, yieldUnit: e.target.value }))}
-                      className="w-16 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+                      <option value="">Unit…</option>
+                      <option value="g">g (grams)</option>
+                      <option value="kg">kg</option>
+                      <option value="ml">ml</option>
+                      <option value="L">L (litres)</option>
+                      <option value="each">each</option>
+                      <option value="oz">oz</option>
+                      <option value="lb">lb</option>
+                      <option value="portion">portion</option>
+                      <option value="portions">portions</option>
+                      <option value="batch">batch</option>
+                      <option value="cup">cup</option>
+                      <option value="tray">tray</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -216,7 +240,8 @@ export default function RecipesPage() {
               <RecipeCard key={recipe.id} recipe={recipe}
                 onOpen={() => setSelectedRecipeId(recipe.id)}
                 onToggle={() => handleToggle(recipe.id)}
-                onDuplicate={() => handleDuplicate(recipe)} />
+                onDuplicate={() => handleDuplicate(recipe)}
+                onDelete={() => handleDelete(recipe.id)} />
             ))}
           </div>
         )}

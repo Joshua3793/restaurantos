@@ -32,8 +32,30 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json(updated)
 }
 
-// Soft delete
+// Hard delete — cleans up references before removing the row
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  await prisma.recipe.update({ where: { id: params.id }, data: { isActive: false } })
-  return NextResponse.json({ success: true })
+  const id = params.id
+  try {
+    await prisma.$transaction(async tx => {
+      // 1. Null out any ingredients in other recipes that link to this recipe
+      await tx.recipeIngredient.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
+      // 2. Remove sale line items referencing this recipe
+      await tx.saleLineItem.deleteMany({ where: { recipeId: id } })
+      // 3. Disconnect prep items that reference this recipe
+      await tx.prepItem.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
+      // 4. Remove recipe alerts for this recipe
+      await tx.recipeAlert.deleteMany({ where: { recipeId: id } })
+      // 5. For PREP recipes: deactivate the synced inventory item (don't hard-delete — it may have stock history)
+      const recipe = await tx.recipe.findUnique({ where: { id }, select: { inventoryItemId: true } })
+      if (recipe?.inventoryItemId) {
+        await tx.inventoryItem.update({ where: { id: recipe.inventoryItemId }, data: { isActive: false } })
+      }
+      // 6. Delete the recipe — cascades to its own RecipeIngredient rows
+      await tx.recipe.delete({ where: { id } })
+    })
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[DELETE /api/recipes/:id]', err)
+    return NextResponse.json({ error: 'Failed to delete recipe' }, { status: 500 })
+  }
 }
