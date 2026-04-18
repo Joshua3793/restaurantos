@@ -19,6 +19,8 @@ export interface IngredientWithCost {
   ingredientType: 'inventory' | 'recipe'
   pricePerBaseUnit: number
   lineCost: number
+  /** The base unit of the linked inventory item / recipe — used to filter compatible UOM options in the UI */
+  ingredientBaseUnit: string
 }
 
 export interface RecipeWithCost {
@@ -77,20 +79,23 @@ export function computeRecipeCost(
     let ingredientName = 'Unknown'
     let ingredientType: 'inventory' | 'recipe' = 'inventory'
     let lineCostQty = qty   // qty converted to the ingredient's base unit for cost maths
+    let ingredientBaseUnit = ing.unit  // fallback: use current unit as base
 
     if (ing.inventoryItem) {
-      pricePerBaseUnit = Number(ing.inventoryItem.pricePerBaseUnit)
-      ingredientName   = ing.inventoryItem.itemName
-      ingredientType   = 'inventory'
+      pricePerBaseUnit   = Number(ing.inventoryItem.pricePerBaseUnit)
+      ingredientName     = ing.inventoryItem.itemName
+      ingredientType     = 'inventory'
+      ingredientBaseUnit = ing.inventoryItem.baseUnit
       // Convert recipe unit → inventory base unit before multiplying by price
       lineCostQty = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
     } else if (ing.linkedRecipe) {
-      pricePerBaseUnit = ing._linkedRecipeCostPerUnit ?? 0
-      ingredientName   = ing.linkedRecipe.name
-      ingredientType   = 'recipe'
+      pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
+      ingredientName     = ing.linkedRecipe.name
+      ingredientType     = 'recipe'
       // Convert recipe unit → linked recipe's yield unit before multiplying by price
-      const yieldUnit  = ing._linkedRecipeYieldUnit ?? ing.unit
-      lineCostQty      = convertQty(qty, ing.unit, yieldUnit)
+      const yieldUnit    = ing._linkedRecipeYieldUnit ?? ing.unit
+      ingredientBaseUnit = yieldUnit
+      lineCostQty        = convertQty(qty, ing.unit, yieldUnit)
     }
 
     return {
@@ -106,6 +111,7 @@ export function computeRecipeCost(
       ingredientType,
       pricePerBaseUnit,
       lineCost: lineCostQty * pricePerBaseUnit,
+      ingredientBaseUnit,
     }
   })
 

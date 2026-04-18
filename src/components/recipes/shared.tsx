@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit, calcPricePerBaseUnit, deriveBaseUnit, PACK_UOMS, compatibleCountUnits, getUnitDimension } from '@/lib/utils'
-import { UOM_GROUPS } from '@/lib/uom'
+import { UOM_GROUPS, getUnitGroup } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
@@ -33,6 +33,7 @@ export interface IngredientWithCost {
   ingredientType: 'inventory' | 'recipe'
   pricePerBaseUnit: number
   lineCost: number
+  ingredientBaseUnit: string
 }
 
 export interface Recipe {
@@ -660,6 +661,14 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
   const displayQty  = ing.qtyBase * scaleFactor
   const displayCost = ing.lineCost * scaleFactor
 
+  // Only show units that are compatible with the ingredient's inventory base unit.
+  // e.g. parsley is measured in 'g' → only Weight units are valid (g, kg, oz, lb, mg).
+  // Falls back to all groups if the base unit is unknown (e.g. custom/recipe units).
+  const baseUnitGroup = getUnitGroup(ing.ingredientBaseUnit)
+  const compatibleGroups = baseUnitGroup
+    ? UOM_GROUPS.filter(g => g.label === baseUnitGroup)
+    : UOM_GROUPS
+
   return (
     <div className="grid grid-cols-12 gap-2 px-3 py-2 items-center border-t border-gray-50 hover:bg-gray-50 group">
       <div className="col-span-4 flex items-center gap-1.5 min-w-0">
@@ -707,7 +716,7 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
         <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
           className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
           {!unitInList && <option value="__custom__">{unit}</option>}
-          {UOM_GROUPS.map(group => (
+          {compatibleGroups.map(group => (
             <optgroup key={group.label} label={group.label}>
               {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
             </optgroup>
