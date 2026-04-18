@@ -167,78 +167,82 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
 
   return (
     <div
-      className={`flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/60 transition-colors cursor-pointer ${inactive ? 'opacity-50' : ''}`}
+      className="flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/60 transition-colors cursor-pointer"
       onClick={onOpen}
     >
-      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: recipe.categoryColor ?? '#94a3b8' }} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-gray-900 text-sm">{recipe.name}</span>
-          {inactive && <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full">Off</span>}
+      {/* ── Faded content — everything except the more menu ── */}
+      <div className={`flex items-center gap-3 flex-1 min-w-0 ${inactive ? 'opacity-50' : ''}`}>
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: recipe.categoryColor ?? '#94a3b8' }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-gray-900 text-sm">{recipe.name}</span>
+            {inactive && <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full">Off</span>}
+          </div>
+          {/* Yield subtitle */}
+          <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">
+            {!isMenu ? (
+              <>
+                <span>Yields <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
+                {recipe.portionSize && recipe.portionUnit && recipe.portionSize > 0 && (
+                  <>
+                    <span className="text-gray-200">·</span>
+                    <span>
+                      <span className="text-gray-500 font-medium">
+                        {Math.round(recipe.baseYieldQty / recipe.portionSize)}
+                      </span> × {formatQtyUnit(recipe.portionSize, recipe.portionUnit)} portions
+                    </span>
+                  </>
+                )}
+                {recipe.usedInCount !== undefined && recipe.usedInCount > 0 && (
+                  <>
+                    <span className="text-gray-200">·</span>
+                    <span className="text-emerald-600 font-medium">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {recipe.portionSize && recipe.portionUnit ? (
+                  <span>Per portion: <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.portionSize, recipe.portionUnit)}</span></span>
+                ) : (
+                  <span>Yield: <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
+                )}
+              </>
+            )}
+          </div>
         </div>
-        {/* Yield subtitle */}
-        <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">
-          {!isMenu ? (
-            <>
-              <span>Yields <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
-              {recipe.portionSize && recipe.portionUnit && recipe.portionSize > 0 && (
-                <>
-                  <span className="text-gray-200">·</span>
-                  <span>
-                    <span className="text-gray-500 font-medium">
-                      {Math.round(recipe.baseYieldQty / recipe.portionSize)}
-                    </span> × {formatQtyUnit(recipe.portionSize, recipe.portionUnit)} portions
-                  </span>
-                </>
-              )}
-              {recipe.usedInCount !== undefined && recipe.usedInCount > 0 && (
-                <>
-                  <span className="text-gray-200">·</span>
-                  <span className="text-emerald-600 font-medium">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              {recipe.portionSize && recipe.portionUnit ? (
-                <span>Per portion: <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.portionSize, recipe.portionUnit)}</span></span>
-              ) : (
-                <span>Yield: <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
-              )}
-            </>
-          )}
-        </div>
+
+        {!isMenu && (
+          <div className="hidden sm:flex items-center gap-1.5 text-xs shrink-0">
+            <span className="text-gray-400">{formatCurrency(recipe.totalCost)}</span>
+            <span className="text-gray-200">·</span>
+            <span className="font-semibold text-gray-700">
+              {recipe.baseYieldQty > 0 ? `${formatUnitPrice(recipe.totalCost / recipe.baseYieldQty)}/${recipe.yieldUnit}` : '—'}
+            </span>
+          </div>
+        )}
+
+        {isMenu && (
+          <div className="hidden sm:flex items-center gap-1.5 text-xs shrink-0">
+            <span className="text-gray-400">{formatCurrency(recipe.totalCost)}</span>
+            <span className="text-gray-200">·</span>
+            <span className="text-gray-700">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
+            <span className="text-gray-200">·</span>
+            <span className={`font-semibold ${foodCostClass(recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null)}`}>
+              {recipe.menuPrice ? `${((recipe.totalCost / recipe.menuPrice) * 100).toFixed(1)}%` : '—'}
+            </span>
+          </div>
+        )}
+
+        <button
+          onClick={e => { e.stopPropagation(); onToggle() }}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}
+        >
+          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+        </button>
       </div>
 
-      {!isMenu && (
-        <div className="hidden sm:flex items-center gap-1.5 text-xs shrink-0">
-          <span className="text-gray-400">{formatCurrency(recipe.totalCost)}</span>
-          <span className="text-gray-200">·</span>
-          <span className="font-semibold text-gray-700">
-            {recipe.baseYieldQty > 0 ? `${formatUnitPrice(recipe.totalCost / recipe.baseYieldQty)}/${recipe.yieldUnit}` : '—'}
-          </span>
-        </div>
-      )}
-
-      {isMenu && (
-        <div className="hidden sm:flex items-center gap-1.5 text-xs shrink-0">
-          <span className="text-gray-400">{formatCurrency(recipe.totalCost)}</span>
-          <span className="text-gray-200">·</span>
-          <span className="text-gray-700">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
-          <span className="text-gray-200">·</span>
-          <span className={`font-semibold ${foodCostClass(recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null)}`}>
-            {recipe.menuPrice ? `${((recipe.totalCost / recipe.menuPrice) * 100).toFixed(1)}%` : '—'}
-          </span>
-        </div>
-      )}
-
-      <button
-        onClick={e => { e.stopPropagation(); onToggle() }}
-        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}
-      >
-        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
-      </button>
-
+      {/* ── More menu — always full opacity even when recipe is inactive ── */}
       <div className="relative shrink-0" ref={moreRef} onClick={e => e.stopPropagation()}>
         <button onClick={() => setShowMore(s => !s)} className="p-1 text-gray-300 hover:text-gray-500 rounded">
           <MoreHorizontal size={15} />
