@@ -19,7 +19,8 @@ export function AllergenBadges({ allergens, size = 'xs' }: BadgeProps) {
           <span
             key={key}
             title={def.label}
-            className={`inline-flex items-center rounded font-bold leading-none ${def.bg} ${def.text} ${
+            style={{ backgroundColor: def.hex, color: def.dark ? '#fff' : '#111' }}
+            className={`inline-flex items-center rounded font-bold leading-none ${
               size === 'xs'
                 ? 'px-1 py-0.5 text-[9px] tracking-wide'
                 : 'px-1.5 py-1 text-[11px] tracking-wide'
@@ -41,7 +42,6 @@ interface BulkAllergenModalProps {
 
 export function BulkAllergenModal({ count, onClose, onApply }: BulkAllergenModalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [mode, setMode] = useState<'add' | 'replace'>('add')
 
   const toggle = (key: string) =>
     setSelected(prev => {
@@ -58,20 +58,6 @@ export function BulkAllergenModal({ count, onClose, onApply }: BulkAllergenModal
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
         </div>
 
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5 mb-4 w-fit">
-          {(['add', 'replace'] as const).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                mode === m ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {m === 'add' ? 'Add to existing' : 'Replace all'}
-            </button>
-          ))}
-        </div>
-
         <div className="grid grid-cols-3 gap-2 mb-5">
           {ALLERGENS.map(a => {
             const on = selected.has(a.key)
@@ -79,14 +65,17 @@ export function BulkAllergenModal({ count, onClose, onApply }: BulkAllergenModal
               <button
                 key={a.key}
                 onClick={() => toggle(a.key)}
+                style={on ? { backgroundColor: a.hex, borderColor: a.hex } : undefined}
                 className={`flex flex-col items-center gap-1 p-2 rounded-xl border-2 transition-all ${
-                  on ? `border-transparent ${a.bg}` : 'border-gray-200 hover:border-gray-300 bg-white'
+                  on ? '' : 'border-gray-200 hover:border-gray-300 bg-white'
                 }`}
               >
-                <span className={`text-[10px] font-bold tracking-wide ${on ? 'text-white' : 'text-gray-500'}`}>
+                <span style={on ? { color: a.dark ? '#fff' : '#111' } : undefined}
+                  className={`text-[10px] font-bold tracking-wide ${on ? '' : 'text-gray-500'}`}>
                   {a.abbr}
                 </span>
-                <span className={`text-[9px] leading-tight text-center ${on ? 'text-white/80' : 'text-gray-400'}`}>
+                <span style={on ? { color: a.dark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.6)' } : undefined}
+                  className={`text-[9px] leading-tight text-center ${on ? '' : 'text-gray-400'}`}>
                   {a.label}
                 </span>
               </button>
@@ -96,11 +85,11 @@ export function BulkAllergenModal({ count, onClose, onApply }: BulkAllergenModal
 
         <div className="flex gap-2">
           <button
-            onClick={() => onApply(Array.from(selected), mode)}
+            onClick={() => onApply(Array.from(selected), 'add')}
             disabled={selected.size === 0}
             className="flex-1 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Apply to {count} items
+            Add to {count} items
           </button>
           <button onClick={onClose} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
             Cancel

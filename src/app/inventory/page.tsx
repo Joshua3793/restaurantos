@@ -5,6 +5,7 @@ import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { AllergenBadges, BulkAllergenModal } from '@/components/AllergenBadges'
+import { ALLERGENS } from '@/lib/allergens'
 import {
   Search, Plus, X, Download,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
@@ -22,7 +23,7 @@ interface InventoryItem {
   purchasePrice: number; baseUnit: string
   packSize: number; packUOM: string; countUOM: string
   conversionFactor: number; pricePerBaseUnit: number
-  stockOnHand: number; abbreviation?: string | null
+  stockOnHand: number
   allergens?: string[]
   isActive: boolean
   lastCountDate?: string | null; lastCountQty?: number | null
@@ -1117,24 +1118,37 @@ function InventoryPageInner() {
                 {/* Allergens — Health Canada Big 9 */}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-2">Allergens (Health Canada Big 9)</label>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {['Peanuts','Tree Nuts','Sesame','Milk','Eggs','Fish','Shellfish','Soy','Wheat/Gluten'].map(a => {
-                      const checked = editForm.allergens.includes(a)
+                  <div className="grid grid-cols-3 gap-2">
+                    {ALLERGENS.map(a => {
+                      const on = editForm.allergens.includes(a.key)
                       return (
-                        <label key={a} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border cursor-pointer text-xs transition-colors ${checked ? 'bg-orange-50 border-orange-300 text-orange-800 font-medium' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => setEditForm(f => ({
-                              ...f,
-                              allergens: checked
-                                ? f.allergens.filter(x => x !== a)
-                                : [...f.allergens, a],
-                            }))}
-                            className="sr-only"
-                          />
-                          {a}
-                        </label>
+                        <button
+                          key={a.key}
+                          type="button"
+                          onClick={() => setEditForm(f => ({
+                            ...f,
+                            allergens: on
+                              ? f.allergens.filter(x => x !== a.key)
+                              : [...f.allergens, a.key],
+                          }))}
+                          style={on ? { backgroundColor: a.hex, borderColor: a.hex } : undefined}
+                          className={`flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl border-2 transition-all ${
+                            on ? '' : 'border-gray-200 hover:border-gray-300 bg-white'
+                          }`}
+                        >
+                          <span
+                            style={on ? { color: a.dark ? '#fff' : '#111' } : undefined}
+                            className={`text-[10px] font-bold tracking-wide ${on ? '' : 'text-gray-500'}`}
+                          >
+                            {a.abbr}
+                          </span>
+                          <span
+                            style={on ? { color: a.dark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.6)' } : undefined}
+                            className={`text-[9px] leading-tight text-center ${on ? '' : 'text-gray-400'}`}
+                          >
+                            {a.label}
+                          </span>
+                        </button>
                       )
                     })}
                   </div>
@@ -1194,7 +1208,6 @@ function InventoryPageInner() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                 {(() => {
                   const rows: [string, string][] = selected.recipe ? [
-                    ['Abbreviation',   selected.abbreviation || '\u2014'],
                     ['Supplier',       selected.supplier?.name || '\u2014'],
                     ['Storage Area',   selected.storageArea?.name || '\u2014'],
                     ['Linked Recipe',  selected.recipe.name],
@@ -1205,7 +1218,6 @@ function InventoryPageInner() {
                     ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
                     ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
                   ] : [
-                    ['Abbreviation',   selected.abbreviation || '\u2014'],
                     ['Supplier',       selected.supplier?.name || '\u2014'],
                     ['Storage Area',   selected.storageArea?.name || '\u2014'],
                     ['Purchase Unit',  selected.purchaseUnit],
