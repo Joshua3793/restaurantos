@@ -54,7 +54,6 @@ model InventoryItem {
   pricePerBaseUnit   Decimal      @default(0)
   stockOnHand        Decimal      @default(0)
   lastUpdated        DateTime     @default(now()) @updatedAt
-  abbreviation       String?
   location           String?
   allergens          String[]     @default([])
   isActive           Boolean      @default(true)

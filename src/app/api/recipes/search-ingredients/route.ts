@@ -45,13 +45,13 @@ export async function GET(req: NextRequest) {
     prisma.inventoryItem.findMany({
       where: {
         isActive: true,
-        // Exclude items auto-created by PREP recipes — those appear as recipe results
-        // (the green "PREPD" entries). Showing them twice would confuse users.
+        // Exclude items auto-created by PREP recipes — those appear as recipe results.
+        // Also exclude items in the PREPD category — they are managed as PREP recipes.
         recipe: null,
+        NOT: { category: { equals: 'PREPD', mode: 'insensitive' } },
         ...(q ? {
           OR: [
-            { itemName:     { contains: q, mode: 'insensitive' } },
-            { abbreviation: { contains: q, mode: 'insensitive' } },
+            { itemName: { contains: q, mode: 'insensitive' } },
             // Also catch any word in the name matching any word in the query
             ...q.split(/\s+/).filter(w => w.length > 1).map(word => ({
               itemName: { contains: word, mode: 'insensitive' as const },
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
           ],
         } : {}),
       },
-      select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true, category: true, abbreviation: true },
+      select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true, category: true },
       orderBy: { itemName: 'asc' },
       take: 100, // fetch more, re-rank in JS
     }),
@@ -93,12 +93,7 @@ export async function GET(req: NextRequest) {
     unit: item.baseUnit,
     pricePerBaseUnit: Number(item.pricePerBaseUnit),
     category: item.category,
-    _score: q
-      ? Math.max(
-          fuzzyScore(q, item.itemName),
-          item.abbreviation ? fuzzyScore(q, item.abbreviation) : 0
-        )
-      : 100,
+    _score: q ? fuzzyScore(q, item.itemName) : 100,
   }))
 
   const recipeResults = prepRecipes.map(recipe => {

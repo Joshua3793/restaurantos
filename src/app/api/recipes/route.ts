@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
           inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
           linkedRecipe: {
             include: {
-              ingredients: { include: { inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } } } },
+              ingredients: { include: { inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } } } },
             },
           },
         },
@@ -79,7 +79,10 @@ export async function GET(req: NextRequest) {
       costPerPortion,
       foodCostPct,
       usedInCount: recipe._count.usedInRecipes,
-      allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => ing.inventoryItem?.allergens ?? []))),
+      allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => [
+        ...(ing.inventoryItem?.allergens ?? []),
+        ...(ing.linkedRecipe?.ingredients.flatMap(li => li.inventoryItem?.allergens ?? []) ?? []),
+      ]))),
     }
   })
 
@@ -137,7 +140,6 @@ export async function POST(req: NextRequest) {
             conversionFactor: 1,
             pricePerBaseUnit: 0,
             stockOnHand: 0,
-            abbreviation: name.substring(0, 8).toUpperCase().replace(/\s/g, ''),
           },
         })
 

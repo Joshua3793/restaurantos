@@ -23,7 +23,6 @@ export interface MatchResult {
 interface InventoryItem {
   id: string
   itemName: string
-  abbreviation: string | null
   purchaseUnit: string
   pricePerBaseUnit: number
   purchasePrice: number
@@ -66,18 +65,6 @@ function scoreMatch(description: string, item: InventoryItem): number {
 
   // ── Exact match ──────────────────────────────────────────────────────────
   if (description.toLowerCase().trim() === item.itemName.toLowerCase().trim()) return 100
-
-  // ── Abbreviation match — FULL WORD match only, minimum 3 chars ───────────
-  if (item.abbreviation) {
-    const abbrevWords = normalize(item.abbreviation).filter(w => w.length >= 3)
-    if (abbrevWords.length > 0) {
-      // Abbreviation must match as whole words, not substrings
-      const descSet = new Set(descNorm)
-      const allAbbrevWordsMatch = abbrevWords.every(w => descSet.has(w))
-      if (description.toLowerCase().trim() === item.abbreviation.toLowerCase().trim()) return 95
-      if (allAbbrevWordsMatch && abbrevWords.length >= 2) return 85
-    }
-  }
 
   // ── Key word overlap (the core signal) ───────────────────────────────────
   if (descKey.length === 0 || nameKey.length === 0) return 0
@@ -239,7 +226,6 @@ export async function matchLineItems(
     select: {
       id: true,
       itemName: true,
-      abbreviation: true,
       purchaseUnit: true,
       pricePerBaseUnit: true,
       purchasePrice: true,
@@ -264,7 +250,6 @@ export async function matchLineItems(
           select: {
             id: true,
             itemName: true,
-            abbreviation: true,
             purchaseUnit: true,
             pricePerBaseUnit: true,
             purchasePrice: true,
