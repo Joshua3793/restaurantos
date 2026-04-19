@@ -7,8 +7,9 @@ import { UOM_GROUPS, getUnitGroup } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
-  Link2, Minus, Package, ExternalLink, Printer,
+  Link2, Package, ExternalLink, Printer,
 } from 'lucide-react'
+import { AllergenBadges } from '@/components/AllergenBadges'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface RecipeCategory {
@@ -211,6 +212,11 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
               </>
             )}
           </div>
+          {recipe.allergens && recipe.allergens.length > 0 && (
+            <div className="mt-1">
+              <AllergenBadges allergens={recipe.allergens} size="xs" />
+            </div>
+          )}
         </div>
 
         {!isMenu && (
@@ -241,24 +247,26 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
         >
           <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
         </button>
+
+        {/* Print Card — always visible */}
+        <button
+          onClick={e => { e.stopPropagation(); setShowPrint(true) }}
+          title="Print recipe card"
+          className="p-1 text-gray-300 hover:text-gray-600 rounded transition-colors shrink-0"
+        >
+          <Printer size={15} />
+        </button>
       </div>
 
-      {/* ── More menu — always full opacity even when recipe is inactive ── */}
+      {/* ── More menu (Duplicate + Delete only) ── */}
       <div className="relative shrink-0" ref={moreRef} onClick={e => e.stopPropagation()}>
         <button onClick={() => setShowMore(s => !s)} className="p-1 text-gray-300 hover:text-gray-500 rounded">
           <MoreHorizontal size={15} />
         </button>
         {showMore && (
           <div className="absolute right-0 top-7 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-10 w-36">
-            <button onClick={() => { setShowPrint(true); setShowMore(false) }} className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-              <Printer size={13} /> Print Card
-            </button>
             <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2">
               <Copy size={13} /> Duplicate
-            </button>
-            <button onClick={() => { onToggle(); setShowMore(false) }} className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-              {recipe.isActive ? <Minus size={13} /> : <Check size={13} />}
-              {recipe.isActive ? 'Deactivate' : 'Activate'}
             </button>
             {onDelete && (
               <>
@@ -313,7 +321,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
   const handlePrint = () => window.print()
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-start justify-center p-4 overflow-y-auto print:p-0 print:inset-0 print:z-auto">
+    <div className="fixed inset-0 z-[200] flex items-start justify-center p-4 overflow-y-auto print:p-0 print:inset-0 print:z-auto" onClick={e => e.stopPropagation()}>
       <div className="absolute inset-0 bg-black/50 print:hidden" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 print:shadow-none print:rounded-none print:my-0 print:max-w-full">
 
@@ -751,6 +759,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const [searchResults, setSearchResults] = useState<IngredientSearchResult[]>([])
   const [showSearch, setShowSearch] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
+  const [showPrint, setShowPrint] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showSaveScale, setShowSaveScale] = useState(false)
   const [newScaleName, setNewScaleName] = useState('')
@@ -855,7 +864,15 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}>
             <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
           </button>
+          <button onClick={() => setShowPrint(true)} title="Print recipe card"
+            className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
+            <Printer size={18} />
+          </button>
         </div>
+        {showPrint && typeof document !== 'undefined' && createPortal(
+          <RecipePrintModal recipe={recipe} onClose={() => setShowPrint(false)} />,
+          document.body
+        )}
 
         <div className="p-5 space-y-5">
           <div className="grid grid-cols-2 gap-3">
@@ -911,15 +928,10 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             </div>
           </div>
 
-          {/* Allergen matrix — inherited from ingredients */}
           {recipe.allergens && recipe.allergens.length > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
-              <div className="text-xs font-bold uppercase tracking-wide text-orange-700 mb-2">⚠ Contains Allergens</div>
-              <div className="flex flex-wrap gap-1.5">
-                {recipe.allergens.map(a => (
-                  <span key={a} className="px-2 py-0.5 rounded-full text-xs bg-orange-100 border border-orange-300 text-orange-800 font-medium">{a}</span>
-                ))}
-              </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Allergens</span>
+              <AllergenBadges allergens={recipe.allergens} size="sm" />
             </div>
           )}
 
@@ -999,8 +1011,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   onMoveUp={() => { const prev = recipe.ingredients[idx - 1]; updateIngredient(ing.id, { sortOrder: prev.sortOrder }); updateIngredient(prev.id, { sortOrder: ing.sortOrder }) }}
                   onMoveDown={() => { const next = recipe.ingredients[idx + 1]; updateIngredient(ing.id, { sortOrder: next.sortOrder }); updateIngredient(next.id, { sortOrder: ing.sortOrder }) }}
                   onEditItem={() => {
-                    if (ing.inventoryItemId) setEditingItem({ inventoryItemId: ing.inventoryItemId })
-                    else if (ing.linkedRecipeId) setEditingItem({ linkedRecipeId: ing.linkedRecipeId })
+                    if (ing.linkedRecipeId) setEditingItem({ linkedRecipeId: ing.linkedRecipeId })
+                    else if (ing.inventoryItemId) setEditingItem({ inventoryItemId: ing.inventoryItemId })
                   }}
                 />
               ))}
@@ -1094,68 +1106,216 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
           onSaved={async () => { setEditingItem(null); await load(); onUpdated() }}
         />
       )}
-
       {'linkedRecipeId' in (editingItem ?? {}) && (editingItem as { linkedRecipeId: string })?.linkedRecipeId && (
-        <PrepRecipeInfo
+        <PrepRecipeModal
           linkedRecipeId={(editingItem as { linkedRecipeId: string }).linkedRecipeId}
           onClose={() => setEditingItem(null)}
+          onUpdated={async () => { await load(); onUpdated() }}
         />
       )}
     </div>
   )
 }
 
-// ─── PrepRecipeInfo — read-only card for PREP sub-recipe ingredients ──────────
-function PrepRecipeInfo({ linkedRecipeId, onClose }: { linkedRecipeId: string; onClose: () => void }) {
-  const [info, setInfo] = useState<{ name: string; totalCost: number; baseYieldQty: number; yieldUnit: string; costPerPortion: number | null } | null>(null)
+// ─── PrepRecipeModal — editable popup for PREP sub-recipe ingredients ─────────
+function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeId: string; onClose: () => void; onUpdated: () => void }) {
+  const [recipe, setRecipe] = useState<Recipe | null>(null)
+  const [searchQ, setSearchQ] = useState('')
+  const [searchResults, setSearchResults] = useState<IngredientSearchResult[]>([])
+  const [showSearch, setShowSearch] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  const load = useCallback(async () => {
+    const data = await fetch(`/api/recipes/${linkedRecipeId}`).then(r => r.json())
+    setRecipe(data)
+  }, [linkedRecipeId])
+
+  useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    fetch(`/api/recipes/${linkedRecipeId}`).then(r => r.json()).then(setInfo)
-  }, [linkedRecipeId])
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowSearch(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setSearchResults([]); return }
+    const data = await fetch(`/api/recipes/search-ingredients?q=${encodeURIComponent(q)}`).then(r => r.json())
+    setSearchResults(data)
+  }, [])
+
+  const addIngredient = async (item: IngredientSearchResult) => {
+    await fetch(`/api/recipes/${linkedRecipeId}/ingredients`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 0, unit: item.unit }),
+    })
+    await load(); onUpdated(); setShowSearch(false); setSearchQ(''); setSearchResults([])
+  }
+
+  const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
+    await fetch(`/api/recipes/${linkedRecipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    await load(); onUpdated()
+  }
+
+  const deleteIngredient = async (ingId: string) => {
+    await fetch(`/api/recipes/${linkedRecipeId}/ingredients/${ingId}`, { method: 'DELETE' })
+    await load(); onUpdated()
+  }
+
+  const costPerUnit = recipe && recipe.baseYieldQty > 0 ? recipe.totalCost / recipe.baseYieldQty : 0
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40" />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-2">
+      <div className="absolute inset-0 bg-black/50" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-2 shrink-0">
           <div>
-            <h3 className="font-semibold text-gray-900">{info?.name ?? '…'}</h3>
+            <div className="flex items-center gap-2">
+              <ChefHat size={15} className="text-emerald-600" />
+              <h3 className="font-semibold text-gray-900">{recipe?.name ?? '…'}</h3>
+            </div>
             <span className="text-[11px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">PREP Recipe</span>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 mt-0.5"><X size={16} /></button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 mt-0.5 shrink-0"><X size={16} /></button>
         </div>
-        <div className="px-5 py-4 space-y-3">
-          {info ? (
-            <>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-[11px] text-gray-500">Total Cost</div>
-                  <div className="font-semibold text-gray-800 mt-0.5">{formatCurrency(info.totalCost)}</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-[11px] text-gray-500">Yield</div>
-                  <div className="font-semibold text-gray-800 mt-0.5">{formatQtyUnit(info.baseYieldQty, info.yieldUnit)}</div>
-                </div>
-                <div className="bg-emerald-50 rounded-lg p-3 col-span-2">
-                  <div className="text-[11px] text-emerald-600">Cost per {info.yieldUnit}</div>
-                  <div className="text-lg font-bold text-emerald-700">
-                    {formatUnitPrice(info.baseYieldQty > 0 ? info.totalCost / info.baseYieldQty : 0)} / {info.yieldUnit}
-                  </div>
-                </div>
+
+        {!recipe ? (
+          <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600" /></div>
+        ) : (
+          <>
+            {/* Stats */}
+            <div className="px-5 py-3 grid grid-cols-3 gap-2 shrink-0 border-b border-gray-50">
+              <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide">Total Cost</div>
+                <div className="font-semibold text-gray-800 text-sm">{formatCurrency(recipe.totalCost)}</div>
               </div>
-              <p className="text-xs text-gray-500 bg-amber-50 rounded-lg px-3 py-2">
-                To edit this recipe&apos;s ingredients or costs, open it in the Recipe Book.
-              </p>
-            </>
-          ) : (
-            <div className="flex justify-center py-6"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600" /></div>
-          )}
-        </div>
-        <div className="px-5 pb-5">
-          <button onClick={onClose} className="w-full border border-gray-200 rounded-xl py-2 text-sm text-gray-700 hover:bg-gray-50">
-            Close
-          </button>
-        </div>
+              <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide">Yield</div>
+                <div className="font-semibold text-gray-800 text-sm">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</div>
+              </div>
+              <div className="bg-emerald-50 rounded-lg px-3 py-2 text-center">
+                <div className="text-[10px] text-emerald-500 uppercase tracking-wide">Cost/{recipe.yieldUnit}</div>
+                <div className="font-semibold text-emerald-700 text-sm">{formatUnitPrice(costPerUnit)}</div>
+              </div>
+            </div>
+
+            {/* Ingredients */}
+            <div className="overflow-y-auto flex-1">
+              {/* Column headers */}
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-medium text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
+                <div className="col-span-5">Ingredient</div>
+                <div className="col-span-2 text-right">Qty</div>
+                <div className="col-span-2">Unit</div>
+                <div className="col-span-2 text-right">Cost</div>
+                <div className="col-span-1" />
+              </div>
+
+              {recipe.ingredients.length === 0 && (
+                <div className="text-center py-8 text-gray-400 text-sm">No ingredients yet</div>
+              )}
+
+              {recipe.ingredients.map(ing => (
+                <PrepIngredientRow key={ing.id} ing={ing}
+                  onUpdate={data => updateIngredient(ing.id, data)}
+                  onDelete={() => deleteIngredient(ing.id)} />
+              ))}
+
+              {/* Add ingredient search */}
+              <div className="relative px-3 py-2 border-t border-gray-100" ref={searchRef}>
+                <div className="flex items-center gap-2">
+                  <Search size={13} className="text-gray-400 shrink-0" />
+                  <input value={searchQ} onChange={e => {
+                    setSearchQ(e.target.value)
+                    clearTimeout(searchTimer.current)
+                    searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 250)
+                  }}
+                    onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
+                    placeholder="+ Add ingredient…"
+                    className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent py-1" />
+                </div>
+                {showSearch && searchResults.length > 0 && (
+                  <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                    {searchResults.map(item => (
+                      <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left text-sm">
+                        {item.type === 'recipe' ? <ChefHat size={12} className="text-emerald-600 shrink-0" /> : <Package size={12} className="text-blue-500 shrink-0" />}
+                        <span className="flex-1 text-gray-800">{item.name}</span>
+                        <span className="text-xs text-gray-400">{item.unit}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                          {item.type === 'recipe' ? 'PREP' : item.category}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-gray-100 shrink-0">
+              <button onClick={onClose} className="w-full border border-gray-200 rounded-xl py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                Done
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── PrepIngredientRow — simple editable row for PrepRecipeModal ───────────────
+function PrepIngredientRow({ ing, onUpdate, onDelete }: {
+  ing: IngredientWithCost
+  onUpdate: (data: Record<string, unknown>) => void
+  onDelete: () => void
+}) {
+  const [qty, setQty] = useState(ing.qtyBase === 0 ? '' : String(ing.qtyBase))
+  const [unit, setUnit] = useState(ing.unit)
+
+  useEffect(() => { setQty(ing.qtyBase === 0 ? '' : String(ing.qtyBase)) }, [ing.qtyBase])
+  useEffect(() => { setUnit(ing.unit) }, [ing.unit])
+
+  const saveQty = () => { if (qty !== String(ing.qtyBase)) onUpdate({ qtyBase: qty, unit }) }
+  const saveUnit = (newUnit: string) => { setUnit(newUnit); onUpdate({ qtyBase: qty, unit: newUnit }) }
+
+  const baseUnitGroup = getUnitGroup(ing.ingredientBaseUnit)
+  const compatibleGroups = baseUnitGroup ? UOM_GROUPS.filter(g => g.label === baseUnitGroup) : UOM_GROUPS
+  const allKnownUnits = UOM_GROUPS.flatMap(g => g.units.map(u => u.label))
+  const unitInList = allKnownUnits.includes(unit)
+
+  return (
+    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-gray-50 hover:bg-gray-50 group">
+      <div className="col-span-5 flex items-center gap-1.5 min-w-0">
+        {ing.ingredientType === 'recipe'
+          ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
+          : <Package size={11} className="text-blue-500 shrink-0" />}
+        <span className="text-sm text-gray-800 truncate">{ing.ingredientName}</span>
+      </div>
+      <div className="col-span-2">
+        <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
+          onKeyDown={e => e.key === 'Enter' && saveQty()}
+          className="w-full text-right border border-gray-200 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none focus:border-blue-300" />
+      </div>
+      <div className="col-span-2">
+        <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
+          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+          {!unitInList && <option value="__custom__">{unit}</option>}
+          {compatibleGroups.map(group => (
+            <optgroup key={group.label} label={group.label}>
+              {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+      <div className="col-span-2 text-right text-sm font-medium text-gray-700">{formatCurrency(ing.lineCost)}</div>
+      <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100">
+        <button onClick={onDelete} className="text-gray-300 hover:text-red-500"><Trash2 size={13} /></button>
       </div>
     </div>
   )
