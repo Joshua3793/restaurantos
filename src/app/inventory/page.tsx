@@ -4,8 +4,9 @@ import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
+import { AllergenBadges, BulkAllergenModal } from '@/components/AllergenBadges'
 import {
-  Search, Plus, X, Download, ClipboardCheck,
+  Search, Plus, X, Download,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
   ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy,
 } from 'lucide-react'
@@ -31,7 +32,7 @@ interface InventoryItem {
 type SortMode  = 'category' | 'all'
 type ColKey    = 'item' | 'category' | 'supplier' | 'price' | 'stock' | 'value'
 type ColDir    = 'asc' | 'desc'
-type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'active' | 'inactive'
+type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'active' | 'inactive'
 
 interface EditForm {
   itemName: string; category: string
@@ -41,7 +42,7 @@ interface EditForm {
   purchasePrice: string
   packSize: string; packUOM: string; countUOM: string
   stockOnHand: string
-  abbreviation: string; isActive: boolean
+  isActive: boolean
   allergens: string[]
 }
 
@@ -66,7 +67,7 @@ const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
   purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
   baseUnit: 'g', conversionFactor: '1', stockOnHand: '0',
-  abbreviation: '', location: '', allergens: [] as string[],
+  location: '', allergens: [] as string[],
 }
 
 function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
@@ -182,7 +183,9 @@ function InventoryPageInner() {
   const [bulkAction,        setBulkAction]        = useState('')
   const [showBulkMenu,      setShowBulkMenu]      = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [countedFlash,  setCountedFlash]  = useState<string | null>(null) // item id that just got counted
+  const [showBulkAllergen, setShowBulkAllergen] = useState(false)
+  const [countedFlash,  setCountedFlash]  = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [syncingPrepd,  setSyncingPrepd]  = useState(false)
   const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
   const [showOrderList, setShowOrderList] = useState(false)
@@ -197,7 +200,7 @@ function InventoryPageInner() {
     storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
     packSize: '1', packUOM: 'each', countUOM: 'each',
-    stockOnHand: '0', abbreviation: '', isActive: true, allergens: [],
+    stockOnHand: '0', isActive: true, allergens: [],
   })
 
   const fetchItems = useCallback(() => {
@@ -277,6 +280,7 @@ function InventoryPageInner() {
       case 'counted':    return items.filter(isCountedThisWeek)
       case 'notCounted': return items.filter(i => !isCountedThisWeek(i))
       case 'highValue':  return items.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01)
+      case 'outOfStock': return items.filter(i => parseFloat(String(i.stockOnHand)) <= 0)
       case 'active':     return items.filter(i => i.isActive)
       case 'inactive':   return items.filter(i => !i.isActive)
       default:           return items
@@ -363,11 +367,41 @@ function InventoryPageInner() {
     fetchItems()
   }
 
+  const executeBulkAllergen = async (allergens: string[], mode: 'add' | 'replace') => {
+    setShowBulkAllergen(false)
+    await fetch('/api/inventory/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(checkedIds), action: 'assignAllergens', value: { allergens, mode } }),
+    })
+    fetchItems()
+    setCheckedIds(new Set())
+  }
+
   const syncAllPrepd = async () => {
     setSyncingPrepd(true)
     await fetch('/api/inventory/sync-prepd', { method: 'POST' })
     fetchItems()
     setSyncingPrepd(false)
+  }
+
+  const handleToggleActive = async (e: React.MouseEvent, item: InventoryItem) => {
+    e.stopPropagation()
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, isActive: !i.isActive } : i))
+    await fetch('/api/inventory/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [item.id], action: item.isActive ? 'deactivate' : 'activate' }),
+    })
+    fetchItems()
+  }
+
+  const handleDeleteItem = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    setConfirmDeleteId(null)
+    await fetch(`/api/inventory/${id}`, { method: 'DELETE' })
+    setItems(prev => prev.filter(i => i.id !== id))
+    if (selected?.id === id) setSelected(null)
   }
 
   const markCounted = async (e: React.MouseEvent, id: string) => {
@@ -407,7 +441,6 @@ function InventoryPageInner() {
         packUOM: editForm.packUOM,
         countUOM: editForm.countUOM,
         stockOnHand: editForm.stockOnHand,
-        abbreviation: editForm.abbreviation,
         isActive: editForm.isActive,
         allergens: editForm.allergens,
       }),
@@ -437,7 +470,7 @@ function InventoryPageInner() {
         </td>
         <td className="px-3 py-3">
           <div className="font-medium text-gray-800 text-sm">{item.itemName}</div>
-          {item.abbreviation && <div className="text-xs text-gray-400">{item.abbreviation}</div>}
+          <AllergenBadges allergens={item.allergens ?? []} size="xs" />
         </td>
         {sortBy === 'all' && (
           <td className="px-3 py-3 hidden sm:table-cell">
@@ -463,21 +496,39 @@ function InventoryPageInner() {
         <td className="px-3 py-3 text-center hidden sm:table-cell">
           <StockStatus stock={parseFloat(String(item.stockOnHand))} />
         </td>
-        <td className="px-3 py-3 text-center">
-          <button
-            onClick={e => markCounted(e, item.id)}
-            title={counted ? `Counted ${item.lastCountDate ? new Date(item.lastCountDate).toLocaleDateString() : ''}` : 'Mark as counted'}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all ${
-              countedFlash === item.id
-                ? 'bg-green-500 text-white scale-105'
-                : counted
-                  ? 'bg-green-100 text-green-600 hover:bg-green-200'
-                  : 'bg-gray-100 text-gray-400 hover:bg-blue-100 hover:text-blue-600'
-            }`}
-          >
-            <ClipboardCheck size={14} />
-            {countedFlash === item.id && <span>Counted!</span>}
-          </button>
+        <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-center gap-2">
+            {/* Active / inactive toggle */}
+            <button
+              onClick={e => handleToggleActive(e, item)}
+              title={item.isActive ? 'Deactivate item' : 'Activate item'}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${item.isActive ? 'bg-green-500' : 'bg-gray-200'}`}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${item.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+
+            {/* Delete with inline confirm */}
+            {confirmDeleteId === item.id ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={e => handleDeleteItem(e, item.id)}
+                  className="text-xs font-medium text-red-600 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50 transition-colors"
+                >Yes</button>
+                <button
+                  onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }}
+                  className="text-xs text-gray-400 hover:text-gray-600 px-1 py-0.5 rounded hover:bg-gray-50 transition-colors"
+                >No</button>
+              </div>
+            ) : (
+              <button
+                onClick={e => { e.stopPropagation(); setConfirmDeleteId(item.id) }}
+                title="Delete item"
+                className="text-gray-300 hover:text-red-500 transition-colors"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+          </div>
         </td>
       </tr>
     )
@@ -489,7 +540,8 @@ function InventoryPageInner() {
     { key: 'inactive',   label: 'Inactive' },
     { key: 'counted',    label: 'Counted This Week' },
     { key: 'notCounted', label: 'Not Counted' },
-    { key: 'highValue',  label: 'High Value Stock' },
+    { key: 'highValue',  label: 'High Value' },
+    { key: 'outOfStock', label: 'Out of Stock' },
   ]
 
   return (
@@ -612,6 +664,12 @@ function InventoryPageInner() {
               <div className="flex gap-2 flex-wrap flex-1">
                 <button onClick={() => executeBulk('activate')}   className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700">Activate</button>
                 <button onClick={() => executeBulk('deactivate')} className="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600">Deactivate</button>
+                <button
+                  onClick={() => setShowBulkAllergen(true)}
+                  className="px-3 py-1.5 bg-white border border-gray-200 text-xs rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                >
+                  Assign Allergens
+                </button>
                 {/* Assign Category */}
                 <div className="relative">
                   <button
@@ -809,7 +867,7 @@ function InventoryPageInner() {
                 <SortTh col="value" label="Inv Value" colSort={colSort} onSort={toggleColSort} className="text-right" />
 
                 <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Status</th>
-                <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs">Count</th>
+                <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs w-24">Active</th>
               </tr>
             </thead>
             <tbody>
@@ -895,7 +953,6 @@ function InventoryPageInner() {
                         packUOM: selected.packUOM ?? 'each',
                         countUOM: selected.countUOM ?? 'each',
                         stockOnHand: String(selected.stockOnHand),
-                        abbreviation: selected.abbreviation || '',
                         isActive: selected.isActive,
                         allergens: selected.allergens ?? [],
                       })
@@ -1053,12 +1110,6 @@ function InventoryPageInner() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
                     <input type="number" step="any" value={editForm.stockOnHand}
                       onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Abbreviation</label>
-                    <input value={editForm.abbreviation}
-                      onChange={e => setEditForm(f => ({ ...f, abbreviation: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
@@ -1225,6 +1276,14 @@ function InventoryPageInner() {
         </div>
       )}
 
+      {showBulkAllergen && (
+        <BulkAllergenModal
+          count={checkedIds.size}
+          onClose={() => setShowBulkAllergen(false)}
+          onApply={executeBulkAllergen}
+        />
+      )}
+
       {/* Add Item Modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setShowAdd(false)}>
@@ -1282,10 +1341,6 @@ function InventoryPageInner() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
                   <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" step="any" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Abbreviation</label>
-                  <input value={form.abbreviation} onChange={e => setForm(f => ({ ...f, abbreviation: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
