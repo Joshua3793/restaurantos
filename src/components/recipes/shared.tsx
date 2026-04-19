@@ -638,13 +638,13 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
   onMoveDown: () => void
   onEditItem: () => void
 }) {
-  const [editingQty, setEditingQty] = useState(false)
+  const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
-  const [qty, setQty] = useState(String(ing.qtyBase))
+  const [qty, setQty] = useState(ing.qtyBase === 0 ? '' : String(ing.qtyBase))
   const [unit, setUnit] = useState(ing.unit)
   const [pct, setPct] = useState(ing.recipePercent !== null ? String(ing.recipePercent) : '')
 
-  useEffect(() => { setQty(String(ing.qtyBase)) }, [ing.qtyBase])
+  useEffect(() => { setQty(ing.qtyBase === 0 ? '' : String(ing.qtyBase)) }, [ing.qtyBase])
   useEffect(() => { setUnit(ing.unit) }, [ing.unit])
   useEffect(() => { setPct(ing.recipePercent !== null ? String(ing.recipePercent) : '') }, [ing.recipePercent])
 
@@ -788,7 +788,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const addIngredient = async (item: IngredientSearchResult) => {
     await fetch(`/api/recipes/${recipeId}/ingredients`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 100, unit: item.unit }),
+      body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 0, unit: item.unit }),
     })
     await load(); onUpdated(); setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
