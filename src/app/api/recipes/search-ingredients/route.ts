@@ -45,6 +45,9 @@ export async function GET(req: NextRequest) {
     prisma.inventoryItem.findMany({
       where: {
         isActive: true,
+        // Exclude items auto-created by PREP recipes — those appear as recipe results
+        // (the green "PREPD" entries). Showing them twice would confuse users.
+        recipe: null,
         ...(q ? {
           OR: [
             { itemName:     { contains: q, mode: 'insensitive' } },
