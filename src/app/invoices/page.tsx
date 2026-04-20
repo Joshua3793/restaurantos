@@ -85,6 +85,7 @@ interface ScanItem {
   invoicePackSize: number | null
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
+  editedDescription: string | null
 }
 
 interface Session {
@@ -148,6 +149,137 @@ const ocrStatusBadge = (status: string) => {
   return <span className="text-[10px] font-semibold text-gray-400">Pending</span>
 }
 
+// ── EditableScanItemFields ────────────────────────────────────────────────────
+
+interface EditableFieldsProps {
+  item: ScanItem
+  sessionId: string
+  onUpdated: (updated: Partial<ScanItem>) => void
+}
+
+function EditableScanItemFields({ item, sessionId, onUpdated }: EditableFieldsProps) {
+  const [desc,  setDesc]  = useState(item.editedDescription ?? item.rawDescription)
+  const [qty,   setQty]   = useState(item.rawQty   != null ? String(item.rawQty)   : '')
+  const [price, setPrice] = useState(item.rawUnitPrice != null ? String(item.rawUnitPrice) : '')
+  const [searchResults, setSearchResults] = useState<{ id: string; itemName: string; baseUnit: string; pricePerBaseUnit: number }[]>([])
+  const [showSearch, setShowSearch] = useState(false)
+  const descTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const numTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const patchItem = async (updates: Record<string, unknown>) => {
+    const res = await fetch(`/api/invoices/sessions/${sessionId}/scanitems/${item.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      onUpdated({
+        rawQty: updated.rawQty,
+        rawUnitPrice: updated.rawUnitPrice,
+        rawLineTotal: updated.rawLineTotal,
+        editedDescription: updated.editedDescription,
+      })
+    }
+  }
+
+  const handleDescChange = (val: string) => {
+    setDesc(val)
+    if (descTimer.current) clearTimeout(descTimer.current)
+    descTimer.current = setTimeout(async () => {
+      await patchItem({ editedDescription: val })
+      if (val.trim().length >= 2) {
+        const res = await fetch(`/api/inventory/search?q=${encodeURIComponent(val)}&limit=5`).then(r => r.json()).catch(() => [])
+        setSearchResults(Array.isArray(res) ? res : [])
+        setShowSearch(Array.isArray(res) && res.length > 0)
+      } else {
+        setShowSearch(false)
+      }
+    }, 500)
+  }
+
+  const handleNumChange = (field: 'rawQty' | 'rawUnitPrice', val: string) => {
+    if (field === 'rawQty') setQty(val)
+    else setPrice(val)
+    if (numTimer.current) clearTimeout(numTimer.current)
+    numTimer.current = setTimeout(() => {
+      const n = parseFloat(val)
+      if (!isNaN(n)) patchItem({ [field]: n })
+    }, 600)
+  }
+
+  return (
+    <div className="space-y-2 mt-2">
+      {/* Editable description */}
+      <div className="relative">
+        <input
+          value={desc ?? ''}
+          onChange={e => handleDescChange(e.target.value)}
+          onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
+          onBlur={() => setTimeout(() => setShowSearch(false), 150)}
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          placeholder="Product description"
+        />
+        {item.editedDescription && item.editedDescription !== item.rawDescription && (
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-amber-500 font-bold uppercase tracking-wide">edited</span>
+        )}
+        {showSearch && (
+          <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            {searchResults.map(r => (
+              <button
+                key={r.id}
+                onMouseDown={async () => {
+                  setShowSearch(false)
+                  await fetch(`/api/invoices/sessions/${sessionId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scanItemId: item.id, matchedItemId: r.id, action: 'UPDATE_PRICE' }),
+                  })
+                  onUpdated({ matchedItemId: r.id })
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
+              >
+                <span className="font-medium text-gray-800">{r.itemName}</span>
+                <span className="ml-2 text-xs text-gray-400">{r.baseUnit} · ${Number(r.pricePerBaseUnit).toFixed(4)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Qty + Price row */}
+      <div className="flex gap-2">
+        <div className="flex items-center gap-1.5 flex-1">
+          <span className="text-xs text-gray-400 whitespace-nowrap">Qty</span>
+          <input
+            type="number"
+            step="any"
+            value={qty}
+            onChange={e => handleNumChange('rawQty', e.target.value)}
+            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 flex-1">
+          <span className="text-xs text-gray-400 whitespace-nowrap">Unit $</span>
+          <input
+            type="number"
+            step="any"
+            value={price}
+            onChange={e => handleNumChange('rawUnitPrice', e.target.value)}
+            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        {item.rawLineTotal != null && (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-400">=</span>
+            <span className="text-sm font-semibold text-gray-700">${Number(item.rawLineTotal).toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── BatchSessionReview ────────────────────────────────────────────────────────
 
 interface BatchSessionReviewProps {
@@ -194,6 +326,11 @@ function BatchSessionReview({ session, approvedBy, onUpdate, onApprove, isApprov
               )}
             </div>
           </div>
+          <EditableScanItemFields
+            item={item}
+            sessionId={session.id}
+            onUpdated={async () => onUpdate()}
+          />
         </div>
       ))}
 
@@ -1012,6 +1149,18 @@ export default function InvoicesPage() {
                   onUpdate={(updates) => updateScanItem(item.id, updates)}
                   onOpenDetail={() => setEditingItem(item)}
                   onEditInventory={(invId, scanItem) => setEditingInventory({ inventoryItemId: invId, scanItem })}
+                />
+                <EditableScanItemFields
+                  item={item}
+                  sessionId={session.id}
+                  onUpdated={(updates) => {
+                    setSession(prev => prev ? {
+                      ...prev,
+                      scanItems: prev.scanItems.map(si =>
+                        si.id === item.id ? { ...si, ...updates } : si
+                      ),
+                    } : prev)
+                  }}
                 />
               </div>
             ))}
