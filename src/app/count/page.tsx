@@ -442,12 +442,12 @@ export default function CountPage() {
       </div>
 
       {/* Form body — natural page scroll, no height constraint */}
-      <div className="flex-1 px-4 pt-6 pb-36">
+      <div className="flex-1 px-4 pt-6 pb-40">
         {NewSessionFields}
       </div>
 
       {/* Fixed bottom action bar */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 px-4 py-4 flex gap-3 safe-area-pb">
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 px-4 pt-4 pb-8 flex gap-3" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom, 1rem))' }}>
         <button
           type="button"
           onClick={() => { setView('list'); setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] }) }}
