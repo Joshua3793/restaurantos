@@ -295,7 +295,7 @@ interface BatchSessionReviewProps {
 function BatchSessionReview({ session, approvedBy, approvedSessions, onUpdate, onApprove, isApproving }: BatchSessionReviewProps) {
   const scannedTotal = session.scanItems
     .filter(i => i.action !== 'SKIP' && i.action !== 'PENDING')
-    .reduce((s, i) => s + (i.newPrice ?? i.rawLineTotal ?? 0), 0)
+    .reduce((s, i) => s + Number(i.newPrice ?? i.rawLineTotal ?? 0), 0)
 
   const duplicate = session.invoiceNumber
     ? approvedSessions.find(s => s.id !== session.id && s.invoiceNumber === session.invoiceNumber)
