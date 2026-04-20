@@ -250,10 +250,33 @@ model InvoiceSession {
   approvedBy    String?
   approvedAt    DateTime?
   createdAt     DateTime  @default(now())
+  batchId       String?
+  batch         InvoiceBatch? @relation(fields: [batchId], references: [id])
   files         InvoiceFile[]
   scanItems     InvoiceScanItem[]
   priceAlerts   PriceAlert[]
   recipeAlerts  RecipeAlert[]
+}
+
+model InvoiceBatch {
+  id        String             @id @default(uuid())
+  status    String             @default("ANALYZING")
+  createdAt DateTime           @default(now())
+  files     InvoiceBatchFile[]
+  sessions  InvoiceSession[]
+}
+
+model InvoiceBatchFile {
+  id                    String       @id @default(uuid())
+  batchId               String
+  batch                 InvoiceBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  fileName              String
+  fileType              String
+  fileUrl               String
+  detectedInvoiceNumber String?
+  detectedSupplierName  String?
+  metaStatus            String       @default("PENDING")
+  createdAt             DateTime     @default(now())
 }
 
 model InvoiceFile {
@@ -294,6 +317,7 @@ model InvoiceScanItem {
   invoicePackUOM     String?
   needsFormatConfirm Boolean        @default(false)
   sortOrder          Int            @default(0)
+  editedDescription String?
 }
 
 model InventorySupplierPrice {
