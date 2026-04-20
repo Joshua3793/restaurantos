@@ -104,7 +104,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-type View = 'list' | 'count' | 'review'
+type View = 'list' | 'new' | 'count' | 'review'
 
 export default function CountPage() {
   // ── Global state ──────────────────────────────────────────────────────────
@@ -158,16 +158,8 @@ export default function CountPage() {
     })
   }, [])
 
-  // Lock body scroll when modal is open (prevents iOS background scroll).
-  // Only use overflow:hidden — position:fixed breaks inner scroll on iOS Safari.
-  useEffect(() => {
-    if (showModal) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => { document.body.style.overflow = '' }
-  }, [showModal])
+  // No body-scroll lock needed — new session form is its own view on mobile
+  // and a small centered modal on desktop (sm+).
 
   // Reset qty input when card opens
   useEffect(() => {
@@ -250,8 +242,8 @@ export default function CountPage() {
       }),
     })
     const session = await res.json()
-    setShowModal(false)
     setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] })
+    setShowModal(false)
     await loadSessions()
     const full = await loadSession(session.id)
     if (full) { setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count') }
@@ -353,6 +345,127 @@ export default function CountPage() {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // VIEW NEW — NEW SESSION FORM (full-page on mobile, modal on desktop)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Shared form fields rendered identically in both mobile page + desktop modal
+  const NewSessionFields = (
+    <div className="space-y-5">
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Label</label>
+        <input
+          value={form.label}
+          onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
+          placeholder={`e.g. Full count ${fmtDate(new Date().toISOString())}`}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+          Who&apos;s counting <span className="text-red-500">*</span>
+        </label>
+        <input
+          required
+          autoFocus
+          value={form.countedBy}
+          onChange={e => setForm(f => ({ ...f, countedBy: e.target.value }))}
+          placeholder="Name"
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Count type</label>
+        <div className="grid grid-cols-2 gap-2">
+          {(['FULL', 'PARTIAL'] as const).map(t => (
+            <button key={t} type="button"
+              onClick={() => setForm(f => ({ ...f, type: t }))}
+              className={`py-3 rounded-xl text-sm font-medium border transition-colors ${
+                form.type === t ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {t === 'FULL' ? 'Full count' : 'Partial count'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {form.type === 'PARTIAL' && (
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Areas to count</label>
+          {storageAreas.length === 0 ? (
+            <p className="text-xs text-gray-400">No storage areas configured yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {storageAreas.map(area => {
+                const on = form.areas.includes(area.id)
+                return (
+                  <button key={area.id} type="button"
+                    onClick={() => setForm(f => ({
+                      ...f, areas: on ? f.areas.filter(x => x !== area.id) : [...f.areas, area.id],
+                    }))}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      on ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {area.name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Date</label>
+        <input
+          type="date"
+          value={form.sessionDate}
+          onChange={e => setForm(f => ({ ...f, sessionDate: e.target.value }))}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+      </div>
+    </div>
+  )
+
+  // ── Mobile full-page form (no modal height/scroll issues on iOS) ──────────
+  if (view === 'new') return (
+    <form id="new-session-form" onSubmit={handleCreate} className="flex flex-col min-h-screen bg-gray-50">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => { setView('list'); setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] }) }}
+          className="p-1 -ml-1 text-gray-500 hover:text-gray-800"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-lg font-bold text-gray-900 flex-1">New count session</h1>
+      </div>
+
+      {/* Form body — natural page scroll, no height constraint */}
+      <div className="flex-1 px-4 pt-6 pb-36">
+        {NewSessionFields}
+      </div>
+
+      {/* Fixed bottom action bar */}
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 px-4 py-4 flex gap-3 safe-area-pb">
+        <button
+          type="button"
+          onClick={() => { setView('list'); setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] }) }}
+          className="flex-1 py-3.5 border border-gray-200 rounded-2xl text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="flex-[2] py-3.5 bg-green-600 text-white rounded-2xl text-sm font-semibold hover:bg-green-700 transition-colors"
+        >
+          Start count →
+        </button>
+      </div>
+    </form>
+  )
+
+  // ════════════════════════════════════════════════════════════════════════════
   // VIEW A — SESSION LIST
   // ════════════════════════════════════════════════════════════════════════════
   if (view === 'list') return (
@@ -363,110 +476,32 @@ export default function CountPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => setView('new')}
           className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
         >
           <Plus size={16} /> Start Count
         </button>
       </div>
 
-      {/* Modal */}
+      {/* Desktop-only modal (sm+ screens) */}
       {showModal && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center">
-          <form onSubmit={handleCreate} className="bg-white w-full sm:max-w-md sm:mx-4 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col" style={{ maxHeight: 'min(92svh, 92vh)' }}>
-            {/* Header with buttons always visible at top */}
-            <div className="flex items-center gap-2 px-4 pt-4 pb-3 border-b border-gray-100 shrink-0">
-              <h2 className="text-base font-bold text-gray-900 flex-1">Start count session</h2>
+        <div className="fixed inset-0 z-40 bg-black/40 hidden sm:flex items-center justify-center">
+          <form onSubmit={handleCreate} className="bg-white w-full max-w-md mx-4 rounded-2xl shadow-2xl">
+            <div className="flex items-center gap-2 px-5 pt-5 pb-4 border-b border-gray-100">
+              <h2 className="text-base font-bold text-gray-900 flex-1">New count session</h2>
               <button type="button" onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 font-medium"
-              >
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+            </div>
+            <div className="px-5 py-5">{NewSessionFields}</div>
+            <div className="flex gap-3 px-5 pb-5">
+              <button type="button" onClick={() => setShowModal(false)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50">
                 Cancel
               </button>
               <button type="submit"
-                className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700"
-              >
-                Start →
+                className="flex-[2] py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700">
+                Start count →
               </button>
-            </div>
-            {/* Scrollable fields */}
-            <div className="overflow-y-auto flex-1 min-h-0 px-5 pt-4 pb-6 space-y-4" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', touchAction: 'pan-y' }}>
-              {/* Label */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Label</label>
-                <input
-                  value={form.label}
-                  onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
-                  placeholder={`e.g. Full count ${fmtDate(new Date().toISOString())}`}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              {/* Who's counting */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  Who&apos;s counting <span className="text-red-500">*</span>
-                </label>
-                <input
-                  required
-                  value={form.countedBy}
-                  onChange={e => setForm(f => ({ ...f, countedBy: e.target.value }))}
-                  placeholder="Name"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              {/* Count type */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Count type</label>
-                <div className="flex gap-2">
-                  {(['FULL', 'PARTIAL'] as const).map(t => (
-                    <button key={t} type="button"
-                      onClick={() => setForm(f => ({ ...f, type: t }))}
-                      className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                        form.type === t ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      {t === 'FULL' ? 'Full count' : 'Partial count'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Area filter — Partial only */}
-              {form.type === 'PARTIAL' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Areas to count</label>
-                  {storageAreas.length === 0 ? (
-                    <p className="text-xs text-gray-400">No storage areas configured yet.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {storageAreas.map(area => {
-                        const on = form.areas.includes(area.id)
-                        return (
-                          <button key={area.id} type="button"
-                            onClick={() => setForm(f => ({
-                              ...f,
-                              areas: on ? f.areas.filter(x => x !== area.id) : [...f.areas, area.id],
-                            }))}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                              on ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                            }`}
-                          >
-                            {area.name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* Date */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Date</label>
-                <input
-                  type="date"
-                  value={form.sessionDate}
-                  onChange={e => setForm(f => ({ ...f, sessionDate: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
             </div>
           </form>
         </div>
@@ -479,7 +514,7 @@ export default function CountPage() {
           <p className="font-semibold text-gray-700 text-base">No count sessions yet</p>
           <p className="text-sm mt-1 mb-5">Regular stock counts keep your inventory accurate and food costs on target.</p>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => setView('new')}
             className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
           >
             <Plus size={16} /> Start First Count
@@ -577,7 +612,7 @@ export default function CountPage() {
               <p className="text-xs text-gray-400 mt-0.5">Count weekly for accurate COGS and inventory tracking</p>
             </div>
             <button
-              onClick={() => setShowModal(true)}
+              onClick={() => setView('new')}
               className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${isOverdue ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
             >
               <Plus size={14} /> Start Count
