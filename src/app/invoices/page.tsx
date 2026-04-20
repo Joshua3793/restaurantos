@@ -100,6 +100,7 @@ interface Session {
   priceAlerts: unknown[]
   recipeAlerts: unknown[]
   createdAt: string
+  batchId: string | null
 }
 
 interface ApproveResult {
@@ -1340,47 +1341,142 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {sessions.map(s => (
-                <tr key={s.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-800">{s.supplierName || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{s.invoiceDate || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{s.invoiceNumber || '—'}</td>
-                  <td className="px-4 py-3 text-right hidden md:table-cell">{s.total ? formatCurrency(Number(s.total)) : '—'}</td>
-                  <td className="px-4 py-3 text-center">
-                    <StatusChip status={s.status} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {s.status === 'REVIEW' || s.status === 'PROCESSING' ? (
-                        <button
-                          onClick={async () => { const data = await refreshSession(s.id); setSession(data); setApproveResult(null); setView('scanner') }}
-                          className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                        >
-                          <ArrowRight size={10} /> Resume
-                        </button>
-                      ) : s.status === 'APPROVED' ? (
-                        <button
-                          onClick={() => handleEditSession(s.id)}
-                          className="text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                          title="Re-open for editing"
-                        >
-                          <Pencil size={10} /> Edit
-                        </button>
-                      ) : null}
-                      <button
-                        onClick={() => setDeleteConfirm({ id: s.id, status: s.status })}
-                        className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
-                        title="Delete invoice"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {sessions.length === 0 && (
-                <tr><td colSpan={6} className="text-center py-12 text-gray-400">No scans yet</td></tr>
-              )}
+              {(() => {
+                // Group sessions: batch sessions together, standalone sessions alone
+                const batchGroups = new Map<string, Session[]>()
+                const batchSeen   = new Set<string>()
+                for (const s of sessions) {
+                  if (s.batchId) {
+                    if (!batchGroups.has(s.batchId)) batchGroups.set(s.batchId, [])
+                    batchGroups.get(s.batchId)!.push(s)
+                  }
+                }
+                type DisplayRow =
+                  | { type: 'batch'; batchId: string; sessions: Session[] }
+                  | { type: 'single'; session: Session }
+                const rows: DisplayRow[] = []
+                for (const s of sessions) {
+                  if (s.batchId) {
+                    if (!batchSeen.has(s.batchId)) {
+                      batchSeen.add(s.batchId)
+                      rows.push({ type: 'batch', batchId: s.batchId, sessions: batchGroups.get(s.batchId)! })
+                    }
+                  } else {
+                    rows.push({ type: 'single', session: s })
+                  }
+                }
+
+                if (rows.length === 0) {
+                  return <tr><td colSpan={6} className="text-center py-12 text-gray-400">No scans yet</td></tr>
+                }
+
+                return rows.map(row => {
+                  if (row.type === 'single') {
+                    const s = row.session
+                    return (
+                      <tr key={s.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-800">{s.supplierName || '—'}</td>
+                        <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{s.invoiceDate || '—'}</td>
+                        <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{s.invoiceNumber || '—'}</td>
+                        <td className="px-4 py-3 text-right hidden md:table-cell">{s.total ? formatCurrency(Number(s.total)) : '—'}</td>
+                        <td className="px-4 py-3 text-center"><StatusChip status={s.status} /></td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {s.status === 'REVIEW' || s.status === 'PROCESSING' ? (
+                              <button
+                                onClick={async () => { const data = await refreshSession(s.id); setSession(data); setApproveResult(null); setView('scanner') }}
+                                className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                              >
+                                <ArrowRight size={10} /> Resume
+                              </button>
+                            ) : s.status === 'APPROVED' ? (
+                              <button
+                                onClick={() => handleEditSession(s.id)}
+                                className="text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                                title="Re-open for editing"
+                              >
+                                <Pencil size={10} /> Edit
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={() => setDeleteConfirm({ id: s.id, status: s.status })}
+                              className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
+                              title="Delete invoice"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  // Batch group row
+                  const { batchId, sessions: bSessions } = row
+                  const batchTotal  = bSessions.reduce((sum, s) => sum + (s.total != null ? Number(s.total) : 0), 0)
+                  const allApproved = bSessions.every(s => s.status === 'APPROVED')
+                  const date = bSessions[0]?.createdAt
+                    ? new Date(bSessions[0].createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    : ''
+                  return (
+                    <tr key={batchId}>
+                      <td colSpan={6} className="px-0 py-0">
+                        <details className="group">
+                          <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer list-none hover:bg-gray-50">
+                            <ChevronRight size={14} className="text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
+                            <span className="font-medium text-gray-800 flex-1">
+                              Batch · {date}{' '}
+                              <span className="text-gray-400 font-normal text-xs">({bSessions.length} invoice{bSessions.length !== 1 ? 's' : ''})</span>
+                              {batchTotal > 0 && <span className="ml-2 text-gray-400 font-normal text-xs">{formatCurrency(batchTotal)}</span>}
+                            </span>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${
+                              allApproved ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {allApproved ? 'DONE' : 'IN PROGRESS'}
+                            </span>
+                          </summary>
+                          <div className="divide-y divide-gray-50 bg-gray-50/50">
+                            {bSessions.map(s => (
+                              <div key={s.id} className="flex items-center gap-3 pl-10 pr-4 py-2.5">
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-sm text-gray-700 truncate">
+                                    {[s.supplierName, s.invoiceNumber].filter(Boolean).join(' · ') || 'Invoice'}
+                                  </span>
+                                  {s.total != null && <span className="ml-2 text-xs text-gray-400">{formatCurrency(Number(s.total))}</span>}
+                                </div>
+                                <StatusChip status={s.status} />
+                                <div className="flex items-center gap-1">
+                                  {s.status === 'REVIEW' || s.status === 'PROCESSING' ? (
+                                    <button
+                                      onClick={async () => { const data = await refreshSession(s.id); setSession(data); setApproveResult(null); setView('scanner') }}
+                                      className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                                    >
+                                      <ArrowRight size={10} /> Resume
+                                    </button>
+                                  ) : s.status === 'APPROVED' ? (
+                                    <button
+                                      onClick={() => handleEditSession(s.id)}
+                                      className="text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                                    >
+                                      <Pencil size={10} /> Edit
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    onClick={() => setDeleteConfirm({ id: s.id, status: s.status })}
+                                    className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                  )
+                })
+              })()}
             </tbody>
           </table>
         </div>
