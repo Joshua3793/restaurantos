@@ -175,6 +175,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const priceAlerts = await prisma.priceAlert.count({ where: { sessionId: params.id } })
   const recipeAlerts = await prisma.recipeAlert.count({ where: { sessionId: params.id } })
 
+  // If this session belongs to a batch, check if all sibling sessions are now approved
+  const approvedSession = await prisma.invoiceSession.findUnique({
+    where: { id: params.id },
+    select: { batchId: true },
+  })
+  if (approvedSession?.batchId) {
+    const siblings = await prisma.invoiceSession.findMany({
+      where: { batchId: approvedSession.batchId },
+      select: { status: true },
+    })
+    const allDone = siblings.every(s => s.status === 'APPROVED')
+    if (allDone) {
+      await prisma.invoiceBatch.update({
+        where: { id: approvedSession.batchId },
+        data: { status: 'DONE' },
+      })
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     itemsUpdated,

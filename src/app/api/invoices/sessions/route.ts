@@ -15,13 +15,14 @@ export async function GET() {
 
 // POST /api/invoices/sessions — create a new session
 export async function POST(req: NextRequest) {
-  const { supplierName, supplierId } = await req.json().catch(() => ({}))
+  const { supplierName, supplierId, batchId } = await req.json().catch(() => ({}))
 
   const session = await prisma.invoiceSession.create({
     data: {
       status: 'UPLOADING',
       supplierName: supplierName || null,
       supplierId: supplierId || null,
+      batchId: batchId || null,
     },
   })
 
