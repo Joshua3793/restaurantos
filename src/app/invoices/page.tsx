@@ -85,7 +85,6 @@ interface ScanItem {
   invoicePackSize: number | null
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
-  editedDescription: string | null
 }
 
 interface Session {
@@ -100,7 +99,6 @@ interface Session {
   priceAlerts: unknown[]
   recipeAlerts: unknown[]
   createdAt: string
-  batchId: string | null
 }
 
 interface ApproveResult {
@@ -109,23 +107,6 @@ interface ApproveResult {
   newItemsCreated: number
   priceAlerts: number
   recipeAlerts: number
-}
-
-interface BatchSessionSummary {
-  id: string
-  status: SessionStatus
-  supplierName: string | null
-  invoiceNumber: string | null
-  invoiceDate: string | null
-  total: number | null
-  files: ScanFile[]
-  _count: { scanItems: number }
-}
-
-interface BatchState {
-  id: string
-  status: 'ANALYZING' | 'PROCESSING' | 'REVIEW' | 'DONE'
-  sessions: BatchSessionSummary[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -150,234 +131,6 @@ const ocrStatusBadge = (status: string) => {
   return <span className="text-[10px] font-semibold text-gray-400">Pending</span>
 }
 
-// ── EditableScanItemFields ────────────────────────────────────────────────────
-
-interface EditableFieldsProps {
-  item: ScanItem
-  sessionId: string
-  onUpdated: (updated: Partial<ScanItem>) => void
-}
-
-function EditableScanItemFields({ item, sessionId, onUpdated }: EditableFieldsProps) {
-  const [desc,  setDesc]  = useState(item.editedDescription ?? item.rawDescription)
-  const [qty,   setQty]   = useState(item.rawQty   != null ? String(item.rawQty)   : '')
-  const [price, setPrice] = useState(item.rawUnitPrice != null ? String(item.rawUnitPrice) : '')
-  const [searchResults, setSearchResults] = useState<{ id: string; itemName: string; baseUnit: string; pricePerBaseUnit: number }[]>([])
-  const [showSearch, setShowSearch] = useState(false)
-  const descTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const numTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const patchItem = async (updates: Record<string, unknown>) => {
-    const res = await fetch(`/api/invoices/sessions/${sessionId}/scanitems/${item.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      onUpdated({
-        rawQty: updated.rawQty,
-        rawUnitPrice: updated.rawUnitPrice,
-        rawLineTotal: updated.rawLineTotal,
-        editedDescription: updated.editedDescription,
-      })
-    }
-  }
-
-  const handleDescChange = (val: string) => {
-    setDesc(val)
-    if (descTimer.current) clearTimeout(descTimer.current)
-    descTimer.current = setTimeout(async () => {
-      await patchItem({ editedDescription: val })
-      if (val.trim().length >= 2) {
-        const res = await fetch(`/api/inventory/search?q=${encodeURIComponent(val)}&limit=5`).then(r => r.json()).catch(() => [])
-        setSearchResults(Array.isArray(res) ? res : [])
-        setShowSearch(Array.isArray(res) && res.length > 0)
-      } else {
-        setShowSearch(false)
-      }
-    }, 500)
-  }
-
-  const handleNumChange = (field: 'rawQty' | 'rawUnitPrice', val: string) => {
-    if (field === 'rawQty') setQty(val)
-    else setPrice(val)
-    if (numTimer.current) clearTimeout(numTimer.current)
-    numTimer.current = setTimeout(() => {
-      const n = parseFloat(val)
-      if (!isNaN(n)) patchItem({ [field]: n })
-    }, 600)
-  }
-
-  return (
-    <div className="space-y-2 mt-2">
-      {/* Editable description */}
-      <div className="relative">
-        <input
-          value={desc ?? ''}
-          onChange={e => handleDescChange(e.target.value)}
-          onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
-          onBlur={() => setTimeout(() => setShowSearch(false), 150)}
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          placeholder="Product description"
-        />
-        {item.editedDescription && item.editedDescription !== item.rawDescription && (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-amber-500 font-bold uppercase tracking-wide">edited</span>
-        )}
-        {showSearch && (
-          <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
-            {searchResults.map(r => (
-              <button
-                key={r.id}
-                onMouseDown={async () => {
-                  setShowSearch(false)
-                  await fetch(`/api/invoices/sessions/${sessionId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ scanItemId: item.id, matchedItemId: r.id, action: 'UPDATE_PRICE' }),
-                  })
-                  onUpdated({ matchedItemId: r.id })
-                }}
-                className="block w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
-              >
-                <span className="font-medium text-gray-800">{r.itemName}</span>
-                <span className="ml-2 text-xs text-gray-400">{r.baseUnit} · ${Number(r.pricePerBaseUnit).toFixed(4)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Qty + Price row */}
-      <div className="flex gap-2">
-        <div className="flex items-center gap-1.5 flex-1">
-          <span className="text-xs text-gray-400 whitespace-nowrap">Qty</span>
-          <input
-            type="number"
-            step="any"
-            value={qty}
-            onChange={e => handleNumChange('rawQty', e.target.value)}
-            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
-        <div className="flex items-center gap-1.5 flex-1">
-          <span className="text-xs text-gray-400 whitespace-nowrap">Unit $</span>
-          <input
-            type="number"
-            step="any"
-            value={price}
-            onChange={e => handleNumChange('rawUnitPrice', e.target.value)}
-            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
-        {item.rawLineTotal != null && (
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-400">=</span>
-            <span className="text-sm font-semibold text-gray-700">${Number(item.rawLineTotal).toFixed(2)}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── BatchSessionReview ────────────────────────────────────────────────────────
-
-interface BatchSessionReviewProps {
-  session: Session
-  approvedBy: string
-  approvedSessions: Session[]
-  onUpdate: () => Promise<void>
-  onApprove: () => void
-  isApproving: boolean
-}
-
-function BatchSessionReview({ session, approvedBy, approvedSessions, onUpdate, onApprove, isApproving }: BatchSessionReviewProps) {
-  const scannedTotal = session.scanItems
-    .filter(i => i.action !== 'SKIP' && i.action !== 'PENDING')
-    .reduce((s, i) => s + Number(i.newPrice ?? i.rawLineTotal ?? 0), 0)
-
-  const duplicate = session.invoiceNumber
-    ? approvedSessions.find(s => s.id !== session.id && s.invoiceNumber === session.invoiceNumber)
-    : null
-
-  return (
-    <div className="space-y-3">
-      {/* Duplicate invoice warning */}
-      {duplicate && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
-          <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold text-amber-800">Duplicate invoice detected. </span>
-            <span className="text-amber-700">
-              Invoice #{session.invoiceNumber} from {duplicate.supplierName || 'this supplier'} was already approved
-              {duplicate.invoiceDate ? ` on ${duplicate.invoiceDate}` : ''}. Approving again may create duplicate price entries.
-            </span>
-          </div>
-        </div>
-      )}
-      {/* Invoice header info */}
-      <div className="flex gap-4 text-sm text-gray-600 pb-2 border-b border-gray-100 flex-wrap">
-        {session.supplierName  && <span><strong>Supplier:</strong> {session.supplierName}</span>}
-        {session.invoiceNumber && <span><strong>Invoice #:</strong> {session.invoiceNumber}</span>}
-        {session.invoiceDate   && <span><strong>Date:</strong> {session.invoiceDate}</span>}
-        {session.total != null && <span><strong>Total:</strong> ${Number(session.total).toFixed(2)}</span>}
-      </div>
-
-      {/* Scan items */}
-      {session.scanItems.map(item => (
-        <div key={item.id} className="border border-gray-100 rounded-xl p-3 bg-gray-50/50">
-          <div className="flex items-start gap-2">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800 truncate">
-                {item.matchedItem?.itemName ?? item.rawDescription}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5 truncate">{item.rawDescription}</p>
-            </div>
-            <div className="text-right shrink-0">
-              {item.newPrice != null && (
-                <p className="text-sm font-semibold text-gray-900">${Number(item.newPrice).toFixed(2)}</p>
-              )}
-              {item.priceDiffPct != null && Math.abs(Number(item.priceDiffPct)) > 0.1 && (
-                <p className={`text-xs font-medium ${Number(item.priceDiffPct) > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                  {Number(item.priceDiffPct) > 0 ? '+' : ''}{Number(item.priceDiffPct).toFixed(1)}%
-                </p>
-              )}
-            </div>
-          </div>
-          <EditableScanItemFields
-            item={item}
-            sessionId={session.id}
-            onUpdated={async () => onUpdate()}
-          />
-        </div>
-      ))}
-
-      {/* Total bar */}
-      {session.total != null && (
-        <div className={`flex items-center justify-between text-sm rounded-lg px-4 py-2 ${
-          Math.abs(scannedTotal - Number(session.total)) < 0.1 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
-        }`}>
-          <span>Scanned total</span>
-          <span className="font-semibold">{`$${scannedTotal.toFixed(2)} / $${Number(session.total).toFixed(2)}`}</span>
-        </div>
-      )}
-
-      {/* Approve button */}
-      <div className="flex justify-end pt-2">
-        <button
-          onClick={onApprove}
-          disabled={isApproving}
-          className="px-5 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-800 disabled:opacity-40 flex items-center gap-2"
-        >
-          {isApproving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-          Approve Invoice
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function InvoicesPage() {
@@ -400,13 +153,8 @@ export default function InvoicesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; status: SessionStatus } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [duplicateDismissed, setDuplicateDismissed] = useState(false)
-  const [batch, setBatch] = useState<BatchState | null>(null)
-  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null)
-  const [expandedSessionData, setExpandedSessionData] = useState<Record<string, Session>>({})
-  const [approvingSessionId, setApprovingSessionId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchSessions = useCallback(() => {
     fetch('/api/invoices/sessions').then(r => r.json()).then(setSessions)
@@ -414,10 +162,7 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     fetchSessions()
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
-      if (batchPollRef.current) clearInterval(batchPollRef.current)
-    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [fetchSessions])
 
   const refreshSession = useCallback(async (id: string) => {
@@ -581,105 +326,6 @@ export default function InvoicesPage() {
     setFiles([])
     setNoApiKey(false)
     setScanError(null)
-    setBatch(null)
-    setExpandedSessionId(null)
-    setExpandedSessionData({})
-    if (batchPollRef.current) clearInterval(batchPollRef.current)
-  }
-
-  const refreshBatch = useCallback(async (id: string) => {
-    const data: BatchState = await fetch(`/api/invoices/batches/${id}`).then(r => r.json())
-    setBatch(data)
-    return data
-  }, [])
-
-  const fetchExpandedSession = useCallback(async (sessionId: string) => {
-    const data: Session = await fetch(`/api/invoices/sessions/${sessionId}`).then(r => r.json())
-    setExpandedSessionData(prev => ({ ...prev, [sessionId]: data }))
-    return data
-  }, [])
-
-  const handleStartBatchScan = async () => {
-    if (files.length === 0) return
-    setIsCreating(true)
-    setScanError(null)
-
-    // 1. Create batch
-    const batchRes = await fetch('/api/invoices/batches', { method: 'POST' })
-    const newBatch = await batchRes.json()
-    const batchId: string = newBatch.id
-
-    // 2. Upload all files to batch staging
-    const fd = new FormData()
-    files.forEach(f => fd.append('files', f))
-    const uploadRes = await fetch(`/api/invoices/batches/${batchId}/files`, { method: 'POST', body: fd })
-    if (!uploadRes.ok) {
-      setScanError('File upload failed. Please try again.')
-      setIsCreating(false)
-      return
-    }
-
-    setIsCreating(false)
-    setFiles([])
-    setBatch({ id: batchId, status: 'ANALYZING', sessions: [] })
-
-    // 3. Metadata scan + grouping
-    const analyzeRes = await fetch(`/api/invoices/batches/${batchId}/analyze`, { method: 'POST' })
-    if (!analyzeRes.ok) {
-      const err = await analyzeRes.json().catch(() => ({}))
-      if (err.error?.includes('ANTHROPIC_API_KEY')) setNoApiKey(true)
-      else setScanError(err.error || 'Analysis failed. Please try again.')
-      return
-    }
-    const { sessions: sessionIds }: { sessions: string[] } = await analyzeRes.json()
-
-    // 4. Fire full OCR process for all sessions simultaneously — truly fire-and-forget
-    // Do NOT await: we want polling to start immediately and show progress
-    sessionIds.forEach(id =>
-      fetch(`/api/invoices/sessions/${id}/process`, { method: 'POST' }).catch(() => {})
-    )
-
-    // 5. Start batch polling
-    const afterAnalyze = await refreshBatch(batchId)
-    setBatch({ ...afterAnalyze, status: 'PROCESSING' })
-
-    batchPollRef.current = setInterval(async () => {
-      const updated = await refreshBatch(batchId)
-      const allDone = updated.sessions.length > 0 &&
-        updated.sessions.every(s => s.status === 'REVIEW' || s.status === 'APPROVED')
-      if (allDone) {
-        clearInterval(batchPollRef.current!)
-        setBatch({ ...updated, status: 'REVIEW' })
-        // Auto-expand first pending session
-        const first = updated.sessions.find(s => s.status === 'REVIEW')
-        if (first) {
-          setExpandedSessionId(first.id)
-          fetchExpandedSession(first.id)
-        }
-      }
-    }, 3000)
-  }
-
-  const handleApproveBatchSession = async (sessionId: string) => {
-    setApprovingSessionId(sessionId)
-    await fetch(`/api/invoices/sessions/${sessionId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approvedBy: approvedBy || 'Manager' }),
-    })
-    const updated = await refreshBatch(batch!.id)
-    setExpandedSessionId(null)
-    // Auto-expand next pending session
-    const next = updated.sessions.find(s => s.status === 'REVIEW')
-    if (next) {
-      setExpandedSessionId(next.id)
-      fetchExpandedSession(next.id)
-      setTimeout(() => {
-        document.getElementById(`batch-session-${next.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 100)
-    }
-    setApprovingSessionId(null)
-    fetchSessions()
   }
 
   // ── History: reopen a session for editing ──────────────────────────────────
@@ -715,167 +361,6 @@ export default function InvoicesPage() {
     })
     await refreshSession(session.id)
     setIsAddingItem(false)
-  }
-
-  // ── Batch render helpers ────────────────────────────────────────────────────
-
-  const renderBatchAnalyzing = () => (
-    <div className="max-w-2xl mx-auto space-y-6 py-8 text-center">
-      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-100 mb-3">
-        <Loader2 size={28} className="text-blue-600 animate-spin" />
-      </div>
-      <h2 className="text-xl font-bold text-gray-900">Analyzing invoices...</h2>
-      <p className="text-sm text-gray-500">Detecting invoice numbers and grouping pages together</p>
-    </div>
-  )
-
-  const renderBatchProcessing = () => {
-    if (!batch) return null
-    return (
-      <div className="max-w-2xl mx-auto space-y-4 py-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Loader2 size={20} className="text-blue-600 animate-spin" />
-          <h2 className="text-lg font-bold text-gray-900">
-            Scanning {batch.sessions.length} invoice{batch.sessions.length !== 1 ? 's' : ''}...
-          </h2>
-        </div>
-        {(() => {
-          const done = batch.sessions.filter(s => s.status === 'REVIEW' || s.status === 'APPROVED').length
-          const pct  = batch.sessions.length > 0 ? Math.round((done / batch.sessions.length) * 100) : 0
-          return (
-            <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
-              <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
-            </div>
-          )
-        })()}
-        <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
-          {batch.sessions.map(s => {
-            const anyError = s.files.some(f => f.ocrStatus === 'ERROR')
-            const label = [s.supplierName, s.invoiceNumber].filter(Boolean).join(' · ') || s.files[0]?.fileName || 'Invoice'
-            return (
-              <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                {s.status === 'REVIEW' || s.status === 'APPROVED'
-                  ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-                  : anyError
-                    ? <AlertTriangle size={16} className="text-red-400 shrink-0" />
-                    : <Loader2 size={16} className="text-blue-400 animate-spin shrink-0" />
-                }
-                <span className="flex-1 text-sm text-gray-700 truncate">{label}</span>
-                <span className="text-xs text-gray-400">{s.files.length} file{s.files.length !== 1 ? 's' : ''}</span>
-                {anyError && (
-                  <button
-                    onClick={() => fetch(`/api/invoices/sessions/${s.id}/process`, { method: 'POST' })}
-                    className="text-xs text-blue-600 hover:underline"
-                  >
-                    Retry
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  const renderBatchReview = () => {
-    if (!batch) return null
-    const pending  = batch.sessions.filter(s => s.status === 'REVIEW').length
-    const approved = batch.sessions.filter(s => s.status === 'APPROVED').length
-
-    return (
-      <div className="max-w-3xl mx-auto space-y-4 pb-16">
-        {/* Sticky progress header */}
-        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-100 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-gray-900">
-              {batch.sessions.length} invoice{batch.sessions.length !== 1 ? 's' : ''}
-            </span>
-            {approved > 0 && <span className="text-xs text-green-600 font-medium">{approved} approved</span>}
-            {pending  > 0 && <span className="text-xs text-amber-600 font-medium">{pending} pending</span>}
-          </div>
-          {pending === 0 && (
-            <button
-              onClick={() => { setBatch(null); fetchSessions(); setView('history') }}
-              className="text-sm font-medium text-blue-600 hover:underline"
-            >
-              Done — view history
-            </button>
-          )}
-        </div>
-
-        {/* Invoice cards */}
-        {batch.sessions.map(summary => {
-          const isExpanded  = expandedSessionId === summary.id
-          const sessionData = expandedSessionData[summary.id]
-          const isApproved  = summary.status === 'APPROVED'
-          const label = [summary.supplierName, summary.invoiceNumber].filter(Boolean).join('  ·  ') || 'Invoice'
-
-          return (
-            <div
-              key={summary.id}
-              id={`batch-session-${summary.id}`}
-              className={`rounded-2xl border-2 overflow-hidden transition-all ${
-                isApproved ? 'border-green-200 bg-green-50/30' : 'border-gray-200 bg-white'
-              }`}
-            >
-              {/* Card header */}
-              <button
-                onClick={() => {
-                  if (isExpanded) {
-                    setExpandedSessionId(null)
-                  } else {
-                    setExpandedSessionId(summary.id)
-                    if (!sessionData) fetchExpandedSession(summary.id)
-                  }
-                }}
-                className="w-full flex items-center gap-3 px-5 py-4 text-left"
-              >
-                {isApproved
-                  ? <CheckCircle2 size={18} className="text-green-500 shrink-0" />
-                  : <ChevronRight size={18} className={`text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                }
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{label}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {summary.files.length} file{summary.files.length !== 1 ? 's' : ''}
-                    {summary._count.scanItems > 0 && ` · ${summary._count.scanItems} items`}
-                    {summary.total != null && ` · $${Number(summary.total).toFixed(2)}`}
-                  </p>
-                </div>
-                <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${
-                  isApproved ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {isApproved ? 'APPROVED' : 'PENDING'}
-                </span>
-              </button>
-
-              {/* Expanded session review */}
-              {isExpanded && (
-                <div className="border-t border-gray-100">
-                  {!sessionData ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 size={24} className="animate-spin text-gray-300" />
-                    </div>
-                  ) : (
-                    <div className="p-5 space-y-4">
-                      <BatchSessionReview
-                        session={sessionData}
-                        approvedBy={approvedBy}
-                        approvedSessions={sessions.filter(s => s.status === 'APPROVED')}
-                        onUpdate={async () => { await fetchExpandedSession(summary.id) }}
-                        onApprove={() => handleApproveBatchSession(summary.id)}
-                        isApproving={approvingSessionId === summary.id}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    )
   }
 
   // ── State 1: Upload ─────────────────────────────────────────────────────────
@@ -915,14 +400,7 @@ export default function InvoicesPage() {
         <Upload size={32} className="text-gray-300" />
         <div className="text-center">
           <p className="font-medium text-gray-700">Drop files here or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">
-            JPEG, PNG, PDF, CSV — up to 10 files, multiple invoices OK
-          </p>
-          {files.length > 0 && (
-            <p className={`text-xs font-semibold mt-1 ${files.length > 10 ? 'text-red-500' : 'text-blue-500'}`}>
-              {files.length} / 10 files selected
-            </p>
-          )}
+          <p className="text-xs text-gray-400 mt-1">JPEG, PNG, PDF, CSV supported</p>
         </div>
         <input
           ref={fileInputRef}
@@ -951,21 +429,13 @@ export default function InvoicesPage() {
       )}
 
       <button
-        onClick={() => files.length > 1 ? handleStartBatchScan() : handleStartScan()}
-        disabled={files.length === 0 || isCreating || isUploading || files.length > 10}
-        className="w-full py-3 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        onClick={handleStartScan}
+        disabled={files.length === 0 || isCreating || isUploading}
+        className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {isCreating ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
-        {isCreating
-          ? 'Uploading...'
-          : files.length > 1
-            ? `Scan ${files.length} Invoices`
-            : 'Scan Invoice'
-        }
+        {(isCreating || isUploading) ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
+        {isUploading ? 'Uploading to CDN…' : isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : 'Invoices'}`}
       </button>
-      {files.length > 10 && (
-        <p className="text-center text-xs text-red-500">Maximum 10 files per batch</p>
-      )}
     </div>
   )
 
@@ -1172,18 +642,6 @@ export default function InvoicesPage() {
                   onOpenDetail={() => setEditingItem(item)}
                   onEditInventory={(invId, scanItem) => setEditingInventory({ inventoryItemId: invId, scanItem })}
                 />
-                <EditableScanItemFields
-                  item={item}
-                  sessionId={session.id}
-                  onUpdated={(updates) => {
-                    setSession(prev => prev ? {
-                      ...prev,
-                      scanItems: prev.scanItems.map(si =>
-                        si.id === item.id ? { ...si, ...updates } : si
-                      ),
-                    } : prev)
-                  }}
-                />
               </div>
             ))}
             {session.scanItems.length === 0 && (
@@ -1362,142 +820,47 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {(() => {
-                // Group sessions: batch sessions together, standalone sessions alone
-                const batchGroups = new Map<string, Session[]>()
-                const batchSeen   = new Set<string>()
-                for (const s of sessions) {
-                  if (s.batchId) {
-                    if (!batchGroups.has(s.batchId)) batchGroups.set(s.batchId, [])
-                    batchGroups.get(s.batchId)!.push(s)
-                  }
-                }
-                type DisplayRow =
-                  | { type: 'batch'; batchId: string; sessions: Session[] }
-                  | { type: 'single'; session: Session }
-                const rows: DisplayRow[] = []
-                for (const s of sessions) {
-                  if (s.batchId) {
-                    if (!batchSeen.has(s.batchId)) {
-                      batchSeen.add(s.batchId)
-                      rows.push({ type: 'batch', batchId: s.batchId, sessions: batchGroups.get(s.batchId)! })
-                    }
-                  } else {
-                    rows.push({ type: 'single', session: s })
-                  }
-                }
-
-                if (rows.length === 0) {
-                  return <tr><td colSpan={6} className="text-center py-12 text-gray-400">No scans yet</td></tr>
-                }
-
-                return rows.map(row => {
-                  if (row.type === 'single') {
-                    const s = row.session
-                    return (
-                      <tr key={s.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-800">{s.supplierName || '—'}</td>
-                        <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{s.invoiceDate || '—'}</td>
-                        <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{s.invoiceNumber || '—'}</td>
-                        <td className="px-4 py-3 text-right hidden md:table-cell">{s.total ? formatCurrency(Number(s.total)) : '—'}</td>
-                        <td className="px-4 py-3 text-center"><StatusChip status={s.status} /></td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {s.status === 'REVIEW' || s.status === 'PROCESSING' ? (
-                              <button
-                                onClick={async () => { const data = await refreshSession(s.id); setSession(data); setApproveResult(null); setView('scanner') }}
-                                className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                              >
-                                <ArrowRight size={10} /> Resume
-                              </button>
-                            ) : s.status === 'APPROVED' ? (
-                              <button
-                                onClick={() => handleEditSession(s.id)}
-                                className="text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                                title="Re-open for editing"
-                              >
-                                <Pencil size={10} /> Edit
-                              </button>
-                            ) : null}
-                            <button
-                              onClick={() => setDeleteConfirm({ id: s.id, status: s.status })}
-                              className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
-                              title="Delete invoice"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  }
-
-                  // Batch group row
-                  const { batchId, sessions: bSessions } = row
-                  const batchTotal  = bSessions.reduce((sum, s) => sum + (s.total != null ? Number(s.total) : 0), 0)
-                  const allApproved = bSessions.every(s => s.status === 'APPROVED')
-                  const date = bSessions[0]?.createdAt
-                    ? new Date(bSessions[0].createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                    : ''
-                  return (
-                    <tr key={batchId}>
-                      <td colSpan={6} className="px-0 py-0">
-                        <details className="group">
-                          <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer list-none hover:bg-gray-50">
-                            <ChevronRight size={14} className="text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
-                            <span className="font-medium text-gray-800 flex-1">
-                              Batch · {date}{' '}
-                              <span className="text-gray-400 font-normal text-xs">({bSessions.length} invoice{bSessions.length !== 1 ? 's' : ''})</span>
-                              {batchTotal > 0 && <span className="ml-2 text-gray-400 font-normal text-xs">{formatCurrency(batchTotal)}</span>}
-                            </span>
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${
-                              allApproved ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {allApproved ? 'DONE' : 'IN PROGRESS'}
-                            </span>
-                          </summary>
-                          <div className="divide-y divide-gray-50 bg-gray-50/50">
-                            {bSessions.map(s => (
-                              <div key={s.id} className="flex items-center gap-3 pl-10 pr-4 py-2.5">
-                                <div className="flex-1 min-w-0">
-                                  <span className="text-sm text-gray-700 truncate">
-                                    {[s.supplierName, s.invoiceNumber].filter(Boolean).join(' · ') || 'Invoice'}
-                                  </span>
-                                  {s.total != null && <span className="ml-2 text-xs text-gray-400">{formatCurrency(Number(s.total))}</span>}
-                                </div>
-                                <StatusChip status={s.status} />
-                                <div className="flex items-center gap-1">
-                                  {s.status === 'REVIEW' || s.status === 'PROCESSING' ? (
-                                    <button
-                                      onClick={async () => { const data = await refreshSession(s.id); setSession(data); setApproveResult(null); setView('scanner') }}
-                                      className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                                    >
-                                      <ArrowRight size={10} /> Resume
-                                    </button>
-                                  ) : s.status === 'APPROVED' ? (
-                                    <button
-                                      onClick={() => handleEditSession(s.id)}
-                                      className="text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                                    >
-                                      <Pencil size={10} /> Edit
-                                    </button>
-                                  ) : null}
-                                  <button
-                                    onClick={() => setDeleteConfirm({ id: s.id, status: s.status })}
-                                    className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      </td>
-                    </tr>
-                  )
-                })
-              })()}
+              {sessions.map(s => (
+                <tr key={s.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{s.supplierName || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{s.invoiceDate || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{s.invoiceNumber || '—'}</td>
+                  <td className="px-4 py-3 text-right hidden md:table-cell">{s.total ? formatCurrency(Number(s.total)) : '—'}</td>
+                  <td className="px-4 py-3 text-center">
+                    <StatusChip status={s.status} />
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {s.status === 'REVIEW' || s.status === 'PROCESSING' ? (
+                        <button
+                          onClick={async () => { const data = await refreshSession(s.id); setSession(data); setApproveResult(null); setView('scanner') }}
+                          className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                        >
+                          <ArrowRight size={10} /> Resume
+                        </button>
+                      ) : s.status === 'APPROVED' ? (
+                        <button
+                          onClick={() => handleEditSession(s.id)}
+                          className="text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                          title="Re-open for editing"
+                        >
+                          <Pencil size={10} /> Edit
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => setDeleteConfirm({ id: s.id, status: s.status })}
+                        className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
+                        title="Delete invoice"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {sessions.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-12 text-gray-400">No scans yet</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1522,8 +885,6 @@ export default function InvoicesPage() {
     : session.status === 'PROCESSING' ? 'processing'
     : session.status === 'REVIEW' ? 'review'
     : 'upload'
-
-  const batchActive = batch !== null && !session
 
   return (
     <div className="space-y-4">
@@ -1550,8 +911,8 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      {/* Progress steps (only when scanning single invoice) */}
-      {view === 'scanner' && !batchActive && currentState !== 'results' && (
+      {/* Progress steps (only when scanning) */}
+      {view === 'scanner' && currentState !== 'results' && (
         <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
           {(['upload', 'processing', 'review'] as const).map((step, i) => (
             <div key={step} className="flex items-center gap-1">
@@ -1565,12 +926,7 @@ export default function InvoicesPage() {
       )}
 
       {/* Content */}
-      {view === 'history' ? renderHistory() : batchActive ? (
-        batch?.status === 'ANALYZING'  ? renderBatchAnalyzing() :
-        batch?.status === 'PROCESSING' ? renderBatchProcessing() :
-        (batch?.status === 'REVIEW' || batch?.status === 'DONE') ? renderBatchReview() :
-        renderUpload()
-      ) : (
+      {view === 'history' ? renderHistory() : (
         currentState === 'upload' ? renderUpload() :
         currentState === 'processing' ? renderProcessing() :
         currentState === 'review' ? renderReview() :
