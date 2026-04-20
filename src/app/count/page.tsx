@@ -158,6 +158,17 @@ export default function CountPage() {
     })
   }, [])
 
+  // Lock body scroll when modal is open (prevents iOS background scroll).
+  // Only use overflow:hidden — position:fixed breaks inner scroll on iOS Safari.
+  useEffect(() => {
+    if (showModal) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [showModal])
+
   // Reset qty input when card opens
   useEffect(() => {
     if (!openId || !active?.lines) return
@@ -361,13 +372,24 @@ export default function CountPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100 shrink-0">
-              <h2 className="text-lg font-bold text-gray-900">Start count session</h2>
-              <button onClick={() => setShowModal(false)}><X size={20} className="text-gray-400" /></button>
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center">
+          <form onSubmit={handleCreate} className="bg-white w-full sm:max-w-md sm:mx-4 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col" style={{ maxHeight: 'min(92svh, 92vh)' }}>
+            {/* Header with buttons always visible at top */}
+            <div className="flex items-center gap-2 px-4 pt-4 pb-3 border-b border-gray-100 shrink-0">
+              <h2 className="text-base font-bold text-gray-900 flex-1">Start count session</h2>
+              <button type="button" onClick={() => setShowModal(false)}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 font-medium"
+              >
+                Cancel
+              </button>
+              <button type="submit"
+                className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700"
+              >
+                Start →
+              </button>
             </div>
-            <form onSubmit={handleCreate} className="p-5 space-y-4 overflow-y-auto">
+            {/* Scrollable fields */}
+            <div className="overflow-y-auto flex-1 min-h-0 px-5 pt-4 pb-6 space-y-4" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', touchAction: 'pan-y' }}>
               {/* Label */}
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Label</label>
@@ -445,21 +467,8 @@ export default function CountPage() {
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
-              {/* Buttons */}
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 font-medium"
-                >
-                  Cancel
-                </button>
-                <button id="count-submit" type="submit"
-                  className="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700"
-                >
-                  Start →
-                </button>
-              </div>
-            </form>
-          </div>
+            </div>
+          </form>
         </div>
       )}
 
