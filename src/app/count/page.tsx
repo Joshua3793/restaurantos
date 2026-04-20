@@ -362,12 +362,12 @@ export default function CountPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100 shrink-0">
               <h2 className="text-lg font-bold text-gray-900">Start count session</h2>
               <button onClick={() => setShowModal(false)}><X size={20} className="text-gray-400" /></button>
             </div>
-            <form onSubmit={handleCreate} className="p-5 space-y-4">
+            <form onSubmit={handleCreate} className="p-5 space-y-4 overflow-y-auto">
               {/* Label */}
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Label</label>
