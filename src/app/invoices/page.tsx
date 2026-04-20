@@ -109,6 +109,23 @@ interface ApproveResult {
   recipeAlerts: number
 }
 
+interface BatchSessionSummary {
+  id: string
+  status: SessionStatus
+  supplierName: string | null
+  invoiceNumber: string | null
+  invoiceDate: string | null
+  total: number | null
+  files: ScanFile[]
+  _count: { scanItems: number }
+}
+
+interface BatchState {
+  id: string
+  status: 'ANALYZING' | 'PROCESSING' | 'REVIEW' | 'DONE'
+  sessions: BatchSessionSummary[]
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const confidenceBadge = (c: MatchConfidence) => {
@@ -153,8 +170,13 @@ export default function InvoicesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; status: SessionStatus } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [duplicateDismissed, setDuplicateDismissed] = useState(false)
+  const [batch, setBatch] = useState<BatchState | null>(null)
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null)
+  const [expandedSessionData, setExpandedSessionData] = useState<Record<string, Session>>({})
+  const [approvingSessionId, setApprovingSessionId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchSessions = useCallback(() => {
     fetch('/api/invoices/sessions').then(r => r.json()).then(setSessions)
@@ -162,7 +184,10 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     fetchSessions()
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+      if (batchPollRef.current) clearInterval(batchPollRef.current)
+    }
   }, [fetchSessions])
 
   const refreshSession = useCallback(async (id: string) => {
@@ -326,6 +351,103 @@ export default function InvoicesPage() {
     setFiles([])
     setNoApiKey(false)
     setScanError(null)
+    setBatch(null)
+    setExpandedSessionId(null)
+    setExpandedSessionData({})
+    if (batchPollRef.current) clearInterval(batchPollRef.current)
+  }
+
+  const refreshBatch = useCallback(async (id: string) => {
+    const data: BatchState = await fetch(`/api/invoices/batches/${id}`).then(r => r.json())
+    setBatch(data)
+    return data
+  }, [])
+
+  const fetchExpandedSession = useCallback(async (sessionId: string) => {
+    const data: Session = await fetch(`/api/invoices/sessions/${sessionId}`).then(r => r.json())
+    setExpandedSessionData(prev => ({ ...prev, [sessionId]: data }))
+    return data
+  }, [])
+
+  const handleStartBatchScan = async () => {
+    if (files.length === 0) return
+    setIsCreating(true)
+    setScanError(null)
+
+    // 1. Create batch
+    const batchRes = await fetch('/api/invoices/batches', { method: 'POST' })
+    const newBatch = await batchRes.json()
+    const batchId: string = newBatch.id
+
+    // 2. Upload all files to batch staging
+    const fd = new FormData()
+    files.forEach(f => fd.append('files', f))
+    const uploadRes = await fetch(`/api/invoices/batches/${batchId}/files`, { method: 'POST', body: fd })
+    if (!uploadRes.ok) {
+      setScanError('File upload failed. Please try again.')
+      setIsCreating(false)
+      return
+    }
+
+    setIsCreating(false)
+    setFiles([])
+    setBatch({ id: batchId, status: 'ANALYZING', sessions: [] })
+
+    // 3. Metadata scan + grouping
+    const analyzeRes = await fetch(`/api/invoices/batches/${batchId}/analyze`, { method: 'POST' })
+    if (!analyzeRes.ok) {
+      const err = await analyzeRes.json().catch(() => ({}))
+      if (err.error?.includes('ANTHROPIC_API_KEY')) setNoApiKey(true)
+      else setScanError(err.error || 'Analysis failed. Please try again.')
+      return
+    }
+    const { sessions: sessionIds }: { sessions: string[] } = await analyzeRes.json()
+
+    // 4. Fire full OCR process for all sessions simultaneously (fire-and-forget)
+    await Promise.all(sessionIds.map(id =>
+      fetch(`/api/invoices/sessions/${id}/process`, { method: 'POST' }).catch(() => {})
+    ))
+
+    // 5. Start batch polling
+    const afterAnalyze = await refreshBatch(batchId)
+    setBatch({ ...afterAnalyze, status: 'PROCESSING' })
+
+    batchPollRef.current = setInterval(async () => {
+      const updated = await refreshBatch(batchId)
+      const allDone = updated.sessions.every(s => s.status === 'REVIEW' || s.status === 'APPROVED')
+      if (allDone) {
+        clearInterval(batchPollRef.current!)
+        setBatch({ ...updated, status: 'REVIEW' })
+        // Auto-expand first pending session
+        const first = updated.sessions.find(s => s.status === 'REVIEW')
+        if (first) {
+          setExpandedSessionId(first.id)
+          fetchExpandedSession(first.id)
+        }
+      }
+    }, 3000)
+  }
+
+  const handleApproveBatchSession = async (sessionId: string) => {
+    setApprovingSessionId(sessionId)
+    await fetch(`/api/invoices/sessions/${sessionId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvedBy: approvedBy || 'Manager' }),
+    })
+    const updated = await refreshBatch(batch!.id)
+    setExpandedSessionId(null)
+    // Auto-expand next pending session
+    const next = updated.sessions.find(s => s.status === 'REVIEW')
+    if (next) {
+      setExpandedSessionId(next.id)
+      fetchExpandedSession(next.id)
+      setTimeout(() => {
+        document.getElementById(`batch-session-${next.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    }
+    setApprovingSessionId(null)
+    fetchSessions()
   }
 
   // ── History: reopen a session for editing ──────────────────────────────────
@@ -400,7 +522,14 @@ export default function InvoicesPage() {
         <Upload size={32} className="text-gray-300" />
         <div className="text-center">
           <p className="font-medium text-gray-700">Drop files here or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">JPEG, PNG, PDF, CSV supported</p>
+          <p className="text-xs text-gray-400 mt-1">
+            JPEG, PNG, PDF, CSV — up to 10 files, multiple invoices OK
+          </p>
+          {files.length > 0 && (
+            <p className={`text-xs font-semibold mt-1 ${files.length > 10 ? 'text-red-500' : 'text-blue-500'}`}>
+              {files.length} / 10 files selected
+            </p>
+          )}
         </div>
         <input
           ref={fileInputRef}
@@ -429,13 +558,21 @@ export default function InvoicesPage() {
       )}
 
       <button
-        onClick={handleStartScan}
-        disabled={files.length === 0 || isCreating || isUploading}
-        className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        onClick={() => files.length > 1 ? handleStartBatchScan() : handleStartScan()}
+        disabled={files.length === 0 || isCreating || isUploading || files.length > 10}
+        className="w-full py-3 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
-        {(isCreating || isUploading) ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
-        {isUploading ? 'Uploading to CDN…' : isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : 'Invoices'}`}
+        {isCreating ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
+        {isCreating
+          ? 'Uploading...'
+          : files.length > 1
+            ? `Scan ${files.length} Invoices`
+            : 'Scan Invoice'
+        }
       </button>
+      {files.length > 10 && (
+        <p className="text-center text-xs text-red-500">Maximum 10 files per batch</p>
+      )}
     </div>
   )
 
