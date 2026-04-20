@@ -5,7 +5,7 @@ import {
   X, ChevronDown, Loader2, FileText, Image, FileSpreadsheet,
   TrendingUp, TrendingDown, Plus, Bell, Package,
   ClipboardList, ChevronRight, Pencil, Trash2, AlertCircle,
-  Hash, CalendarDays
+  Hash, CalendarDays, Camera
 } from 'lucide-react'
 import { formatCurrency, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, deriveBaseUnit, calcConversionFactor } from '@/lib/utils'
 import { useUploadThing } from '@/lib/uploadthing-client'
@@ -153,8 +153,14 @@ export default function InvoicesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; status: SessionStatus } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [duplicateDismissed, setDuplicateDismissed] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const fileInputRef   = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [uploadMode, setUploadMode] = useState<'file' | 'camera'>('file')
+  // Blob URLs for camera photo previews — revoked when files are cleared
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
+
+  const MAX_PHOTOS = 5
 
   const fetchSessions = useCallback(() => {
     fetch('/api/invoices/sessions').then(r => r.json()).then(setSessions)
@@ -201,6 +207,29 @@ export default function InvoicesPage() {
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return
     setFiles(prev => [...prev, ...Array.from(e.target.files!)])
+    e.target.value = ''
+  }
+
+  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return
+    const photo = e.target.files[0]
+    setFiles(prev => {
+      if (prev.length >= MAX_PHOTOS) return prev
+      return [...prev, photo]
+    })
+    setPhotoPreviews(prev => {
+      if (prev.length >= MAX_PHOTOS) return prev
+      return [...prev, URL.createObjectURL(photo)]
+    })
+    e.target.value = '' // reset so the same file can be re-triggered
+  }
+
+  const removePhoto = (idx: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== idx))
+    setPhotoPreviews(prev => {
+      URL.revokeObjectURL(prev[idx])
+      return prev.filter((_, i) => i !== idx)
+    })
   }
 
   const { startUpload, isUploading } = useUploadThing('invoiceUploader', {
@@ -324,6 +353,9 @@ export default function InvoicesPage() {
     setSession(null)
     setApproveResult(null)
     setFiles([])
+    photoPreviews.forEach(url => URL.revokeObjectURL(url))
+    setPhotoPreviews([])
+    setUploadMode('file')
     setNoApiKey(false)
     setScanError(null)
   }
@@ -387,54 +419,163 @@ export default function InvoicesPage() {
         </div>
       )}
 
-      {/* Dropzone */}
-      <div
-        onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors ${
-          isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
-        }`}
-      >
-        <Upload size={32} className="text-gray-300" />
-        <div className="text-center">
-          <p className="font-medium text-gray-700">Drop files here or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">JPEG, PNG, PDF, CSV supported</p>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*,.pdf,.csv,text/csv"
-          className="hidden"
-          onChange={handleFileInput}
-        />
+      {/* ── Mode toggle: Upload / Camera ── */}
+      <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+        <button
+          type="button"
+          onClick={() => setUploadMode('file')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            uploadMode === 'file'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Upload size={15} /> Upload File
+        </button>
+        <button
+          type="button"
+          onClick={() => setUploadMode('camera')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            uploadMode === 'camera'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Camera size={15} /> Use Camera
+        </button>
       </div>
 
-      {/* File list */}
-      {files.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
-          {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-3 px-4 py-3">
-              {fileIcon(f.type)}
-              <span className="flex-1 text-sm text-gray-700 truncate">{f.name}</span>
-              <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
-              <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>
-                <X size={14} className="text-gray-300 hover:text-red-400" />
-              </button>
+      {/* ── FILE UPLOAD MODE ── */}
+      {uploadMode === 'file' && (
+        <>
+          <div
+            onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors ${
+              isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+            }`}
+          >
+            <Upload size={32} className="text-gray-300" />
+            <div className="text-center">
+              <p className="font-medium text-gray-700">Drop files here or click to browse</p>
+              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, PDF, CSV supported</p>
             </div>
-          ))}
-        </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.csv,text/csv"
+              className="hidden"
+              onChange={handleFileInput}
+            />
+          </div>
+
+          {files.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
+              {files.map((f, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  {fileIcon(f.type)}
+                  <span className="flex-1 text-sm text-gray-700 truncate">{f.name}</span>
+                  <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
+                  <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>
+                    <X size={14} className="text-gray-300 hover:text-red-400" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── CAMERA MODE ── */}
+      {uploadMode === 'camera' && (
+        <>
+          {/* Hidden camera input — capture="environment" opens rear camera on mobile */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleCameraCapture}
+          />
+
+          {/* Photo grid */}
+          {photoPreviews.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Pages captured
+                </p>
+                <p className="text-xs text-gray-400">{photoPreviews.length} / {MAX_PHOTOS}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {photoPreviews.map((url, i) => (
+                  <div key={i} className="relative aspect-[3/4] rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`Page ${i + 1}`} className="w-full h-full object-cover" />
+                    <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                      <span className="text-white text-[10px] font-bold">{i + 1}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-red-500 flex items-center justify-center"
+                    >
+                      <X size={10} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Take photo button */}
+          {photoPreviews.length < MAX_PHOTOS ? (
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="w-full border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-2xl py-10 flex flex-col items-center gap-3 transition-colors"
+            >
+              <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
+                <Camera size={28} className="text-white" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-blue-700">
+                  {photoPreviews.length === 0 ? 'Take Photo' : 'Add Another Page'}
+                </p>
+                <p className="text-xs text-blue-500 mt-0.5">
+                  {photoPreviews.length === 0
+                    ? 'Opens your camera — point at the invoice'
+                    : `${MAX_PHOTOS - photoPreviews.length} page${MAX_PHOTOS - photoPreviews.length !== 1 ? 's' : ''} remaining`}
+                </p>
+              </div>
+            </button>
+          ) : (
+            <div className="w-full border-2 border-gray-100 bg-gray-50 rounded-2xl py-6 flex flex-col items-center gap-2">
+              <CheckCircle2 size={24} className="text-green-500" />
+              <p className="text-sm font-medium text-gray-600">Maximum {MAX_PHOTOS} pages reached</p>
+              <p className="text-xs text-gray-400">Remove a page above to replace it</p>
+            </div>
+          )}
+
+          {photoPreviews.length === 0 && (
+            <p className="text-center text-xs text-gray-400">
+              Multi-page invoice? Take one photo per page, up to {MAX_PHOTOS} pages total.
+            </p>
+          )}
+        </>
       )}
 
       <button
         onClick={handleStartScan}
         disabled={files.length === 0 || isCreating || isUploading}
-        className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="w-full bg-blue-600 text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         {(isCreating || isUploading) ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
-        {isUploading ? 'Uploading to CDN…' : isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : 'Invoices'}`}
+        {isUploading ? 'Uploading…' : isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} ${files.length > 1 ? 'pages' : 'file'}` : 'Invoice'}`}
       </button>
     </div>
   )
