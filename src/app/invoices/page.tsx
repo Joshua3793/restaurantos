@@ -633,10 +633,11 @@ export default function InvoicesPage() {
     }
     const { sessions: sessionIds }: { sessions: string[] } = await analyzeRes.json()
 
-    // 4. Fire full OCR process for all sessions simultaneously (fire-and-forget)
-    await Promise.all(sessionIds.map(id =>
+    // 4. Fire full OCR process for all sessions simultaneously — truly fire-and-forget
+    // Do NOT await: we want polling to start immediately and show progress
+    sessionIds.forEach(id =>
       fetch(`/api/invoices/sessions/${id}/process`, { method: 'POST' }).catch(() => {})
-    ))
+    )
 
     // 5. Start batch polling
     const afterAnalyze = await refreshBatch(batchId)
@@ -644,7 +645,8 @@ export default function InvoicesPage() {
 
     batchPollRef.current = setInterval(async () => {
       const updated = await refreshBatch(batchId)
-      const allDone = updated.sessions.every(s => s.status === 'REVIEW' || s.status === 'APPROVED')
+      const allDone = updated.sessions.length > 0 &&
+        updated.sessions.every(s => s.status === 'REVIEW' || s.status === 'APPROVED')
       if (allDone) {
         clearInterval(batchPollRef.current!)
         setBatch({ ...updated, status: 'REVIEW' })
