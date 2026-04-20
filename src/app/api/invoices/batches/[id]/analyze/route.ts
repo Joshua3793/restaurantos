@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import Anthropic from '@anthropic-ai/sdk'
+import sharp from 'sharp'
 
 export const maxDuration = 120
 
@@ -23,6 +24,14 @@ async function loadBuffer(fileUrl: string): Promise<Buffer> {
   const res = await fetch(fileUrl)
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`)
   return Buffer.from(await res.arrayBuffer())
+}
+
+// Shrink images before metadata scan — Claude only needs to read text, not full detail
+async function compressForMeta(buf: Buffer): Promise<Buffer> {
+  return sharp(buf)
+    .resize({ width: 1200, height: 1600, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 60 })
+    .toBuffer()
 }
 
 // POST /api/invoices/batches/[id]/analyze
@@ -52,7 +61,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       const imageBuffers = await Promise.all(
         imageFiles.map(async f => {
           const buf = await loadBuffer(f.fileUrl)
-          return buf.toString('base64')
+          const compressed = await compressForMeta(buf).catch(() => buf)
+          return compressed.toString('base64')
         })
       )
 

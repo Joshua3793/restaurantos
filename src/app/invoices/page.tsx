@@ -286,18 +286,36 @@ function EditableScanItemFields({ item, sessionId, onUpdated }: EditableFieldsPr
 interface BatchSessionReviewProps {
   session: Session
   approvedBy: string
+  approvedSessions: Session[]
   onUpdate: () => Promise<void>
   onApprove: () => void
   isApproving: boolean
 }
 
-function BatchSessionReview({ session, approvedBy, onUpdate, onApprove, isApproving }: BatchSessionReviewProps) {
+function BatchSessionReview({ session, approvedBy, approvedSessions, onUpdate, onApprove, isApproving }: BatchSessionReviewProps) {
   const scannedTotal = session.scanItems
     .filter(i => i.action !== 'SKIP' && i.action !== 'PENDING')
     .reduce((s, i) => s + (i.newPrice ?? i.rawLineTotal ?? 0), 0)
 
+  const duplicate = session.invoiceNumber
+    ? approvedSessions.find(s => s.id !== session.id && s.invoiceNumber === session.invoiceNumber)
+    : null
+
   return (
     <div className="space-y-3">
+      {/* Duplicate invoice warning */}
+      {duplicate && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+          <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-amber-800">Duplicate invoice detected. </span>
+            <span className="text-amber-700">
+              Invoice #{session.invoiceNumber} from {duplicate.supplierName || 'this supplier'} was already approved
+              {duplicate.invoiceDate ? ` on ${duplicate.invoiceDate}` : ''}. Approving again may create duplicate price entries.
+            </span>
+          </div>
+        </div>
+      )}
       {/* Invoice header info */}
       <div className="flex gap-4 text-sm text-gray-600 pb-2 border-b border-gray-100 flex-wrap">
         {session.supplierName  && <span><strong>Supplier:</strong> {session.supplierName}</span>}
@@ -341,7 +359,7 @@ function BatchSessionReview({ session, approvedBy, onUpdate, onApprove, isApprov
           Math.abs(scannedTotal - Number(session.total)) < 0.1 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
         }`}>
           <span>Scanned total</span>
-          <span className="font-semibold">${scannedTotal.toFixed(2)} / ${Number(session.total).toFixed(2)}</span>
+          <span className="font-semibold">{`$${scannedTotal.toFixed(2)} / $${Number(session.total).toFixed(2)}`}</span>
         </div>
       )}
 
@@ -842,6 +860,7 @@ export default function InvoicesPage() {
                       <BatchSessionReview
                         session={sessionData}
                         approvedBy={approvedBy}
+                        approvedSessions={sessions.filter(s => s.status === 'APPROVED')}
                         onUpdate={async () => { await fetchExpandedSession(summary.id) }}
                         onApprove={() => handleApproveBatchSession(summary.id)}
                         isApproving={approvingSessionId === summary.id}
