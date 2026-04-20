@@ -148,6 +148,80 @@ const ocrStatusBadge = (status: string) => {
   return <span className="text-[10px] font-semibold text-gray-400">Pending</span>
 }
 
+// ── BatchSessionReview ────────────────────────────────────────────────────────
+
+interface BatchSessionReviewProps {
+  session: Session
+  approvedBy: string
+  onUpdate: () => Promise<void>
+  onApprove: () => void
+  isApproving: boolean
+}
+
+function BatchSessionReview({ session, approvedBy, onUpdate, onApprove, isApproving }: BatchSessionReviewProps) {
+  const scannedTotal = session.scanItems
+    .filter(i => i.action !== 'SKIP' && i.action !== 'PENDING')
+    .reduce((s, i) => s + (i.newPrice ?? i.rawLineTotal ?? 0), 0)
+
+  return (
+    <div className="space-y-3">
+      {/* Invoice header info */}
+      <div className="flex gap-4 text-sm text-gray-600 pb-2 border-b border-gray-100 flex-wrap">
+        {session.supplierName  && <span><strong>Supplier:</strong> {session.supplierName}</span>}
+        {session.invoiceNumber && <span><strong>Invoice #:</strong> {session.invoiceNumber}</span>}
+        {session.invoiceDate   && <span><strong>Date:</strong> {session.invoiceDate}</span>}
+        {session.total != null && <span><strong>Total:</strong> ${Number(session.total).toFixed(2)}</span>}
+      </div>
+
+      {/* Scan items */}
+      {session.scanItems.map(item => (
+        <div key={item.id} className="border border-gray-100 rounded-xl p-3 bg-gray-50/50">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-800 truncate">
+                {item.matchedItem?.itemName ?? item.rawDescription}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5 truncate">{item.rawDescription}</p>
+            </div>
+            <div className="text-right shrink-0">
+              {item.newPrice != null && (
+                <p className="text-sm font-semibold text-gray-900">${Number(item.newPrice).toFixed(2)}</p>
+              )}
+              {item.priceDiffPct != null && Math.abs(Number(item.priceDiffPct)) > 0.1 && (
+                <p className={`text-xs font-medium ${Number(item.priceDiffPct) > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  {Number(item.priceDiffPct) > 0 ? '+' : ''}{Number(item.priceDiffPct).toFixed(1)}%
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Total bar */}
+      {session.total != null && (
+        <div className={`flex items-center justify-between text-sm rounded-lg px-4 py-2 ${
+          Math.abs(scannedTotal - Number(session.total)) < 0.1 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+        }`}>
+          <span>Scanned total</span>
+          <span className="font-semibold">${scannedTotal.toFixed(2)} / ${Number(session.total).toFixed(2)}</span>
+        </div>
+      )}
+
+      {/* Approve button */}
+      <div className="flex justify-end pt-2">
+        <button
+          onClick={onApprove}
+          disabled={isApproving}
+          className="px-5 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-800 disabled:opacity-40 flex items-center gap-2"
+        >
+          {isApproving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+          Approve Invoice
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function InvoicesPage() {
@@ -483,6 +557,166 @@ export default function InvoicesPage() {
     })
     await refreshSession(session.id)
     setIsAddingItem(false)
+  }
+
+  // ── Batch render helpers ────────────────────────────────────────────────────
+
+  const renderBatchAnalyzing = () => (
+    <div className="max-w-2xl mx-auto space-y-6 py-8 text-center">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-100 mb-3">
+        <Loader2 size={28} className="text-blue-600 animate-spin" />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900">Analyzing invoices...</h2>
+      <p className="text-sm text-gray-500">Detecting invoice numbers and grouping pages together</p>
+    </div>
+  )
+
+  const renderBatchProcessing = () => {
+    if (!batch) return null
+    return (
+      <div className="max-w-2xl mx-auto space-y-4 py-6">
+        <div className="flex items-center gap-3 mb-2">
+          <Loader2 size={20} className="text-blue-600 animate-spin" />
+          <h2 className="text-lg font-bold text-gray-900">
+            Scanning {batch.sessions.length} invoice{batch.sessions.length !== 1 ? 's' : ''}...
+          </h2>
+        </div>
+        {(() => {
+          const done = batch.sessions.filter(s => s.status === 'REVIEW' || s.status === 'APPROVED').length
+          const pct  = batch.sessions.length > 0 ? Math.round((done / batch.sessions.length) * 100) : 0
+          return (
+            <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+              <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+            </div>
+          )
+        })()}
+        <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
+          {batch.sessions.map(s => {
+            const anyError = s.files.some(f => f.ocrStatus === 'ERROR')
+            const label = [s.supplierName, s.invoiceNumber].filter(Boolean).join(' · ') || s.files[0]?.fileName || 'Invoice'
+            return (
+              <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+                {s.status === 'REVIEW' || s.status === 'APPROVED'
+                  ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+                  : anyError
+                    ? <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                    : <Loader2 size={16} className="text-blue-400 animate-spin shrink-0" />
+                }
+                <span className="flex-1 text-sm text-gray-700 truncate">{label}</span>
+                <span className="text-xs text-gray-400">{s.files.length} file{s.files.length !== 1 ? 's' : ''}</span>
+                {anyError && (
+                  <button
+                    onClick={() => fetch(`/api/invoices/sessions/${s.id}/process`, { method: 'POST' })}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const renderBatchReview = () => {
+    if (!batch) return null
+    const pending  = batch.sessions.filter(s => s.status === 'REVIEW').length
+    const approved = batch.sessions.filter(s => s.status === 'APPROVED').length
+
+    return (
+      <div className="max-w-3xl mx-auto space-y-4 pb-16">
+        {/* Sticky progress header */}
+        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-100 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-gray-900">
+              {batch.sessions.length} invoice{batch.sessions.length !== 1 ? 's' : ''}
+            </span>
+            {approved > 0 && <span className="text-xs text-green-600 font-medium">{approved} approved</span>}
+            {pending  > 0 && <span className="text-xs text-amber-600 font-medium">{pending} pending</span>}
+          </div>
+          {pending === 0 && (
+            <button
+              onClick={() => { setBatch(null); fetchSessions(); setView('history') }}
+              className="text-sm font-medium text-blue-600 hover:underline"
+            >
+              Done — view history
+            </button>
+          )}
+        </div>
+
+        {/* Invoice cards */}
+        {batch.sessions.map(summary => {
+          const isExpanded  = expandedSessionId === summary.id
+          const sessionData = expandedSessionData[summary.id]
+          const isApproved  = summary.status === 'APPROVED'
+          const label = [summary.supplierName, summary.invoiceNumber].filter(Boolean).join('  ·  ') || 'Invoice'
+
+          return (
+            <div
+              key={summary.id}
+              id={`batch-session-${summary.id}`}
+              className={`rounded-2xl border-2 overflow-hidden transition-all ${
+                isApproved ? 'border-green-200 bg-green-50/30' : 'border-gray-200 bg-white'
+              }`}
+            >
+              {/* Card header */}
+              <button
+                onClick={() => {
+                  if (isExpanded) {
+                    setExpandedSessionId(null)
+                  } else {
+                    setExpandedSessionId(summary.id)
+                    if (!sessionData) fetchExpandedSession(summary.id)
+                  }
+                }}
+                className="w-full flex items-center gap-3 px-5 py-4 text-left"
+              >
+                {isApproved
+                  ? <CheckCircle2 size={18} className="text-green-500 shrink-0" />
+                  : <ChevronRight size={18} className={`text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                }
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{label}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {summary.files.length} file{summary.files.length !== 1 ? 's' : ''}
+                    {summary._count.scanItems > 0 && ` · ${summary._count.scanItems} items`}
+                    {summary.total != null && ` · $${Number(summary.total).toFixed(2)}`}
+                  </p>
+                </div>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${
+                  isApproved ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {isApproved ? 'APPROVED' : 'PENDING'}
+                </span>
+              </button>
+
+              {/* Expanded session review */}
+              {isExpanded && (
+                <div className="border-t border-gray-100">
+                  {!sessionData ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={24} className="animate-spin text-gray-300" />
+                    </div>
+                  ) : (
+                    <div className="p-5 space-y-4">
+                      <BatchSessionReview
+                        session={sessionData}
+                        approvedBy={approvedBy}
+                        onUpdate={async () => { await fetchExpandedSession(summary.id) }}
+                        onApprove={() => handleApproveBatchSession(summary.id)}
+                        isApproving={approvingSessionId === summary.id}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   // ── State 1: Upload ─────────────────────────────────────────────────────────
@@ -1023,6 +1257,8 @@ export default function InvoicesPage() {
     : session.status === 'REVIEW' ? 'review'
     : 'upload'
 
+  const batchActive = batch !== null && !session
+
   return (
     <div className="space-y-4">
       {/* Page header */}
@@ -1048,8 +1284,8 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      {/* Progress steps (only when scanning) */}
-      {view === 'scanner' && currentState !== 'results' && (
+      {/* Progress steps (only when scanning single invoice) */}
+      {view === 'scanner' && !batchActive && currentState !== 'results' && (
         <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
           {(['upload', 'processing', 'review'] as const).map((step, i) => (
             <div key={step} className="flex items-center gap-1">
@@ -1063,7 +1299,12 @@ export default function InvoicesPage() {
       )}
 
       {/* Content */}
-      {view === 'history' ? renderHistory() : (
+      {view === 'history' ? renderHistory() : batchActive ? (
+        batch?.status === 'ANALYZING'  ? renderBatchAnalyzing() :
+        batch?.status === 'PROCESSING' ? renderBatchProcessing() :
+        (batch?.status === 'REVIEW' || batch?.status === 'DONE') ? renderBatchReview() :
+        renderUpload()
+      ) : (
         currentState === 'upload' ? renderUpload() :
         currentState === 'processing' ? renderProcessing() :
         currentState === 'review' ? renderReview() :
