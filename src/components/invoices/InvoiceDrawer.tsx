@@ -1322,7 +1322,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   const [isApproving, setIsApproving] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [approvedBy, setApprovedBy] = useState(() =>
-    localStorage.getItem('approvedBy') ?? ''
+    typeof window !== 'undefined' ? localStorage.getItem('approvedBy') ?? '' : ''
   )
   const [editingItem, setEditingItem] = useState<ScanItem | null>(null)
   const [editingInventory, setEditingInventory] = useState<{ inventoryItemId: string; scanItem: ScanItem } | null>(null)
