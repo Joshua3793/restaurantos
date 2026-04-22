@@ -28,6 +28,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     ...rest
   } = body
 
+  // Capture previous allergens before update to detect changes
+  const before = await prisma.inventoryItem.findUnique({
+    where: { id: params.id },
+    select: { allergens: true },
+  })
+
   const pp  = parseFloat(purchasePrice)
   const qty = parseFloat(qtyPerPurchaseUnit)
   const ps  = parseFloat(packSize  ?? '1')
@@ -65,6 +71,25 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   })
   if (linkedRecipe) {
     await syncPrepToInventory(linkedRecipe.id)
+  }
+
+  // If allergens changed, cascade-sync every PREP recipe that uses this item
+  // as an ingredient so their linked PREPD items stay up to date.
+  const newAllergens: string[] = rest.allergens ?? before?.allergens ?? []
+  const allergensChanged =
+    JSON.stringify([...(before?.allergens ?? [])].sort()) !==
+    JSON.stringify([...newAllergens].sort())
+
+  if (allergensChanged) {
+    const affectedRecipes = await prisma.recipe.findMany({
+      where: {
+        type: 'PREP',
+        inventoryItemId: { not: null },
+        ingredients: { some: { inventoryItemId: params.id } },
+      },
+      select: { id: true },
+    })
+    await Promise.all(affectedRecipes.map(r => syncPrepToInventory(r.id)))
   }
 
   // Return the final state (may have been updated by recipe sync)

@@ -21,11 +21,23 @@ const BLANK = {
   manualPriorityOverride: '',
 }
 
+type TimeUnit = 'min' | 'hr' | 'day'
+
+// Convert stored minutes to display value + best unit
+function minutesToDisplay(minutes: number): { value: string; unit: TimeUnit } {
+  if (minutes >= 1440 && minutes % 1440 === 0) return { value: String(minutes / 1440), unit: 'day' }
+  if (minutes >= 60   && minutes % 60   === 0) return { value: String(minutes / 60),   unit: 'hr'  }
+  return { value: String(minutes), unit: 'min' }
+}
+
+const TIME_UNIT_TO_MINUTES: Record<TimeUnit, number> = { min: 1, hr: 60, day: 1440 }
+
 export function PrepItemForm({ item, onClose, onSaved }: Props) {
-  const [form, setForm]       = useState(BLANK)
-  const [recipes, setRecipes] = useState<Recipe[]>([])
-  const [saving, setSaving]   = useState(false)
-  const [error, setError]     = useState<string | null>(null)
+  const [form, setForm]           = useState(BLANK)
+  const [prepTimeUnit, setPrepTimeUnit] = useState<TimeUnit>('min')
+  const [recipes, setRecipes]     = useState<Recipe[]>([])
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState<string | null>(null)
   const [categories, setCategories] = useState<string[]>(PREP_CATEGORIES)
   const [stations,   setStations]   = useState<string[]>(PREP_STATIONS)
 
@@ -58,7 +70,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
         minThreshold:          String(item.minThreshold),
         targetToday:           item.targetToday != null ? String(item.targetToday) : '',
         shelfLifeDays:         item.shelfLifeDays != null ? String(item.shelfLifeDays) : '',
-        estimatedPrepTime:     item.estimatedPrepTime != null ? String(item.estimatedPrepTime) : '',
+        estimatedPrepTime:     item.estimatedPrepTime != null ? (() => { const d = minutesToDisplay(item.estimatedPrepTime!); setPrepTimeUnit(d.unit); return d.value })() : '',
         notes:                 item.notes                ?? '',
         manualPriorityOverride: item.manualPriorityOverride ?? '',
       })
@@ -86,7 +98,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
       minThreshold:          form.minThreshold ? parseFloat(form.minThreshold) : 0,
       targetToday:           form.targetToday  ? parseFloat(form.targetToday)  : null,
       shelfLifeDays:         form.shelfLifeDays ? parseInt(form.shelfLifeDays, 10) : null,
-      estimatedPrepTime:     form.estimatedPrepTime ? parseInt(form.estimatedPrepTime, 10) : null,
+      estimatedPrepTime:     form.estimatedPrepTime ? Math.round(parseFloat(form.estimatedPrepTime) * TIME_UNIT_TO_MINUTES[prepTimeUnit]) : null,
       notes:                 form.notes || null,
       manualPriorityOverride: form.manualPriorityOverride || null,
     }
@@ -177,9 +189,20 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
               <input className={inputCls} type="number" min="0" step="1"
                 value={form.shelfLifeDays} onChange={e => set('shelfLifeDays', e.target.value)} placeholder="—" />
             ))}
-            {field('Prep Time (min)', (
-              <input className={inputCls} type="number" min="0" step="1"
-                value={form.estimatedPrepTime} onChange={e => set('estimatedPrepTime', e.target.value)} placeholder="e.g. 45" />
+            {field('Prep Time', (
+              <div className="flex gap-1">
+                <input className={inputCls + ' flex-1 min-w-0'} type="number" min="0" step="0.5"
+                  value={form.estimatedPrepTime} onChange={e => set('estimatedPrepTime', e.target.value)} placeholder="—" />
+                <select
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+                  value={prepTimeUnit}
+                  onChange={e => setPrepTimeUnit(e.target.value as TimeUnit)}
+                >
+                  <option value="min">min</option>
+                  <option value="hr">hr</option>
+                  <option value="day">day</option>
+                </select>
+              </div>
             ))}
           </div>
 

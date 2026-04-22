@@ -8,9 +8,10 @@ interface Props {
 
 export function PrepKpiStrip({ items, onFilterPriority }: Props) {
   const total       = items.length
-  const urgent      = items.filter(i => i.priority === '911').length
-  const neededToday = items.filter(i => i.priority === 'NEEDED_TODAY').length
-  const lowStock    = items.filter(i => i.priority === 'LOW_STOCK').length
+  const isComplete  = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
+  const urgent      = items.filter(i => i.priority === '911'          && !isComplete(i)).length
+  const neededToday = items.filter(i => i.priority === 'NEEDED_TODAY' && !isComplete(i)).length
+  const lowStock    = items.filter(i => i.priority === 'LOW_STOCK'    && !isComplete(i)).length
   const done        = items.filter(i => i.todayLog?.status === 'DONE').length
   const blocked     = items.filter(i => i.isBlocked || i.todayLog?.status === 'BLOCKED').length
 

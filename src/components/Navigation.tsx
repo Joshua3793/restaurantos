@@ -106,30 +106,9 @@ function NavigationInner() {
 
       {/* ── Mobile Bottom Tab Bar ──────────────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)] flex items-end z-50 pb-safe">
-        {mobilePrimary.map((item, idx) => {
+        {mobilePrimary.map((item) => {
           const active = isActive(item)
           const { href, label, icon: Icon } = item
-          const isCount = idx === 2  // centre position
-
-          if (isCount) {
-            return (
-              <Link
-                key={href}
-                href={href}
-                className="flex-1 flex flex-col items-center pb-2 pt-1 gap-0 relative"
-              >
-                {/* Elevated Count button */}
-                <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg -mt-5 transition-colors ${
-                  active ? 'bg-blue-700' : 'bg-blue-600'
-                }`}>
-                  <Icon size={26} color="white" />
-                </div>
-                <span className={`text-[10px] mt-1 font-semibold ${active ? 'text-blue-600' : 'text-gray-500'}`}>
-                  {label}
-                </span>
-              </Link>
-            )
-          }
 
           return (
             <Link

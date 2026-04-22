@@ -99,7 +99,6 @@ async function main() {
         pricePerBaseUnit:   toNum(r.pricePerBaseUnit),
         stockOnHand:        toNum(r.stockOnHand),
         lastUpdated:        toDate(r.lastUpdated) ?? new Date(),
-        abbreviation:       r.abbreviation as string | null ?? null,
         location:           r.location as string | null ?? null,
         isActive:           toBool(r.isActive),
         lastCountDate:      toDate(r.lastCountDate),

@@ -36,12 +36,11 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, kpiSheet, 'KPI Summary')
 
   // Inventory sheet
-  const headers = ['Item Name', 'Abbreviation', 'Category', 'Supplier', 'Storage Area', 'Purchase Unit', 'Qty/Purchase Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
+  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Purchase Unit', 'Qty/Purchase Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
   const rows = items.map(item => {
     const stockValue = parseFloat(item.stockOnHand.toString()) * parseFloat(item.pricePerBaseUnit.toString())
     return [
       item.itemName,
-      item.abbreviation || '',
       item.category,
       item.supplier?.name || '',
       item.storageArea?.name || '',

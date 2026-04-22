@@ -78,7 +78,6 @@ async function main() {
         conversionFactor: 1,
         pricePerBaseUnit: 0,
         stockOnHand: 0,
-        abbreviation: data.name.substring(0, 8).toUpperCase().replace(/\s/g, ''),
       }
     })
 

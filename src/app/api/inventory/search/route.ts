@@ -29,8 +29,7 @@ export async function GET(req: NextRequest) {
       isActive: true,
       OR: q
         ? [
-            { itemName:     { contains: q, mode: 'insensitive' } },
-            { abbreviation: { contains: q, mode: 'insensitive' } },
+            { itemName:     { contains: q, mode: 'insensitive' as const } },
             // Match any individual word too
             ...words.map(word => ({ itemName: { contains: word, mode: 'insensitive' as const } })),
           ]
@@ -39,7 +38,6 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       itemName: true,
-      abbreviation: true,
       purchaseUnit: true,
       purchasePrice: true,
       pricePerBaseUnit: true,
@@ -59,10 +57,7 @@ export async function GET(req: NextRequest) {
   const scored = items
     .map(item => ({
       ...item,
-      _score: Math.max(
-        fuzzyScore(q, item.itemName),
-        item.abbreviation ? fuzzyScore(q, item.abbreviation) : 0
-      ),
+      _score: fuzzyScore(q, item.itemName),
     }))
     .filter(i => i._score > 0)
     .sort((a, b) => b._score - a._score)

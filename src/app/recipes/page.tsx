@@ -1,10 +1,20 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Plus, X, BookOpen, Search, Pencil, Link2 } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 
 export default function RecipesPage() {
+  return (
+    <Suspense fallback={null}>
+      <RecipesInner />
+    </Suspense>
+  )
+}
+
+function RecipesInner() {
+  const searchParams = useSearchParams()
   const [recipes, setRecipes]               = useState<Recipe[]>([])
   const [categories, setCategories]         = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]       = useState<string | null>(null)
@@ -37,6 +47,10 @@ export default function RecipesPage() {
 
   useEffect(() => { loadCategories() }, [loadCategories])
   useEffect(() => { loadRecipes() }, [loadRecipes])
+  useEffect(() => {
+    const itemId = searchParams.get('item')
+    if (itemId) setSelectedRecipeId(itemId)
+  }, [searchParams])
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
 

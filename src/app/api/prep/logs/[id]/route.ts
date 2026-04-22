@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeScale } from '@/lib/prep-utils'
+import { convertQty } from '@/lib/uom'
 
 const COMPLETION_STATUSES = new Set(['DONE', 'PARTIAL'])
 
@@ -37,25 +38,35 @@ async function applyInventoryTransaction(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ops: any[] = []
 
-  // Deduct each ingredient from inventory
+  // Deduct each ingredient from inventory (convert units, clamp to 0)
   for (const ing of recipe.ingredients) {
     if (!ing.inventoryItemId || !ing.inventoryItem) continue
+    const qtyInBaseUnit = convertQty(
+      parseFloat(String(ing.qtyBase)),
+      ing.unit,
+      ing.inventoryItem.baseUnit,
+    )
+    const currentStock = parseFloat(String(ing.inventoryItem.stockOnHand ?? 0))
+    const newStock = Math.max(0, currentStock - qtyInBaseUnit * scale)
     ops.push(
       prisma.inventoryItem.update({
         where: { id: ing.inventoryItemId },
-        data: { stockOnHand: { decrement: parseFloat(String(ing.qtyBase)) * scale } },
+        data: { stockOnHand: newStock },
       }),
     )
   }
 
-  // Credit the output inventory item
-  if (recipe.inventoryItemId) {
+  // Credit the output inventory item (convert from recipe yield unit → inventory base unit)
+  if (recipe.inventoryItemId && recipe.inventoryItem) {
+    const yieldInBaseUnit = convertQty(
+      parseFloat(String(recipe.baseYieldQty)),
+      recipe.yieldUnit,
+      recipe.inventoryItem.baseUnit,
+    )
     ops.push(
       prisma.inventoryItem.update({
         where: { id: recipe.inventoryItemId },
-        data: {
-          stockOnHand: { increment: parseFloat(String(recipe.baseYieldQty)) * scale },
-        },
+        data: { stockOnHand: { increment: yieldInBaseUnit * scale } },
       }),
     )
   }
@@ -126,4 +137,14 @@ export async function PUT(
   }
 
   return NextResponse.json({ ...log, inventoryResult })
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const existing = await prisma.prepLog.findUnique({ where: { id: params.id } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  await prisma.prepLog.delete({ where: { id: params.id } })
+  return NextResponse.json({ ok: true })
 }

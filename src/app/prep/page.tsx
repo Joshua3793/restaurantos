@@ -1,12 +1,12 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ChefHat, Plus, RefreshCw, Search, Settings } from 'lucide-react'
+import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal } from 'lucide-react'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import { PrepItemForm }    from '@/components/prep/PrepItemForm'
 import { PrepSettingsModal } from '@/components/prep/PrepSettingsModal'
 import { PrepDetailPanel } from '@/components/prep/PrepDetailPanel'
-import type { PrepItemRich } from '@/components/prep/types'
+import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 
 export default function PrepPage() {
   const [items,      setItems]      = useState<PrepItemRich[]>([])
@@ -17,6 +17,11 @@ export default function PrepPage() {
   const [showAdd,    setShowAdd]    = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [syncing,    setSyncing]    = useState(false)
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  const [planSort,   setPlanSort]   = useState<'az' | 'category'>('category')
+  const [planView,   setPlanView]   = useState<'all' | 'need-attention'>('all')
+  const [showMobileFilters, setShowMobileFilters] = useState(false)
 
   // Prevent duplicate concurrent status mutations per item
   const pendingItems = useRef<Set<string>>(new Set())
@@ -29,7 +34,7 @@ export default function PrepPage() {
   const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
-  const [viewMode,       setViewMode]       = useState<'today' | 'needs-action' | 'plan'>('today')
+  const [viewMode,       setViewMode]       = useState<'today' | 'plan'>('today')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -47,18 +52,7 @@ export default function PrepPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Silently generate today's logs on first load if none exist yet
-  useEffect(() => {
-    if (items.length > 0 && !hasAttemptedGenerate.current && items.every(i => i.todayLog === null)) {
-      hasAttemptedGenerate.current = true
-      fetch('/api/prep/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      }).then(() => load())
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]) // intentionally not including load — one-shot on first populate
+  // Auto-generate removed — chef now manually plans the prep list from "Plan Prep List" view
 
   // Auto-refresh every 60 seconds
   useEffect(() => {
@@ -70,16 +64,37 @@ export default function PrepPage() {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
     if (filterPriority !== 'ALL' && item.priority !== filterPriority)     return false
     if (filterCategory !== 'ALL' && item.category !== filterCategory)     return false
-    if (viewMode === 'plan') return true  // plan mode: no status filtering
-    const s = item.todayLog?.status ?? 'NOT_STARTED'
+
+    if (viewMode === 'plan') {
+      // Need Attention sub-view: only system-flagged items (no manual overrides)
+      if (planView === 'need-attention') {
+        return !item.manualPriorityOverride &&
+          (item.priority === '911' || item.priority === 'NEEDED_TODAY' || item.priority === 'LOW_STOCK')
+      }
+      return true // 'all' sub-view: show everything
+    }
+
+    // Today: only items the chef has added to today's list
+    if (!item.todayLog) return false
+    const s = item.todayLog.status
     if (filterStatus !== 'ALL' && s !== filterStatus) return false
-    if (viewMode === 'needs-action' && (s === 'DONE' || s === 'SKIPPED')) return false
     return true
-  }), [items, search, filterPriority, filterCategory, filterStatus, viewMode])
+  }), [items, search, filterPriority, filterCategory, filterStatus, viewMode, planView])
 
   const inProgress = useMemo(() => items.filter(i => i.todayLog?.status === 'IN_PROGRESS'), [items])
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
+
+  // For plan mode: sorted flat (A-Z) or grouped by category
+  const planSorted = useMemo(() => [...filtered].sort((a, b) => a.name.localeCompare(b.name)), [filtered])
+
+  const planGroups = useMemo(() => {
+    if (viewMode !== 'plan' || planSort !== 'category') return null
+    const map = new Map<string, typeof filtered>()
+    for (const cat of [...new Set(planSorted.map(i => i.category))].sort()) map.set(cat, [])
+    for (const item of planSorted) map.get(item.category)!.push(item)
+    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
+  }, [filtered, planSorted, viewMode, planSort])
 
   // Keep detail panel in sync with live data — avoids stale snapshot after auto-refresh
   const selectedLive = useMemo(
@@ -87,20 +102,31 @@ export default function PrepPage() {
     [selected, items],
   )
 
-  const handleGenerate = async () => {
+  const handleRefresh = async () => {
     setGenerating(true)
     try {
-      await fetch('/api/prep/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
       await load()
     } catch (e) {
-      console.error('Failed to refresh prep logs', e)
+      console.error('Failed to refresh prep data', e)
       setActionError('Refresh failed — check your connection and try again.')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res  = await fetch('/api/prep/sync-from-recipes', { method: 'POST' })
+      const data = await res.json()
+      setSyncResult(data)
+      if (data.created > 0) await load()
+    } catch (e) {
+      console.error('Sync failed', e)
+      setActionError('Sync failed — check your connection and try again.')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -109,15 +135,48 @@ export default function PrepPage() {
     const item = items.find(i => i.id === itemId)
     if (!item) return
     pendingItems.current.add(itemId)
+
+    // Optimistic: update status immediately
+    const now = new Date().toISOString()
+    setItems(prev => prev.map(i => {
+      if (i.id !== itemId) return i
+      const existingLog = i.todayLog
+      return {
+        ...i,
+        todayLog: existingLog
+          ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}) }
+          : {
+              id: `_opt_${itemId}`,
+              prepItemId: itemId,
+              logDate: now.split('T')[0],
+              status: newStatus as PrepLogData['status'],
+              requiredQty: null,
+              actualPrepQty: actualQty ?? null,
+              assignedTo: null,
+              dueTime: null,
+              note: null,
+              blockedReason: null,
+              inventoryAdjusted: false,
+              createdAt: now,
+              updatedAt: now,
+            },
+      }
+    }))
+
     try {
       let logId = item.todayLog?.id
-      if (!logId) {
+      if (!logId || logId.startsWith('_opt_')) {
         const log = await fetch('/api/prep/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prepItemId: itemId }),
         }).then(r => r.json())
         logId = log.id
+        // Swap temp id with real one
+        setItems(prev => prev.map(i => {
+          if (i.id !== itemId || !i.todayLog) return i
+          return { ...i, todayLog: { ...i.todayLog, id: log.id } }
+        }))
       }
       await fetch(`/api/prep/logs/${logId}`, {
         method: 'PUT',
@@ -127,26 +186,40 @@ export default function PrepPage() {
           ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
         }),
       })
-      load()
+      // No reload needed — state already reflects the change
     } catch (e) {
       console.error('Failed to update prep status', e)
       setActionError('Status update failed — try again.')
+      load() // revert on error
     } finally {
       pendingItems.current.delete(itemId)
     }
   }
 
   async function handlePriorityChange(itemId: string, priority: string) {
+    // Optimistic: update override + effective priority immediately
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item
+      return {
+        ...item,
+        manualPriorityOverride: priority || null,
+        // When clearing to Auto (''), keep the current displayed priority until server recalculates
+        priority: (priority as PrepItemRich['priority']) || item.priority,
+      }
+    }))
+
     try {
       await fetch(`/api/prep/items/${itemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manualPriorityOverride: priority }),
       })
-      load()
+      // Only reload when going to Auto — server needs to recalculate effective priority
+      if (!priority) load()
     } catch (e) {
       console.error('Failed to update priority', e)
       setActionError('Priority update failed — try again.')
+      load() // revert on error
     }
   }
 
@@ -161,43 +234,212 @@ export default function PrepPage() {
     }
   }
 
+  // Schedule toggle: logId=null → add to today; logId=string → remove from today
+  async function handleScheduleToggle(itemId: string, logId: string | null) {
+    // Optimistic: flip todayLog immediately so UI responds without waiting for the server
+    const now = new Date().toISOString()
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item
+      if (logId) {
+        return { ...item, todayLog: null }
+      }
+      return {
+        ...item,
+        todayLog: {
+          id: `_opt_${itemId}`,
+          prepItemId: itemId,
+          logDate: now.split('T')[0],
+          status: 'NOT_STARTED',
+          requiredQty: null,
+          actualPrepQty: null,
+          assignedTo: null,
+          dueTime: null,
+          note: null,
+          blockedReason: null,
+          inventoryAdjusted: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }
+    }))
+
+    try {
+      if (logId) {
+        // _opt_ prefix means the log was never persisted — nothing to delete on the server
+        if (!logId.startsWith('_opt_')) {
+          const res = await fetch(`/api/prep/logs/${logId}`, { method: 'DELETE' })
+          if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
+        }
+      } else {
+        const log = await fetch('/api/prep/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prepItemId: itemId }),
+        }).then(r => r.json())
+
+        if (log.id) {
+          // Check if the user already unmarked while the POST was in flight
+          let userAlreadyUnmarked = false
+          setItems(prev => prev.map(item => {
+            if (item.id !== itemId) return item
+            if (!item.todayLog) {
+              // User unmarked — don't restore todayLog, but we need to clean up the DB record
+              userAlreadyUnmarked = true
+              return item
+            }
+            return { ...item, todayLog: { ...item.todayLog, id: log.id } }
+          }))
+          // If user toggled off while POST was in flight, delete the record we just created
+          if (userAlreadyUnmarked) {
+            fetch(`/api/prep/logs/${log.id}`, { method: 'DELETE' }).catch(() => {})
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to toggle schedule', e)
+      setActionError('Could not update today\'s list — try again.')
+      load() // revert on error
+    }
+  }
+
   const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
 
+  const activeFilterCount = [filterPriority !== 'ALL', filterStatus !== 'ALL', filterCategory !== 'ALL'].filter(Boolean).length
+
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <ChefHat size={24} className="text-blue-600" /> Prep
-          </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
+    <div className="space-y-3 md:space-y-5">
+
+      {/* ── Mobile Header ── */}
+      <div className="md:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
+              <ChefHat size={20} className="text-blue-600" /> Prep
+            </h1>
+            <p className="text-xs text-gray-500">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button onClick={handleRefresh} disabled={generating}
+              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              title="Refresh">
+              <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={() => setShowSettings(true)}
+              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              title="Settings">
+              <Settings size={16} />
+            </button>
+            <button onClick={handleSync} disabled={syncing}
+              className="p-2 rounded-lg border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+              title="Sync from Recipes">
+              <BookOpen size={16} className={syncing ? 'animate-pulse' : ''} />
+            </button>
+            <button onClick={() => setShowAdd(true)}
+              className="p-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+
+        {/* View tabs */}
+        <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
+          {(['today', 'plan'] as const).map(m => (
+            <button key={m} onClick={() => setViewMode(m)}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+              {m === 'today' ? 'Today' : 'Plan Prep List'}
+            </button>
+          ))}
+        </div>
+
+        {/* KPI strip */}
+        {viewMode !== 'plan' && (
+          <div className="mt-2">
+            <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+          </div>
+        )}
+
+        {/* Search + filter toggle */}
+        <div className="flex gap-2 mt-3">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Search prep items…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
           <button
-            onClick={() => setShowSettings(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
-            title="Edit categories & stations"
-          >
-            <Settings size={14} />
-            Settings
+            onClick={() => setShowMobileFilters(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+              showMobileFilters || activeFilterCount > 0
+                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}>
+            <SlidersHorizontal size={15} />
+            {activeFilterCount > 0 ? <span className="bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
           </button>
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={generating ? 'animate-spin' : ''} />
-            {generating ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus size={14} /> Add Prep Item
-          </button>
+        </div>
+
+        {/* Collapsible filters */}
+        {showMobileFilters && (
+          <div className="mt-2 bg-white border border-gray-100 rounded-xl p-3 space-y-2">
+            <select className={selCls + ' w-full'} value={filterPriority} onChange={e => setFilterPriority(e.target.value)}>
+              <option value="ALL">All Priorities</option>
+              <option value="911">911</option>
+              <option value="NEEDED_TODAY">Needed Today</option>
+              <option value="LOW_STOCK">Low Stock</option>
+              <option value="LATER">Later</option>
+            </select>
+            {viewMode === 'today' && (
+              <select className={selCls + ' w-full'} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                <option value="ALL">All Statuses</option>
+                {['NOT_STARTED','IN_PROGRESS','DONE','PARTIAL','BLOCKED','SKIPPED'].map(s => (
+                  <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            )}
+            <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+              <option value="ALL">All Categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop Header ── */}
+      <div className="hidden md:block space-y-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <ChefHat size={24} className="text-blue-600" /> Prep
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setShowSettings(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
+              <Settings size={14} /> Settings
+            </button>
+            <button onClick={handleRefresh} disabled={generating}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+              <RefreshCw size={14} className={generating ? 'animate-spin' : ''} />
+              {generating ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button onClick={handleSync} disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-blue-200 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50">
+              <BookOpen size={14} className={syncing ? 'animate-pulse' : ''} />
+              {syncing ? 'Syncing…' : 'Sync from Recipes'}
+            </button>
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              <Plus size={14} /> Add Item
+            </button>
+          </div>
         </div>
       </div>
 
@@ -209,64 +451,78 @@ export default function PrepPage() {
         </div>
       )}
 
-      {/* KPI strip */}
-      {/* KPI strip — hidden in plan mode (data is today-specific, not relevant for planning) */}
-      {viewMode !== 'plan' && (
-        <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+      {/* Sync result banner */}
+      {syncResult && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
+          <span>
+            {(syncResult.created > 0 || syncResult.updated > 0)
+              ? <>
+                  ✓{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}
+                  {syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}
+                  {syncResult.created > 0 && <> Set par levels on new items to start tracking them.</>}
+                </>
+              : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
+            }
+          </span>
+          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green-500 hover:text-green-700">✕</button>
+        </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 min-w-48">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Search prep items…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+      {/* ── Desktop KPI strip + filters ── */}
+      <div className="hidden md:block space-y-5">
+        {viewMode !== 'plan' && (
+          <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+        )}
+        <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-48">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                className="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Search prep items…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <select className={selCls} value={filterPriority} onChange={e => setFilterPriority(e.target.value)}>
+              <option value="ALL">All Priorities</option>
+              <option value="911">911</option>
+              <option value="NEEDED_TODAY">Needed Today</option>
+              <option value="LOW_STOCK">Low Stock</option>
+              <option value="LATER">Later</option>
+            </select>
+            <select className={selCls} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+              <option value="ALL">All Statuses</option>
+              {['NOT_STARTED','IN_PROGRESS','DONE','PARTIAL','BLOCKED','SKIPPED'].map(s => (
+                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+            <select className={selCls} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+              <option value="ALL">All Categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
-          <select className={selCls} value={filterPriority} onChange={e => setFilterPriority(e.target.value)}>
-            <option value="ALL">All Priorities</option>
-            <option value="911">911</option>
-            <option value="NEEDED_TODAY">Needed Today</option>
-            <option value="LOW_STOCK">Low Stock</option>
-            <option value="LATER">Later</option>
-          </select>
-          <select className={selCls} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="ALL">All Statuses</option>
-            {['NOT_STARTED','IN_PROGRESS','DONE','PARTIAL','BLOCKED','SKIPPED'].map(s => (
-              <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-            ))}
-          </select>
-          <select className={selCls} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-            <option value="ALL">All Categories</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div className="flex items-center gap-4 text-sm flex-wrap">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={activeOnly}
-              onChange={e => setActiveOnly(e.target.checked)}
-              className="rounded text-blue-600" />
-            <span className="text-gray-600">Active only</span>
-          </label>
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-            {(['today', 'needs-action', 'plan'] as const).map(m => (
-              <button key={m}
-                onClick={() => setViewMode(m)}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${viewMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {m === 'today' ? 'Today' : m === 'needs-action' ? 'Needs Action' : 'Plan Tomorrow'}
-              </button>
-            ))}
+          <div className="flex items-center gap-4 text-sm flex-wrap">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={activeOnly}
+                onChange={e => setActiveOnly(e.target.checked)}
+                className="rounded text-blue-600" />
+              <span className="text-gray-600">Active only</span>
+            </label>
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+              {(['today', 'plan'] as const).map(m => (
+                <button key={m} onClick={() => setViewMode(m)}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors ${viewMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {m === 'today' ? 'Today' : 'Plan Prep List'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Currently Making */}
-      {inProgress.length > 0 && viewMode !== 'plan' && (
+      {/* Currently Making — only in Today view */}
+      {inProgress.length > 0 && viewMode === 'today' && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
           <div className="px-4 py-2 flex items-center gap-2 border-b border-blue-100">
             <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Currently Making</span>
@@ -285,14 +541,54 @@ export default function PrepPage() {
         </div>
       )}
 
-      {/* Plan Tomorrow banner */}
+      {/* Plan Prep List controls */}
       {viewMode === 'plan' && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
-          <span className="text-lg">📋</span>
-          <div>
-            <p className="text-sm font-semibold text-indigo-800">Planning tomorrow's prep</p>
-            <p className="text-xs text-indigo-600 mt-0.5">Tap a priority chip on each item to flag it for your team. Items at par are faded.</p>
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 space-y-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            {/* Sub-view toggle: All Items / Needed Action */}
+            <div className="flex items-center gap-1 bg-indigo-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setPlanView('all')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${planView === 'all' ? 'bg-white text-indigo-800 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
+              >
+                All Items
+              </button>
+              <button
+                onClick={() => setPlanView('need-attention')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'need-attention' ? 'bg-white text-orange-700 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
+              >
+                Need Attention
+                {items.filter(i => !i.manualPriorityOverride && (i.priority === '911' || i.priority === 'NEEDED_TODAY' || i.priority === 'LOW_STOCK')).length > 0 && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'need-attention' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-200 text-indigo-600'}`}>
+                    {items.filter(i => !i.manualPriorityOverride && (i.priority === '911' || i.priority === 'NEEDED_TODAY' || i.priority === 'LOW_STOCK')).length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Sort toggle: A–Z / By Category — only in All Items view */}
+            {planView === 'all' && (
+              <div className="flex items-center gap-1 bg-indigo-100 rounded-lg p-0.5">
+                {([['az', 'A – Z'], ['category', 'By Category']] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setPlanSort(mode)}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                      planSort === mode ? 'bg-white text-indigo-800 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
+          <p className="text-xs text-indigo-600">
+            {planView === 'need-attention'
+              ? 'Items the system flagged based on stock levels. Tap ○ to add to today\'s list.'
+              : 'Tap ○ to add items to today\'s list. Use priority chips to flag urgency.'}
+          </p>
         </div>
       )}
 
@@ -307,12 +603,16 @@ export default function PrepPage() {
           <p className="text-gray-500 text-sm">
             {items.length === 0
               ? 'No prep items yet.'
+              : viewMode === 'plan' && planView === 'need-attention'
+              ? 'No items flagged by the system — stock levels look good.'
               : viewMode === 'plan'
               ? 'No items match your filters.'
-              : 'Nothing matches your filters.'}
+              : 'Nothing on today\'s list yet.'}
           </p>
-          {items.length > 0 && viewMode === 'needs-action' && filterStatus === 'DONE' && (
-            <p className="text-xs text-gray-400 mt-1">Tip: switch to "Today" mode to see completed items.</p>
+          {viewMode === 'today' && items.length > 0 && !items.some(i => i.todayLog) && (
+            <p className="text-xs text-gray-400 mt-2">
+              Go to <button onClick={() => setViewMode('plan')} className="text-blue-500 hover:underline">Plan Prep List</button> and tap ○ next to each item you want to prep today.
+            </p>
           )}
           {items.length === 0 && (
             <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-blue-600 hover:text-blue-700">
@@ -320,7 +620,52 @@ export default function PrepPage() {
             </button>
           )}
         </div>
+      ) : viewMode === 'plan' && planGroups ? (
+        /* ── Plan mode — By Category ── */
+        <div className="space-y-4">
+          {planGroups.map(([cat, rows]) => (
+            <div key={cat} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{cat}</span>
+                <span className="text-xs text-gray-400">{rows.length}</span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {rows.map(item => (
+                  <PrepItemRow
+                    key={item.id}
+                    item={item}
+                    onClick={() => setSelected(item)}
+                    onStatusChange={handleStatusChange}
+                    onPriorityChange={handlePriorityChange}
+                    onDelete={handleDelete}
+                    onScheduleToggle={handleScheduleToggle}
+                    planMode
+                    showReason={planView === 'need-attention'}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : viewMode === 'plan' ? (
+        /* ── Plan mode — A-Z ── */
+        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+          {planSorted.map(item => (
+            <PrepItemRow
+              key={item.id}
+              item={item}
+              onClick={() => setSelected(item)}
+              onStatusChange={handleStatusChange}
+              onPriorityChange={handlePriorityChange}
+              onDelete={handleDelete}
+              onScheduleToggle={handleScheduleToggle}
+              planMode
+              showReason={planView === 'need-attention'}
+            />
+          ))}
+        </div>
       ) : (
+        /* ── Today / Needs Action mode ── */
         <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
           {filtered.map(item => (
             <PrepItemRow
@@ -330,7 +675,7 @@ export default function PrepPage() {
               onStatusChange={handleStatusChange}
               onPriorityChange={handlePriorityChange}
               onDelete={handleDelete}
-              planMode={viewMode === 'plan'}
+              planMode={false}
             />
           ))}
         </div>

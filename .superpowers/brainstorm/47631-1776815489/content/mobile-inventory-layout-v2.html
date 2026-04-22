@@ -1,0 +1,215 @@
+<h2>Item rows — allergens in subtitle</h2>
+<p class="subtitle">Removed supplier abbreviation and location from the row. Allergen badges now sit below the item name.</p>
+
+<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;justify-content:center;">
+
+  <div style="width:340px;background:#f1f5f9;border-radius:36px;padding:16px;border:3px solid #334155;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:0 8px 10px;font-size:11px;color:#64748b;font-weight:600;">
+      <span>9:41</span><span>●●●●  WiFi  100%</span>
+    </div>
+
+    <div style="background:white;border-radius:24px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
+
+      <!-- Top bar -->
+      <div style="padding:14px 14px 10px;border-bottom:1px solid #f1f5f9;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div>
+            <div style="font-size:18px;font-weight:800;color:#0f172a;line-height:1;">Inventory</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:1px;">348 items</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button style="width:34px;height:34px;background:#f0fdf4;border-radius:10px;display:flex;align-items:center;justify-content:center;border:1px solid #bbf7d0;font-size:16px;">🛒</button>
+            <button style="padding:0 12px;height:34px;background:#2563eb;color:white;border:none;border-radius:10px;font-size:12px;font-weight:700;">+ Add</button>
+            <button style="width:34px;height:34px;background:#f8fafc;border-radius:10px;display:flex;align-items:center;justify-content:center;border:1px solid #e2e8f0;font-size:16px;color:#64748b;">⋯</button>
+          </div>
+        </div>
+        <div style="position:relative;">
+          <div style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:13px;">🔍</div>
+          <input style="width:100%;box-sizing:border-box;padding:9px 10px 9px 30px;border:1px solid #e2e8f0;border-radius:12px;font-size:13px;background:#f8fafc;outline:none;" placeholder="Search items, suppliers…" readonly />
+        </div>
+      </div>
+
+      <!-- KPI strip -->
+      <div style="padding:10px 14px 8px;border-bottom:1px solid #f1f5f9;">
+        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;">
+          <div style="flex-shrink:0;background:#eff6ff;border-radius:10px;padding:8px 12px;min-width:100px;">
+            <div style="font-size:9px;color:#3b82f6;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">Stock Value</div>
+            <div style="font-size:16px;font-weight:800;color:#1d4ed8;margin-top:1px;">$24,810</div>
+          </div>
+          <div style="flex-shrink:0;background:#f0fdf4;border-radius:10px;padding:8px 12px;min-width:90px;">
+            <div style="font-size:9px;color:#16a34a;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">Counted</div>
+            <div style="font-size:16px;font-weight:800;color:#15803d;margin-top:1px;">312 <span style="font-size:11px;font-weight:500;color:#86efac;">/ 348</span></div>
+          </div>
+          <div style="flex-shrink:0;background:#fff7ed;border-radius:10px;padding:8px 12px;min-width:90px;">
+            <div style="font-size:9px;color:#ea580c;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">Uncounted</div>
+            <div style="font-size:16px;font-weight:800;color:#c2410c;margin-top:1px;">36</div>
+          </div>
+          <div style="flex-shrink:0;background:#f8fafc;border-radius:10px;padding:8px 12px;min-width:80px;">
+            <div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">Active</div>
+            <div style="font-size:16px;font-weight:800;color:#334155;margin-top:1px;">318</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter pills -->
+      <div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;">
+        <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;">
+          <span style="flex-shrink:0;padding:5px 12px;background:#2563eb;color:white;border-radius:99px;font-size:11px;font-weight:600;">All Items</span>
+          <span style="flex-shrink:0;padding:5px 12px;background:#f1f5f9;color:#475569;border-radius:99px;font-size:11px;">Active</span>
+          <span style="flex-shrink:0;padding:5px 12px;background:#f1f5f9;color:#475569;border-radius:99px;font-size:11px;">Out of Stock</span>
+          <span style="flex-shrink:0;padding:5px 12px;background:#f1f5f9;color:#475569;border-radius:99px;font-size:11px;">Uncounted</span>
+          <span style="flex-shrink:0;padding:5px 10px;background:#f8fafc;color:#475569;border-radius:99px;font-size:11px;border:1px solid #e2e8f0;">⇅ Sort</span>
+          <span style="flex-shrink:0;padding:5px 10px;background:#f8fafc;color:#475569;border-radius:99px;font-size:11px;border:1px solid #e2e8f0;">▽ Filter</span>
+        </div>
+      </div>
+
+      <!-- List -->
+      <div style="overflow-y:auto;max-height:440px;">
+
+        <!-- MEAT category -->
+        <div style="padding:6px 14px;background:#fef2f2;border-top:1px solid #fecaca;border-bottom:1px solid #fecaca;display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;font-weight:700;color:#b91c1c;letter-spacing:.06em;">MEAT</span>
+            <span style="font-size:10px;color:#ef4444;opacity:.7;">12 items</span>
+          </div>
+          <span style="font-size:11px;font-weight:600;color:#b91c1c;">$3,240</span>
+        </div>
+
+        <!-- Row: item WITH allergens -->
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f8fafc;">
+          <div style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Chicken Breast</div>
+            <!-- Allergen badges -->
+            <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap;">
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#fef9c3;color:#854d0e;border:1px solid #fde047;">GLUTEN</span>
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#fce7f3;color:#9d174d;border:1px solid #f9a8d4;">DAIRY</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">$12.50<span style="font-size:10px;font-weight:400;color:#94a3b8;">/kg</span></div>
+            <div style="font-size:10px;color:#64748b;">24 kg</div>
+          </div>
+          <div style="color:#cbd5e1;font-size:16px;">›</div>
+        </div>
+
+        <!-- Row: item with NO allergens -->
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f8fafc;background:#fffbf5;">
+          <div style="width:7px;height:7px;border-radius:50%;background:#f97316;flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Beef Mince</div>
+            <!-- No allergens — empty row so height stays consistent -->
+            <div style="margin-top:3px;font-size:9px;color:#cbd5e1;">No allergens</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">$9.80<span style="font-size:10px;font-weight:400;color:#94a3b8;">/kg</span></div>
+            <div style="font-size:10px;color:#f97316;">0 kg · out of stock</div>
+          </div>
+          <div style="color:#cbd5e1;font-size:16px;">›</div>
+        </div>
+
+        <!-- Row: many allergens -->
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f8fafc;">
+          <div style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Lamb Rack</div>
+            <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap;">
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;">NUTS</span>
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">SOY</span>
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7;">EGG</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">$28.00<span style="font-size:10px;font-weight:400;color:#94a3b8;">/kg</span></div>
+            <div style="font-size:10px;color:#64748b;">8 kg</div>
+          </div>
+          <div style="color:#cbd5e1;font-size:16px;">›</div>
+        </div>
+
+        <!-- DAIRY category -->
+        <div style="padding:6px 14px;background:#eff6ff;border-top:1px solid #bfdbfe;border-bottom:1px solid #bfdbfe;display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:.06em;">DAIRY</span>
+            <span style="font-size:10px;color:#3b82f6;opacity:.7;">8 items</span>
+          </div>
+          <span style="font-size:11px;font-weight:600;color:#1d4ed8;">$890</span>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f8fafc;">
+          <div style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:#0f172a;">Whole Milk</div>
+            <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap;">
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#fce7f3;color:#9d174d;border:1px solid #f9a8d4;">DAIRY</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">$3.20<span style="font-size:10px;font-weight:400;color:#94a3b8;">/L</span></div>
+            <div style="font-size:10px;color:#64748b;">40 L</div>
+          </div>
+          <div style="color:#cbd5e1;font-size:16px;">›</div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f8fafc;">
+          <div style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:#0f172a;">Heavy Cream</div>
+            <div style="margin-top:3px;font-size:9px;color:#cbd5e1;">No allergens</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">$6.50<span style="font-size:10px;font-weight:400;color:#94a3b8;">/L</span></div>
+            <div style="font-size:10px;color:#64748b;">12 L</div>
+          </div>
+          <div style="color:#cbd5e1;font-size:16px;">›</div>
+        </div>
+
+        <div style="padding:20px;text-align:center;color:#94a3b8;font-size:11px;">↑ scroll to see more</div>
+      </div>
+
+      <!-- Bottom nav -->
+      <div style="display:flex;border-top:1px solid #f1f5f9;padding:8px 0 4px;">
+        <div style="flex:1;text-align:center;padding:4px;">
+          <div style="font-size:18px;">📦</div>
+          <div style="font-size:9px;color:#2563eb;font-weight:700;">Inventory</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:4px;opacity:.4;">
+          <div style="font-size:18px;">🧾</div>
+          <div style="font-size:9px;color:#64748b;">Invoices</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:4px;opacity:.4;">
+          <div style="font-size:18px;">📋</div>
+          <div style="font-size:9px;color:#64748b;">Count</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:4px;opacity:.4;">
+          <div style="font-size:18px;">📊</div>
+          <div style="font-size:9px;color:#64748b;">Reports</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Notes -->
+  <div style="max-width:300px;font-size:13px;color:#334155;line-height:1.6;">
+    <h3 style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:12px;">Row layout</h3>
+
+    <div style="background:white;border-radius:12px;border:1px solid #e2e8f0;padding:12px;margin-bottom:12px;">
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Each row</div>
+      <div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;margin-bottom:4px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-top:3px;display:inline-block;"></span>
+        <span><strong>Stock dot</strong> — green in stock, orange out of stock</span>
+      </div>
+      <div style="font-size:12px;padding-left:16px;margin-bottom:4px;"><strong>Item name</strong> — bold, truncates if too long</div>
+      <div style="font-size:12px;padding-left:16px;margin-bottom:4px;"><strong>Allergen badges</strong> — colour-coded by allergen type. "No allergens" in muted grey if none.</div>
+      <div style="font-size:12px;padding-left:16px;"><strong>Price / qty</strong> on the right — purchase price with unit, stock on hand below</div>
+    </div>
+
+    <div style="background:#fef9c3;border-radius:10px;padding:12px;border:1px solid #fde047;">
+      <div style="font-weight:700;color:#854d0e;margin-bottom:4px;">One thing to confirm</div>
+      <div style="font-size:12px;color:#713f12;">For items with <strong>no allergens</strong> — would you prefer to show the faint "No allergens" text, or just leave that space blank so the row is slightly shorter?</div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:20px;text-align:center;">Does this row layout feel right? Also — "No allergens": show the text or leave it blank?</p>

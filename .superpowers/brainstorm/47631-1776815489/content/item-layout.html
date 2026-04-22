@@ -1,0 +1,184 @@
+<h2>How should each inventory item look on mobile?</h2>
+<p class="subtitle">The current design is a wide desktop table — we need a mobile-friendly layout. Pick the card style that feels right for quickly scanning and managing items.</p>
+
+<div class="cards">
+
+  <!-- Option A: Compact row card -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:12px;border-radius:8px;">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:600;letter-spacing:.05em;">OPTION A — Compact rows (scan quickly, tap to expand)</div>
+      <!-- Row 1 -->
+      <div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:6px;border:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">Chicken Breast</div>
+          <div style="font-size:11px;color:#64748b;">MEAT · Bidvest</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:13px;font-weight:700;color:#1e293b;">$12.50</div>
+          <div style="font-size:10px;color:#94a3b8;">24 kg on hand</div>
+        </div>
+        <div style="width:6px;color:#cbd5e1;">›</div>
+      </div>
+      <!-- Row 2 -->
+      <div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:6px;border:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#f97316;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">Whole Milk</div>
+          <div style="font-size:11px;color:#64748b;">DAIRY · Parmalat</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:13px;font-weight:700;color:#1e293b;">$3.20</div>
+          <div style="font-size:10px;color:#f97316;">0 L · out of stock</div>
+        </div>
+        <div style="width:6px;color:#cbd5e1;">›</div>
+      </div>
+      <!-- Row 3 -->
+      <div style="background:white;border-radius:10px;padding:10px 12px;border:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">Bread Flour</div>
+          <div style="font-size:11px;color:#64748b;">DRY · Bakemark</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:13px;font-weight:700;color:#1e293b;">$28.00</div>
+          <div style="font-size:10px;color:#94a3b8;">50 kg on hand</div>
+        </div>
+        <div style="width:6px;color:#cbd5e1;">›</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Compact rows</h3>
+      <p>Name + category/supplier on left, price + stock on right. Color dot = stock status. Tap any row to open the detail panel. Best for scanning a long list fast.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Rich cards with value + actions visible -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:12px;border-radius:8px;">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:600;letter-spacing:.05em;">OPTION B — Rich cards (more info visible, quick actions inline)</div>
+      <!-- Card 1 -->
+      <div style="background:white;border-radius:12px;padding:12px;margin-bottom:8px;border:1px solid #e2e8f0;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#1e293b;">Chicken Breast</div>
+            <div style="display:flex;gap:4px;margin-top:3px;">
+              <span style="font-size:10px;background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:99px;font-weight:600;">MEAT</span>
+              <span style="font-size:10px;background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:99px;">Bidvest</span>
+            </div>
+          </div>
+          <span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;font-weight:600;">In Stock</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;">
+          <div style="background:#f8fafc;border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;">Price</div>
+            <div style="font-size:13px;font-weight:700;color:#1e293b;">$12.50</div>
+          </div>
+          <div style="background:#f8fafc;border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;">Stock</div>
+            <div style="font-size:13px;font-weight:700;color:#1e293b;">24 kg</div>
+          </div>
+          <div style="background:#f8fafc;border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;">Value</div>
+            <div style="font-size:13px;font-weight:700;color:#1e293b;">$300</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button style="flex:1;padding:5px;background:#f1f5f9;border:none;border-radius:8px;font-size:11px;color:#475569;cursor:pointer;">✎ Edit</button>
+          <button style="flex:1;padding:5px;background:#f1f5f9;border:none;border-radius:8px;font-size:11px;color:#475569;cursor:pointer;">✓ Count</button>
+          <button style="flex:1;padding:5px;background:#f1f5f9;border:none;border-radius:8px;font-size:11px;color:#475569;cursor:pointer;">⋮ More</button>
+        </div>
+      </div>
+      <!-- Card 2 (out of stock) -->
+      <div style="background:white;border-radius:12px;padding:12px;border:1px solid #fed7aa;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#1e293b;">Whole Milk</div>
+            <div style="display:flex;gap:4px;margin-top:3px;">
+              <span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:99px;font-weight:600;">DAIRY</span>
+              <span style="font-size:10px;background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:99px;">Parmalat</span>
+            </div>
+          </div>
+          <span style="font-size:10px;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;font-weight:600;">Out of Stock</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+          <div style="background:#fff7ed;border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;">Price</div>
+            <div style="font-size:13px;font-weight:700;color:#ea580c;">$3.20</div>
+          </div>
+          <div style="background:#fff7ed;border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;">Stock</div>
+            <div style="font-size:13px;font-weight:700;color:#ea580c;">0 L</div>
+          </div>
+          <div style="background:#fff7ed;border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;">Value</div>
+            <div style="font-size:13px;font-weight:700;color:#ea580c;">$0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Rich cards</h3>
+      <p>Each item shows price, stock and value at a glance plus inline Edit / Count / More buttons. More info visible, but fewer items fit on screen at once.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Hybrid — compact by default, expandable -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:12px;border-radius:8px;">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:600;letter-spacing:.05em;">OPTION C — Compact collapsed, tap to expand inline</div>
+      <!-- Collapsed row -->
+      <div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:4px;border:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">Bread Flour</div>
+          <div style="font-size:11px;color:#64748b;">DRY · 50 kg</div>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#1e293b;flex-shrink:0;">$28.00</div>
+        <div style="color:#94a3b8;font-size:14px;">›</div>
+      </div>
+      <!-- Expanded row (Chicken Breast open) -->
+      <div style="background:white;border-radius:10px;margin-bottom:4px;border:2px solid #3b82f6;overflow:hidden;">
+        <div style="padding:10px 12px;display:flex;align-items:center;gap:10px;">
+          <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:700;color:#1e293b;">Chicken Breast</div>
+            <div style="font-size:11px;color:#64748b;">MEAT · Bidvest · Cold Room</div>
+          </div>
+          <div style="font-size:13px;font-weight:700;color:#1e293b;flex-shrink:0;">$12.50</div>
+          <div style="color:#3b82f6;font-size:14px;transform:rotate(90deg);">›</div>
+        </div>
+        <!-- Expanded content -->
+        <div style="border-top:1px solid #eff6ff;padding:10px 12px;background:#f8fafc;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+            <div><span style="font-size:10px;color:#94a3b8;">Stock on hand</span><div style="font-size:12px;font-weight:600;color:#1e293b;">24 kg</div></div>
+            <div><span style="font-size:10px;color:#94a3b8;">Inv. value</span><div style="font-size:12px;font-weight:600;color:#1e293b;">$300.00</div></div>
+            <div><span style="font-size:10px;color:#94a3b8;">Supplier</span><div style="font-size:12px;font-weight:600;color:#1e293b;">Bidvest</div></div>
+            <div><span style="font-size:10px;color:#94a3b8;">Last counted</span><div style="font-size:12px;font-weight:600;color:#22c55e;">Today</div></div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button style="flex:1;padding:7px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:11px;font-weight:600;">Edit</button>
+            <button style="flex:1;padding:7px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:11px;font-weight:600;">Mark Counted</button>
+          </div>
+        </div>
+      </div>
+      <!-- Another collapsed -->
+      <div style="background:white;border-radius:10px;padding:10px 12px;border:1px solid #fed7aa;display:flex;align-items:center;gap:10px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#f97316;flex-shrink:0;"></div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">Whole Milk</div>
+          <div style="font-size:11px;color:#f97316;">DAIRY · Out of stock</div>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#1e293b;flex-shrink:0;">$3.20</div>
+        <div style="color:#94a3b8;font-size:14px;">›</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tap to expand inline</h3>
+      <p>Rows are compact by default. Tap one to expand it in place, revealing stock details and Edit / Count actions — without leaving the list. Best of both worlds.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;">Click an option to select it, then let me know in the terminal. You can also just tell me what you like/dislike about any of them.</p>

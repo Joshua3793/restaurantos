@@ -44,6 +44,7 @@ export interface RecipeWithCost {
   totalCost: number
   costPerPortion: number | null
   foodCostPct: number | null
+  allergens: string[]
 }
 
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
@@ -142,12 +143,12 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
       category: true,
       ingredients: {
         include: {
-          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true } },
+          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
           linkedRecipe: {
             include: {
               ingredients: {
                 include: {
-                  inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } },
+                  inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } },
                 },
               },
             },
@@ -181,6 +182,11 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     ingredients: ingredientsWithLinked,
   })
 
+  const allergens = Array.from(new Set(recipe.ingredients.flatMap(ing => [
+    ...(ing.inventoryItem?.allergens ?? []),
+    ...(ing.linkedRecipe?.ingredients.flatMap(li => li.inventoryItem?.allergens ?? []) ?? []),
+  ])))
+
   return {
     id: recipe.id,
     name: recipe.name,
@@ -202,6 +208,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     totalCost,
     costPerPortion,
     foodCostPct,
+    allergens,
   }
 }
 
@@ -234,14 +241,15 @@ export async function syncPrepToInventory(recipeId: string) {
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },
     data: {
-      purchasePrice:      recipe.totalCost,   // cost of making one batch
-      pricePerBaseUnit,                        // cost per yieldUnit (e.g. $/ml)
-      baseUnit:           yieldUnit,           // e.g. 'ml', 'g', 'each'
-      packUOM:            yieldUnit,           // pack unit = yield unit
-      packSize:           baseYieldQty,        // how much one batch produces
-      qtyPerPurchaseUnit: 1,                   // 1 batch per "purchase"
+      purchasePrice:      recipe.totalCost,
+      pricePerBaseUnit,
+      baseUnit:           yieldUnit,
+      packUOM:            yieldUnit,
+      packSize:           baseYieldQty,
+      qtyPerPurchaseUnit: 1,
       purchaseUnit:       'batch',
       conversionFactor,
+      allergens:          recipe.allergens,
       lastUpdated: new Date(),
     },
   })

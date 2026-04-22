@@ -1063,8 +1063,42 @@ function InventoryPageInner() {
         </div>
       )}
 
+      {/* Mobile list */}
+      <div className="block sm:hidden bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {categoryGroups ? (
+          categoryGroups.map(([cat, rows]) => {
+            const catValue = rows.reduce((s, i) =>
+              s + parseFloat(String(i.stockOnHand)) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit)), 0)
+            const collapsed = collapsedCats.has(cat)
+            return (
+              <React.Fragment key={`mg-${cat}`}>
+                <div
+                  className={`flex items-center justify-between px-4 py-2 cursor-pointer border-y ${CATEGORY_HEADER[cat] ?? 'bg-gray-50 border-gray-200'}`}
+                  onClick={() => setCollapsedCats(prev => {
+                    const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n
+                  })}
+                >
+                  <div className="flex items-center gap-2">
+                    {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    <span className="text-xs font-bold uppercase tracking-wider">{cat}</span>
+                    <span className="text-xs opacity-60">({rows.length})</span>
+                  </div>
+                  <span className="text-xs font-semibold">{formatCurrency(catValue)}</span>
+                </div>
+                {!collapsed && rows.map(item => renderMobileRow(item))}
+              </React.Fragment>
+            )
+          })
+        ) : (
+          sortedItems.map(item => renderMobileRow(item))
+        )}
+        {sortedItems.length === 0 && (
+          <div className="text-center py-12 text-gray-400 text-sm">No items found</div>
+        )}
+      </div>
+
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="hidden sm:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">

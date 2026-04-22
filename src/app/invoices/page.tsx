@@ -10,6 +10,7 @@ import {
 import { formatCurrency, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, deriveBaseUnit, calcConversionFactor } from '@/lib/utils'
 import { useUploadThing } from '@/lib/uploadthing-client'
 import { comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
+import { CameraCapture } from '@/components/CameraCapture'
 
 // ── Keyword helper ────────────────────────────────────────────────────────────
 
@@ -154,9 +155,9 @@ export default function InvoicesPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [duplicateDismissed, setDuplicateDismissed] = useState(false)
   const fileInputRef   = useRef<HTMLInputElement>(null)
-  const cameraInputRef = useRef<HTMLInputElement>(null)
   const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null)
   const [uploadMode, setUploadMode] = useState<'file' | 'camera'>('file')
+  const [showCamera, setShowCamera] = useState(false)
   // Blob URLs for camera photo previews — revoked when files are cleared
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
 
@@ -210,18 +211,18 @@ export default function InvoicesPage() {
     e.target.value = ''
   }
 
-  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return
-    const photo = e.target.files[0]
+  const handleCameraCapture = (photo: File) => {
     setFiles(prev => {
       if (prev.length >= MAX_PHOTOS) return prev
-      return [...prev, photo]
+      const next = [...prev, photo]
+      // Auto-close camera when the last allowed page is captured
+      if (next.length >= MAX_PHOTOS) setShowCamera(false)
+      return next
     })
     setPhotoPreviews(prev => {
       if (prev.length >= MAX_PHOTOS) return prev
       return [...prev, URL.createObjectURL(photo)]
     })
-    e.target.value = '' // reset so the same file can be re-triggered
   }
 
   const removePhoto = (idx: number) => {
@@ -356,6 +357,7 @@ export default function InvoicesPage() {
     photoPreviews.forEach(url => URL.revokeObjectURL(url))
     setPhotoPreviews([])
     setUploadMode('file')
+    setShowCamera(false)
     setNoApiKey(false)
     setScanError(null)
   }
@@ -492,16 +494,6 @@ export default function InvoicesPage() {
       {/* ── CAMERA MODE ── */}
       {uploadMode === 'camera' && (
         <>
-          {/* Hidden camera input — capture="environment" opens rear camera on mobile */}
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleCameraCapture}
-          />
-
           {/* Photo grid */}
           {photoPreviews.length > 0 && (
             <div>
@@ -536,7 +528,7 @@ export default function InvoicesPage() {
           {photoPreviews.length < MAX_PHOTOS ? (
             <button
               type="button"
-              onClick={() => cameraInputRef.current?.click()}
+              onClick={() => setShowCamera(true)}
               className="w-full border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-2xl py-10 flex flex-col items-center gap-3 transition-colors"
             >
               <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
@@ -1072,6 +1064,16 @@ export default function InvoicesPage() {
         currentState === 'processing' ? renderProcessing() :
         currentState === 'review' ? renderReview() :
         renderResults()
+      )}
+
+      {/* Full-screen camera overlay — rendered outside the scroll container so it covers everything */}
+      {showCamera && (
+        <CameraCapture
+          pageNumber={files.length + 1}
+          maxPages={MAX_PHOTOS}
+          onCapture={handleCameraCapture}
+          onClose={() => setShowCamera(false)}
+        />
       )}
     </div>
   )
