@@ -631,8 +631,30 @@ function InventoryPageInner() {
         </div>
       </div>
 
+      {/* Mobile KPI strip */}
+      <div className="flex sm:hidden gap-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex-shrink-0 bg-blue-50 rounded-xl px-3 py-2.5 min-w-[110px]">
+          <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">Stock Value</div>
+          <div className="text-lg font-extrabold text-blue-700 mt-0.5">{formatCurrency(kpis.totalValue)}</div>
+        </div>
+        <div className="flex-shrink-0 bg-green-50 rounded-xl px-3 py-2.5 min-w-[100px]">
+          <div className="text-[9px] font-bold text-green-600 uppercase tracking-wide">Counted</div>
+          <div className="text-lg font-extrabold text-green-700 mt-0.5">
+            {kpis.counted} <span className="text-xs font-medium text-green-400">/ {kpis.activeCount}</span>
+          </div>
+        </div>
+        <div className="flex-shrink-0 bg-orange-50 rounded-xl px-3 py-2.5 min-w-[100px]">
+          <div className="text-[9px] font-bold text-orange-500 uppercase tracking-wide">Uncounted</div>
+          <div className="text-lg font-extrabold text-orange-600 mt-0.5">{kpis.notCounted}</div>
+        </div>
+        <div className="flex-shrink-0 bg-gray-50 rounded-xl px-3 py-2.5 min-w-[80px]">
+          <div className="text-[9px] font-bold text-gray-500 uppercase tracking-wide">Active</div>
+          <div className="text-lg font-extrabold text-gray-700 mt-0.5">{kpis.activeCount}</div>
+        </div>
+      </div>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'CURRENT STOCK VALUE',  value: formatCurrency(kpis.totalValue), sub: `${kpis.activeCount} active items`, accent: 'text-blue-600',   alert: false },
           { label: 'PREVIOUS STOCK VALUE', value: lastCount ? formatCurrency(lastCount.totalCountedValue) : '$0.00', sub: lastCount ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}` : 'No prior count', accent: lastCount ? 'text-purple-600' : 'text-gray-400', alert: false },
