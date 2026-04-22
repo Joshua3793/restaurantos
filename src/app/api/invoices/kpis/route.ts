@@ -12,9 +12,12 @@ export async function GET() {
   weekStart.setDate(now.getDate() + diffToMonday)
   weekStart.setHours(0, 0, 0, 0)
 
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 7)  // Sunday 23:59:59 (exclusive upper bound = next Monday)
+
   const prevWeekStart = new Date(weekStart)
   prevWeekStart.setDate(weekStart.getDate() - 7)
-  const prevWeekEnd = new Date(weekStart)
+  const prevWeekEnd = new Date(weekStart) // prevWeekEnd === weekStart (exclusive end for previous ISO week)
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
@@ -29,7 +32,7 @@ export async function GET() {
     lineItems,
   ] = await Promise.all([
     prisma.invoiceSession.aggregate({
-      where: { status: 'APPROVED', approvedAt: { gte: weekStart } },
+      where: { status: 'APPROVED', approvedAt: { gte: weekStart, lt: weekEnd } },
       _sum: { total: true },
     }),
     prisma.invoiceSession.aggregate({
@@ -50,6 +53,7 @@ export async function GET() {
       where: { status: 'REVIEW' },
     }),
     prisma.invoiceLineItem.findMany({
+      // Invoice records are created at approval time, so createdAt ≈ approvedAt
       where: { invoice: { createdAt: { gte: monthStart, lt: monthEnd } } },
       include: { inventoryItem: { select: { category: true } } },
     }),
