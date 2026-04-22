@@ -5,10 +5,17 @@ import {
   FileText, Image, FileSpreadsheet, TrendingUp, TrendingDown,
   Plus, Bell, Package, ClipboardList, ChevronRight, Pencil,
   AlertCircle, Hash, CalendarDays, ArrowRight, Trash2,
+  Building2, ChevronDown,
 } from 'lucide-react'
 import { formatCurrency, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, deriveBaseUnit, calcConversionFactor } from '@/lib/utils'
 import { comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
 import type { Session, ScanItem, ApproveResult, MatchConfidence, LineItemAction } from './types'
+
+// Units where "unit price" on the invoice means $/packUOM (not $/case)
+// e.g. $9.90/kg — total = qty × packQty × packSize × unitPrice
+const WEIGHT_VOL_UOMS = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
+const isWeightVol = (uom: string | null | undefined) =>
+  !!uom && WEIGHT_VOL_UOMS.has(uom.toLowerCase())
 
 // ── Keyword helper ─────────────────────────────────────────────────────────────
 
@@ -222,13 +229,19 @@ function ScanItemCard({
   const [localPackSize, setLocalPackSize] = useState(String(item.invoicePackSize ?? ''))
   const [localPackUOM, setLocalPackUOM]   = useState(item.invoicePackUOM ?? '')
   const [localUnitPrice, setLocalUnitPrice] = useState(String(item.rawUnitPrice ?? ''))
-  const [localLineTotal, setLocalLineTotal] = useState(
-    String(item.rawLineTotal
-      ?? (item.rawQty !== null && item.rawUnitPrice !== null
-          ? Number(item.rawQty) * Number(item.rawUnitPrice)
-          : '')
-    )
-  )
+  const [localLineTotal, setLocalLineTotal] = useState(() => {
+    if (item.rawLineTotal !== null) return String(item.rawLineTotal)
+    if (item.rawQty !== null && item.rawUnitPrice !== null) {
+      const pq = Number(item.invoicePackQty) || 1
+      const ps = Number(item.invoicePackSize) || 1
+      const wv = isWeightVol(item.invoicePackUOM)
+      const total = wv
+        ? Number(item.rawQty) * pq * ps * Number(item.rawUnitPrice)
+        : Number(item.rawQty) * Number(item.rawUnitPrice)
+      return String(total.toFixed(2))
+    }
+    return ''
+  })
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -279,7 +292,11 @@ function ScanItemCard({
 
     if (pq && ps && ps > 0 && pUOM && rawPrice !== null) {
       // Normalize using unit-aware comparison (handles L vs mL, kg vs g, etc.)
-      const invoicePricePerPackUOM = rawPrice / (Number(pq) * Number(ps))
+      // For weight/vol packUOM: rawPrice is already $/packUOM (e.g. $/kg), no division needed
+      // For count packUOM: rawPrice is $/case, divide by (packQty × packSize) to get per-unit rate
+      const invoicePricePerPackUOM = isWeightVol(pUOM)
+        ? rawPrice
+        : rawPrice / (Number(pq) * Number(ps))
       const invPackTotal = Number(inv.qtyPerPurchaseUnit) * Number(inv.packSize)
       const invPricePerPackUOM = invPackTotal > 0 ? Number(inv.purchasePrice) / invPackTotal : 0
       const normalized = comparePricesNormalized(
@@ -319,20 +336,37 @@ function ScanItemCard({
   }
 
   // ── Linked calculators ────────────────────────────────────────────────────
+  // For weight/volume packUOM: unitPrice is $/packUOM (e.g. $/kg)
+  //   total = qty × packQty × packSize × unitPrice
+  // For count/case packUOM: unitPrice is $/case
+  //   total = qty × unitPrice
+  const calcTotal = (cases: number, price: number, pq: number, ps: number, pUOM: string) => {
+    if (isWeightVol(pUOM) && pq > 0 && ps > 0) return cases * pq * ps * price
+    return cases * price
+  }
+
   const handleCasesChange = (v: string) => {
     setLocalCases(v)
     const cases = parseFloat(v), price = parseFloat(localUnitPrice)
-    if (cases > 0 && price > 0) setLocalLineTotal((cases * price).toFixed(2))
+    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPackUOM).toFixed(2))
   }
   const handleUnitPriceChange = (v: string) => {
     setLocalUnitPrice(v)
     const cases = parseFloat(localCases), price = parseFloat(v)
-    if (cases > 0 && price > 0) setLocalLineTotal((cases * price).toFixed(2))
+    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPackUOM).toFixed(2))
   }
   const handleLineTotalChange = (v: string) => {
     setLocalLineTotal(v)
     const cases = parseFloat(localCases), total = parseFloat(v)
-    if (cases > 0 && total > 0) setLocalUnitPrice((total / cases).toFixed(2))
+    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+    if (cases > 0 && total > 0) {
+      const price = isWeightVol(localPackUOM) && pq > 0 && ps > 0
+        ? total / (cases * pq * ps)
+        : total / cases
+      setLocalUnitPrice(price.toFixed(4))
+    }
   }
 
   // ── Unified save (purchases + format + price diff all at once) ────────────
@@ -350,7 +384,8 @@ function ScanItemCard({
 
     if (unitPrice !== null && item.matchedItem) {
       if (pq && ps && Number(ps) > 0 && pUOM) {
-        const invoicePPU = unitPrice / (pq * ps)
+        // For weight/vol: unitPrice is already $/packUOM; for count: divide to get per-unit rate
+        const invoicePPU = isWeightVol(pUOM) ? unitPrice : unitPrice / (pq * ps)
         const invPackTotal2 = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
         const invPPU2 = invPackTotal2 > 0 ? Number(item.matchedItem.purchasePrice) / invPackTotal2 : 0
         const normalized = comparePricesNormalized(
@@ -407,16 +442,30 @@ function ScanItemCard({
   const displayName   = item.matchedItem?.itemName ?? null
 
   // Derived display values (from saved item props — shown in view mode)
-  const savedLineTotal =
-    item.rawLineTotal !== null ? Number(item.rawLineTotal)
-    : (item.rawQty !== null && item.rawUnitPrice !== null ? Number(item.rawQty) * Number(item.rawUnitPrice) : null)
+  const savedLineTotal = (() => {
+    if (item.rawLineTotal !== null) return Number(item.rawLineTotal)
+    if (item.rawQty !== null && item.rawUnitPrice !== null) {
+      const pq = Number(item.invoicePackQty) || 1
+      const ps = Number(item.invoicePackSize) || 1
+      const wv = isWeightVol(item.invoicePackUOM)
+      return wv
+        ? Number(item.rawQty) * pq * ps * Number(item.rawUnitPrice)
+        : Number(item.rawQty) * Number(item.rawUnitPrice)
+    }
+    return null
+  })()
 
   // Live base cost from current local state (used in edit mode preview)
+  // For weight/vol: unitPrice IS the $/packUOM rate already
+  // For count: divide by (packQty × packSize) to get per-unit rate
   const liveBaseCost = (() => {
     const price = parseFloat(localUnitPrice)
     const pq    = parseFloat(localPackQty)
     const ps    = parseFloat(localPackSize)
-    if (price > 0 && pq > 0 && ps > 0 && localPackUOM) return price / (pq * ps)
+    if (price > 0 && pq > 0 && ps > 0 && localPackUOM) {
+      if (isWeightVol(localPackUOM)) return price  // already per-packUOM
+      return price / (pq * ps)
+    }
     return null
   })()
 
@@ -425,6 +474,7 @@ function ScanItemCard({
     if (!item.rawUnitPrice || !item.invoicePackQty || !item.invoicePackSize) return null
     const pq = Number(item.invoicePackQty), ps = Number(item.invoicePackSize)
     if (pq <= 0 || ps <= 0) return null
+    if (isWeightVol(item.invoicePackUOM)) return Number(item.rawUnitPrice) // already per-packUOM
     return Number(item.rawUnitPrice) / (pq * ps)
   })()
 
@@ -468,7 +518,9 @@ function ScanItemCard({
               {item.rawUnitPrice !== null && (
                 <>
                   <span className="text-gray-300">·</span>
-                  <span className="text-gray-600">{formatCurrency(Number(item.rawUnitPrice))}/case</span>
+                  <span className="text-gray-600">
+                    {formatCurrency(Number(item.rawUnitPrice))}/{isWeightVol(item.invoicePackUOM) ? item.invoicePackUOM : 'case'}
+                  </span>
                 </>
               )}
               {/* total */}
@@ -547,7 +599,9 @@ function ScanItemCard({
                 <span className="text-gray-400 pb-1">@</span>
                 {/* Unit price */}
                 <div className="flex flex-col items-center gap-0.5">
-                  <span className="text-[9px] text-gray-400 uppercase tracking-wide">Unit price</span>
+                  <span className="text-[9px] text-gray-400 uppercase tracking-wide">
+                    {isWeightVol(localPackUOM) ? `$/${localPackUOM}` : 'Unit price'}
+                  </span>
                   <input type="number" step="any" min="0" value={localUnitPrice}
                     onChange={e => handleUnitPriceChange(e.target.value)}
                     className="w-18 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -1393,11 +1447,26 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   const [isAddingItem, setIsAddingItem] = useState(false)
   const [open, setOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<'review' | 'image'>('review')
+
+  // ── Supplier selector state ─────────────────────────────────────────────────
+  const [allSuppliers, setAllSuppliers] = useState<Array<{
+    id: string; name: string; aliases: Array<{ id: string; name: string }>
+  }>>([])
+  const [supplierComboOpen, setSupplierComboOpen] = useState(false)
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [linkedSupplierId, setLinkedSupplierId] = useState<string | null>(null)
+  const [supplierLinkMode, setSupplierLinkMode] = useState<'auto' | 'manual' | 'none'>('none')
+  const [createSupplierOpen, setCreateSupplierOpen] = useState(false)
+  const [newSupplierName, setNewSupplierName] = useState('')
+  const [savingSupplier, setSavingSupplier] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchSession = useCallback(async (id: string) => {
     const data: Session = await fetch(`/api/invoices/sessions/${id}`).then(r => r.json())
     setSession(data)
+    // Sync supplier link state from session
+    setLinkedSupplierId(data.supplierId ?? null)
+    setSupplierLinkMode(data.supplierId ? 'auto' : 'none')
     return data
   }, [])
 
@@ -1482,6 +1551,50 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
     })
     await fetchSession(session.id)
     setIsAddingItem(false)
+  }
+
+  const loadSuppliers = async () => {
+    if (allSuppliers.length > 0) return
+    const res = await fetch('/api/suppliers')
+    if (res.ok) {
+      const data = await res.json()
+      setAllSuppliers(data)
+    }
+  }
+
+  const handleLinkSupplier = async (supplierId: string) => {
+    if (!session) return
+    setSupplierComboOpen(false)
+    setLinkedSupplierId(supplierId)
+    setSupplierLinkMode('manual')
+    await fetch(`/api/invoices/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supplierId }),
+    })
+  }
+
+  const handleCreateAndLinkSupplier = async () => {
+    const name = newSupplierName.trim()
+    if (!name || !session) return
+    setSavingSupplier(true)
+    try {
+      const res = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error('Failed to create supplier')
+      const newSupplier = await res.json()
+      setAllSuppliers(prev => [...prev, { ...newSupplier, aliases: newSupplier.aliases ?? [] }])
+      await handleLinkSupplier(newSupplier.id)
+      setCreateSupplierOpen(false)
+      setNewSupplierName('')
+    } catch {
+      alert('Failed to create supplier. Please try again.')
+    } finally {
+      setSavingSupplier(false)
+    }
   }
 
   // Determine drawer state
@@ -1615,6 +1728,102 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
                 )}
               </div>
             </div>
+
+            {/* ── Supplier strip ── */}
+            {(() => {
+              const linked = allSuppliers.find(s => s.id === linkedSupplierId)
+              const ocrName = session.supplierName
+
+              return (
+                <div className="border-b border-gray-100">
+                  {linkedSupplierId && linked ? (
+                    <div className="flex items-center gap-3 px-4 py-2 bg-green-50">
+                      <Building2 size={14} className="text-green-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-semibold text-gray-900">{linked.name}</span>
+                        <span className="ml-2 text-xs text-gray-400">
+                          {supplierLinkMode === 'auto' ? '✓ auto-matched' : '(linked)'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => { loadSuppliers(); setSupplierComboOpen(true) }}
+                        className="text-xs text-blue-600 hover:text-blue-800 shrink-0 flex items-center gap-0.5"
+                      >
+                        Change <ChevronDown size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 px-4 py-2 bg-amber-50">
+                      <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+                      <p className="flex-1 min-w-0 text-xs text-gray-700 truncate">
+                        {ocrName
+                          ? <><span className="font-mono font-semibold">&ldquo;{ocrName}&rdquo;</span> — link to a supplier</>
+                          : 'No supplier detected — link to a supplier'}
+                      </p>
+                      <button
+                        onClick={() => { loadSuppliers(); setSupplierComboOpen(true) }}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 shrink-0 flex items-center gap-0.5"
+                      >
+                        Link <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  )}
+
+                  {supplierComboOpen && (
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg mx-4 mb-2 overflow-hidden">
+                      <input
+                        autoFocus
+                        value={supplierSearch}
+                        onChange={e => setSupplierSearch(e.target.value)}
+                        placeholder="Search suppliers…"
+                        className="w-full px-3 py-2 text-sm border-b border-gray-100 focus:outline-none"
+                      />
+                      <div className="max-h-48 overflow-y-auto">
+                        {allSuppliers
+                          .filter(s => {
+                            const q = supplierSearch.toLowerCase()
+                            return (
+                              s.name.toLowerCase().includes(q) ||
+                              s.aliases?.some(a => a.name.toLowerCase().includes(q))
+                            )
+                          })
+                          .map(s => (
+                            <button
+                              key={s.id}
+                              onClick={() => handleLinkSupplier(s.id)}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors"
+                            >
+                              <span className="font-medium text-gray-900">{s.name}</span>
+                              {s.aliases && s.aliases.length > 0 && (
+                                <span className="ml-2 text-xs text-gray-400 font-mono">
+                                  {s.aliases.length} alias{s.aliases.length !== 1 ? 'es' : ''}
+                                </span>
+                              )}
+                            </button>
+                          ))
+                        }
+                        <button
+                          onClick={() => {
+                            setNewSupplierName(session.supplierName ?? '')
+                            setCreateSupplierOpen(true)
+                            setSupplierComboOpen(false)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 font-semibold transition-colors"
+                        >
+                          + Create &ldquo;{session.supplierName || 'new supplier'}&rdquo; as new supplier
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => setSupplierComboOpen(false)}
+                        className="w-full py-1.5 text-xs text-gray-400 hover:bg-gray-50 border-t border-gray-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Total validation bar */}
             {(invoiceTotal !== null || scannedTotal > 0) && (
@@ -1850,6 +2059,48 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
 
   return (
     <>
+      {/* ── Create New Supplier Modal ─────────────────────────────────── */}
+      {createSupplierOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-900">Create New Supplier</h3>
+              <button onClick={() => setCreateSupplierOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100">
+                <X size={14} />
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              A new supplier will be created and this invoice will be linked to it.
+              The OCR name will be saved as an alias for future auto-matching.
+            </p>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Supplier Name *</label>
+            <input
+              autoFocus
+              value={newSupplierName}
+              onChange={e => setNewSupplierName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateAndLinkSupplier() }}
+              placeholder="e.g. Legends Haul"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCreateSupplierOpen(false)}
+                className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateAndLinkSupplier}
+                disabled={savingSupplier || !newSupplierName.trim()}
+                className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingSupplier ? 'Creating…' : 'Create & Link'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-40 bg-black/40"

@@ -51,6 +51,7 @@ export interface ScanItem {
 export interface Session {
   id: string
   status: SessionStatus
+  supplierId: string | null
   supplierName: string | null
   invoiceDate: string | null
   invoiceNumber: string | null
