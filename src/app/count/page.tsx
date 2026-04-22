@@ -916,6 +916,121 @@ export default function CountPage() {
       )
     }
 
+    const renderMobileLine = (line: Line) => {
+      const isOpen    = openId === line.id
+      const isCounted = line.countedQty !== null && !line.skipped
+      const isSkipped = line.skipped
+      const locLabel  = line.inventoryItem.location ?? line.inventoryItem.storageArea?.name
+      const subtitle  = [line.inventoryItem.category, locLabel].filter(Boolean).join(' · ')
+
+      const liveVar = isOpen && Number(line.expectedQty) > 0
+        ? ((inputQty - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
+        : null
+
+      const dotColor = isSkipped
+        ? 'bg-gray-300'
+        : isCounted
+          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > 15 ? 'bg-amber-400' : 'bg-green-500')
+          : 'bg-gray-300'
+
+      const rowBg = isSkipped
+        ? 'bg-gray-50 border-gray-100 opacity-60'
+        : isCounted
+          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > 15
+              ? 'bg-amber-50/60 border-amber-200'
+              : 'bg-green-50/60 border-green-200')
+          : isOpen
+            ? 'border-green-400 border-2 bg-white'
+            : 'bg-white border-gray-200'
+
+      return (
+        <div key={`m-${line.id}`}
+          ref={el => { cardRefs.current[line.id] = el }}
+          className={`rounded-xl border ${rowBg} overflow-hidden`}
+        >
+          <div
+            className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+            onClick={() => setOpenId(isOpen ? null : line.id)}
+          >
+            <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+            <div className="flex-1 min-w-0">
+              <div className={`text-sm font-medium truncate ${isSkipped ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                {line.inventoryItem.itemName}
+              </div>
+              {subtitle && <div className="text-xs text-gray-400 mt-0.5">{subtitle}</div>}
+            </div>
+            <div className="text-right shrink-0">
+              {isSkipped ? (
+                <span className="text-xs text-gray-400">Skipped</span>
+              ) : isCounted ? (
+                <>
+                  <div className="text-sm font-semibold text-gray-900">
+                    {Number(line.countedQty).toFixed(1)} {line.selectedUom}
+                  </div>
+                  {line.variancePct !== null && (
+                    <div className={`text-xs ${varColor(line.variancePct)}`}>
+                      {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(1)}%
+                    </div>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-gray-300">— —</span>
+              )}
+            </div>
+          </div>
+
+          {isOpen && (
+            <div className="px-3 pb-3 pt-1 border-t border-gray-100">
+              <div className="text-xs text-gray-500 mb-2 flex items-center gap-1.5">
+                <span>Expected: {Number(line.expectedQty).toFixed(2)} {line.selectedUom}</span>
+                {liveVar !== null && (
+                  <span className={`font-medium ${varColor(liveVar)}`}>
+                    · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <button
+                  onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
+                  className="w-12 h-14 rounded-xl bg-gray-100 flex items-center justify-center"
+                >
+                  <Minus size={18} className="text-gray-700" />
+                </button>
+                <input
+                  type="number"
+                  value={inputQty}
+                  onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
+                  className="flex-1 h-14 text-center text-2xl font-bold border-2 border-green-400 rounded-xl focus:outline-none"
+                  min={0} step={0.1}
+                />
+                <button
+                  onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
+                  className="w-12 h-14 rounded-xl bg-gray-100 flex items-center justify-center"
+                >
+                  <Plus size={18} className="text-gray-700" />
+                </button>
+              </div>
+              <div className="text-center text-xs text-gray-500 mb-3">{line.selectedUom}</div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => confirmLine(line, inputQty)}
+                  className="flex-1 h-11 bg-green-500 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5"
+                >
+                  <Check size={15} /> Confirm
+                </button>
+                <button
+                  onClick={() => skipLine(line)}
+                  className="px-4 h-11 border border-gray-200 rounded-xl text-sm text-gray-500 flex items-center gap-1.5"
+                >
+                  <SkipForward size={13} /> Skip
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
+
     return (
       <div className="max-w-2xl pb-28">
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
@@ -1053,8 +1168,35 @@ export default function CountPage() {
           </div>
         </div>
 
+        {/* ── Mobile items list ──────────────────────────────────────────────── */}
+        <div className="block sm:hidden px-3 pt-1 pb-28 space-y-1.5">
+          {catFilter ? (
+            filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderMobileLine)
+          ) : (
+            !grouped || Object.keys(grouped).length === 0 ? <Empty /> :
+            Object.entries(grouped)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([cat, lines]) => {
+                const catDone = lines.filter(l => l.countedQty !== null || l.skipped).length
+                return (
+                  <div key={`mc-${cat}`}>
+                    <div className="flex items-center gap-2 py-2 px-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500">{cat}</span>
+                      <span className="text-xs text-gray-400">{catDone}/{lines.length}</span>
+                      <div className="flex-1 max-w-[60px] h-1 bg-gray-100 rounded-full">
+                        <div className="h-1 bg-green-400 rounded-full"
+                          style={{ width: `${lines.length > 0 ? (catDone / lines.length) * 100 : 0}%` }} />
+                      </div>
+                    </div>
+                    {lines.map(renderMobileLine)}
+                  </div>
+                )
+              })
+          )}
+        </div>
+
         {/* ── Items ──────────────────────────────────────────────────────────── */}
-        <div className="pt-1">
+        <div className="hidden sm:block pt-1">
           {catFilter ? (
             filteredLines.length === 0
               ? <Empty />
