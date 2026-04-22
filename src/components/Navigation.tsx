@@ -5,7 +5,7 @@ import { useState, Suspense } from 'react'
 import {
   LayoutDashboard, Package, FileText, Trash2, BarChart3,
   ClipboardList, BookOpen, UtensilsCrossed, MoreHorizontal,
-  X, ShoppingBag, TrendingUp, Settings, ChefHat,
+  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
 
@@ -22,6 +22,7 @@ const navItems: NavItem[] = [
   { href: '/count',                      label: 'Count',        icon: ClipboardList },
   { href: '/prep',                       label: 'Prep',         icon: ChefHat },
   { href: '/invoices',                   label: 'Invoices',     icon: FileText },
+  { href: '/suppliers',                  label: 'Suppliers',    icon: Truck },
   { href: '/recipes',                    label: 'Recipe Book',  icon: BookOpen,        dividerBefore: true },
   { href: '/menu',                       label: 'Menu',         icon: UtensilsCrossed },
   { href: '/sales',                      label: 'Sales',        icon: ShoppingBag,     dividerBefore: true },
@@ -43,6 +44,7 @@ const mobilePrimary: NavItem[] = [
 // Everything else lives in the More drawer
 const mobileMore: NavItem[] = [
   { href: '/prep',                       label: 'Prep',         icon: ChefHat },
+  { href: '/suppliers',                  label: 'Suppliers',    icon: Truck },
   { href: '/recipes',                    label: 'Recipes',      icon: BookOpen },
   { href: '/menu',                       label: 'Menu',         icon: UtensilsCrossed },
   { href: '/sales',                      label: 'Sales',        icon: ShoppingBag },

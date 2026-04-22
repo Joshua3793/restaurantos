@@ -1,13 +1,12 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Package, MapPin, Truck, Tag } from 'lucide-react'
+import { Package, MapPin, Tag } from 'lucide-react'
 
 const tabs = [
-  { href: '/inventory', label: 'Inventory', icon: Package },
+  { href: '/inventory',              label: 'Inventory',     icon: Package },
   { href: '/inventory/storage-areas', label: 'Storage Areas', icon: MapPin },
-  { href: '/inventory/suppliers', label: 'Suppliers', icon: Truck },
-  { href: '/inventory/categories', label: 'Categories', icon: Tag },
+  { href: '/inventory/categories',   label: 'Categories',    icon: Tag },
 ]
 
 export default function InventoryLayout({ children }: { children: React.ReactNode }) {
