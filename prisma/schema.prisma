@@ -32,7 +32,18 @@ model Supplier {
   invoices         Invoice[]
   invoiceSessions  InvoiceSession[] @relation("SupplierInvoiceSessions")
   supplierPrices   InventorySupplierPrice[]
+  aliases          SupplierAlias[]
   createdAt        DateTime @default(now())
+}
+
+model SupplierAlias {
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  name       String   // OCR-extracted string, e.g. "ACECARD FOOD GROUP LTD"
+  createdAt  DateTime @default(now())
+
+  @@unique([supplierId, name])
 }
 
 model InventoryItem {
