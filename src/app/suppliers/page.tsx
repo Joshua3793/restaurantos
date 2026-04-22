@@ -4,6 +4,7 @@ import { SupplierList } from '@/components/suppliers/SupplierList'
 import { SupplierDetail } from '@/components/suppliers/SupplierDetail'
 import { SupplierFormModal } from '@/components/suppliers/SupplierFormModal'
 import { SupplierSummary } from '@/components/suppliers/types'
+import { formatCurrency } from '@/lib/utils'
 import Link from 'next/link'
 
 export default function SuppliersPage() {
@@ -68,7 +69,7 @@ export default function SuppliersPage() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {suppliers
+          {[...suppliers]
             .sort((a, b) => b.monthSpend - a.monthSpend)
             .map(s => {
               const pct = s.prevMonthSpend === 0 ? null
@@ -85,7 +86,7 @@ export default function SuppliersPage() {
                     <p className="text-sm font-semibold text-gray-900 truncate">{s.name}</p>
                     <p className={`text-xs mt-0.5 ${pctColor}`}>
                       {s.monthSpend === 0 ? '$0 this month'
-                        : `$${s.monthSpend.toLocaleString()} this month${pct !== null ? ` · ${pct >= 0 ? '↑' : '↓'}${Math.abs(pct)}%` : ''}`}
+                        : `${formatCurrency(s.monthSpend)} this month${pct !== null ? ` · ${pct >= 0 ? '↑' : '↓'}${Math.abs(pct)}%` : ''}`}
                     </p>
                     <p className="text-xs text-gray-400">{s._count.inventory} items · {s.invoiceCount} invoices</p>
                   </div>
