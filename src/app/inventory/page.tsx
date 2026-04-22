@@ -550,8 +550,53 @@ function InventoryPageInner() {
 
   return (
     <div className="space-y-4">
+      {/* Mobile header */}
+      <div className="flex sm:hidden items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-xl font-bold text-gray-900 leading-tight">Inventory</h1>
+          <p className="text-xs text-gray-400">{items.length} items</p>
+        </div>
+        <button
+          onClick={() => { setShowOrderList(true); setOrderQtys({}) }}
+          className="flex items-center justify-center w-9 h-9 bg-green-50 border border-green-200 text-green-700 rounded-xl"
+        >
+          <ShoppingCart size={16} />
+        </button>
+        <button
+          onClick={() => setShowAdd(true)}
+          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 h-9 rounded-xl text-sm font-semibold"
+        >
+          <Plus size={15} /> Add
+        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowMobileOverflow(v => !v)}
+            className="flex items-center justify-center w-9 h-9 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {showMobileOverflow && (
+            <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
+              <button
+                onClick={() => { window.location.href = '/api/inventory/export'; setShowMobileOverflow(false) }}
+                className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
+              >
+                <Download size={14} /> Export CSV
+              </button>
+              <button
+                onClick={() => { syncAllPrepd(); setShowMobileOverflow(false) }}
+                disabled={syncingPrepd}
+                className="flex items-center gap-2 w-full px-4 py-3 text-sm text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+              >
+                {syncingPrepd ? '⟳ Syncing…' : '⟳ Sync PREPD'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      <div className="hidden sm:flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
           <p className="text-sm text-gray-500 mt-0.5">Master database &middot; weekly stock counting &middot; cost control</p>
