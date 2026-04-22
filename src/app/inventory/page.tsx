@@ -538,6 +538,40 @@ function InventoryPageInner() {
     )
   }
 
+  const renderMobileRow = (item: InventoryItem) => {
+    const inStock = parseFloat(String(item.stockOnHand)) > 0
+    return (
+      <div
+        key={`m-${item.id}`}
+        onClick={() => setSelected(item)}
+        className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 cursor-pointer active:bg-gray-50 transition-colors ${
+          !inStock ? 'bg-orange-50/50' : ''
+        } ${!item.isActive ? 'opacity-50' : ''}`}
+      >
+        <div className={`w-2 h-2 rounded-full shrink-0 ${inStock ? 'bg-green-500' : 'bg-orange-400'}`} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-900 truncate">{item.itemName}</div>
+          {item.allergens && item.allergens.length > 0 && (
+            <div className="mt-0.5">
+              <AllergenBadges allergens={item.allergens} size="xs" />
+            </div>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-sm font-bold text-gray-900">
+            {formatCurrency(parseFloat(String(item.purchasePrice)))}
+            <span className="text-[10px] font-normal text-gray-400">/{item.purchaseUnit}</span>
+          </div>
+          <div className={`text-[11px] ${inStock ? 'text-gray-500' : 'text-orange-500'}`}>
+            {parseFloat(String(item.stockOnHand)).toFixed(1)} {item.countUOM || item.baseUnit}
+            {!inStock && ' · out of stock'}
+          </div>
+        </div>
+        <ChevronRight size={14} className="text-gray-300 shrink-0" />
+      </div>
+    )
+  }
+
   const pills: { key: FilterPill; label: string }[] = [
     { key: 'all',        label: 'All Items' },
     { key: 'active',     label: 'Active' },
