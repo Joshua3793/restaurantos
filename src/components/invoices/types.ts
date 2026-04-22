@@ -13,10 +13,10 @@ export interface InventoryMatch {
   id: string
   itemName: string
   purchaseUnit: string
-  pricePerBaseUnit: number
-  purchasePrice: number
-  qtyPerPurchaseUnit: number
-  packSize: number
+  pricePerBaseUnit: string
+  purchasePrice: string
+  qtyPerPurchaseUnit: string
+  packSize: string
   packUOM: string
   baseUnit: string
 }
@@ -24,10 +24,10 @@ export interface InventoryMatch {
 export interface ScanItem {
   id: string
   rawDescription: string
-  rawQty: number | null
+  rawQty: string | null
   rawUnit: string | null
-  rawUnitPrice: number | null
-  rawLineTotal: number | null
+  rawUnitPrice: string | null
+  rawLineTotal: string | null
   matchedItemId: string | null
   matchedItem: InventoryMatch | null
   matchConfidence: MatchConfidence
@@ -36,12 +36,12 @@ export interface ScanItem {
   approved: boolean
   isNewItem: boolean
   newItemData: string | null
-  previousPrice: number | null
-  newPrice: number | null
-  priceDiffPct: number | null
+  previousPrice: string | null
+  newPrice: string | null
+  priceDiffPct: string | null
   formatMismatch: boolean
-  invoicePackQty: number | null
-  invoicePackSize: number | null
+  invoicePackQty: string | null
+  invoicePackSize: string | null
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
 }
@@ -69,6 +69,7 @@ export interface SessionSummary {
   invoiceDate: string | null
   invoiceNumber: string | null
   total: string | null
+  files: Array<{ id: string; fileName: string; ocrStatus: string }>
   createdAt: string
   _count: {
     scanItems: number
