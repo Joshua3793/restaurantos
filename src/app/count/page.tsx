@@ -1265,8 +1265,22 @@ export default function CountPage() {
           )}
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        {/* Stats — mobile compact strip */}
+        <div className="flex sm:hidden gap-2 mb-4">
+          {[
+            { val: countedLines.length.toString(),   label: 'Counted',  cls: 'bg-blue-50 text-blue-700'   },
+            { val: flagged.length.toString(),         label: 'Flagged',  cls: flagged.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-gray-500' },
+            { val: formatCurrency(totalValue),        label: 'Value',    cls: 'bg-green-50 text-green-700' },
+          ].map(s => (
+            <div key={s.label} className={`flex-1 rounded-xl py-2 px-3 text-center ${s.cls}`}>
+              <div className="text-base font-bold leading-tight">{s.val}</div>
+              <div className="text-[10px] font-medium mt-0.5 opacity-80">{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Stats — desktop */}
+        <div className="hidden sm:grid grid-cols-3 gap-3 mb-6">
           {[
             { val: countedLines.length.toString(), label: 'Items counted' },
             { val: flagged.length.toString(), label: 'Flagged (>15%)', red: flagged.length > 0 },
@@ -1279,9 +1293,55 @@ export default function CountPage() {
           ))}
         </div>
 
-        {/* Variance table */}
+        {/* Variance cards — mobile */}
         {sorted.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
+          <div className="block sm:hidden space-y-2 mb-24">
+            {sorted.map(l => {
+              const vPct  = Number(l.variancePct ?? 0)
+              const vCost = Number(l.varianceCost ?? 0)
+              const large = Math.abs(vPct) > 15
+              return (
+                <div key={l.id}
+                  className={`bg-white rounded-xl border overflow-hidden ${large ? 'border-l-4 border-amber-400 border-t-gray-100 border-r-gray-100 border-b-gray-100' : 'border-gray-100'}`}
+                >
+                  <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-50">
+                    {large && <AlertCircle size={13} className="text-amber-500 shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 truncate">{l.inventoryItem.itemName}</div>
+                      <div className="text-xs text-gray-400">{l.inventoryItem.category}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 divide-x divide-gray-50">
+                    <div className="px-3 py-2">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Expected</div>
+                      <div className="text-sm text-gray-700">{Number(l.expectedQty).toFixed(1)} {l.selectedUom}</div>
+                    </div>
+                    <div className="px-3 py-2">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Counted</div>
+                      <div className="text-sm font-semibold text-gray-900">{Number(l.countedQty).toFixed(1)} {l.selectedUom}</div>
+                    </div>
+                    <div className="px-3 py-2 border-t border-gray-50">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Variance</div>
+                      <div className={`text-sm font-semibold ${varColor(vPct)}`}>
+                        {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 border-t border-gray-50">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Cost impact</div>
+                      <div className={`text-sm font-semibold ${vCost >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Variance table — desktop */}
+        {sorted.length > 0 && (
+          <div className="hidden sm:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
             <div className="px-4 py-3 border-b border-gray-50">
               <h2 className="text-sm font-semibold text-gray-800">Variance breakdown</h2>
             </div>
@@ -1323,9 +1383,27 @@ export default function CountPage() {
           </div>
         )}
 
-        {/* Footer */}
+        {/* Footer — mobile fixed bar */}
+        {!isFinalized && (
+          <div className="fixed sm:hidden bottom-20 inset-x-0 bg-white border-t border-gray-100 px-4 py-3 z-30">
+            <div className="flex gap-3">
+              <button onClick={() => setView('count')}
+                className="flex-1 py-3 border border-gray-200 rounded-2xl text-sm font-medium text-gray-600"
+              >
+                ← Back
+              </button>
+              <button onClick={handleFinalize} disabled={finalizing}
+                className="flex-[2] py-3 bg-green-600 text-white rounded-2xl text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <Check size={15} /> {finalizing ? 'Updating…' : 'Approve & update'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Footer — desktop */}
         {!isFinalized ? (
-          <div className="flex gap-3">
+          <div className="hidden sm:flex gap-3">
             <button onClick={() => setView('count')}
               className="flex-1 py-3 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 font-medium flex items-center justify-center gap-1.5"
             >
