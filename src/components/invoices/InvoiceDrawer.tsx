@@ -540,13 +540,7 @@ function ScanItemCard({
                     <select value={localPackUOM} onChange={e => setLocalPackUOM(e.target.value)}
                       className="border border-blue-300 rounded px-1 py-1 bg-blue-50 focus:outline-none text-xs">
                       <option value="">—</option>
-                      <option value="L">L</option>
-                      <option value="ml">mL</option>
-                      <option value="kg">kg</option>
-                      <option value="g">g</option>
-                      <option value="lb">lb</option>
-                      <option value="oz">oz</option>
-                      <option value="each">each</option>
+                      {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                 </div>
@@ -1100,7 +1094,11 @@ function InventoryEditModal({
         })
         setLoading(false)
       })
-  }, [inventoryItemId])
+      .catch(() => {
+        setLoading(false)
+        onClose()
+      })
+  }, [inventoryItemId, onClose])
 
   const pp   = parseFloat(form.purchasePrice) || 0
   const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
@@ -1110,25 +1108,35 @@ function InventoryEditModal({
 
   const handleSave = async () => {
     setSaving(true)
-    const res = await fetch(`/api/inventory/${inventoryItemId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemName:           form.itemName,
-        category:           form.category,
-        purchaseUnit:       form.purchaseUnit,
-        qtyPerPurchaseUnit: qty,
-        packSize:           ps,
-        packUOM:            form.packUOM,
-        countUOM:           form.countUOM,
-        purchasePrice:      pp,
-        abbreviation:       form.abbreviation || null,
-        location:           form.location || null,
-        pricePerBaseUnit:   ppbu,
-        baseUnit:           bu,
-        conversionFactor:   calcConversionFactor(form.countUOM, qty, ps, form.packUOM),
-      }),
-    })
+    let res: Response
+    try {
+      res = await fetch(`/api/inventory/${inventoryItemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemName:           form.itemName,
+          category:           form.category,
+          purchaseUnit:       form.purchaseUnit,
+          qtyPerPurchaseUnit: qty,
+          packSize:           ps,
+          packUOM:            form.packUOM,
+          countUOM:           form.countUOM,
+          purchasePrice:      pp,
+          abbreviation:       form.abbreviation || null,
+          location:           form.location || null,
+          pricePerBaseUnit:   ppbu,
+          baseUnit:           bu,
+          conversionFactor:   calcConversionFactor(form.countUOM, qty, ps, form.packUOM),
+        }),
+      })
+    } catch {
+      setSaving(false)
+      return
+    }
+    if (!res.ok) {
+      setSaving(false)
+      return
+    }
     const updatedInv = await res.json()
     setSaving(false)
 
@@ -1314,12 +1322,11 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   const [isApproving, setIsApproving] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [approvedBy, setApprovedBy] = useState(() =>
-    typeof window !== 'undefined' ? (localStorage.getItem('approvedBy') ?? '') : ''
+    localStorage.getItem('approvedBy') ?? ''
   )
   const [editingItem, setEditingItem] = useState<ScanItem | null>(null)
   const [editingInventory, setEditingInventory] = useState<{ inventoryItemId: string; scanItem: ScanItem } | null>(null)
   const [isAddingItem, setIsAddingItem] = useState(false)
-  const [duplicateDismissed, setDuplicateDismissed] = useState(false)
   const [open, setOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -1332,14 +1339,14 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   // Fetch session when sessionId changes
   useEffect(() => {
     if (sessionId) {
-      setSession(null)
+      setOpen(true)
       setApproveResult(null)
-      setDuplicateDismissed(false)
       fetchSession(sessionId)
-      // Animate open
-      requestAnimationFrame(() => setOpen(true))
     } else {
       setOpen(false)
+      // Give animation time to complete before clearing session
+      const t = setTimeout(() => setSession(null), 200)
+      return () => clearTimeout(t)
     }
   }, [sessionId, fetchSession])
 
@@ -1421,7 +1428,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
     : (session.status === 'APPROVED' || session.status === 'REJECTED') ? 'done'
     : 'loading'
 
-  if (!sessionId) return null
+  if (!sessionId && !open && !session) return null
 
   // ── renderProcessing ────────────────────────────────────────────────────────
 
@@ -1537,13 +1544,6 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
                 )}
               </div>
             </div>
-
-            {/* Duplicate invoice warning */}
-            {session.invoiceNumber && !duplicateDismissed && (
-              <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 text-sm hidden" id="dup-warning">
-                {/* Duplicate detection requires sessions list — omitted in drawer */}
-              </div>
-            )}
 
             {/* Total validation bar */}
             {(invoiceTotal !== null || scannedTotal > 0) && (
