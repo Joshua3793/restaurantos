@@ -26,6 +26,7 @@ export default function InvoicesPage() {
   const handleDelete = useCallback(async (id: string, _status: SessionStatus): Promise<void> => {
     await fetch(`/api/invoices/sessions/${id}`, { method: 'DELETE' })
     fetchSessions()
+    setKpiRefreshKey(k => k + 1)
     if (selectedSessionId === id) setSelectedSessionId(null)
   }, [selectedSessionId, fetchSessions])
 
