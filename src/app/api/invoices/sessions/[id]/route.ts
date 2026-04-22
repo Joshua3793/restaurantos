@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { learnAlias } from '@/lib/supplier-matcher'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -48,6 +49,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       },
     })
     return NextResponse.json(item)
+  }
+
+  // Update supplier assignment — also learns the alias
+  if (body.supplierId !== undefined && !body.scanItemId) {
+    const session = await prisma.invoiceSession.findUnique({
+      where: { id: params.id },
+      select: { supplierName: true },
+    })
+    if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const updated = await prisma.invoiceSession.update({
+      where: { id: params.id },
+      data: { supplierId: body.supplierId },
+    })
+
+    // Learn alias: associate this OCR name with the chosen supplier
+    if (body.supplierId && session.supplierName) {
+      await learnAlias(body.supplierId, session.supplierName)
+    }
+
+    return NextResponse.json(updated)
   }
 
   // Update session header
