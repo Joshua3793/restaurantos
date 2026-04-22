@@ -89,7 +89,7 @@ function buildResults(raw: RawResults): { group: string; items: SearchResult[] }
       group: 'Suppliers',
       items: raw.suppliers.map(s => ({
         id: s.id,
-        href: `/inventory/suppliers`,
+        href: `/suppliers/${s.id}`,
         icon: <Truck size={14} className="text-gray-400 shrink-0" />,
         title: s.name,
         subtitle: 'Supplier',
