@@ -1301,9 +1301,9 @@ export default function CountPage() {
               const vCost = Number(l.varianceCost ?? 0)
               const large = Math.abs(vPct) > 15
               return (
-                <div key={l.id}
-                  className={`bg-white rounded-xl border overflow-hidden ${large ? 'border-l-4 border-amber-400 border-t-gray-100 border-r-gray-100 border-b-gray-100' : 'border-gray-100'}`}
-                >
+                <div key={l.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden flex">
+                  {large && <div className="w-1 shrink-0 bg-amber-400" />}
+                  <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-50">
                     {large && <AlertCircle size={13} className="text-amber-500 shrink-0" />}
                     <div className="flex-1 min-w-0">
@@ -1332,6 +1332,7 @@ export default function CountPage() {
                         {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
                       </div>
                     </div>
+                  </div>
                   </div>
                 </div>
               )
