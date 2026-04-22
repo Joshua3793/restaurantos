@@ -10,7 +10,10 @@ export async function GET() {
   const [suppliers, monthAgg, prevMonthAgg, invoiceAgg] = await Promise.all([
     prisma.supplier.findMany({
       orderBy: { name: 'asc' },
-      include: { _count: { select: { inventory: true } } },
+      include: {
+        _count: { select: { inventory: true } },
+        aliases: { select: { id: true, name: true }, orderBy: { createdAt: 'asc' } },
+      },
     }),
     prisma.invoiceSession.groupBy({
       by: ['supplierId'],
@@ -53,6 +56,15 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const supplier = await prisma.supplier.create({ data: body })
+  const { aliases, ...supplierData } = body
+  const supplier = await prisma.supplier.create({
+    data: {
+      ...supplierData,
+      ...(aliases && aliases.length > 0
+        ? { aliases: { create: (aliases as string[]).map((name: string) => ({ name: name.trim() })) } }
+        : {}),
+    },
+    include: { aliases: { select: { id: true, name: true } } },
+  })
   return NextResponse.json(supplier, { status: 201 })
 }

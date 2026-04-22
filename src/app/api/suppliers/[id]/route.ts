@@ -3,8 +3,13 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
-  const { id, _count, inventory, createdAt, ...data } = body
-  const supplier = await prisma.supplier.update({ where: { id: params.id }, data })
+  // Strip non-updatable fields; aliases handled via sub-routes
+  const { id, _count, inventory, createdAt, aliases, invoiceSessions, monthSpend, prevMonthSpend, invoiceCount, ...data } = body
+  const supplier = await prisma.supplier.update({
+    where: { id: params.id },
+    data,
+    include: { aliases: { select: { id: true, name: true } } },
+  })
   return NextResponse.json(supplier)
 }
 
