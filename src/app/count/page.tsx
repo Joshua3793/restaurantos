@@ -135,6 +135,7 @@ export default function CountPage() {
   const [catFilter,     setCatFilter]     = useState<string | null>(null)
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted'>('all')
+  const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
 
   // ── Storage areas (for partial count picker) ─────────────────────────────
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
@@ -946,8 +947,80 @@ export default function CountPage() {
           />
         </div>
 
+        {/* ── Mobile filter row ──────────────────────────────────────────────── */}
+        <div className="flex sm:hidden items-center gap-2 px-3 pt-2 pb-1.5">
+          {(['all', 'uncounted', 'counted'] as const).map(f => (
+            <Pill key={f} active={statusFilter === f} onClick={() => setStatusFilter(f)}>
+              {f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : 'Counted'}
+            </Pill>
+          ))}
+          <div className="flex-1" />
+          <button
+            onClick={() => setShowCountFilterSheet(true)}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              catFilter || locFilter
+                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            Filter{(catFilter ? 1 : 0) + (locFilter ? 1 : 0) > 0 && ` · ${(catFilter ? 1 : 0) + (locFilter ? 1 : 0)}`}
+          </button>
+        </div>
+
+        {/* ── Mobile filter bottom sheet ──────────────────────────────────────── */}
+        {showCountFilterSheet && (
+          <div className="fixed inset-0 z-50 flex items-end sm:hidden" onClick={() => setShowCountFilterSheet(false)}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
+              <div className="w-9 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-gray-900">Filter</h3>
+                <button onClick={() => setShowCountFilterSheet(false)}><X size={18} className="text-gray-400" /></button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Category</div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setCatFilter(null)}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${catFilter === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
+                    >All</button>
+                    {categories.map(([cat]) => (
+                      <button key={cat}
+                        onClick={() => setCatFilter(cat)}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${catFilter === cat ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
+                      >{cat}</button>
+                    ))}
+                  </div>
+                </div>
+                {locations.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Location</div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setLocFilter(null)}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
+                      >All</button>
+                      {locations.map(loc => (
+                        <button key={loc}
+                          onClick={() => setLocFilter(loc)}
+                          className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === loc ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
+                        >{loc}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => { setCatFilter(null); setLocFilter(null); setShowCountFilterSheet(false) }}
+                  className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 font-medium"
+                >Clear filters</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Filter pills ───────────────────────────────────────────────────── */}
-        <div className="px-4 pt-3 pb-2 space-y-2">
+        <div className="hidden sm:block px-4 pt-3 pb-2 space-y-2">
           {/* Row 1 — Category */}
           <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
             <Pill active={catFilter === null} onClick={() => setCatFilter(null)}>
