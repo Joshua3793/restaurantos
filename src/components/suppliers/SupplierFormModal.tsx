@@ -47,22 +47,23 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
-    if (supplier) {
-      await fetch(`/api/suppliers/${supplier.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-    } else {
-      await fetch('/api/suppliers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
+    try {
+      const res = await fetch(
+        supplier ? `/api/suppliers/${supplier.id}` : '/api/suppliers',
+        {
+          method: supplier ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        }
+      )
+      if (!res.ok) throw new Error(await res.text())
+      onSaved()
+      onClose()
+    } catch {
+      alert('Failed to save supplier. Please try again.')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    onSaved()
-    onClose()
   }
 
   return (
