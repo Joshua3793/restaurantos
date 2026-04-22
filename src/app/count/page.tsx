@@ -274,7 +274,8 @@ export default function CountPage() {
     if (next) {
       setTimeout(() => {
         setOpenId(next.id)
-        cardRefs.current[next.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const prefix = typeof window !== 'undefined' && window.innerWidth < 640 ? 'm-' : 'd-'
+        cardRefs.current[`${prefix}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }, 120)
     }
     // Persist
@@ -794,7 +795,7 @@ export default function CountPage() {
 
       if (isSkipped) return (
         <div key={line.id} id={`ln-${line.id}`}
-          ref={el => { cardRefs.current[line.id] = el }}
+          ref={el => { cardRefs.current[`d-${line.id}`] = el }}
           onClick={() => setOpenId(isOpen ? null : line.id)}
           className="mx-4 mb-2 border border-gray-100 bg-gray-50 rounded-xl opacity-60 cursor-pointer"
         >
@@ -811,7 +812,7 @@ export default function CountPage() {
         const large = vPct !== null && Math.abs(vPct) > 15
         return (
           <div key={line.id} id={`ln-${line.id}`}
-            ref={el => { cardRefs.current[line.id] = el }}
+            ref={el => { cardRefs.current[`d-${line.id}`] = el }}
             onClick={() => setOpenId(line.id)}
             className={`mx-4 mb-2 rounded-xl bg-green-50 border border-green-200 cursor-pointer ${large ? 'border-l-4 border-l-amber-400' : ''}`}
           >
@@ -838,7 +839,7 @@ export default function CountPage() {
       const largeOpen = liveVar !== null && Math.abs(liveVar) > 15
       return (
         <div key={line.id} id={`ln-${line.id}`}
-          ref={el => { cardRefs.current[line.id] = el }}
+          ref={el => { cardRefs.current[`d-${line.id}`] = el }}
           className={`mx-4 mb-2 rounded-xl bg-white transition-all ${
             isOpen
               ? `border-2 border-green-400${largeOpen ? ' border-l-4 border-l-amber-400' : ''}`
@@ -945,7 +946,7 @@ export default function CountPage() {
 
       return (
         <div key={`m-${line.id}`}
-          ref={el => { cardRefs.current[line.id] = el }}
+          ref={el => { cardRefs.current[`m-${line.id}`] = el }}
           className={`rounded-xl border ${rowBg} overflow-hidden`}
         >
           <div
