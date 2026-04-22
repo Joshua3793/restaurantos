@@ -1,4 +1,9 @@
 // Returned by GET /api/suppliers (augmented)
+export interface SupplierAlias {
+  id: string
+  name: string
+}
+
 export interface SupplierSummary {
   id: string
   name: string
@@ -12,6 +17,7 @@ export interface SupplierSummary {
   prevMonthSpend: number
   invoiceCount: number
   _count: { inventory: number }
+  aliases: SupplierAlias[]
 }
 
 // Returned by GET /api/suppliers/[id]/intelligence
@@ -49,4 +55,5 @@ export interface SupplierForm {
   orderPlatform: string
   cutoffDays: string
   deliveryDays: string
+  aliases: string[]  // local alias names for the form
 }

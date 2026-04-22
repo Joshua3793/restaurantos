@@ -13,9 +13,13 @@ interface Props {
 export function SupplierList({ suppliers, selectedId, onSelect, onAdd }: Props) {
   const [search, setSearch] = useState('')
 
-  const filtered = suppliers.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = suppliers.filter(s => {
+    const q = search.toLowerCase()
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.aliases?.some(a => a.name.toLowerCase().includes(q))
+    )
+  })
 
   // Sort by monthSpend descending
   const sorted = [...filtered].sort((a, b) => b.monthSpend - a.monthSpend)
@@ -75,6 +79,11 @@ export function SupplierList({ suppliers, selectedId, onSelect, onAdd }: Props) 
                 <p className={`text-sm font-semibold truncate ${selected ? 'text-blue-700' : 'text-gray-900'}`}>
                   {s.name}
                 </p>
+                {s.aliases && s.aliases.length > 0 && (
+                  <p className="text-xs text-gray-400 truncate mt-0.5 font-mono">
+                    {s.aliases[0].name}
+                  </p>
+                )}
                 <p className={`text-xs mt-0.5 font-medium ${spendColor(s)}`}>
                   {spendLabel(s)}
                 </p>

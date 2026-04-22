@@ -1,14 +1,15 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, Plus } from 'lucide-react'
 import { SupplierForm, SupplierSummary } from './types'
 
 const emptyForm: SupplierForm = {
   name: '', contactName: '', phone: '', email: '',
   orderPlatform: '', cutoffDays: '', deliveryDays: '',
+  aliases: [],
 }
 
-const fields: { key: keyof SupplierForm; label: string; required?: boolean; placeholder?: string }[] = [
+const fields: { key: keyof Omit<SupplierForm, 'aliases'>; label: string; required?: boolean; placeholder?: string }[] = [
   { key: 'name',          label: 'Company Name',   required: true },
   { key: 'contactName',   label: 'Contact Name' },
   { key: 'phone',         label: 'Phone' },
@@ -27,6 +28,9 @@ interface Props {
 export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
   const [form, setForm] = useState<SupplierForm>(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [newAlias, setNewAlias] = useState('')
+  // Track which existing alias IDs to delete (edit mode)
+  const [aliasesToDelete, setAliasesToDelete] = useState<string[]>([])
 
   useEffect(() => {
     if (supplier) {
@@ -38,25 +42,73 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
         orderPlatform: supplier.orderPlatform ?? '',
         cutoffDays: supplier.cutoffDays ?? '',
         deliveryDays: supplier.deliveryDays ?? '',
+        aliases: supplier.aliases?.map(a => a.name) ?? [],
       })
+      setAliasesToDelete([])
     } else {
       setForm(emptyForm)
+      setAliasesToDelete([])
     }
   }, [supplier])
+
+  const handleAddAlias = () => {
+    const trimmed = newAlias.trim()
+    if (!trimmed || form.aliases.includes(trimmed)) return
+    setForm(prev => ({ ...prev, aliases: [...prev.aliases, trimmed] }))
+    setNewAlias('')
+  }
+
+  const handleRemoveAlias = (name: string) => {
+    setForm(prev => ({ ...prev, aliases: prev.aliases.filter(a => a !== name) }))
+    // In edit mode, track existing alias IDs that need to be deleted
+    if (supplier) {
+      const existing = supplier.aliases?.find(a => a.name === name)
+      if (existing) setAliasesToDelete(prev => [...prev, existing.id])
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      const res = await fetch(
-        supplier ? `/api/suppliers/${supplier.id}` : '/api/suppliers',
-        {
-          method: supplier ? 'PUT' : 'POST',
+      const { aliases, ...supplierData } = form
+
+      if (supplier) {
+        // Edit: update supplier fields
+        await fetch(`/api/suppliers/${supplier.id}`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
-        }
-      )
-      if (!res.ok) throw new Error(await res.text())
+          body: JSON.stringify(supplierData),
+        })
+
+        // Delete removed aliases
+        await Promise.all(
+          aliasesToDelete.map(id =>
+            fetch(`/api/suppliers/${supplier.id}/aliases/${id}`, { method: 'DELETE' })
+          )
+        )
+
+        // Add new aliases (ones not in the original supplier.aliases)
+        const originalNames = new Set(supplier.aliases?.map(a => a.name) ?? [])
+        const newAliases = aliases.filter(name => !originalNames.has(name))
+        await Promise.all(
+          newAliases.map(name =>
+            fetch(`/api/suppliers/${supplier.id}/aliases`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name }),
+            })
+          )
+        )
+      } else {
+        // Create: POST with aliases array
+        await fetch('/api/suppliers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...supplierData, aliases }),
+        })
+      }
+
       onSaved()
       onClose()
     } catch {
@@ -68,7 +120,7 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-gray-900">
             {supplier ? 'Edit Supplier' : 'Add Supplier'}
@@ -85,13 +137,55 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
               </label>
               <input
                 required={f.required}
-                value={form[f.key]}
+                value={form[f.key] as string}
                 onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                 placeholder={f.placeholder ?? ''}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           ))}
+
+          {/* Invoice Names section */}
+          <div className="pt-1">
+            <label className="block text-xs font-medium text-gray-600 mb-2">Invoice Names</label>
+            <p className="text-xs text-gray-400 mb-2">OCR names from invoices that map to this supplier</p>
+            {form.aliases.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {form.aliases.map(name => (
+                  <span
+                    key={name}
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-md text-xs font-mono text-gray-700"
+                  >
+                    {name}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAlias(name)}
+                      className="text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={newAlias}
+                onChange={e => setNewAlias(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlias() } }}
+                placeholder="Add invoice name…"
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleAddAlias}
+                className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          </div>
+
           <div className="flex gap-2 pt-2">
             <button
               type="button"

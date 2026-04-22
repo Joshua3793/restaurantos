@@ -53,6 +53,18 @@ export function SupplierDetail({ supplierId, onEdit, onDelete, supplier }: Props
                 ].filter(Boolean).join(' · ')}
               </p>
             )}
+            {supplier?.aliases && supplier.aliases.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {supplier.aliases.map(a => (
+                  <span
+                    key={a.id}
+                    className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-[10px]"
+                  >
+                    {a.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         {supplier && (
