@@ -1308,6 +1308,70 @@ function InventoryEditModal({
   )
 }
 
+// ── InvoiceImageViewer ────────────────────────────────────────────────────────
+
+function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileName: string; fileType: string; fileUrl: string }> }) {
+  const [activeIdx, setActiveIdx] = useState(0)
+  const file = files[activeIdx]
+  const isPdf = file?.fileType === 'application/pdf' || file?.fileName?.endsWith('.pdf')
+  const isImage = file?.fileType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file?.fileName ?? '')
+
+  return (
+    <div className="flex flex-col bg-gray-50 shrink-0" style={{ width: '460px' }}>
+      {/* File tabs (only if multiple files) */}
+      {files.length > 1 && (
+        <div className="flex gap-1 px-3 py-2 border-b border-gray-200 bg-white overflow-x-auto shrink-0">
+          {files.map((f, i) => (
+            <button
+              key={f.id}
+              onClick={() => setActiveIdx(i)}
+              className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                activeIdx === i ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              Page {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Image/PDF display */}
+      <div className="flex-1 overflow-auto flex items-start justify-center p-4">
+        {isImage && file?.fileUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={file.fileUrl}
+            alt={file.fileName}
+            className="max-w-full rounded-lg shadow-sm border border-gray-200 object-contain"
+          />
+        ) : isPdf && file?.fileUrl ? (
+          <iframe
+            src={file.fileUrl}
+            title={file.fileName}
+            className="w-full rounded-lg border border-gray-200 bg-white"
+            style={{ height: '100%', minHeight: '600px' }}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3 text-gray-400 h-full">
+            <FileText size={40} className="text-gray-300" />
+            <p className="text-sm">{file?.fileName ?? 'No file'}</p>
+            {file?.fileUrl && (
+              <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">
+                Open file ↗
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* File name footer */}
+      <div className="px-3 py-2 border-t border-gray-200 bg-white shrink-0">
+        <p className="text-[10px] text-gray-400 truncate">{file?.fileName}</p>
+      </div>
+    </div>
+  )
+}
+
 // ── InvoiceDrawer ─────────────────────────────────────────────────────────────
 
 interface Props {
@@ -1328,6 +1392,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   const [editingInventory, setEditingInventory] = useState<{ inventoryItemId: string; scanItem: ScanItem } | null>(null)
   const [isAddingItem, setIsAddingItem] = useState(false)
   const [open, setOpen] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'review' | 'image'>('review')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchSession = useCallback(async (id: string) => {
@@ -1427,6 +1492,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
     : session.status === 'REVIEW' ? 'review'
     : (session.status === 'APPROVED' || session.status === 'REJECTED') ? 'done'
     : 'loading'
+
+  const isReview = drawerState === 'review'
 
   if (!sessionId && !open && !session) return null
 
@@ -1537,10 +1604,14 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
                   <span>{totalItems} line item{totalItems !== 1 ? 's' : ''}</span>
                 </div>
                 {actionCounts['UPDATE_PRICE'] > 0 && (
-                  <span className="text-blue-300 font-medium">{actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                    {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
+                  </span>
                 )}
                 {actionCounts['CREATE_NEW'] > 0 && (
-                  <span className="text-purple-300 font-medium">{actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-200 border border-purple-400/30">
+                    {actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}
+                  </span>
                 )}
               </div>
             </div>
@@ -1636,13 +1707,17 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
 
         {/* Sticky approve bar */}
         <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 flex flex-col sm:flex-row items-center gap-3">
-          <div className="flex-1 flex items-center gap-4 text-sm">
-            <span className="text-gray-500">{activeItems} items to apply</span>
+          <div className="flex-1 flex items-center gap-2 flex-wrap">
+            <span className="text-sm text-gray-500">{activeItems} items to apply</span>
             {actionCounts['UPDATE_PRICE'] > 0 && (
-              <span className="text-blue-600 font-medium">{actionCounts['UPDATE_PRICE']} price updates</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">
+                {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
+              </span>
             )}
             {actionCounts['CREATE_NEW'] > 0 && (
-              <span className="text-purple-600 font-medium">{actionCounts['CREATE_NEW']} new items</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">
+                {actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -1784,7 +1859,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
 
       {/* Desktop: right-side drawer */}
       <div
-        className="hidden sm:flex fixed top-0 right-0 h-full w-[480px] z-50 bg-white shadow-2xl flex-col"
+        className={`hidden sm:flex fixed top-0 right-0 h-full z-50 bg-white shadow-2xl flex-col transition-all duration-150 ease-out ${isReview ? 'w-[960px]' : 'w-[480px]'}`}
         style={{ transform: open ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 150ms ease-out' }}
       >
         {/* Drawer header */}
@@ -1803,15 +1878,25 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
           </button>
         </div>
 
-        {/* Content */}
-        {drawerState === 'loading' && (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 size={28} className="animate-spin text-blue-500" />
+        {/* Drawer body */}
+        <div className="flex-1 overflow-hidden flex min-h-0">
+          {/* Left: image viewer (only in review state) */}
+          {drawerState === 'review' && session?.files && session.files.length > 0 && (
+            <InvoiceImageViewer files={session.files} />
+          )}
+
+          {/* Right: content */}
+          <div className={`flex-1 overflow-y-auto flex flex-col ${drawerState === 'review' ? 'border-l border-gray-100' : ''}`}>
+            {drawerState === 'loading' && (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 size={28} className="animate-spin text-blue-500" />
+              </div>
+            )}
+            {drawerState === 'processing' && renderProcessing()}
+            {drawerState === 'review' && renderReview()}
+            {drawerState === 'done' && renderDone()}
           </div>
-        )}
-        {drawerState === 'processing' && renderProcessing()}
-        {drawerState === 'review' && renderReview()}
-        {drawerState === 'done' && renderDone()}
+        </div>
       </div>
 
       {/* Mobile: bottom sheet */}
@@ -1848,15 +1933,39 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
             </button>
           </div>
 
-          {/* Content */}
-          {drawerState === 'loading' && (
-            <div className="flex-1 flex items-center justify-center py-12">
-              <Loader2 size={28} className="animate-spin text-blue-500" />
+          {/* Mobile tab bar (review state only, when files exist) */}
+          {drawerState === 'review' && session?.files && session.files.length > 0 && (
+            <div className="flex border-b border-gray-100 shrink-0">
+              <button
+                onClick={() => setMobileTab('review')}
+                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'review' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500'}`}
+              >
+                Review
+              </button>
+              <button
+                onClick={() => setMobileTab('image')}
+                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'image' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500'}`}
+              >
+                Invoice Image
+              </button>
             </div>
           )}
-          {drawerState === 'processing' && renderProcessing()}
-          {drawerState === 'review' && renderReview()}
-          {drawerState === 'done' && renderDone()}
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            {drawerState === 'loading' && (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 size={24} className="animate-spin text-gray-300" />
+              </div>
+            )}
+            {drawerState === 'processing' && renderProcessing()}
+            {drawerState === 'review' && (
+              mobileTab === 'image' && session?.files?.length ? (
+                <InvoiceImageViewer files={session.files} />
+              ) : renderReview()
+            )}
+            {drawerState === 'done' && renderDone()}
+          </div>
         </div>
       </div>
 

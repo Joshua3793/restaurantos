@@ -6,6 +6,7 @@ export interface ScanFile {
   id: string
   fileName: string
   fileType: string
+  fileUrl: string
   ocrStatus: string
 }
 
