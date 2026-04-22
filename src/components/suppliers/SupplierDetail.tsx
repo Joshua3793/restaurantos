@@ -13,6 +13,10 @@ interface Props {
   supplier: SupplierSummary | null
 }
 
+function changePctColor(pct: number): string {
+  return pct > 0 ? 'text-red-500' : pct < 0 ? 'text-green-600' : 'text-gray-400'
+}
+
 export function SupplierDetail({ supplierId, onEdit, onDelete, supplier }: Props) {
   const [intel, setIntel] = useState<SupplierIntelligence | null>(null)
   const [loading, setLoading] = useState(true)
@@ -20,16 +24,13 @@ export function SupplierDetail({ supplierId, onEdit, onDelete, supplier }: Props
   const fetchIntel = useCallback(async () => {
     setLoading(true)
     const data = await fetch(`/api/suppliers/${supplierId}/intelligence`)
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : null)
       .catch(() => null)
     setIntel(data)
     setLoading(false)
   }, [supplierId])
 
   useEffect(() => { fetchIntel() }, [fetchIntel])
-
-  const changePctColor = (pct: number) =>
-    pct >= 15 ? 'text-red-500' : pct > 0 ? 'text-green-600' : pct < 0 ? 'text-green-600' : 'text-gray-400'
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white">
@@ -118,8 +119,8 @@ export function SupplierDetail({ supplierId, onEdit, onDelete, supplier }: Props
                 <p className="text-sm text-gray-400">No price changes in the last 90 days</p>
               ) : (
                 <div className="space-y-2">
-                  {intel.priceChanges.map((pc, i) => (
-                    <div key={i} className="bg-white border border-gray-100 rounded-lg px-3 py-2.5">
+                  {intel.priceChanges.map((pc) => (
+                    <div key={`${pc.itemName}-${pc.date}`} className="bg-white border border-gray-100 rounded-lg px-3 py-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-gray-900 truncate">{pc.itemName}</span>
                         <span className={`text-xs font-bold shrink-0 ${pc.pctChange > 0 ? 'text-red-500' : 'text-green-600'}`}>
