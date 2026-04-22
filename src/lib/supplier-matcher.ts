@@ -34,6 +34,7 @@ export async function matchSupplierByName(invoiceName: string | null | undefined
  * No-op on blank/null name. Duplicate rows are silently ignored.
  */
 export async function learnAlias(supplierId: string, invoiceName: string | null | undefined): Promise<void> {
+  if (!supplierId || !supplierId.trim()) return
   if (!invoiceName || !invoiceName.trim()) return
 
   const normalized = invoiceName.trim()
