@@ -70,6 +70,13 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+const SESSION_ACCENT: Record<string, string> = {
+  IN_PROGRESS:    '#3b82f6',
+  PENDING_REVIEW: '#f59e0b',
+  FINALIZED:      '#22c55e',
+  CANCELLED:      '#d1d5db',
+}
+
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
 function Toast({ msg, onDone }: { msg: string; onDone: () => void }) {
@@ -527,22 +534,16 @@ export default function CountPage() {
         <div className="flex sm:hidden flex-col gap-2">
           {sessions.map(s => {
             const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
-            const accentColor: Record<string, string> = {
-              IN_PROGRESS:    '#3b82f6',
-              PENDING_REVIEW: '#f59e0b',
-              FINALIZED:      '#22c55e',
-              CANCELLED:      '#d1d5db',
-            }
             const handleCardTap = () => {
               setSessionMenuId(null)
               if (s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') openSession(s, 'count')
               else if (s.status === 'FINALIZED') openSession(s, 'review')
             }
             return (
-              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 border-l-4 overflow-hidden relative"
-                style={{ borderLeftColor: accentColor[s.status] ?? '#d1d5db' }}>
+              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 border-l-4 relative"
+                style={{ borderLeftColor: SESSION_ACCENT[s.status] ?? '#d1d5db' }}>
                 {/* Card body — tappable to navigate */}
-                <div className="px-4 py-3 cursor-pointer" onClick={handleCardTap}>
+                <div className={`px-4 py-3 ${s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`} onClick={s.status !== 'CANCELLED' ? handleCardTap : undefined}>
                   <div className="flex items-center gap-2">
                     <span className="flex-1 text-sm font-semibold text-gray-900 truncate">
                       {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
@@ -562,7 +563,7 @@ export default function CountPage() {
                   </div>
                 </div>
                 {/* ⋯ menu trigger */}
-                <div className="relative" style={{ position: 'absolute', top: 8, right: 8 }}>
+                <div style={{ position: 'absolute', top: 8, right: 8 }}>
                   <button
                     onClick={e => { e.stopPropagation(); setSessionMenuId(sessionMenuId === s.id ? null : s.id) }}
                     className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
