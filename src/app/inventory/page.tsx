@@ -171,8 +171,9 @@ function InventoryPageInner() {
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
   const [categories,   setCategories]   = useState<Category[]>([])
   const [search,       setSearch]       = useState('')
-  const [catFilter,    setCatFilter]    = useState('')
-  const [supplierFilter, setSupplierFilter] = useState('')
+  const [catFilter,       setCatFilter]       = useState('')
+  const [supplierFilter,  setSupplierFilter]  = useState('')
+  const [areaFilter,      setAreaFilter]      = useState('')
   const [sortBy,       setSortBy]       = useState<SortMode>('category')
   const [colSort,      setColSort]      = useState<{ col: ColKey; dir: ColDir } | null>(null)
   const [activePill,   setActivePill]   = useState<FilterPill>('all')
@@ -212,8 +213,9 @@ function InventoryPageInner() {
     if (search)         p.set('search', search)
     if (catFilter)      p.set('category', catFilter)
     if (supplierFilter) p.set('supplierId', supplierFilter)
+    if (areaFilter)     p.set('storageAreaId', areaFilter)
     fetch(`/api/inventory?${p}`).then(r => r.json()).then(setItems)
-  }, [search, catFilter, supplierFilter])
+  }, [search, catFilter, supplierFilter, areaFilter])
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
@@ -289,7 +291,7 @@ function InventoryPageInner() {
       case 'inactive':   return items.filter(i => !i.isActive)
       default:           return items
     }
-  }, [items, activePill, catNames])
+  }, [items, activePill])
 
   // Column sort: first click → smart default direction; same column → flip direction
   const toggleColSort = (col: ColKey) => {
@@ -610,7 +612,9 @@ function InventoryPageInner() {
             <MoreHorizontal size={16} />
           </button>
           {showMobileOverflow && (
-            <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMobileOverflow(false)} />
+              <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
               <button
                 onClick={() => { window.location.href = '/api/inventory/export'; setShowMobileOverflow(false) }}
                 className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
@@ -625,6 +629,7 @@ function InventoryPageInner() {
                 {syncingPrepd ? '⟳ Syncing…' : '⟳ Sync PREPD'}
               </button>
             </div>
+            </>
           )}
         </div>
       </div>
@@ -881,7 +886,7 @@ function InventoryPageInner() {
                 {([['category', '⊞ Grouped'], ['all', '≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
                   <button
                     key={mode}
-                    onClick={() => setSortBy(mode)}
+                    onClick={() => { setSortBy(mode); setShowMobileSortSheet(false) }}
                     className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
                       sortBy === mode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'
                     }`}
@@ -953,8 +958,19 @@ function InventoryPageInner() {
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Storage Area</label>
+                <select
+                  value={areaFilter}
+                  onChange={e => setAreaFilter(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">All Areas</option>
+                  {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
               <button
-                onClick={() => { setCatFilter(''); setSupplierFilter(''); setShowMobileFilterSheet(false) }}
+                onClick={() => { setCatFilter(''); setSupplierFilter(''); setAreaFilter(''); setShowMobileFilterSheet(false) }}
                 className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 font-medium"
               >
                 Clear filters
