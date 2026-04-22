@@ -5,7 +5,7 @@ import React, {
 } from 'react'
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
-  Circle, ClipboardList, Minus, Pencil, Plus, SkipForward, Trash2, X,
+  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, SkipForward, Trash2, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency } from '@/lib/utils'
@@ -120,6 +120,7 @@ export default function CountPage() {
   const [editLabel,     setEditLabel]     = useState('')
   const [editCountedBy, setEditCountedBy] = useState('')
   const [editDate,      setEditDate]      = useState('')
+  const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
 
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
@@ -521,7 +522,84 @@ export default function CountPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-2">
+        <>
+        {/* Mobile session list */}
+        <div className="flex sm:hidden flex-col gap-2">
+          {sessions.map(s => {
+            const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
+            const accentColor: Record<string, string> = {
+              IN_PROGRESS:    '#3b82f6',
+              PENDING_REVIEW: '#f59e0b',
+              FINALIZED:      '#22c55e',
+              CANCELLED:      '#d1d5db',
+            }
+            const handleCardTap = () => {
+              setSessionMenuId(null)
+              if (s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') openSession(s, 'count')
+              else if (s.status === 'FINALIZED') openSession(s, 'review')
+            }
+            return (
+              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 border-l-4 overflow-hidden relative"
+                style={{ borderLeftColor: accentColor[s.status] ?? '#d1d5db' }}>
+                {/* Card body — tappable to navigate */}
+                <div className="px-4 py-3 cursor-pointer" onClick={handleCardTap}>
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1 text-sm font-semibold text-gray-900 truncate">
+                      {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
+                    </span>
+                    <StatusBadge status={s.status} />
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 gap-2">
+                    <span className="text-xs text-gray-400 truncate">
+                      {fmtDate(s.sessionDate)} · {s.countedBy} ·{' '}
+                      {s.status === 'FINALIZED'
+                        ? `${counts.total} items · ${formatCurrency(Number(s.totalCountedValue))}`
+                        : `${counts.counted}/${counts.total} items`}
+                    </span>
+                    {s.status === 'IN_PROGRESS'    && <span className="text-xs font-bold text-blue-600 shrink-0">Continue →</span>}
+                    {s.status === 'PENDING_REVIEW' && <span className="text-xs font-bold text-amber-600 shrink-0">Review →</span>}
+                    {s.status === 'FINALIZED'      && <span className="text-xs font-bold text-green-700 shrink-0">Report</span>}
+                  </div>
+                </div>
+                {/* ⋯ menu trigger */}
+                <div className="relative" style={{ position: 'absolute', top: 8, right: 8 }}>
+                  <button
+                    onClick={e => { e.stopPropagation(); setSessionMenuId(sessionMenuId === s.id ? null : s.id) }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                  {sessionMenuId === s.id && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setSessionMenuId(null)} />
+                      <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
+                        <button
+                          onClick={e => { e.stopPropagation(); setSessionMenuId(null); openEditModal(s) }}
+                          className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
+                        >
+                          <Pencil size={13} /> Edit metadata
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setSessionMenuId(null); handleReopenAndEdit(s) }}
+                          className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
+                        >
+                          <ClipboardList size={13} /> {s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setSessionMenuId(null); setDeleteTarget(s) }}
+                          className="flex items-center gap-2 w-full px-4 py-3 text-sm text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 size={13} /> Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="hidden sm:block space-y-2">
           {sessions.map(s => {
             const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
             return (
@@ -589,6 +667,7 @@ export default function CountPage() {
             )
           })}
         </div>
+        </>
       )}
 
       {/* Count cadence reminder — shown below session list when sessions exist */}
