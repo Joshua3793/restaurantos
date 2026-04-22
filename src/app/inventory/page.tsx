@@ -673,8 +673,35 @@ function InventoryPageInner() {
         ))}
       </div>
 
+      {/* Mobile filter pills */}
+      <div className="flex sm:hidden gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+        {pills.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setActivePill(p.key)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              activePill === p.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setShowMobileSortSheet(true)}
+          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-600"
+        >
+          <ChevronsUpDown size={11} /> Sort
+        </button>
+        <button
+          onClick={() => setShowMobileFilterSheet(true)}
+          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-600"
+        >
+          ▽ Filter
+        </button>
+      </div>
+
       {/* Filter Pills */}
-      <div className="flex gap-1.5 flex-wrap">
+      <div className="hidden sm:flex gap-1.5 flex-wrap">
         {pills.map(p => (
           <button
             key={p.key}
@@ -699,15 +726,15 @@ function InventoryPageInner() {
             className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
           <option value="">All Categories</option>
           {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
-        <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+        <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
           <option value="">All Suppliers</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
+        <div className="hidden sm:flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
           {([['category','⊞ Grouped'],['all','≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
             <button
               key={mode}
@@ -799,6 +826,105 @@ function InventoryPageInner() {
                 </button>
                 <button onClick={() => { setCheckedIds(new Set()); setShowBulkMenu(false) }} className="text-xs text-gray-400 hover:text-gray-600 px-1">✕</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Sort Sheet */}
+      {showMobileSortSheet && (
+        <div className="fixed inset-0 z-50 flex items-end sm:hidden" onClick={() => setShowMobileSortSheet(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900">Sort by</h3>
+              <button onClick={() => setShowMobileSortSheet(false)}><X size={18} className="text-gray-400" /></button>
+            </div>
+            {/* Grouped / Flat */}
+            <div className="mb-4">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">View</div>
+              <div className="flex gap-2">
+                {([['category', '⊞ Grouped'], ['all', '≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setSortBy(mode)}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                      sortBy === mode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Column sort */}
+            <div>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Sort column</div>
+              <div className="space-y-1">
+                {([
+                  ['item',     'Item name'],
+                  ['price',    'Purchase price'],
+                  ['stock',    'Stock on hand'],
+                  ['value',    'Inventory value'],
+                  ['supplier', 'Supplier'],
+                ] as [ColKey, string][]).map(([col, label]) => (
+                  <button
+                    key={col}
+                    onClick={() => { toggleColSort(col); setShowMobileSortSheet(false) }}
+                    className={`flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm transition-colors ${
+                      colSort?.col === col ? 'bg-blue-50 text-blue-700 font-semibold' : 'bg-gray-50 text-gray-700'
+                    }`}
+                  >
+                    <span>{label}</span>
+                    {colSort?.col === col && (
+                      <span className="text-xs">{colSort.dir === 'asc' ? '↑ A–Z / Low–High' : '↓ Z–A / High–Low'}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Filter Sheet */}
+      {showMobileFilterSheet && (
+        <div className="fixed inset-0 z-50 flex items-end sm:hidden" onClick={() => setShowMobileFilterSheet(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900">Filter</h3>
+              <button onClick={() => setShowMobileFilterSheet(false)}><X size={18} className="text-gray-400" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Category</label>
+                <select
+                  value={catFilter}
+                  onChange={e => setCatFilter(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">All Categories</option>
+                  {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Supplier</label>
+                <select
+                  value={supplierFilter}
+                  onChange={e => setSupplierFilter(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">All Suppliers</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={() => { setCatFilter(''); setSupplierFilter(''); setShowMobileFilterSheet(false) }}
+                className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 font-medium"
+              >
+                Clear filters
+              </button>
             </div>
           </div>
         </div>
