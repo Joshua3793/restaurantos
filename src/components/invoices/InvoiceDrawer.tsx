@@ -1654,6 +1654,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
               className={`border rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-blue-500 ${!approvedBy ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
             />
             <button
+              onClick={handleReject}
+              disabled={isApproving}
+              className="border border-red-500 text-red-600 rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-red-50 disabled:opacity-50 transition-colors"
+            >
+              Reject
+            </button>
+            <button
               onClick={handleApproveAll}
               disabled={isApproving}
               className="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-green-700 disabled:opacity-50 transition-colors"
@@ -1777,7 +1784,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
 
       {/* Desktop: right-side drawer */}
       <div
-        className="hidden sm:flex fixed top-0 right-0 h-full w-[520px] z-50 bg-white shadow-2xl flex-col"
+        className="hidden sm:flex fixed top-0 right-0 h-full w-[480px] z-50 bg-white shadow-2xl flex-col"
         style={{ transform: open ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 150ms ease-out' }}
       >
         {/* Drawer header */}
