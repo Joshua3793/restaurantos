@@ -29,7 +29,8 @@ export function SupplierList({ suppliers, selectedId, onSelect, onAdd }: Props) 
   }
 
   const spendColor = (s: SupplierSummary) => {
-    if (s.monthSpend === 0 || s.prevMonthSpend === 0) return 'text-gray-400'
+    if (s.monthSpend === 0) return 'text-gray-400'
+    if (s.prevMonthSpend === 0) return 'text-gray-500'
     const pct = ((s.monthSpend - s.prevMonthSpend) / s.prevMonthSpend) * 100
     if (pct >= 15) return 'text-red-500'
     if (pct > 0) return 'text-green-600'
@@ -65,21 +66,22 @@ export function SupplierList({ suppliers, selectedId, onSelect, onAdd }: Props) 
             <button
               key={s.id}
               onClick={() => onSelect(s.id)}
-              className={`w-full text-left px-3 py-3 border-b border-gray-100 transition-colors ${
-                selected
-                  ? 'bg-blue-50 border-l-2 border-l-blue-500'
-                  : 'bg-white hover:bg-gray-50 border-l-2 border-l-transparent'
+              className={`w-full text-left flex border-b border-gray-100 transition-colors overflow-hidden ${
+                selected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
               }`}
             >
-              <p className={`text-sm font-semibold truncate ${selected ? 'text-blue-700' : 'text-gray-900'}`}>
-                {s.name}
-              </p>
-              <p className={`text-xs mt-0.5 font-medium ${spendColor(s)}`}>
-                {spendLabel(s)}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {s._count.inventory} item{s._count.inventory !== 1 ? 's' : ''} · {s.invoiceCount} invoice{s.invoiceCount !== 1 ? 's' : ''}
-              </p>
+              <div className={`w-1 shrink-0 ${selected ? 'bg-blue-500' : 'bg-transparent'}`} />
+              <div className="flex-1 min-w-0 px-3 py-3">
+                <p className={`text-sm font-semibold truncate ${selected ? 'text-blue-700' : 'text-gray-900'}`}>
+                  {s.name}
+                </p>
+                <p className={`text-xs mt-0.5 font-medium ${spendColor(s)}`}>
+                  {spendLabel(s)}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {s._count.inventory} item{s._count.inventory !== 1 ? 's' : ''} · {s.invoiceCount} invoice{s.invoiceCount !== 1 ? 's' : ''}
+                </p>
+              </div>
             </button>
           )
         })}
