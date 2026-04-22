@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv } from '@/lib/invoice-ocr'
 import { matchLineItems } from '@/lib/invoice-matcher'
+import { matchSupplierByName } from '@/lib/supplier-matcher'
 import type { OcrResult } from '@/lib/invoice-ocr'
 
 // Allow up to 120s for OCR (multi-page photo invoices can take a while)
@@ -177,16 +178,25 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
 
   // ── 5. Always move to REVIEW ───────────────────────────────────────────────
+  const finalSupplierName = sessionMeta.supplierName ?? session.supplierName
+
+  // Auto-link supplier via alias or name match
+  let autoSupplierId: string | null = null
+  if (finalSupplierName) {
+    autoSupplierId = await matchSupplierByName(finalSupplierName)
+  }
+
   await prisma.invoiceSession.update({
     where: { id: params.id },
     data: {
       status:        'REVIEW',
-      supplierName:  sessionMeta.supplierName  ?? session.supplierName,
+      supplierName:  finalSupplierName,
       invoiceDate:   sessionMeta.invoiceDate   ?? session.invoiceDate,
       invoiceNumber: sessionMeta.invoiceNumber ?? session.invoiceNumber,
       subtotal:      sessionMeta.subtotal  ?? null,
       tax:           sessionMeta.tax       ?? null,
       total:         sessionMeta.total     ?? null,
+      ...(autoSupplierId ? { supplierId: autoSupplierId } : {}),
     },
   })
 
