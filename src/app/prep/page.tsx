@@ -81,7 +81,8 @@ export default function PrepPage() {
     return true
   }), [items, search, filterPriority, filterCategory, filterStatus, viewMode, planView])
 
-  const inProgress = useMemo(() => items.filter(i => i.todayLog?.status === 'IN_PROGRESS'), [items])
+  const inProgress  = useMemo(() => items.filter(i => i.todayLog?.status === 'IN_PROGRESS'), [items])
+  const todayItems  = useMemo(() => items.filter(i => i.todayLog != null), [items])
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
@@ -356,7 +357,7 @@ export default function PrepPage() {
         {/* KPI strip */}
         {viewMode !== 'plan' && (
           <div className="mt-2">
-            <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+            <PrepKpiStrip items={todayItems} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
           </div>
         )}
 
@@ -471,7 +472,7 @@ export default function PrepPage() {
       {/* ── Desktop KPI strip + filters ── */}
       <div className="hidden md:block space-y-5">
         {viewMode !== 'plan' && (
-          <PrepKpiStrip items={items} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+          <PrepKpiStrip items={todayItems} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
         )}
         <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
