@@ -35,7 +35,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       }),
       prisma.priceAlert.findMany({
         where: { session: { supplierId: id }, createdAt: { gte: ninetyDaysAgo } },
-        include: { inventoryItem: { select: { itemName: true } } },
+        select: {
+          previousPrice: true,
+          newPrice: true,
+          changePct: true,
+          createdAt: true,
+          inventoryItem: { select: { itemName: true } },
+        },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.inventoryItem.findMany({
