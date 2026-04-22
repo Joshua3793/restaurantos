@@ -9,6 +9,7 @@ import {
   Search, Plus, X, Download,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
   ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy,
+  MoreHorizontal,
 } from 'lucide-react'
 
 interface StorageArea { id: string; name: string }
@@ -190,6 +191,9 @@ function InventoryPageInner() {
   const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
   const [showOrderList, setShowOrderList] = useState(false)
   const [orderQtys,    setOrderQtys]    = useState<Record<string, string>>({})
+  const [showMobileOverflow,    setShowMobileOverflow]    = useState(false)
+  const [showMobileSortSheet,   setShowMobileSortSheet]   = useState(false)
+  const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false)
   const [priceHistory, setPriceHistory] = useState<Array<{
     invoiceDate: string; invoiceNumber: string; supplierName: string;
     qtyPurchased: number; unitPrice: number; lineTotal: number
