@@ -82,6 +82,10 @@ ALTER TABLE "CountSession" ADD CONSTRAINT "CountSession_revenueCenterId_fkey" FO
 -- AddForeignKey
 ALTER TABLE "InvoiceScanItem" ADD CONSTRAINT "InvoiceScanItem_revenueCenterId_fkey" FOREIGN KEY ("revenueCenterId") REFERENCES "RevenueCenter"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "InvoiceSession" ADD CONSTRAINT "InvoiceSession_parentSessionId_fkey"
+  FOREIGN KEY ("parentSessionId") REFERENCES "InvoiceSession"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
 -- CreateIndex
 CREATE INDEX "StockTransfer_fromRcId_idx" ON "StockTransfer"("fromRcId");
 
