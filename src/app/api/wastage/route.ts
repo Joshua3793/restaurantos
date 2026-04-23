@@ -4,17 +4,20 @@ import { prisma } from '@/lib/prisma'
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
-  const endDate = searchParams.get('endDate')
-  const itemId = searchParams.get('itemId')
-  const reason = searchParams.get('reason')
+  const endDate   = searchParams.get('endDate')
+  const itemId    = searchParams.get('itemId')
+  const reason    = searchParams.get('reason')
+  const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
 
   const logs = await prisma.wastageLog.findMany({
     where: {
       AND: [
         startDate ? { date: { gte: new Date(startDate) } } : {},
-        endDate ? { date: { lte: new Date(endDate) } } : {},
-        itemId ? { inventoryItemId: itemId } : {},
-        reason ? { reason } : {},
+        endDate   ? { date: { lte: new Date(endDate) } }  : {},
+        itemId    ? { inventoryItemId: itemId }            : {},
+        reason    ? { reason }                             : {},
+        rcId      ? { revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId } : {},
       ],
     },
     include: { inventoryItem: true },
@@ -25,7 +28,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date } = body
+  const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date, revenueCenterId } = body
 
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
   const ppbu = item ? parseFloat(String(item.pricePerBaseUnit)) : 0
@@ -34,13 +37,14 @@ export async function POST(req: NextRequest) {
   const log = await prisma.wastageLog.create({
     data: {
       inventoryItemId,
-      date: date ? new Date(date) : new Date(),
-      qtyWasted: parseFloat(qtyWasted),
+      date:            date ? new Date(date) : new Date(),
+      qtyWasted:       parseFloat(qtyWasted),
       unit,
-      reason: reason || 'UNKNOWN',
+      reason:          reason || 'UNKNOWN',
       costImpact,
-      loggedBy: loggedBy || 'System',
+      loggedBy:        loggedBy || 'System',
       notes,
+      revenueCenterId: revenueCenterId || null,
     },
     include: { inventoryItem: true },
   })
