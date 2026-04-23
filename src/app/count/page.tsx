@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency } from '@/lib/utils'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { rcHex } from '@/lib/rc-colors'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,13 +150,25 @@ export default function CountPage() {
     areas: [] as string[], // stores storageArea IDs
   })
 
+  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const [selectedRcId, setSelectedRcId] = useState<string>('')
+
+  useEffect(() => {
+    if (activeRcId) setSelectedRcId(activeRcId)
+  }, [activeRcId])
+
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // ── Loaders ───────────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
-    const data = await fetch('/api/count/sessions').then(r => r.json()).catch(() => [])
+    const params = new URLSearchParams()
+    if (activeRcId) {
+      params.set('rcId', activeRcId)
+      if (activeRc?.isDefault) params.set('isDefault', 'true')
+    }
+    const data = await fetch(`/api/count/sessions?${params}`).then(r => r.json()).catch(() => [])
     setSessions(Array.isArray(data) ? data : [])
-  }, [])
+  }, [activeRcId, activeRc])
 
   const loadSession = useCallback(async (id: string): Promise<Session | null> => {
     return fetch(`/api/count/sessions/${id}`).then(r => r.json()).catch(() => null)
@@ -248,6 +262,7 @@ export default function CountPage() {
         countedBy:   form.countedBy.trim(),
         sessionDate: form.sessionDate,
         areaFilter:  form.areas.length ? form.areas.join(',') : undefined,
+        revenueCenterId: selectedRcId || activeRcId || undefined,
       }),
     })
     const session = await res.json()
@@ -433,6 +448,20 @@ export default function CountPage() {
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
         />
       </div>
+      {revenueCenters.length > 1 && (
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Revenue Center</label>
+          <select
+            value={selectedRcId}
+            onChange={e => setSelectedRcId(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          >
+            {revenueCenters.map(rc => (
+              <option key={rc.id} value={rc.id}>{rc.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   )
 
@@ -542,11 +571,14 @@ export default function CountPage() {
               else if (s.status === 'FINALIZED') openSession(s, 'review')
             }
             return (
-              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 border-l-4 relative"
+              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 border-l-4 flex items-stretch"
                 style={{ borderLeftColor: SESSION_ACCENT[s.status] ?? '#d1d5db' }}>
                 {/* Card body — tappable to navigate */}
-                <div className={`px-4 py-3 ${s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`} onClick={s.status !== 'CANCELLED' ? handleCardTap : undefined}>
-                  <div className="flex items-center gap-2">
+                <div
+                  className={`flex-1 min-w-0 px-4 py-3 ${s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`}
+                  onClick={s.status !== 'CANCELLED' ? handleCardTap : undefined}
+                >
+                  <div className="flex items-center gap-2 pr-1">
                     <span className="flex-1 text-sm font-semibold text-gray-900 truncate">
                       {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
                     </span>
@@ -564,8 +596,8 @@ export default function CountPage() {
                     {s.status === 'FINALIZED'      && <span className="text-xs font-bold text-green-700 shrink-0">Report</span>}
                   </div>
                 </div>
-                {/* ⋯ menu trigger */}
-                <div style={{ position: 'absolute', top: 8, right: 8 }}>
+                {/* ⋯ menu trigger — separate flex column so it never overlaps card text */}
+                <div className="relative flex items-center pr-2">
                   <button
                     onClick={e => { e.stopPropagation(); setSessionMenuId(sessionMenuId === s.id ? null : s.id) }}
                     className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
@@ -808,7 +840,7 @@ export default function CountPage() {
       )
 
       if (isCounted && !isOpen) {
-        const vPct = line.variancePct
+        const vPct = line.variancePct !== null ? Number(line.variancePct) : null
         const large = vPct !== null && Math.abs(vPct) > 15
         return (
           <div key={line.id} id={`ln-${line.id}`}
@@ -993,7 +1025,7 @@ export default function CountPage() {
               <div className="flex items-center gap-2 mb-2">
                 <button
                   onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
-                  className="w-12 h-14 rounded-xl bg-gray-100 flex items-center justify-center"
+                  className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0"
                 >
                   <Minus size={18} className="text-gray-700" />
                 </button>
@@ -1001,12 +1033,12 @@ export default function CountPage() {
                   type="number"
                   value={inputQty}
                   onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
-                  className="flex-1 h-14 text-center text-2xl font-bold border-2 border-green-400 rounded-xl focus:outline-none"
+                  className="flex-1 min-w-0 h-12 text-center text-2xl font-bold border-2 border-green-400 rounded-xl focus:outline-none"
                   min={0} step={0.1}
                 />
                 <button
                   onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
-                  className="w-12 h-14 rounded-xl bg-gray-100 flex items-center justify-center"
+                  className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0"
                 >
                   <Plus size={18} className="text-gray-700" />
                 </button>

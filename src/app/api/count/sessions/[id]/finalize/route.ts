@@ -71,6 +71,29 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     }),
   ])
 
+  // Update StockAllocation for this RC if one is set
+  if (session.revenueCenterId) {
+    const allocationUpdates = session.lines
+      .filter(line => !line.skipped && line.countedQty !== null)
+      .map(line =>
+        prisma.stockAllocation.upsert({
+          where: {
+            revenueCenterId_inventoryItemId: {
+              revenueCenterId: session.revenueCenterId!,
+              inventoryItemId: line.inventoryItemId,
+            },
+          },
+          update: { quantity: Number(line.countedQty) },
+          create: {
+            revenueCenterId: session.revenueCenterId!,
+            inventoryItemId: line.inventoryItemId,
+            quantity: Number(line.countedQty),
+          },
+        })
+      )
+    await Promise.all(allocationUpdates)
+  }
+
   const largeVariances = session.lines.filter(
     l => l.variancePct !== null && Math.abs(Number(l.variancePct)) > 15
   )

@@ -3,8 +3,15 @@ import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
+
   const sessions = await prisma.countSession.findMany({
+    where: rcId
+      ? { revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId }
+      : {},
     orderBy: { startedAt: 'desc' },
     include: { lines: { select: { countedQty: true, skipped: true } } },
   })
@@ -84,7 +91,7 @@ async function buildConsumptionMap(since: Date): Promise<Map<string, number>> {
 
 // ── POST /api/count/sessions ──────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const { label, type = 'FULL', areaFilter, countedBy, sessionDate } = await req.json()
+  const { label, type = 'FULL', areaFilter, countedBy, sessionDate, revenueCenterId } = await req.json()
 
   // areaFilter is a comma-separated list of storageArea IDs
   const areaIds = areaFilter ? areaFilter.split(',').map((s: string) => s.trim()).filter(Boolean) : []
@@ -143,6 +150,7 @@ export async function POST(req: NextRequest) {
       sessionDate: sessionDate ? new Date(sessionDate) : new Date(),
       type,
       areaFilter: areaFilter || null,
+      revenueCenterId: revenueCenterId || null,
       countedBy,
       lines: {
         create: items.map((item, i) => {
