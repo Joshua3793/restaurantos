@@ -150,6 +150,58 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
   })
 
+  // ── Clone session generation ──────────────────────────────────────────
+  // Only generate clones when the session has RC attribution
+  if (session.revenueCenterId) {
+    const sessionRcId = session.revenueCenterId
+
+    // Group items by their effective RC, excluding items that belong to the session's own RC
+    const itemsByRc = new Map<string, typeof session.scanItems>()
+    for (const item of session.scanItems) {
+      const effectiveRcId = item.revenueCenterId ?? sessionRcId
+      if (effectiveRcId === sessionRcId) continue  // belongs to session RC — no clone
+      if (!itemsByRc.has(effectiveRcId)) itemsByRc.set(effectiveRcId, [])
+      itemsByRc.get(effectiveRcId)!.push(item)
+    }
+
+    for (const [rcId, rcItems] of itemsByRc) {
+      const clone = await prisma.invoiceSession.create({
+        data: {
+          status:         'APPROVED',
+          supplierName:   session.supplierName,
+          supplierId:     session.supplierId,
+          invoiceDate:    session.invoiceDate,
+          invoiceNumber:  session.invoiceNumber ? `${session.invoiceNumber} (copy)` : null,
+          revenueCenterId: rcId,
+          parentSessionId: params.id,
+          approvedBy,
+          approvedAt:     new Date(),
+        },
+      })
+
+      await prisma.invoiceScanItem.createMany({
+        data: rcItems.map(item => ({
+          sessionId:       clone.id,
+          rawDescription:  item.rawDescription,
+          rawQty:          item.rawQty,
+          rawUnit:         item.rawUnit,
+          rawUnitPrice:    item.rawUnitPrice,
+          rawLineTotal:    item.rawLineTotal,
+          matchedItemId:   item.matchedItemId,
+          matchConfidence: item.matchConfidence,
+          matchScore:      item.matchScore,
+          action:          item.action,
+          approved:        true,
+          newPrice:        item.newPrice,
+          previousPrice:   item.previousPrice,
+          priceDiffPct:    item.priceDiffPct,
+          revenueCenterId: rcId,
+          sortOrder:       item.sortOrder,
+        })),
+      })
+    }
+  }
+
   // Save learned match rules (outside transaction — non-critical)
   for (const scanItem of itemsToProcess) {
     if (scanItem.matchedItemId && scanItem.action !== 'SKIP') {
