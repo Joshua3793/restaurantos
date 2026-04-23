@@ -5,7 +5,7 @@ import { useState, Suspense } from 'react'
 import {
   LayoutDashboard, Package, FileText, Trash2, BarChart3,
   ClipboardList, BookOpen, UtensilsCrossed, MoreHorizontal,
-  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck,
+  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, Layers,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
@@ -33,6 +33,7 @@ const navItems: NavItem[] = [
   { href: '/reports',                    label: 'Reports',      icon: BarChart3 },
   { href: '/reports/theoretical-usage', label: 'Usage Report', icon: TrendingUp },
   { href: '/settings',                   label: 'Settings',     icon: Settings,        dividerBefore: true },
+  { href: '/revenue-centers',            label: 'Rev. Centers', icon: Layers },
 ]
 
 // Roadmap spec: Dashboard / Inventory / Count (center) / Invoices / Reports
@@ -54,6 +55,7 @@ const mobileMore: NavItem[] = [
   { href: '/wastage',                    label: 'Wastage',      icon: Trash2 },
   { href: '/reports/theoretical-usage', label: 'Usage Report', icon: TrendingUp },
   { href: '/settings',                   label: 'Settings',     icon: Settings },
+  { href: '/revenue-centers',            label: 'Rev. Centers', icon: Layers },
 ]
 
 export function Navigation() {
