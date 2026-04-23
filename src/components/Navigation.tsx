@@ -8,6 +8,9 @@ import {
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
+import { RcSelector } from '@/components/navigation/RcSelector'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { rcHex } from '@/lib/rc-colors'
 
 type NavItem = {
   href: string
@@ -64,6 +67,7 @@ export function Navigation() {
 function NavigationInner() {
   const pathname = usePathname()
   const [moreOpen, setMoreOpen] = useState(false)
+  const { activeRc } = useRc()
 
   const isActive = (item: NavItem) => pathname === item.href || pathname.startsWith(item.href + '/')
   const moreIsActive = mobileMore.some(isActive)
@@ -81,6 +85,7 @@ function NavigationInner() {
             <AlertsBell />
           </div>
         </div>
+        <RcSelector />
         <nav className="flex-1 p-3">
           {navItems.map(item => {
             const active = isActive(item)
@@ -90,8 +95,9 @@ function NavigationInner() {
                 {item.dividerBefore && <div className="my-2 border-t border-gray-700/60" />}
                 <Link
                   href={href}
+                  style={active ? { borderLeftColor: rcHex(activeRc?.color ?? 'blue'), borderLeftWidth: 3 } : undefined}
                   className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    active ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                    active ? 'bg-blue-600 text-white pl-[9px]' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                   }`}
                 >
                   <Icon size={18} />
