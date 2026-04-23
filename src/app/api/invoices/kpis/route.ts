@@ -84,5 +84,7 @@ export async function GET() {
     priceAlertCount,
     awaitingApprovalCount: awaitingCount,
     topCategories,
+  }, {
+    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
   })
 }

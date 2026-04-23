@@ -3,7 +3,9 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   const cats = await prisma.category.findMany({ orderBy: { name: 'asc' } })
-  return NextResponse.json(cats)
+  return NextResponse.json(cats, {
+    headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=300' },
+  })
 }
 
 export async function POST(req: NextRequest) {

@@ -6,7 +6,9 @@ export async function GET() {
     orderBy: { name: 'asc' },
     include: { _count: { select: { items: true } } },
   })
-  return NextResponse.json(areas)
+  return NextResponse.json(areas, {
+    headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=300' },
+  })
 }
 
 export async function POST(req: NextRequest) {

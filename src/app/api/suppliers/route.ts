@@ -51,7 +51,9 @@ export async function GET() {
     invoiceCount: countMap[s.id] ?? 0,
   }))
 
-  return NextResponse.json(result)
+  return NextResponse.json(result, {
+    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+  })
 }
 
 export async function POST(req: NextRequest) {

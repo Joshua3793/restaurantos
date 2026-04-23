@@ -16,7 +16,8 @@ export async function GET() {
       const skipped = s.lines.filter(l => l.skipped).length
       const { lines, ...rest } = s
       return { ...rest, counts: { total, counted, skipped } }
-    })
+    }),
+    { headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' } }
   )
 }
 

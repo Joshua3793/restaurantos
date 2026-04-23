@@ -94,5 +94,7 @@ export async function GET() {
     estimatedFoodCostPct: foodCostPct,
     foodCostLabel,
     inventoryCount: inventory.length,
+  }, {
+    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
   })
 }

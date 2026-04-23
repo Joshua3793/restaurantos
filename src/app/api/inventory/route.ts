@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { itemName: 'asc' },
   })
-  return NextResponse.json(items)
+  return NextResponse.json(items, {
+    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+  })
 }
 
 export async function POST(req: NextRequest) {

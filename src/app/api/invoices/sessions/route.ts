@@ -10,7 +10,9 @@ export async function GET() {
       _count: { select: { scanItems: true, priceAlerts: true, recipeAlerts: true } },
     },
   })
-  return NextResponse.json(sessions)
+  return NextResponse.json(sessions, {
+    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+  })
 }
 
 // POST /api/invoices/sessions — create a new session

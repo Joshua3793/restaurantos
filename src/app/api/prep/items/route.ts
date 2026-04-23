@@ -117,7 +117,9 @@ export async function GET(req: NextRequest) {
     return a.name.localeCompare(b.name)
   })
 
-  return NextResponse.json(enriched)
+  return NextResponse.json(enriched, {
+    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+  })
   } catch (err) {
     console.error('[prep/items GET]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
