@@ -6,6 +6,7 @@ import {
   Pencil, Plus, Search, Trash2, TrendingUp, Upload, Users, X,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
+import { useRc } from '@/contexts/RevenueCenterContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -616,15 +617,21 @@ export default function SalesPage() {
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
+  const { activeRcId, activeRc } = useRc()
+
   const [startDate, endDate] = getRange(rangeMode, customStart, customEnd)
 
   const fetchSales = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams({ startDate, endDate })
+    if (activeRcId) {
+      params.set('rcId', activeRcId)
+      if (activeRc?.isDefault) params.set('isDefault', 'true')
+    }
     const data = await fetch(`/api/sales?${params}`).then(r => r.json())
     setSales(Array.isArray(data) ? data : [])
     setLoading(false)
-  }, [startDate, endDate])
+  }, [startDate, endDate, activeRcId, activeRc])
 
   useEffect(() => { fetchSales() }, [fetchSales])
 
@@ -695,7 +702,7 @@ export default function SalesPage() {
       await fetch(`/api/sales/${editSale.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
       setEditSale(null)
     } else {
-      await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+      await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, revenueCenterId: activeRcId }) })
       setShowAdd(false)
     }
     fetchSales()
@@ -709,7 +716,7 @@ export default function SalesPage() {
   }
 
   const handleImport = async (row: Parameters<Parameters<typeof ImportModal>[0]['onImport']>[0]) => {
-    await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row) })
+    await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...row, revenueCenterId: activeRcId }) })
     setShowImport(false)
     fetchSales()
   }

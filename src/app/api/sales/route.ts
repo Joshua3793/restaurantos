@@ -11,10 +11,17 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')
+  const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
 
   const where: Record<string, unknown> = {}
   if (startDate) where.date = { ...(where.date as object ?? {}), gte: new Date(startDate) }
   if (endDate)   where.date = { ...(where.date as object ?? {}), lte: new Date(endDate + 'T23:59:59.999Z') }
+  if (rcId) {
+    where.revenueCenterId = isDefault
+      ? { in: [rcId, null as unknown as string] }
+      : rcId
+  }
 
   const sales = await prisma.salesEntry.findMany({
     where,
@@ -31,15 +38,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { lineItems = [], ...rest } = body
+  const { lineItems = [], revenueCenterId, ...rest } = body
 
   const entry = await prisma.salesEntry.create({
     data: {
-      date:         new Date(rest.date),
-      totalRevenue: parseFloat(rest.totalRevenue) || 0,
-      foodSalesPct: parseFloat(rest.foodSalesPct) || 0.7,
-      covers:       rest.covers ? parseInt(rest.covers) : null,
-      notes:        rest.notes || null,
+      date:           new Date(rest.date),
+      totalRevenue:   parseFloat(rest.totalRevenue) || 0,
+      foodSalesPct:   parseFloat(rest.foodSalesPct) || 0.7,
+      covers:         rest.covers ? parseInt(rest.covers) : null,
+      notes:          rest.notes || null,
+      revenueCenterId: revenueCenterId || null,
       lineItems: {
         create: (lineItems as { recipeId: string; qtySold: number }[])
           .filter(li => li.recipeId && li.qtySold > 0)
