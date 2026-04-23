@@ -5,11 +5,11 @@ import {
   FileText, Image, FileSpreadsheet, TrendingUp, TrendingDown,
   Plus, Bell, Package, ClipboardList, ChevronRight, Pencil,
   AlertCircle, Hash, CalendarDays, ArrowRight, Trash2,
-  Building2, ChevronDown,
+  Building2, ChevronDown, RotateCcw,
 } from 'lucide-react'
 import { formatCurrency, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, deriveBaseUnit, calcConversionFactor } from '@/lib/utils'
 import { comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
-import type { Session, ScanItem, ApproveResult, MatchConfidence, LineItemAction } from './types'
+import type { Session, ScanItem, ApproveResult, MatchConfidence, LineItemAction, SessionSummary } from './types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 
@@ -1455,9 +1455,10 @@ interface Props {
   sessionId: string | null
   onClose: () => void
   onApproveOrReject: () => void
+  allSessions?: SessionSummary[]
 }
 
-export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) {
+export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessions = [] }: Props) {
   const [session, setSession] = useState<Session | null>(null)
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null)
   const [isApproving, setIsApproving] = useState(false)
@@ -1470,6 +1471,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   const [isAddingItem, setIsAddingItem] = useState(false)
   const [open, setOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<'review' | 'image'>('review')
+
+  // Editable header fields
+  const [editingHeader, setEditingHeader]   = useState(false)
+  const [headerNumber,  setHeaderNumber]    = useState('')
+  const [headerDate,    setHeaderDate]      = useState('')
+  const [headerTotal,   setHeaderTotal]     = useState('')
+  const [savingHeader,  setSavingHeader]    = useState(false)
 
   const { revenueCenters, activeRcId } = useRc()
   const [sessionRcId, setSessionRcId] = useState<string | null>(null)
@@ -1496,6 +1504,31 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
     setSessionRcId(data.revenueCenterId ?? activeRcId)
     return data
   }, [activeRcId])
+
+  const openHeaderEdit = () => {
+    if (!session) return
+    setHeaderNumber(session.invoiceNumber ?? '')
+    setHeaderDate(session.invoiceDate ?? '')
+    setHeaderTotal(session.total ? String(Number(session.total)) : '')
+    setEditingHeader(true)
+  }
+
+  const saveHeader = async () => {
+    if (!session) return
+    setSavingHeader(true)
+    await fetch(`/api/invoices/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        invoiceNumber: headerNumber.trim() || null,
+        invoiceDate:   headerDate || null,
+        total:         headerTotal ? parseFloat(headerTotal) : null,
+      }),
+    })
+    await fetchSession(session.id)
+    setSavingHeader(false)
+    setEditingHeader(false)
+  }
 
   // Fetch session when sessionId changes
   useEffect(() => {
@@ -1707,6 +1740,12 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
     const totalIsOver = totalDiff !== null && totalDiff < -0.50
     const totalIsOk   = totalDiff !== null && totalDiff >= 0 && totalDiff < (invoiceTotal ?? 0) * 0.25
 
+    // Duplicate invoice number detection
+    const duplicateSessions = session.invoiceNumber
+      ? (allSessions as Array<{ id: string; status: string; invoiceNumber: string | null; invoiceDate: string | null; supplierName: string | null }>)
+          .filter(s => s.id !== session.id && s.invoiceNumber === session.invoiceNumber)
+      : []
+
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 space-y-4">
@@ -1721,39 +1760,101 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Invoice Review</p>
                   <h2 className="text-lg font-bold leading-tight truncate">{session.supplierName || 'Unknown Supplier'}</h2>
                 </div>
-                <div className="text-right shrink-0">
-                  {session.invoiceNumber && (
-                    <div className="flex items-center gap-1 justify-end text-slate-300 text-xs mb-0.5">
+                <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                  {session.invoiceNumber && !editingHeader && (
+                    <div className="flex items-center gap-1 justify-end text-slate-300 text-xs">
                       <Hash size={10} /><span className="font-mono font-semibold text-white">{session.invoiceNumber}</span>
                     </div>
                   )}
-                  {session.total && (
+                  {session.total && !editingHeader && (
                     <div className="text-xl font-bold text-white">{formatCurrency(Number(session.total))}</div>
+                  )}
+                  {!editingHeader && (
+                    <button
+                      onClick={openHeaderEdit}
+                      className="mt-1 flex items-center gap-1 text-slate-400 hover:text-white text-[10px] transition-colors"
+                    >
+                      <Pencil size={10} /> Edit details
+                    </button>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-5 mt-3 text-xs">
-                {session.invoiceDate && (
-                  <div className="flex items-center gap-1 text-slate-300">
-                    <CalendarDays size={11} />
-                    <span>{session.invoiceDate}</span>
+
+              {/* Editable header form */}
+              {editingHeader ? (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Invoice #</label>
+                      <input
+                        value={headerNumber}
+                        onChange={e => setHeaderNumber(e.target.value)}
+                        placeholder="e.g. INV-1234"
+                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Date</label>
+                      <input
+                        type="date"
+                        value={headerDate}
+                        onChange={e => setHeaderDate(e.target.value)}
+                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
                   </div>
-                )}
-                <div className="flex items-center gap-1 text-slate-300">
-                  <Package size={11} />
-                  <span>{totalItems} line item{totalItems !== 1 ? 's' : ''}</span>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Invoice Total ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={headerTotal}
+                      onChange={e => setHeaderTotal(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setEditingHeader(false)}
+                      className="flex-1 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white border border-slate-600 hover:border-slate-400 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={saveHeader}
+                      disabled={savingHeader}
+                      className="flex-[2] py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-colors"
+                    >
+                      {savingHeader ? 'Saving…' : 'Save changes'}
+                    </button>
+                  </div>
                 </div>
-                {actionCounts['UPDATE_PRICE'] > 0 && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30">
-                    {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
-                  </span>
-                )}
-                {actionCounts['CREATE_NEW'] > 0 && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-200 border border-purple-400/30">
-                    {actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
+              ) : (
+                <div className="flex items-center gap-5 mt-3 text-xs">
+                  {session.invoiceDate && (
+                    <div className="flex items-center gap-1 text-slate-300">
+                      <CalendarDays size={11} />
+                      <span>{session.invoiceDate}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1 text-slate-300">
+                    <Package size={11} />
+                    <span>{totalItems} line item{totalItems !== 1 ? 's' : ''}</span>
+                  </div>
+                  {actionCounts['UPDATE_PRICE'] > 0 && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                      {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {actionCounts['CREATE_NEW'] > 0 && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-200 border border-purple-400/30">
+                      {actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── Supplier strip ── */}
@@ -1879,6 +1980,24 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
                     style={{ backgroundColor: rcHex(revenueCenters.find(rc => rc.id === sessionRcId)!.color) }}
                   />
                 )}
+              </div>
+            )}
+
+            {/* Duplicate invoice warning */}
+            {duplicateSessions.length > 0 && (
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-red-50 border-b border-red-200">
+                <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0" />
+                <div className="text-xs text-red-700">
+                  <span className="font-semibold">Possible duplicate.</span>{' '}
+                  Invoice #{session.invoiceNumber} was already scanned
+                  {duplicateSessions[0].invoiceDate ? ` on ${duplicateSessions[0].invoiceDate}` : ''}
+                  {duplicateSessions[0].supplierName ? ` from ${duplicateSessions[0].supplierName}` : ''}{' '}
+                  <span className={`font-semibold ${
+                    duplicateSessions[0].status === 'APPROVED' ? 'text-green-700' :
+                    duplicateSessions[0].status === 'REJECTED' ? 'text-red-700' : 'text-amber-700'
+                  }`}>({duplicateSessions[0].status.toLowerCase()})</span>.
+                  Review carefully before approving.
+                </div>
               </div>
             )}
 
@@ -2063,52 +2182,238 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
 
     // Opened from list — session is APPROVED or REJECTED
     const isApproved = session?.status === 'APPROVED'
-    const isRejected = session?.status === 'REJECTED'
-    return (
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-xl mx-auto space-y-6 text-center">
-          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-2 ${isApproved ? 'bg-green-100' : 'bg-red-100'}`}>
-            {isApproved
-              ? <CheckCircle2 size={32} className="text-green-600" />
-              : <AlertCircle size={32} className="text-red-500" />
-            }
+
+    if (!isApproved || !session) {
+      // Simple view for REJECTED (or unknown status)
+      const isRejected = session?.status === 'REJECTED'
+      return (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-xl mx-auto space-y-6 text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-2 bg-red-100">
+              <AlertCircle size={32} className="text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">
+              {isRejected ? 'Invoice Rejected' : 'Invoice'}
+            </h2>
+            {session && (
+              <div className="bg-white rounded-xl border border-gray-100 p-4 text-left space-y-2 text-sm">
+                {session.supplierName && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Supplier</span>
+                    <span className="font-medium text-gray-900">{session.supplierName}</span>
+                  </div>
+                )}
+                {session.invoiceNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Invoice #</span>
+                    <span className="font-mono font-medium text-gray-900">{session.invoiceNumber}</span>
+                  </div>
+                )}
+                {session.invoiceDate && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Date</span>
+                    <span className="font-medium text-gray-900">{session.invoiceDate}</span>
+                  </div>
+                )}
+                {session.total && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total</span>
+                    <span className="font-bold text-gray-900">{formatCurrency(Number(session.total))}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="w-full border border-gray-200 text-gray-600 rounded-xl py-3 font-semibold hover:bg-gray-50 transition-colors"
+            >
+              Close
+            </button>
           </div>
-          <h2 className="text-xl font-bold text-gray-900">
-            {isApproved ? 'Invoice Approved' : isRejected ? 'Invoice Rejected' : 'Invoice'}
-          </h2>
-          {session && (
-            <div className="bg-white rounded-xl border border-gray-100 p-4 text-left space-y-2 text-sm">
-              {session.supplierName && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Supplier</span>
-                  <span className="font-medium text-gray-900">{session.supplierName}</span>
-                </div>
-              )}
+        </div>
+      )
+    }
+
+    // Full read-only view for APPROVED sessions
+    const visibleItems = session.scanItems.filter(si => si.action !== 'SKIP')
+    const skippedItems = session.scanItems.filter(si => si.action === 'SKIP')
+
+    const actionBadge = (action: string, isNewItem: boolean) => {
+      if (action === 'UPDATE_PRICE') return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">price update</span>
+      )
+      if (action === 'CREATE_NEW' || isNewItem) return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">new item</span>
+      )
+      if (action === 'ADD_SUPPLIER') return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">supplier added</span>
+      )
+      return null
+    }
+
+    return (
+      <div className="flex-1 overflow-y-auto flex flex-col">
+        {/* Header band */}
+        <div className="bg-gradient-to-r from-slate-700 to-slate-800 px-5 py-4 text-white shrink-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Approved Invoice</p>
+              <h2 className="text-lg font-bold leading-tight truncate">{session.supplierName || 'Unknown Supplier'}</h2>
+            </div>
+            <div className="text-right shrink-0 flex flex-col items-end gap-1">
               {session.invoiceNumber && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Invoice #</span>
-                  <span className="font-mono font-medium text-gray-900">{session.invoiceNumber}</span>
-                </div>
-              )}
-              {session.invoiceDate && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Date</span>
-                  <span className="font-medium text-gray-900">{session.invoiceDate}</span>
+                <div className="flex items-center gap-1 justify-end text-slate-300 text-xs">
+                  <Hash size={10} /><span className="font-mono font-semibold text-white">{session.invoiceNumber}</span>
                 </div>
               )}
               {session.total && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Total</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(Number(session.total))}</span>
-                </div>
+                <div className="text-xl font-bold text-white">{formatCurrency(Number(session.total))}</div>
               )}
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-400/30">
+                <CheckCircle2 size={10} className="mr-1" />Approved
+              </span>
             </div>
+          </div>
+          <div className="flex items-center gap-5 mt-3 text-xs">
+            {session.invoiceDate && (
+              <div className="flex items-center gap-1 text-slate-300">
+                <CalendarDays size={11} />
+                <span>{session.invoiceDate}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1 text-slate-300">
+              <Package size={11} />
+              <span>{visibleItems.length} line item{visibleItems.length !== 1 ? 's' : ''}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Line items */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="space-y-1">
+            {visibleItems.map(si => (
+              <div key={si.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex flex-col gap-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-400 truncate">{si.rawDescription}</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {si.matchedItem ? si.matchedItem.itemName : <span className="text-gray-400 italic">Unmatched</span>}
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    {actionBadge(si.action, si.isNewItem)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-gray-500">
+                  {si.rawQty != null && (
+                    <span>Qty: <span className="font-medium text-gray-700">{si.rawQty}</span></span>
+                  )}
+                  {si.rawUnitPrice != null && (
+                    <span>Unit: <span className="font-medium text-gray-700">{formatCurrency(Number(si.rawUnitPrice))}</span></span>
+                  )}
+                  {si.rawLineTotal != null && (
+                    <span className="ml-auto font-semibold text-gray-900">{formatCurrency(Number(si.rawLineTotal))}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {skippedItems.length > 0 && (
+            <details className="group">
+              <summary className="cursor-pointer text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 select-none">
+                <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
+                Skipped items ({skippedItems.length})
+              </summary>
+              <div className="mt-2 space-y-1 pl-4">
+                {skippedItems.map(si => (
+                  <div key={si.id} className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                    <p className="text-xs text-gray-400 truncate">{si.rawDescription}</p>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
+
+          {/* Alerts section */}
+          <div className="space-y-3 pt-2">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+              <Bell size={12} />Alerts
+            </h3>
+
+            {session.priceAlerts.length === 0 && session.recipeAlerts.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No alerts generated</p>
+            ) : (
+              <>
+                {session.priceAlerts.map(alert => {
+                  const pct = Number(alert.changePct)
+                  const isUp = alert.direction === 'UP'
+                  return (
+                    <div key={alert.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{alert.inventoryItem.itemName}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatCurrency(Number(alert.previousPrice))} → {formatCurrency(Number(alert.newPrice))}
+                        </p>
+                      </div>
+                      <div className={`flex items-center gap-1 text-sm font-bold shrink-0 ${isUp ? 'text-red-500' : 'text-green-600'}`}>
+                        {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        {isUp ? '+' : '-'}{Math.abs(pct).toFixed(1)}%
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {session.recipeAlerts.map(alert => {
+                  const pct = Number(alert.changePct)
+                  const isUp = pct > 0
+                  return (
+                    <div key={alert.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{alert.recipe.name}</p>
+                          {alert.exceededThreshold && <AlertCircle size={13} className="text-red-500 shrink-0" />}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {formatCurrency(Number(alert.previousCost))} → {formatCurrency(Number(alert.newCost))}
+                          {alert.newFoodCostPct != null && (
+                            <span className="ml-1 text-gray-400">· food cost {Number(alert.newFoodCostPct).toFixed(1)}%</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className={`flex items-center gap-1 text-sm font-bold shrink-0 ${isUp ? 'text-red-500' : 'text-green-600'}`}>
+                        {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        {isUp ? '+' : '-'}{Math.abs(pct).toFixed(1)}%
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Footer: Review Again button */}
+        <div className="shrink-0 border-t border-gray-100 p-4">
           <button
-            onClick={onClose}
-            className="w-full border border-gray-200 text-gray-600 rounded-xl py-3 font-semibold hover:bg-gray-50 transition-colors"
+            onClick={async () => {
+              setIsApproving(true)
+              try {
+                await fetch(`/api/invoices/sessions/${session.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'REVIEW' }),
+                })
+                onApproveOrReject()
+              } finally {
+                setIsApproving(false)
+              }
+            }}
+            disabled={isApproving}
+            className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-colors"
           >
-            Close
+            {isApproving ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+            {isApproving ? 'Reverting…' : 'Review Again'}
           </button>
         </div>
       </div>
@@ -2170,7 +2475,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
 
       {/* Desktop: right-side drawer */}
       <div
-        className={`hidden sm:flex fixed top-0 right-0 h-full z-50 bg-white shadow-2xl flex-col transition-all duration-150 ease-out ${isReview ? 'w-[960px]' : 'w-[480px]'}`}
+        className={`hidden sm:flex fixed top-0 right-0 h-full z-50 bg-white shadow-2xl flex-col transition-all duration-150 ease-out ${isReview ? 'w-[960px]' : drawerState === 'done' && !approveResult && session?.status === 'APPROVED' ? 'w-[640px]' : 'w-[480px]'}`}
         style={{ transform: open ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 150ms ease-out' }}
       >
         {/* Drawer header */}

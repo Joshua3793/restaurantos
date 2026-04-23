@@ -59,8 +59,27 @@ export interface Session {
   total: string | null
   files: ScanFile[]
   scanItems: ScanItem[]
-  priceAlerts: unknown[]
-  recipeAlerts: unknown[]
+  priceAlerts: Array<{
+    id: string
+    inventoryItemId: string
+    previousPrice: string | number
+    newPrice: string | number
+    changePct: string | number
+    direction: string
+    acknowledged: boolean
+    inventoryItem: { id: string; itemName: string }
+  }>
+  recipeAlerts: Array<{
+    id: string
+    recipeId: string
+    previousCost: string | number
+    newCost: string | number
+    changePct: string | number
+    newFoodCostPct: string | number | null
+    exceededThreshold: boolean
+    acknowledged: boolean
+    recipe: { id: string; name: string; menuPrice: string | number | null }
+  }>
   createdAt: string
   revenueCenterId?: string | null
   parentSessionId?: string | null
