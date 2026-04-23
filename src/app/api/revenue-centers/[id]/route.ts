@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { RC_COLORS } from '@/lib/rc-colors'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const rc = await prisma.revenueCenter.findUnique({ where: { id: params.id } })
@@ -8,19 +9,28 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { name, color, isDefault } = await req.json()
+  const body = await req.json().catch(() => ({}))
+  const { name, color, isDefault } = body
 
-  if (isDefault) {
-    await prisma.revenueCenter.updateMany({ data: { isDefault: false } })
-  }
+  const existing = await prisma.revenueCenter.findUnique({ where: { id: params.id } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const rc = await prisma.revenueCenter.update({
-    where: { id: params.id },
-    data: {
-      ...(name ? { name: name.trim() } : {}),
-      ...(color ? { color } : {}),
-      ...(isDefault !== undefined ? { isDefault: !!isDefault } : {}),
-    },
+  const resolvedColor = color !== undefined
+    ? (RC_COLORS.includes(color) ? color : existing.color)
+    : undefined
+
+  const rc = await prisma.$transaction(async (tx) => {
+    if (isDefault) {
+      await tx.revenueCenter.updateMany({ data: { isDefault: false } })
+    }
+    return tx.revenueCenter.update({
+      where: { id: params.id },
+      data: {
+        ...(name?.trim() ? { name: name.trim() } : {}),
+        ...(resolvedColor !== undefined ? { color: resolvedColor } : {}),
+        ...(isDefault !== undefined ? { isDefault: !!isDefault } : {}),
+      },
+    })
   })
 
   return NextResponse.json(rc)

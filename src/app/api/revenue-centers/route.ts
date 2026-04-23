@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { RC_COLORS } from '@/lib/rc-colors'
 
 // GET /api/revenue-centers — list all RCs; auto-seeds default if none exist
 export async function GET() {
@@ -17,18 +18,22 @@ export async function GET() {
 
 // POST /api/revenue-centers — create a new RC
 export async function POST(req: NextRequest) {
-  const { name, color, isDefault } = await req.json()
+  const body = await req.json().catch(() => ({}))
+  const { name, color, isDefault } = body
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
 
-  if (isDefault) {
-    await prisma.revenueCenter.updateMany({ data: { isDefault: false } })
-  }
+  const resolvedColor = RC_COLORS.includes(color) ? color : 'blue'
 
-  const rc = await prisma.revenueCenter.create({
-    data: { name: name.trim(), color: color || 'blue', isDefault: !!isDefault },
+  const rc = await prisma.$transaction(async (tx) => {
+    if (isDefault) {
+      await tx.revenueCenter.updateMany({ data: { isDefault: false } })
+    }
+    return tx.revenueCenter.create({
+      data: { name: name.trim(), color: resolvedColor, isDefault: !!isDefault },
+    })
   })
 
   return NextResponse.json(rc, { status: 201 })
