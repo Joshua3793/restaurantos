@@ -45,6 +45,7 @@ export interface ScanItem {
   invoicePackSize: string | null
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
+  revenueCenterId?: string | null
 }
 
 // Full session — returned by GET /api/invoices/sessions/[id]
@@ -61,6 +62,8 @@ export interface Session {
   priceAlerts: unknown[]
   recipeAlerts: unknown[]
   createdAt: string
+  revenueCenterId?: string | null
+  parentSessionId?: string | null
 }
 
 // Summary — returned by GET /api/invoices/sessions (uses _count, not full arrays)
@@ -78,6 +81,8 @@ export interface SessionSummary {
     priceAlerts: number
     recipeAlerts: number
   }
+  revenueCenterId?: string | null
+  parentSessionId?: string | null
 }
 
 export interface ApproveResult {

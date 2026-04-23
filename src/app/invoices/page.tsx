@@ -1,12 +1,25 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
 import { InvoiceList } from '@/components/invoices/InvoiceList'
-import { InvoiceDrawer } from '@/components/invoices/InvoiceDrawer'
-import { InvoiceUploadModal } from '@/components/invoices/InvoiceUploadModal'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
+import { useRc } from '@/contexts/RevenueCenterContext'
+
+// Lazy-load heavy components — InvoiceDrawer pulls in the full review engine,
+// InvoiceUploadModal pulls in uploadthing + CameraCapture.
+const InvoiceDrawer = dynamic(
+  () => import('@/components/invoices/InvoiceDrawer').then(m => ({ default: m.InvoiceDrawer })),
+  { ssr: false, loading: () => null }
+)
+
+const InvoiceUploadModal = dynamic(
+  () => import('@/components/invoices/InvoiceUploadModal').then(m => ({ default: m.InvoiceUploadModal })),
+  { ssr: false, loading: () => null }
+)
 
 export default function InvoicesPage() {
+  const { activeRcId } = useRc()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -32,12 +45,13 @@ export default function InvoicesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
-      <div className="px-4 pt-4 pb-2 shrink-0">
-        <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
+      <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Invoices</h1>
       </div>
       <InvoiceKpiStrip refreshKey={kpiRefreshKey} />
       <InvoiceList
         sessions={sessions}
+        activeRcId={activeRcId}
         onSelect={setSelectedSessionId}
         onUploadClick={() => setShowUpload(true)}
         onDelete={handleDelete}

@@ -46,6 +46,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         invoicePackSize:    body.invoicePackSize !== undefined ? body.invoicePackSize : undefined,
         invoicePackUOM:     body.invoicePackUOM !== undefined ? body.invoicePackUOM : undefined,
         needsFormatConfirm: body.needsFormatConfirm !== undefined ? body.needsFormatConfirm : undefined,
+        revenueCenterId:    body.revenueCenterId !== undefined ? body.revenueCenterId : undefined,
       },
     })
     return NextResponse.json(item)
@@ -76,13 +77,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const session = await prisma.invoiceSession.update({
     where: { id: params.id },
     data: {
-      supplierName:  body.supplierName,
-      invoiceDate:   body.invoiceDate,
-      invoiceNumber: body.invoiceNumber,
-      subtotal:      body.subtotal !== undefined ? body.subtotal : undefined,
-      tax:           body.tax !== undefined ? body.tax : undefined,
-      total:         body.total !== undefined ? body.total : undefined,
-      status:        body.status,
+      supplierName:    body.supplierName,
+      invoiceDate:     body.invoiceDate,
+      invoiceNumber:   body.invoiceNumber,
+      subtotal:        body.subtotal !== undefined ? body.subtotal : undefined,
+      tax:             body.tax !== undefined ? body.tax : undefined,
+      total:           body.total !== undefined ? body.total : undefined,
+      status:          body.status,
+      revenueCenterId: body.revenueCenterId !== undefined ? body.revenueCenterId : undefined,
     },
   })
   return NextResponse.json(session)

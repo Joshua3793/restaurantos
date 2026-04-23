@@ -7,6 +7,7 @@ type Tab = 'all' | 'REVIEW' | 'APPROVED' | 'REJECTED'
 
 interface Props {
   sessions: SessionSummary[]
+  activeRcId: string | null
   onSelect: (id: string) => void
   onUploadClick: () => void
   onDelete: (id: string, status: SessionStatus) => Promise<void>
@@ -24,7 +25,7 @@ function StatusBadge({ status }: { status: SessionStatus }) {
   return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">Uploading</span>
 }
 
-export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete }: Props) {
+export function InvoiceList({ sessions, activeRcId, onSelect, onUploadClick, onDelete }: Props) {
   const [tab, setTab] = useState<Tab>('all')
   const [search, setSearch] = useState('')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
@@ -35,6 +36,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete }: Pro
 
   const filtered = sessions.filter(s => {
     if (tab !== 'all' && s.status !== tab) return false
+    if (activeRcId && s.revenueCenterId && s.revenueCenterId !== activeRcId) return false
     if (search) {
       const q = search.toLowerCase()
       return (
@@ -54,44 +56,59 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete }: Pro
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
-          {(['all', 'REVIEW', 'APPROVED', 'REJECTED'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t === 'all' ? 'All' : t === 'REVIEW' ? (
-                <span className="flex items-center gap-1">
-                  Review
-                  {reviewCount > 0 && (
-                    <span className="bg-amber-100 text-amber-700 rounded-full px-1.5 text-[9px] font-bold">
-                      {reviewCount}
-                    </span>
-                  )}
-                </span>
-              ) : (
-                t.charAt(0) + t.slice(1).toLowerCase()
-              )}
-            </button>
-          ))}
+      {/* Toolbar — mobile: two rows; desktop: single row */}
+      <div className="border-b border-gray-200 bg-white shrink-0">
+        {/* Row 1: tabs + upload button */}
+        <div className="flex items-center gap-2 px-3 pt-2 pb-1.5 sm:px-4 sm:py-2 sm:pb-2">
+          <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 flex-1 sm:flex-none overflow-x-auto">
+            {(['all', 'REVIEW', 'APPROVED', 'REJECTED'] as Tab[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
+                  tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t === 'all' ? 'All' : t === 'REVIEW' ? (
+                  <span className="flex items-center gap-1">
+                    Review
+                    {reviewCount > 0 && (
+                      <span className="bg-amber-100 text-amber-700 rounded-full px-1.5 text-[9px] font-bold">
+                        {reviewCount}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  t.charAt(0) + t.slice(1).toLowerCase()
+                )}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={onUploadClick}
+            className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition-colors shrink-0 sm:px-3 sm:py-1.5 sm:text-xs"
+          >
+            + Scan Invoice
+          </button>
         </div>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search supplier or invoice #…"
-          className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          onClick={onUploadClick}
-          className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 transition-colors shrink-0"
-        >
-          + Upload
-        </button>
+        {/* Row 2 on mobile: search (full width). On desktop: search is inline in row 1 */}
+        <div className="px-3 pb-2 sm:hidden">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search supplier or invoice #…"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {/* Desktop-only search (hidden on mobile) */}
+        <div className="hidden sm:block px-4 pb-2">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search supplier or invoice #…"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {/* Desktop column headers */}
@@ -117,9 +134,14 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete }: Pro
               onClick={() => onSelect(s.id)}
             >
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">
-                  {s.supplierName ?? 'Unknown supplier'}
-                </p>
+                <div className="flex items-center gap-1">
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {s.supplierName ?? 'Unknown supplier'}
+                  </p>
+                  {s.parentSessionId && (
+                    <span className="text-[9px] font-bold bg-purple-100 text-purple-600 px-1 py-0.5 rounded shrink-0">COPY</span>
+                  )}
+                </div>
                 <p className="text-[10px] text-gray-400">
                   {s._count.priceAlerts > 0 && (
                     <span className="text-amber-600">
@@ -162,9 +184,14 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete }: Pro
             >
               <div className="flex-1 min-w-0 px-4 py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-900 truncate">
-                    {s.supplierName ?? 'Unknown supplier'}
-                  </p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {s.supplierName ?? 'Unknown supplier'}
+                    </p>
+                    {s.parentSessionId && (
+                      <span className="text-[9px] font-bold bg-purple-100 text-purple-600 px-1 py-0.5 rounded shrink-0">COPY</span>
+                    )}
+                  </div>
                   <StatusBadge status={s.status} />
                 </div>
                 <div className="flex items-center gap-3 mt-0.5">

@@ -10,6 +10,8 @@ import {
 import { formatCurrency, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, deriveBaseUnit, calcConversionFactor } from '@/lib/utils'
 import { comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
 import type { Session, ScanItem, ApproveResult, MatchConfidence, LineItemAction } from './types'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { rcHex } from '@/lib/rc-colors'
 
 // Units where "unit price" on the invoice means $/packUOM (not $/case)
 // e.g. $9.90/kg — total = qty × packQty × packSize × unitPrice
@@ -209,11 +211,17 @@ function ScanItemCard({
   onUpdate,
   onOpenDetail,
   onEditInventory,
+  revenueCenters,
+  sessionRcId,
+  onRcChange,
 }: {
   item: ScanItem
   onUpdate: (updates: Partial<Omit<ScanItem, 'newItemData'> & { newItemData?: Record<string, unknown> | string | null }>) => void
   onOpenDetail: () => void
   onEditInventory: (inventoryItemId: string, scanItem: ScanItem) => void
+  revenueCenters: Array<{ id: string; name: string; color: string }>
+  sessionRcId: string | null
+  onRcChange: (rcId: string) => void
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<InventorySearchResult[]>([])
@@ -750,6 +758,21 @@ function ScanItemCard({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {revenueCenters.length > 1 && (
+        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-50">
+          <span className="text-[10px] text-gray-400 shrink-0">RC:</span>
+          <select
+            value={item.revenueCenterId ?? sessionRcId ?? ''}
+            onChange={e => onRcChange(e.target.value)}
+            className="text-[10px] border border-gray-100 rounded px-1.5 py-0.5 text-gray-500 bg-white focus:outline-none"
+          >
+            {revenueCenters.map(rc => (
+              <option key={rc.id} value={rc.id}>{rc.name}</option>
+            ))}
+          </select>
         </div>
       )}
     </div>
@@ -1448,6 +1471,9 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
   const [open, setOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<'review' | 'image'>('review')
 
+  const { revenueCenters, activeRcId } = useRc()
+  const [sessionRcId, setSessionRcId] = useState<string | null>(null)
+
   // ── Supplier selector state ─────────────────────────────────────────────────
   const [allSuppliers, setAllSuppliers] = useState<Array<{
     id: string; name: string; aliases: Array<{ id: string; name: string }>
@@ -1467,8 +1493,9 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
     // Sync supplier link state from session
     setLinkedSupplierId(data.supplierId ?? null)
     setSupplierLinkMode(data.supplierId ? 'auto' : 'none')
+    setSessionRcId(data.revenueCenterId ?? activeRcId)
     return data
-  }, [])
+  }, [activeRcId])
 
   // Fetch session when sessionId changes
   useEffect(() => {
@@ -1825,6 +1852,36 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
               )
             })()}
 
+            {/* RC selector strip */}
+            {revenueCenters.length > 1 && (
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
+                <span className="text-xs text-gray-500 shrink-0">Revenue Center:</span>
+                <select
+                  value={sessionRcId ?? ''}
+                  onChange={async e => {
+                    const rcId = e.target.value
+                    setSessionRcId(rcId)
+                    await fetch(`/api/invoices/sessions/${session.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ revenueCenterId: rcId }),
+                    })
+                  }}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  {revenueCenters.map(rc => (
+                    <option key={rc.id} value={rc.id}>{rc.name}</option>
+                  ))}
+                </select>
+                {sessionRcId && revenueCenters.find(rc => rc.id === sessionRcId) && (
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: rcHex(revenueCenters.find(rc => rc.id === sessionRcId)!.color) }}
+                  />
+                )}
+              </div>
+            )}
+
             {/* Total validation bar */}
             {(invoiceTotal !== null || scannedTotal > 0) && (
               <div className={`flex items-center gap-2 px-4 py-2 border-b text-xs ${
@@ -1866,6 +1923,9 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject }: Props) 
                     onUpdate={(updates) => updateScanItem(item.id, updates)}
                     onOpenDetail={() => setEditingItem(item)}
                     onEditInventory={(invId, scanItem) => setEditingInventory({ inventoryItemId: invId, scanItem })}
+                    revenueCenters={revenueCenters}
+                    sessionRcId={sessionRcId}
+                    onRcChange={(rcId) => updateScanItem(item.id, { revenueCenterId: rcId })}
                   />
                 </div>
               ))}
