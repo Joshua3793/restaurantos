@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Navigation } from '@/components/Navigation'
+import { MobileRcBar } from '@/components/navigation/MobileRcBar'
 import { GlobalSearch } from '@/components/GlobalSearch'
 import { RcProvider } from '@/contexts/RevenueCenterContext'
 
@@ -18,8 +19,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <RcProvider>
           <Navigation />
+          <MobileRcBar />
           <GlobalSearch />
-          <main className="md:ml-56 pb-20 md:pb-0 min-h-screen bg-gray-50">
+          <main className="md:ml-56 pb-20 md:pb-0 pt-10 md:pt-0 min-h-screen bg-gray-50">
             <div className="p-4 md:p-6 max-w-7xl mx-auto">
               {children}
             </div>
