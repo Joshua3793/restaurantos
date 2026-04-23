@@ -113,12 +113,14 @@ model InvoiceLineItem {
 }
 
 model RecipeCategory {
-  id        String    @id @default(uuid())
-  name      String
-  type      String    // 'PREP' | 'MENU'
-  color     String?
-  sortOrder Int       @default(0)
-  recipes   Recipe[]
+  id              String         @id @default(uuid())
+  name            String
+  type            String         // 'PREP' | 'MENU'
+  color           String?
+  sortOrder       Int            @default(0)
+  revenueCenterId String?
+  revenueCenter   RevenueCenter? @relation("MenuCategoryRC", fields: [revenueCenterId], references: [id])
+  recipes         Recipe[]
 }
 
 model Recipe {
@@ -129,6 +131,8 @@ model Recipe {
   category        RecipeCategory     @relation(fields: [categoryId], references: [id])
   inventoryItemId String?            @unique
   inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
+  revenueCenterId String?
+  revenueCenter   RevenueCenter?     @relation("MenuRC", fields: [revenueCenterId], references: [id])
   baseYieldQty    Decimal
   yieldUnit       String
   portionSize     Decimal?
@@ -431,11 +435,17 @@ model PrepSettings {
 }
 
 model RevenueCenter {
-  id        String   @id @default(cuid())
-  name      String
-  color     String   // "blue" | "amber" | "purple" | "green" | "rose" | "teal" | "orange" | "indigo"
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id                String   @id @default(cuid())
+  name              String
+  color             String   // "blue" | "amber" | "purple" | "green" | "rose" | "teal" | "orange" | "indigo"
+  isDefault         Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  type              String   @default("other") // "restaurant" | "catering" | "events" | "retail" | "other"
+  description       String?
+  managerName       String?
+  targetFoodCostPct Decimal?
+  notes             String?
+  createdAt         DateTime @default(now())
 
   stockAllocations StockAllocation[]
   transfersFrom    StockTransfer[]   @relation("TransferFrom")
@@ -445,6 +455,8 @@ model RevenueCenter {
   wastageLog       WastageLog[]      @relation("WastageRC")
   salesEntries     SalesEntry[]      @relation("SalesRC")
   countSessions    CountSession[]    @relation("CountRC")
+  menuRecipes      Recipe[]          @relation("MenuRC")
+  menuCategories   RecipeCategory[]  @relation("MenuCategoryRC")
 }
 
 model StockAllocation {
@@ -474,4 +486,21 @@ model StockTransfer {
   @@index([fromRcId])
   @@index([toRcId])
   @@index([inventoryItemId])
+}
+
+model ChatConversation {
+  id        String        @id @default(cuid())
+  title     String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  createdAt      DateTime         @default(now())
 }
