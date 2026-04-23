@@ -272,6 +272,8 @@ model InvoiceSession {
   revenueCenterId String?
   revenueCenter   RevenueCenter? @relation("SessionRC", fields: [revenueCenterId], references: [id])
   parentSessionId String?
+  parent          InvoiceSession?  @relation("SessionClones", fields: [parentSessionId], references: [id])
+  clones          InvoiceSession[] @relation("SessionClones")
   files         InvoiceFile[]
   scanItems     InvoiceScanItem[]
   priceAlerts   PriceAlert[]
@@ -317,6 +319,7 @@ model InvoiceScanItem {
   needsFormatConfirm Boolean        @default(false)
   sortOrder          Int            @default(0)
   revenueCenterId    String?
+  revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
 }
 
 model InventorySupplierPrice {
@@ -438,6 +441,7 @@ model RevenueCenter {
   transfersFrom    StockTransfer[]   @relation("TransferFrom")
   transfersTo      StockTransfer[]   @relation("TransferTo")
   invoiceSessions  InvoiceSession[]  @relation("SessionRC")
+  scanItems        InvoiceScanItem[] @relation("ScanItemRC")
   wastageLog       WastageLog[]      @relation("WastageRC")
   salesEntries     SalesEntry[]      @relation("SalesRC")
   countSessions    CountSession[]    @relation("CountRC")
@@ -466,4 +470,8 @@ model StockTransfer {
   quantity        Decimal
   notes           String?
   createdAt       DateTime      @default(now())
+
+  @@index([fromRcId])
+  @@index([toRcId])
+  @@index([inventoryItemId])
 }

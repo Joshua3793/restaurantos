@@ -34,10 +34,6 @@ CREATE TABLE "StockTransfer" (
 );
 
 -- AlterTable
-ALTER TABLE "InventoryItem" ADD COLUMN IF NOT EXISTS "stockAllocations" TEXT;
--- (handled via relation, no column added)
-
--- AlterTable
 ALTER TABLE "InvoiceSession" ADD COLUMN IF NOT EXISTS "revenueCenterId" TEXT,
 ADD COLUMN IF NOT EXISTS "parentSessionId" TEXT;
 
@@ -82,3 +78,15 @@ ALTER TABLE "SalesEntry" ADD CONSTRAINT "SalesEntry_revenueCenterId_fkey" FOREIG
 
 -- AddForeignKey
 ALTER TABLE "CountSession" ADD CONSTRAINT "CountSession_revenueCenterId_fkey" FOREIGN KEY ("revenueCenterId") REFERENCES "RevenueCenter"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "InvoiceScanItem" ADD CONSTRAINT "InvoiceScanItem_revenueCenterId_fkey" FOREIGN KEY ("revenueCenterId") REFERENCES "RevenueCenter"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- CreateIndex
+CREATE INDEX "StockTransfer_fromRcId_idx" ON "StockTransfer"("fromRcId");
+
+-- CreateIndex
+CREATE INDEX "StockTransfer_toRcId_idx" ON "StockTransfer"("toRcId");
+
+-- CreateIndex
+CREATE INDEX "StockTransfer_inventoryItemId_idx" ON "StockTransfer"("inventoryItemId");
