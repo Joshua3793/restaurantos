@@ -63,6 +63,9 @@ export async function GET(req: NextRequest) {
   const rangeStart = new Date(startDateStr)
   const rangeEnd   = new Date(endDateStr + 'T23:59:59.999Z')
 
+  const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
+
   // All finalized sessions ordered by finalizedAt asc (Prisma returns Date objects)
   const allSessions = await prisma.countSession.findMany({
     where:   { status: 'FINALIZED' },
@@ -94,7 +97,19 @@ export async function GET(req: NextRequest) {
   let beginningValue = 0
   let beginningFallback = false
   const beginByCategory: Record<string, number> = {}
-  if (beginSession) {
+
+  if (rcId) {
+    // RC mode: use StockAllocation for beginning inventory
+    const allocations = await prisma.stockAllocation.findMany({
+      where: { revenueCenterId: rcId },
+      include: { inventoryItem: { select: { pricePerBaseUnit: true, category: true } } },
+    })
+    for (const a of allocations) {
+      const v = Number(a.quantity) * Number(a.inventoryItem.pricePerBaseUnit)
+      beginningValue += v
+      beginByCategory[a.inventoryItem.category] = (beginByCategory[a.inventoryItem.category] || 0) + v
+    }
+  } else if (beginSession) {
     for (const snap of beginSession.snapshots) {
       const v = Number(snap.totalValue)
       beginningValue += v
@@ -114,7 +129,20 @@ export async function GET(req: NextRequest) {
   let endingValue = 0
   let endingFallback = false
   const endByCategory: Record<string, number> = {}
-  if (endSession) {
+
+  if (rcId) {
+    // RC mode: same StockAllocation snapshot — we use the current allocation
+    // (same as beginning; COGS formula will net them — user should run counts first)
+    const allocations = await prisma.stockAllocation.findMany({
+      where: { revenueCenterId: rcId },
+      include: { inventoryItem: { select: { pricePerBaseUnit: true, category: true } } },
+    })
+    for (const a of allocations) {
+      const v = Number(a.quantity) * Number(a.inventoryItem.pricePerBaseUnit)
+      endingValue += v
+      endByCategory[a.inventoryItem.category] = (endByCategory[a.inventoryItem.category] || 0) + v
+    }
+  } else if (endSession) {
     for (const snap of endSession.snapshots) {
       const v = Number(snap.totalValue)
       endingValue += v
@@ -148,8 +176,11 @@ export async function GET(req: NextRequest) {
   // Also include purchases from approved InvoiceSessions (scanner invoices)
   const invoiceSessions = await prisma.invoiceSession.findMany({
     where: {
-      status:    'APPROVED',
+      status:     'APPROVED',
       approvedAt: { gte: rangeStart, lte: rangeEnd },
+      ...(rcId ? {
+        revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId,
+      } : {}),
     },
     include: {
       scanItems: {
@@ -176,7 +207,12 @@ export async function GET(req: NextRequest) {
 
   // Food sales
   const salesEntries = await prisma.salesEntry.findMany({
-    where: { date: { gte: rangeStart, lte: rangeEnd } },
+    where: {
+      date: { gte: rangeStart, lte: rangeEnd },
+      ...(rcId ? {
+        revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId,
+      } : {}),
+    },
   })
   const foodSales = salesEntries.reduce(
     (s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0
@@ -201,12 +237,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     startDate: startDateStr,
     endDate:   endDateStr,
-    beginningInventory: beginSession
-      ? { value: beginningValue, sessionDate: beginSession.sessionDate, sessionId: beginSession.id, fallback: false }
+    beginningInventory: (rcId || beginSession)
+      ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.id ?? null), fallback: false }
       : { value: beginningValue, sessionDate: null, sessionId: null, fallback: beginningFallback },
     purchases: { total: totalPurchases, invoiceCount: invoices.length + invoiceSessions.length },
-    endingInventory: endSession
-      ? { value: endingValue, sessionDate: endSession.sessionDate, sessionId: endSession.id, fallback: false }
+    endingInventory: (rcId || endSession)
+      ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.id ?? null), fallback: false }
       : { value: 0, sessionDate: null, sessionId: null, fallback: endingFallback },
     cogs,
     foodSales,
