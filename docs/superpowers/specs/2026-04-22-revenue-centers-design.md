@@ -192,22 +192,23 @@ Pull history (last 10 transfers for this item) shown in a collapsible section be
 ## Invoices
 
 ### RC Assignment
-When creating or reviewing an invoice session, the active RC is pre-assigned. The user can override it with an RC selector in the invoice header.
+The invoice-level RC always defaults to the **default RC** (main revenue center). During the existing review step (after OCR), the user can:
 
-### Line-Item RC Override
-In the invoice review UI, each line item has an optional RC selector. If set, that line item belongs to the specified RC instead of the invoice-level RC.
+1. Change the invoice-level RC if the whole invoice belongs to a different RC
+2. Override individual line items to a different RC, specifying the quantity attributed to each RC
 
 ### Clone Invoice Generation
-When an invoice is approved and some line items have a different RC than the invoice-level RC:
+On invoice approval (the existing approve flow), the system inspects line-item RC overrides. For each RC that has at least one line item attributed to it (different from the invoice-level RC):
 
-1. The original invoice session is approved normally for its RC
-2. For each RC that has overridden line items, a **clone session** is created:
+1. A **clone session** is created automatically — no separate approval step required:
    - `parentSessionId` = original session id
    - `revenueCenterId` = that RC's id
-   - Status: `APPROVED` (clones are pre-approved; they're just a cost attribution record)
-   - Contains only the line items attributed to that RC
+   - Status: `APPROVED` (immediately — clones are cost attribution records, not purchase records)
+   - Contains only the line items attributed to that RC, with their overridden quantities
 
-Clones appear in that RC's invoice list. They are read-only (editing the original regenerates clones — out of scope for v1; clones are static once created).
+2. The original session is approved normally, containing only the line items that belong to its RC.
+
+Clones are read-only. They appear in that RC's invoice list with a "copy" badge and a link back to the original.
 
 ### Invoice List
 Filtered by `activeRcId`. Clone invoices show a small "copy" badge and a link to the original.
