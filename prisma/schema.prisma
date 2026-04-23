@@ -81,6 +81,8 @@ model InventoryItem {
   supplierPrices     InventorySupplierPrice[] @relation("InventorySupplierPrices")
   priceAlerts        PriceAlert[]       @relation("InventoryPriceAlerts")
   prepItems          PrepItem[]         @relation("PrepItemInventory")
+  stockAllocations   StockAllocation[]
+  stockTransfers     StockTransfer[]
 }
 
 model Invoice {
@@ -170,6 +172,8 @@ model CountSession {
   finalizedAt       DateTime?
   totalCountedValue Decimal             @default(0)
   notes             String?
+  revenueCenterId   String?
+  revenueCenter     RevenueCenter?      @relation("CountRC", fields: [revenueCenterId], references: [id])
   lines             CountLine[]
   snapshots         InventorySnapshot[]
 }
@@ -216,6 +220,8 @@ model WastageLog {
   costImpact      Decimal       @default(0)
   loggedBy        String        @default("System")
   notes           String?
+  revenueCenterId String?
+  revenueCenter   RevenueCenter? @relation("WastageRC", fields: [revenueCenterId], references: [id])
 }
 
 model SalesEntry {
@@ -226,6 +232,8 @@ model SalesEntry {
   covers       Int?
   notes        String?
   createdAt    DateTime       @default(now())
+  revenueCenterId String?
+  revenueCenter   RevenueCenter? @relation("SalesRC", fields: [revenueCenterId], references: [id])
   lineItems    SaleLineItem[]
 }
 
@@ -261,6 +269,9 @@ model InvoiceSession {
   approvedBy    String?
   approvedAt    DateTime?
   createdAt     DateTime  @default(now())
+  revenueCenterId String?
+  revenueCenter   RevenueCenter? @relation("SessionRC", fields: [revenueCenterId], references: [id])
+  parentSessionId String?
   files         InvoiceFile[]
   scanItems     InvoiceScanItem[]
   priceAlerts   PriceAlert[]
@@ -305,6 +316,7 @@ model InvoiceScanItem {
   invoicePackUOM     String?
   needsFormatConfirm Boolean        @default(false)
   sortOrder          Int            @default(0)
+  revenueCenterId    String?
 }
 
 model InventorySupplierPrice {
@@ -413,4 +425,45 @@ model PrepSettings {
   categories String[]
   stations   String[]
   updatedAt  DateTime @updatedAt
+}
+
+model RevenueCenter {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   // "blue" | "amber" | "purple" | "green" | "rose" | "teal" | "orange" | "indigo"
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  stockAllocations StockAllocation[]
+  transfersFrom    StockTransfer[]   @relation("TransferFrom")
+  transfersTo      StockTransfer[]   @relation("TransferTo")
+  invoiceSessions  InvoiceSession[]  @relation("SessionRC")
+  wastageLog       WastageLog[]      @relation("WastageRC")
+  salesEntries     SalesEntry[]      @relation("SalesRC")
+  countSessions    CountSession[]    @relation("CountRC")
+}
+
+model StockAllocation {
+  id              String        @id @default(cuid())
+  revenueCenterId String
+  revenueCenter   RevenueCenter @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  quantity        Decimal       @default(0)
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([revenueCenterId, inventoryItemId])
+}
+
+model StockTransfer {
+  id              String        @id @default(cuid())
+  fromRcId        String
+  fromRc          RevenueCenter @relation("TransferFrom", fields: [fromRcId], references: [id])
+  toRcId          String
+  toRc            RevenueCenter @relation("TransferTo", fields: [toRcId], references: [id])
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  quantity        Decimal
+  notes           String?
+  createdAt       DateTime      @default(now())
 }
