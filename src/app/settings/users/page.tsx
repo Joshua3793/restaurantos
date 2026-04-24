@@ -30,6 +30,7 @@ export default function UsersSettingsPage() {
   const { user: currentUser } = useUser()
   const [users, setUsers] = useState<TeamUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -39,9 +40,16 @@ export default function UsersSettingsPage() {
   const [inviteResult, setInviteResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   const loadUsers = useCallback(async () => {
-    const res = await fetch('/api/settings/users')
-    if (res.ok) setUsers(await res.json())
-    setLoading(false)
+    setLoadError(null)
+    try {
+      const res = await fetch('/api/settings/users')
+      if (!res.ok) throw new Error(`Failed to load users (${res.status})`)
+      setUsers(await res.json())
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load users')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { loadUsers() }, [loadUsers])
@@ -62,7 +70,7 @@ export default function UsersSettingsPage() {
         setInviteEmail('')
         setInviteName('')
         setInviteRole('STAFF')
-        loadUsers()
+        await loadUsers()
       } else {
         setInviteResult({ ok: false, message: data.error ?? 'Failed to send invite' })
       }
@@ -74,18 +82,27 @@ export default function UsersSettingsPage() {
   }
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
-    await fetch(`/api/settings/users/${userId}`, {
+    const res = await fetch(`/api/settings/users/${userId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: newRole }),
     })
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
+    if (res.ok) {
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
+    } else {
+      // Reload to get accurate state from server
+      loadUsers()
+    }
   }
 
   const handleDeactivate = async (userId: string) => {
     if (!confirm('Deactivate this user? They will be signed out immediately.')) return
-    await fetch(`/api/settings/users/${userId}`, { method: 'DELETE' })
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, isActive: false } : u))
+    const res = await fetch(`/api/settings/users/${userId}`, { method: 'DELETE' })
+    if (res.ok) {
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, isActive: false } : u))
+    } else {
+      loadUsers()
+    }
   }
 
   return (
@@ -110,7 +127,9 @@ export default function UsersSettingsPage() {
 
         <form onSubmit={handleInvite} className="px-5 py-4 space-y-3">
           <div className="flex gap-2">
+            <label htmlFor="invite-name" className="sr-only">Name (optional)</label>
             <input
+              id="invite-name"
               type="text"
               value={inviteName}
               onChange={e => setInviteName(e.target.value)}
@@ -119,7 +138,9 @@ export default function UsersSettingsPage() {
             />
           </div>
           <div className="flex gap-2">
+            <label htmlFor="invite-email" className="sr-only">Email address</label>
             <input
+              id="invite-email"
               type="email"
               value={inviteEmail}
               onChange={e => setInviteEmail(e.target.value)}
@@ -127,7 +148,9 @@ export default function UsersSettingsPage() {
               required
               className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <label htmlFor="invite-role" className="sr-only">Role</label>
             <select
+              id="invite-role"
               value={inviteRole}
               onChange={e => setInviteRole(e.target.value as UserRole)}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
@@ -165,6 +188,10 @@ export default function UsersSettingsPage() {
 
         {loading ? (
           <div className="px-5 py-8 text-sm text-gray-400 text-center">Loading…</div>
+        ) : loadError ? (
+          <div className="px-5 py-8 text-sm text-red-500 text-center">{loadError}</div>
+        ) : users.length === 0 ? (
+          <div className="px-5 py-8 text-sm text-gray-400 text-center">No team members yet</div>
         ) : (
           <div className="divide-y divide-gray-50">
             {users.map(u => {
@@ -194,6 +221,9 @@ export default function UsersSettingsPage() {
                           Inactive
                         </span>
                       )}
+                      {/* Pending: isActive but no name — user invited but hasn't set a display name yet.
+                          Note: this heuristic cannot distinguish "never accepted invite" from
+                          "accepted but skipped name". A dedicated status field would be more precise. */}
                       {u.isActive && !u.name && (
                         <span className="text-[10px] font-semibold bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full">
                           Pending
