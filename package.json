@@ -20,6 +20,7 @@
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.1",
     "@uploadthing/react": "^7.3.3",
+    "@vercel/analytics": "^2.0.1",
     "lucide-react": "^1.7.0",
     "next": "14.2.35",
     "pdf-parse": "^2.4.5",
@@ -27,7 +28,7 @@
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^3.8.1",
-    "resend": "^6.11.0",
+    "resend": "^6.12.2",
     "sharp": "^0.34.5",
     "uploadthing": "^7.7.4",
     "xlsx": "^0.18.5"
