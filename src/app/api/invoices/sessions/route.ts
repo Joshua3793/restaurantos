@@ -2,8 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
 // GET /api/invoices/sessions — list all sessions
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
+
+  const where = rcId
+    ? (isDefault
+        ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+        : { revenueCenterId: rcId })
+    : {}
+
   const sessions = await prisma.invoiceSession.findMany({
+    where,
     orderBy: { createdAt: 'desc' },
     include: {
       files: { select: { id: true, fileName: true, ocrStatus: true } },
@@ -13,6 +24,60 @@ export async function GET() {
   return NextResponse.json(sessions, {
     headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
   })
+}
+
+// DELETE /api/invoices/sessions — bulk delete sessions by id list
+// Body: { ids: string[] }
+export async function DELETE(req: NextRequest) {
+  const { ids } = await req.json().catch(() => ({ ids: [] as string[] }))
+  if (!Array.isArray(ids) || ids.length === 0)
+    return NextResponse.json({ error: 'ids array required' }, { status: 400 })
+
+  const UNIT_CONV: Record<string, number> = {
+    ml: 1, l: 1000, liter: 1000, litre: 1000,
+    g: 1, kg: 1000, lb: 453.592, oz: 28.3495,
+    each: 1, unit: 1, pc: 1, piece: 1,
+  }
+
+  let pricesReverted = 0
+
+  for (const id of ids) {
+    const session = await prisma.invoiceSession.findUnique({
+      where: { id },
+      select: {
+        id: true, status: true,
+        scanItems: {
+          where: { action: 'UPDATE_PRICE', approved: true },
+          select: {
+            matchedItemId: true, previousPrice: true,
+            matchedItem: { select: { id: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true } },
+          },
+        },
+      },
+    })
+    if (!session) continue
+
+    if (session.status === 'APPROVED') {
+      for (const scanItem of session.scanItems) {
+        if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
+        const prevPrice = Number(scanItem.previousPrice)
+        const qty  = Number(scanItem.matchedItem.qtyPerPurchaseUnit)
+        const ps   = Number(scanItem.matchedItem.packSize)
+        const uom  = scanItem.matchedItem.packUOM?.toLowerCase() ?? 'each'
+        const conv = UNIT_CONV[uom] ?? 1
+        const divisor = qty * ps * conv
+        await prisma.inventoryItem.update({
+          where: { id: scanItem.matchedItemId },
+          data: { purchasePrice: prevPrice, pricePerBaseUnit: divisor > 0 ? prevPrice / divisor : 0 },
+        })
+        pricesReverted++
+      }
+    }
+
+    await prisma.invoiceSession.delete({ where: { id } })
+  }
+
+  return NextResponse.json({ ok: true, deleted: ids.length, pricesReverted })
 }
 
 // POST /api/invoices/sessions — create a new session

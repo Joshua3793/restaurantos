@@ -3,13 +3,21 @@ import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { calcPricePerBaseUnit } from '@/lib/utils'
+import { requireSession, AuthError } from '@/lib/auth'
 
 // POST /api/invoices/sessions/[id]/approve
 // Applies all approved scan items: updates inventory prices, creates supplier price records,
 // creates price alerts and recipe alerts.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  let currentUser
+  try { currentUser = await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json().catch(() => ({}))
-  const approvedBy: string = body.approvedBy || 'Manager'
+  const approvedBy: string = currentUser.name ?? currentUser.email
 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },

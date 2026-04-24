@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 
 // GET /api/reports/cogs-from-counts?startDate=&endDate=
 // COGS formula: Opening Stock + Purchases - Closing Stock
 // Uses finalized count sessions as opening/closing stock snapshots
 // Purchases pulled from invoices in the date range
 export async function GET(req: NextRequest) {
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')

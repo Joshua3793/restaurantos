@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -9,6 +10,12 @@ function formatCurrency(amount: number): string {
 }
 
 export async function POST(req: NextRequest) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return new Response(e.message, { status: e.status })
+    throw e
+  }
+
   try {
     const body = await req.json()
     const { messages, rcId, isDefault } = body as {

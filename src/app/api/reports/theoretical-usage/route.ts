@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost } from '@/lib/recipeCosts'
 import { convertQty } from '@/lib/uom'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')

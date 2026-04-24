@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
 // With ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD → COGS calculation
 export async function GET(req: NextRequest) {
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const startDateStr = searchParams.get('startDate')
   const endDateStr   = searchParams.get('endDate')
@@ -178,9 +185,11 @@ export async function GET(req: NextRequest) {
     where: {
       status:     'APPROVED',
       approvedAt: { gte: rangeStart, lte: rangeEnd },
-      ...(rcId ? {
-        revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId,
-      } : {}),
+      ...(rcId
+        ? (isDefault
+            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+            : { revenueCenterId: rcId })
+        : {}),
     },
     include: {
       scanItems: {
@@ -209,9 +218,11 @@ export async function GET(req: NextRequest) {
   const salesEntries = await prisma.salesEntry.findMany({
     where: {
       date: { gte: rangeStart, lte: rangeEnd },
-      ...(rcId ? {
-        revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId,
-      } : {}),
+      ...(rcId
+        ? (isDefault
+            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+            : { revenueCenterId: rcId })
+        : {}),
     },
   })
   const foodSales = salesEntries.reduce(

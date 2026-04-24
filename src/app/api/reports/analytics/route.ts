@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 
 function startOf(daysAgo: number): Date {
   const d = new Date()
@@ -14,6 +15,12 @@ function isoDate(d: Date) {
 
 // ── GET /api/reports/analytics?section=overview|sales|inventory|purchasing&days=30 ──
 export async function GET(req: NextRequest) {
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const section = searchParams.get('section') ?? 'overview'
   const days    = parseInt(searchParams.get('days') ?? '30', 10)
@@ -48,7 +55,8 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
     prisma.wastageLog.aggregate({ where: { date: { gte: prevSince, lt: since } }, _sum: { costImpact: true } }),
     prisma.inventoryItem.findMany({
       where: { isActive: true },
-      select: { stockOnHand: true, conversionFactor: true, pricePerBaseUnit: true, category: true },
+      select: { stockOnHand: true, conversionFactor: true, pricePerBaseUnit: true, category: true,
+        stockAllocations: { select: { quantity: true } } },
     }),
     prisma.priceAlert.findMany({
       where: { acknowledged: false },
@@ -83,8 +91,10 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
   const purchasesCurVal  = Number(purchasesCur._sum.rawLineTotal ?? 0)
   const purchasesPrevVal = Number(purchasesPrev._sum.rawLineTotal ?? 0)
 
-  const inventoryValue = inventoryItems.reduce((s, i) =>
-    s + Number(i.stockOnHand) * Number(i.conversionFactor) * Number(i.pricePerBaseUnit), 0)
+  const inventoryValue = inventoryItems.reduce((s, i) => {
+    const totalStock = Number(i.stockOnHand) + i.stockAllocations.reduce((a, r) => a + Number(r.quantity), 0)
+    return s + totalStock * Number(i.conversionFactor) * Number(i.pricePerBaseUnit)
+  }, 0)
 
   // Average food cost % from sales entries in period
   const salesEntries = await prisma.salesEntry.findMany({

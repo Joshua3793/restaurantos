@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Resend } from 'resend'
+import { requireSession, AuthError } from '@/lib/auth'
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n)
@@ -9,6 +10,12 @@ function formatCurrency(n: number) {
 function pct(n: number) { return `${n.toFixed(1)}%` }
 
 export async function POST(req: NextRequest) {
+  try { await requireSession('ADMIN') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json().catch(() => ({}))
   const toEmail: string = body.email ?? process.env.DIGEST_EMAIL ?? ''
 
