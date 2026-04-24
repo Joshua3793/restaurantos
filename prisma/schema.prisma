@@ -8,6 +8,23 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+model User {
+  id                String             @id
+  email             String             @unique
+  name              String?
+  role              Role               @default(STAFF)
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  chatConversations ChatConversation[]
+}
+
 model StorageArea {
   id    String          @id @default(cuid())
   name  String
@@ -20,119 +37,115 @@ model Category {
 }
 
 model Supplier {
-  id            String   @id @default(cuid())
-  name          String
-  contactName   String?
-  phone         String?
-  email         String?
-  orderPlatform String?
-  cutoffDays    String?
-  deliveryDays  String?
-  inventory        InventoryItem[]
-  invoices         Invoice[]
-  invoiceSessions  InvoiceSession[] @relation("SupplierInvoiceSessions")
-  supplierPrices   InventorySupplierPrice[]
-  aliases          SupplierAlias[]
-  createdAt        DateTime @default(now())
+  id              String                   @id @default(cuid())
+  name            String
+  contactName     String?
+  phone           String?
+  email           String?
+  orderPlatform   String?
+  cutoffDays      String?
+  deliveryDays    String?
+  createdAt       DateTime                 @default(now())
+  inventory       InventoryItem[]
+  supplierPrices  InventorySupplierPrice[]
+  invoices        Invoice[]
+  invoiceSessions InvoiceSession[]         @relation("SupplierInvoiceSessions")
+  aliases         SupplierAlias[]
 }
 
 model SupplierAlias {
   id         String   @id @default(cuid())
   supplierId String
-  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  name       String   // OCR-extracted string, e.g. "ACECARD FOOD GROUP LTD"
+  name       String
   createdAt  DateTime @default(now())
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
   @@unique([supplierId, name])
 }
 
 model InventoryItem {
-  id                 String       @id @default(cuid())
+  id                 String                   @id @default(cuid())
   itemName           String
-  category           String       @default("DRY")
+  category           String                   @default("DRY")
   supplierId         String?
-  supplier           Supplier?    @relation(fields: [supplierId], references: [id])
   storageAreaId      String?
-  storageArea        StorageArea? @relation(fields: [storageAreaId], references: [id])
   purchaseUnit       String
-  qtyPerPurchaseUnit Decimal      @default(1)
-  purchasePrice      Decimal      @default(0)
-  baseUnit           String       @default("each")
-  packSize           Decimal      @default(1)
-  packUOM            String       @default("each")
-  countUOM           String       @default("each")
-  conversionFactor   Decimal      @default(1)
-  pricePerBaseUnit   Decimal      @default(0)
-  stockOnHand        Decimal      @default(0)
-  lastUpdated        DateTime     @default(now()) @updatedAt
+  qtyPerPurchaseUnit Decimal                  @default(1)
+  purchasePrice      Decimal                  @default(0)
+  baseUnit           String                   @default("each")
+  packSize           Decimal                  @default(1)
+  packUOM            String                   @default("each")
+  countUOM           String                   @default("each")
+  conversionFactor   Decimal                  @default(1)
+  pricePerBaseUnit   Decimal                  @default(0)
+  stockOnHand        Decimal                  @default(0)
+  lastUpdated        DateTime                 @default(now()) @updatedAt
   location           String?
-  allergens          String[]     @default([])
-  isActive           Boolean      @default(true)
+  isActive           Boolean                  @default(true)
   lastCountDate      DateTime?
   lastCountQty       Decimal?
-  invoiceLineItems   InvoiceLineItem[]
-  recipeIngredients  RecipeIngredient[] @relation("RecipeIngredientInventory")
-  recipe             Recipe?            @relation("RecipeInventoryItem")
-  wastageLogs        WastageLog[]
+  allergens          String[]                 @default([])
   countLines         CountLine[]
+  storageArea        StorageArea?             @relation(fields: [storageAreaId], references: [id])
+  supplier           Supplier?                @relation(fields: [supplierId], references: [id])
   snapshots          InventorySnapshot[]
-  invoiceMatches     InvoiceScanItem[]  @relation("InventoryInvoiceMatches")
-  matchRules         InvoiceMatchRule[] @relation("InventoryMatchRules")
   supplierPrices     InventorySupplierPrice[] @relation("InventorySupplierPrices")
-  priceAlerts        PriceAlert[]       @relation("InventoryPriceAlerts")
-  prepItems          PrepItem[]         @relation("PrepItemInventory")
+  invoiceLineItems   InvoiceLineItem[]
+  matchRules         InvoiceMatchRule[]       @relation("InventoryMatchRules")
+  invoiceMatches     InvoiceScanItem[]        @relation("InventoryInvoiceMatches")
+  prepItems          PrepItem[]               @relation("PrepItemInventory")
+  priceAlerts        PriceAlert[]             @relation("InventoryPriceAlerts")
+  recipe             Recipe?                  @relation("RecipeInventoryItem")
+  recipeIngredients  RecipeIngredient[]       @relation("RecipeIngredientInventory")
   stockAllocations   StockAllocation[]
   stockTransfers     StockTransfer[]
+  wastageLogs        WastageLog[]
 }
 
 model Invoice {
-  id            String          @id @default(cuid())
+  id            String            @id @default(cuid())
   supplierId    String
-  supplier      Supplier        @relation(fields: [supplierId], references: [id])
   invoiceDate   DateTime
   invoiceNumber String
   imageUrl      String?
-  totalAmount   Decimal         @default(0)
-  status        String          @default("PENDING")
+  totalAmount   Decimal           @default(0)
+  status        String            @default("PENDING")
   ocrRawData    String?
-  createdAt     DateTime        @default(now())
+  createdAt     DateTime          @default(now())
+  supplier      Supplier          @relation(fields: [supplierId], references: [id])
   lineItems     InvoiceLineItem[]
 }
 
 model InvoiceLineItem {
   id              String        @id @default(cuid())
   invoiceId       String
-  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   inventoryItemId String
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
   qtyPurchased    Decimal
   unitPrice       Decimal
   lineTotal       Decimal       @default(0)
   priceOverride   Decimal?
   rawDescription  String?
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
 
 model RecipeCategory {
   id              String         @id @default(uuid())
   name            String
-  type            String         // 'PREP' | 'MENU'
+  type            String
   color           String?
   sortOrder       Int            @default(0)
   revenueCenterId String?
-  revenueCenter   RevenueCenter? @relation("MenuCategoryRC", fields: [revenueCenterId], references: [id])
   recipes         Recipe[]
+  revenueCenter   RevenueCenter? @relation("MenuCategoryRC", fields: [revenueCenterId], references: [id])
 }
 
 model Recipe {
   id              String             @id @default(uuid())
   name            String
-  type            String             // 'PREP' | 'MENU'
+  type            String
   categoryId      String
-  category        RecipeCategory     @relation(fields: [categoryId], references: [id])
   inventoryItemId String?            @unique
-  inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
-  revenueCenterId String?
-  revenueCenter   RevenueCenter?     @relation("MenuRC", fields: [revenueCenterId], references: [id])
   baseYieldQty    Decimal
   yieldUnit       String
   portionSize     Decimal?
@@ -142,26 +155,30 @@ model Recipe {
   notes           String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
-  ingredients     RecipeIngredient[] @relation("RecipeToIngredients")
-  usedInRecipes   RecipeIngredient[] @relation("RecipeAsIngredient")
-  saleLineItems   SaleLineItem[]
-  recipeAlerts    RecipeAlert[]      @relation("RecipeAlerts")
+  revenueCenterId String?
   prepItems       PrepItem[]         @relation("PrepItemRecipe")
+  category        RecipeCategory     @relation(fields: [categoryId], references: [id])
+  inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
+  revenueCenter   RevenueCenter?     @relation("MenuRC", fields: [revenueCenterId], references: [id])
+  recipeAlerts    RecipeAlert[]      @relation("RecipeAlerts")
+  usedInRecipes   RecipeIngredient[] @relation("RecipeAsIngredient")
+  ingredients     RecipeIngredient[] @relation("RecipeToIngredients")
+  saleLineItems   SaleLineItem[]
 }
 
 model RecipeIngredient {
   id              String         @id @default(uuid())
   recipeId        String
-  recipe          Recipe         @relation("RecipeToIngredients", fields: [recipeId], references: [id], onDelete: Cascade)
   inventoryItemId String?
-  inventoryItem   InventoryItem? @relation("RecipeIngredientInventory", fields: [inventoryItemId], references: [id])
   linkedRecipeId  String?
-  linkedRecipe    Recipe?        @relation("RecipeAsIngredient", fields: [linkedRecipeId], references: [id])
   qtyBase         Decimal
   unit            String
   sortOrder       Int            @default(0)
   notes           String?
   recipePercent   Decimal?
+  inventoryItem   InventoryItem? @relation("RecipeIngredientInventory", fields: [inventoryItemId], references: [id])
+  linkedRecipe    Recipe?        @relation("RecipeAsIngredient", fields: [linkedRecipeId], references: [id])
+  recipe          Recipe         @relation("RecipeToIngredients", fields: [recipeId], references: [id], onDelete: Cascade)
 }
 
 model CountSession {
@@ -177,17 +194,15 @@ model CountSession {
   totalCountedValue Decimal             @default(0)
   notes             String?
   revenueCenterId   String?
-  revenueCenter     RevenueCenter?      @relation("CountRC", fields: [revenueCenterId], references: [id])
   lines             CountLine[]
+  revenueCenter     RevenueCenter?      @relation("CountRC", fields: [revenueCenterId], references: [id])
   snapshots         InventorySnapshot[]
 }
 
 model CountLine {
   id              String        @id @default(uuid())
   sessionId       String
-  session         CountSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   inventoryItemId String
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
   expectedQty     Decimal
   countedQty      Decimal?
   selectedUom     String
@@ -197,175 +212,167 @@ model CountLine {
   priceAtCount    Decimal
   notes           String?
   sortOrder       Int           @default(0)
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  session         CountSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model InventorySnapshot {
   id               String        @id @default(uuid())
   sessionId        String
-  session          CountSession  @relation(fields: [sessionId], references: [id])
   inventoryItemId  String
-  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
   snapshotDate     DateTime
   qtyOnHand        Decimal
   unit             String
   pricePerBaseUnit Decimal
   totalValue       Decimal
   category         String
+  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  session          CountSession  @relation(fields: [sessionId], references: [id])
 }
 
 model WastageLog {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   inventoryItemId String
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
-  date            DateTime      @default(now())
+  date            DateTime       @default(now())
   qtyWasted       Decimal
   unit            String
-  reason          String        @default("UNKNOWN")
-  costImpact      Decimal       @default(0)
-  loggedBy        String        @default("System")
+  reason          String         @default("UNKNOWN")
+  costImpact      Decimal        @default(0)
+  loggedBy        String         @default("System")
   notes           String?
   revenueCenterId String?
+  inventoryItem   InventoryItem  @relation(fields: [inventoryItemId], references: [id])
   revenueCenter   RevenueCenter? @relation("WastageRC", fields: [revenueCenterId], references: [id])
 }
 
 model SalesEntry {
-  id           String         @id @default(cuid())
-  date         DateTime
-  totalRevenue Decimal
-  foodSalesPct Decimal        @default(0.7)
-  covers       Int?
-  notes        String?
-  createdAt    DateTime       @default(now())
+  id              String         @id @default(cuid())
+  date            DateTime
+  totalRevenue    Decimal
+  foodSalesPct    Decimal        @default(0.7)
+  covers          Int?
+  notes           String?
+  createdAt       DateTime       @default(now())
   revenueCenterId String?
+  lineItems       SaleLineItem[]
   revenueCenter   RevenueCenter? @relation("SalesRC", fields: [revenueCenterId], references: [id])
-  lineItems    SaleLineItem[]
 }
 
 model SaleLineItem {
   id       String     @id @default(uuid())
   saleId   String
-  sale     SalesEntry @relation(fields: [saleId], references: [id], onDelete: Cascade)
   recipeId String
-  recipe   Recipe     @relation(fields: [recipeId], references: [id])
   qtySold  Int        @default(0)
+  recipe   Recipe     @relation(fields: [recipeId], references: [id])
+  sale     SalesEntry @relation(fields: [saleId], references: [id], onDelete: Cascade)
 }
 
-// ── Invoice Scanner ───────────────────────────────────────────────────────────
-// Note: SQLite doesn't support enums — all enum-like fields use String with constants
-
-// InvoiceStatus: UPLOADING | PROCESSING | REVIEW | APPROVED | REJECTED
-// OcrStatus:     PENDING | PROCESSING | COMPLETE | ERROR
-// MatchConfidence: HIGH | MEDIUM | LOW | NONE
-// LineItemAction: PENDING | UPDATE_PRICE | ADD_SUPPLIER | CREATE_NEW | SKIP
-// AlertDirection: UP | DOWN
-
 model InvoiceSession {
-  id            String    @id @default(uuid())
-  status        String    @default("UPLOADING")
-  supplierName  String?
-  supplierId    String?
-  supplier      Supplier? @relation("SupplierInvoiceSessions", fields: [supplierId], references: [id])
-  invoiceDate   String?
-  invoiceNumber String?
-  subtotal      Decimal?
-  tax           Decimal?
-  total         Decimal?
-  approvedBy    String?
-  approvedAt    DateTime?
-  createdAt     DateTime  @default(now())
-  revenueCenterId String?
-  revenueCenter   RevenueCenter? @relation("SessionRC", fields: [revenueCenterId], references: [id])
+  id              String            @id @default(uuid())
+  status          String            @default("UPLOADING")
+  supplierName    String?
+  supplierId      String?
+  invoiceDate     String?
+  invoiceNumber   String?
+  subtotal        Decimal?
+  tax             Decimal?
+  total           Decimal?
+  approvedBy      String?
+  approvedAt      DateTime?
+  createdAt       DateTime          @default(now())
   parentSessionId String?
-  parent          InvoiceSession?  @relation("SessionClones", fields: [parentSessionId], references: [id])
-  clones          InvoiceSession[] @relation("SessionClones")
-  files         InvoiceFile[]
-  scanItems     InvoiceScanItem[]
-  priceAlerts   PriceAlert[]
-  recipeAlerts  RecipeAlert[]
+  revenueCenterId String?
+  files           InvoiceFile[]
+  scanItems       InvoiceScanItem[]
+  parent          InvoiceSession?   @relation("SessionClones", fields: [parentSessionId], references: [id])
+  clones          InvoiceSession[]  @relation("SessionClones")
+  revenueCenter   RevenueCenter?    @relation("SessionRC", fields: [revenueCenterId], references: [id])
+  supplier        Supplier?         @relation("SupplierInvoiceSessions", fields: [supplierId], references: [id])
+  priceAlerts     PriceAlert[]
+  recipeAlerts    RecipeAlert[]
 }
 
 model InvoiceFile {
-  id          String         @id @default(uuid())
-  sessionId   String
-  session     InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  fileName    String
-  fileType    String
-  fileUrl     String         // UploadThing CDN URL
-  ocrStatus   String         @default("PENDING")
-  ocrRawJson  String?
-  createdAt   DateTime       @default(now())
+  id         String         @id @default(uuid())
+  sessionId  String
+  fileName   String
+  fileType   String
+  fileUrl    String
+  ocrStatus  String         @default("PENDING")
+  ocrRawJson String?
+  createdAt  DateTime       @default(now())
+  session    InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model InvoiceScanItem {
-  id              String         @id @default(uuid())
-  sessionId       String
-  session         InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  rawDescription  String
-  rawQty          Decimal?
-  rawUnit         String?
-  rawUnitPrice    Decimal?
-  rawLineTotal    Decimal?
-  matchedItemId   String?
-  matchedItem     InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
-  matchConfidence String         @default("NONE")
-  matchScore      Int            @default(0)
-  action          String         @default("PENDING")
-  approved        Boolean        @default(false)
-  isNewItem       Boolean        @default(false)
-  newItemData     String?        // JSON
-  previousPrice   Decimal?
-  newPrice        Decimal?
-  priceDiffPct    Decimal?
+  id                 String         @id @default(uuid())
+  sessionId          String
+  rawDescription     String
+  rawQty             Decimal?
+  rawUnit            String?
+  rawUnitPrice       Decimal?
+  rawLineTotal       Decimal?
+  matchedItemId      String?
+  matchConfidence    String         @default("NONE")
+  matchScore         Int            @default(0)
+  action             String         @default("PENDING")
+  approved           Boolean        @default(false)
+  isNewItem          Boolean        @default(false)
+  newItemData        String?
+  previousPrice      Decimal?
+  newPrice           Decimal?
+  priceDiffPct       Decimal?
   formatMismatch     Boolean        @default(false)
+  sortOrder          Int            @default(0)
   invoicePackQty     Decimal?
   invoicePackSize    Decimal?
   invoicePackUOM     String?
   needsFormatConfirm Boolean        @default(false)
-  sortOrder          Int            @default(0)
   revenueCenterId    String?
+  matchedItem        InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
   revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
+  session            InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model InventorySupplierPrice {
   id               String        @id @default(uuid())
   inventoryItemId  String
-  inventoryItem    InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
   supplierName     String
   supplierId       String?
-  supplier         Supplier?     @relation(fields: [supplierId], references: [id])
   lastPrice        Decimal
   pricePerBaseUnit Decimal
   lastUpdated      DateTime      @default(now())
   isPrimary        Boolean       @default(false)
+  inventoryItem    InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  supplier         Supplier?     @relation(fields: [supplierId], references: [id])
 }
 
 model PriceAlert {
   id              String         @id @default(uuid())
   sessionId       String
-  session         InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   inventoryItemId String
-  inventoryItem   InventoryItem  @relation("InventoryPriceAlerts", fields: [inventoryItemId], references: [id])
   previousPrice   Decimal
   newPrice        Decimal
   changePct       Decimal
   direction       String
   acknowledged    Boolean        @default(false)
   createdAt       DateTime       @default(now())
+  inventoryItem   InventoryItem  @relation("InventoryPriceAlerts", fields: [inventoryItemId], references: [id])
+  session         InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
-// Learned invoice→inventory matches. Built up each time a user confirms/overrides a match.
 model InvoiceMatchRule {
   id              String        @id @default(cuid())
   rawDescription  String
-  supplierName    String        @default("")   // empty string = no supplier
+  supplierName    String        @default("")
   inventoryItemId String
-  inventoryItem   InventoryItem @relation("InventoryMatchRules", fields: [inventoryItemId], references: [id])
-  invoicePackQty  Decimal?
-  invoicePackSize Decimal?
-  invoicePackUOM  String?
   useCount        Int           @default(1)
   lastUsed        DateTime      @default(now())
   createdAt       DateTime      @default(now())
+  invoicePackQty  Decimal?
+  invoicePackSize Decimal?
+  invoicePackUOM  String?
+  inventoryItem   InventoryItem @relation("InventoryMatchRules", fields: [inventoryItemId], references: [id])
 
   @@unique([rawDescription, supplierName])
 }
@@ -373,9 +380,7 @@ model InvoiceMatchRule {
 model RecipeAlert {
   id                String         @id @default(uuid())
   sessionId         String
-  session           InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   recipeId          String
-  recipe            Recipe         @relation("RecipeAlerts", fields: [recipeId], references: [id])
   previousCost      Decimal
   newCost           Decimal
   changePct         Decimal
@@ -383,15 +388,15 @@ model RecipeAlert {
   exceededThreshold Boolean        @default(false)
   acknowledged      Boolean        @default(false)
   createdAt         DateTime       @default(now())
+  recipe            Recipe         @relation("RecipeAlerts", fields: [recipeId], references: [id])
+  session           InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model PrepItem {
   id                     String         @id @default(uuid())
   name                   String
   linkedRecipeId         String?
-  linkedRecipe           Recipe?        @relation("PrepItemRecipe", fields: [linkedRecipeId], references: [id])
   linkedInventoryItemId  String?
-  linkedInventoryItem    InventoryItem? @relation("PrepItemInventory", fields: [linkedInventoryItemId], references: [id])
   category               String         @default("MISC")
   station                String?
   parLevel               Decimal        @default(0)
@@ -399,19 +404,20 @@ model PrepItem {
   minThreshold           Decimal        @default(0)
   targetToday            Decimal?
   shelfLifeDays          Int?
-  estimatedPrepTime      Int?
   notes                  String?
   manualPriorityOverride String?
   isActive               Boolean        @default(true)
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
+  estimatedPrepTime      Int?
+  linkedInventoryItem    InventoryItem? @relation("PrepItemInventory", fields: [linkedInventoryItemId], references: [id])
+  linkedRecipe           Recipe?        @relation("PrepItemRecipe", fields: [linkedRecipeId], references: [id])
   logs                   PrepLog[]
 }
 
 model PrepLog {
   id                String   @id @default(uuid())
   prepItemId        String
-  prepItem          PrepItem @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
   logDate           DateTime
   status            String   @default("NOT_STARTED")
   requiredQty       Decimal?
@@ -423,6 +429,7 @@ model PrepLog {
   inventoryAdjusted Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  prepItem          PrepItem @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
 
   @@unique([prepItemId, logDate])
 }
@@ -435,38 +442,37 @@ model PrepSettings {
 }
 
 model RevenueCenter {
-  id                String   @id @default(cuid())
+  id                String            @id @default(cuid())
   name              String
-  color             String   // "blue" | "amber" | "purple" | "green" | "rose" | "teal" | "orange" | "indigo"
-  isDefault         Boolean  @default(false)
-  isActive          Boolean  @default(true)
-  type              String   @default("other") // "restaurant" | "catering" | "events" | "retail" | "other"
+  color             String
+  isDefault         Boolean           @default(false)
+  createdAt         DateTime          @default(now())
   description       String?
+  isActive          Boolean           @default(true)
   managerName       String?
-  targetFoodCostPct Decimal?
   notes             String?
-  createdAt         DateTime @default(now())
-
-  stockAllocations StockAllocation[]
-  transfersFrom    StockTransfer[]   @relation("TransferFrom")
-  transfersTo      StockTransfer[]   @relation("TransferTo")
-  invoiceSessions  InvoiceSession[]  @relation("SessionRC")
-  scanItems        InvoiceScanItem[] @relation("ScanItemRC")
-  wastageLog       WastageLog[]      @relation("WastageRC")
-  salesEntries     SalesEntry[]      @relation("SalesRC")
-  countSessions    CountSession[]    @relation("CountRC")
-  menuRecipes      Recipe[]          @relation("MenuRC")
-  menuCategories   RecipeCategory[]  @relation("MenuCategoryRC")
+  targetFoodCostPct Decimal?
+  type              String            @default("other")
+  countSessions     CountSession[]    @relation("CountRC")
+  scanItems         InvoiceScanItem[] @relation("ScanItemRC")
+  invoiceSessions   InvoiceSession[]  @relation("SessionRC")
+  menuRecipes       Recipe[]          @relation("MenuRC")
+  menuCategories    RecipeCategory[]  @relation("MenuCategoryRC")
+  salesEntries      SalesEntry[]      @relation("SalesRC")
+  stockAllocations  StockAllocation[]
+  transfersFrom     StockTransfer[]   @relation("TransferFrom")
+  transfersTo       StockTransfer[]   @relation("TransferTo")
+  wastageLog        WastageLog[]      @relation("WastageRC")
 }
 
 model StockAllocation {
   id              String        @id @default(cuid())
   revenueCenterId String
-  revenueCenter   RevenueCenter @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
   inventoryItemId String
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   quantity        Decimal       @default(0)
   updatedAt       DateTime      @updatedAt
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  revenueCenter   RevenueCenter @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
 
   @@unique([revenueCenterId, inventoryItemId])
 }
@@ -474,14 +480,14 @@ model StockAllocation {
 model StockTransfer {
   id              String        @id @default(cuid())
   fromRcId        String
-  fromRc          RevenueCenter @relation("TransferFrom", fields: [fromRcId], references: [id])
   toRcId          String
-  toRc            RevenueCenter @relation("TransferTo", fields: [toRcId], references: [id])
   inventoryItemId String
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
   quantity        Decimal
   notes           String?
   createdAt       DateTime      @default(now())
+  fromRc          RevenueCenter @relation("TransferFrom", fields: [fromRcId], references: [id])
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  toRc            RevenueCenter @relation("TransferTo", fields: [toRcId], references: [id])
 
   @@index([fromRcId])
   @@index([toRcId])
@@ -490,6 +496,8 @@ model StockTransfer {
 
 model ChatConversation {
   id        String        @id @default(cuid())
+  userId    String?
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   title     String
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -499,8 +507,8 @@ model ChatConversation {
 model ChatMessage {
   id             String           @id @default(cuid())
   conversationId String
-  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String
   content        String
   createdAt      DateTime         @default(now())
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
