@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const items = await prisma.inventoryItem.findMany({
     include: { supplier: true, storageArea: true },
