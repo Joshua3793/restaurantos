@@ -1,10 +1,11 @@
 'use client'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ChefHat } from 'lucide-react'
+import { Suspense } from 'react'
 
-export default function LoginPage() {
+function LoginPageInner() {
   const [mode, setMode] = useState<'login' | 'forgot'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -12,6 +13,8 @@ export default function LoginPage() {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlError = searchParams.get('error')
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -59,6 +62,16 @@ export default function LoginPage() {
 
         {mode === 'login' ? (
           <form onSubmit={handleLogin} className="space-y-4">
+            {urlError === 'invalid_link' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                This link has expired or is invalid. Please request a new invite.
+              </div>
+            )}
+            {urlError === 'deactivated' && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+                Your account has been deactivated. Please contact your admin.
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                 Email
@@ -142,5 +155,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
   )
 }
