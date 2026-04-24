@@ -54,7 +54,9 @@ export async function middleware(request: NextRequest) {
   }
 
   // Deactivated users → redirect to login
-  if (user.user_metadata?.isActive === false) {
+  // Use !== true (not === false) so a missing isActive key is also treated as
+  // blocked — e.g. the first admin created manually without setting metadata.
+  if (user.user_metadata?.isActive !== true) {
     return NextResponse.redirect(new URL('/login?error=deactivated', request.url))
   }
 
