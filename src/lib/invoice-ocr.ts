@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 
 // Use the fastest vision-capable model for daily invoice scanning
-const OCR_MODEL = 'claude-opus-4-6'
+const OCR_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 8096
 
 // Claude API limit is 5MB per image. Phone photos are often 8–15MB.
