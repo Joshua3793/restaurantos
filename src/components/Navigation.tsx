@@ -5,12 +5,13 @@ import { useState, Suspense } from 'react'
 import {
   LayoutDashboard, Package, FileText, Trash2, BarChart3,
   ClipboardList, BookOpen, UtensilsCrossed, MoreHorizontal,
-  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, Layers,
+  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
+import { useUser } from '@/contexts/UserContext'
 
 type NavItem = {
   href: string
@@ -33,7 +34,6 @@ const navItems: NavItem[] = [
   { href: '/reports',                    label: 'Reports',      icon: BarChart3 },
   { href: '/reports/theoretical-usage', label: 'Usage Report', icon: TrendingUp },
   { href: '/settings',                   label: 'Settings',     icon: Settings,        dividerBefore: true },
-  { href: '/revenue-centers',            label: 'Rev. Centers', icon: Layers },
 ]
 
 // Roadmap spec: Dashboard / Inventory / Count (center) / Invoices / Reports
@@ -55,7 +55,6 @@ const mobileMore: NavItem[] = [
   { href: '/wastage',                    label: 'Wastage',      icon: Trash2 },
   { href: '/reports/theoretical-usage', label: 'Usage Report', icon: TrendingUp },
   { href: '/settings',                   label: 'Settings',     icon: Settings },
-  { href: '/revenue-centers',            label: 'Rev. Centers', icon: Layers },
 ]
 
 export function Navigation() {
@@ -70,9 +69,18 @@ function NavigationInner() {
   const pathname = usePathname()
   const [moreOpen, setMoreOpen] = useState(false)
   const { activeRc } = useRc()
+  const { role } = useUser()
 
   const isActive = (item: NavItem) => pathname === item.href || pathname.startsWith(item.href + '/')
-  const moreIsActive = mobileMore.some(isActive)
+
+  const visibleNavItems = navItems.filter(item =>
+    item.href !== '/settings' || role === 'ADMIN'
+  )
+  const visibleMobileMore = mobileMore.filter(item =>
+    item.href !== '/settings' || role === 'ADMIN'
+  )
+
+  const moreIsActive = visibleMobileMore.some(isActive)
 
   return (
     <>
@@ -89,7 +97,7 @@ function NavigationInner() {
         </div>
         <RcSelector />
         <nav className="flex-1 p-3">
-          {navItems.map(item => {
+          {visibleNavItems.map(item => {
             const active = isActive(item)
             const { href, label, icon: Icon } = item
             return (
@@ -97,9 +105,13 @@ function NavigationInner() {
                 {item.dividerBefore && <div className="my-2 border-t border-gray-700/60" />}
                 <Link
                   href={href}
-                  style={active ? { borderLeftColor: rcHex(activeRc?.color ?? 'blue'), borderLeftWidth: 3 } : undefined}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    active ? 'bg-blue-600 text-white pl-[9px]' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                  style={active ? {
+                    borderLeftColor: rcHex(activeRc?.color ?? 'blue'),
+                    borderLeftWidth: 4,
+                    backgroundColor: `${rcHex(activeRc?.color ?? 'blue')}30`,
+                  } : undefined}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    active ? 'text-white pl-[8px]' : 'text-gray-400 hover:bg-gray-800 hover:text-white font-normal'
                   }`}
                 >
                   <Icon size={18} />
@@ -158,7 +170,7 @@ function NavigationInner() {
               </button>
             </div>
             <div className="px-4 pb-8 grid grid-cols-3 gap-3">
-              {mobileMore.map(item => {
+              {visibleMobileMore.map(item => {
                 const active = isActive(item)
                 const { href, label, icon: Icon } = item
                 return (
