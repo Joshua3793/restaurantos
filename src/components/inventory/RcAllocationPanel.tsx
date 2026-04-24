@@ -21,11 +21,14 @@ interface Transfer {
 
 interface Props {
   itemId: string
-  baseUnit: string
+  stockOnHand: number
+  countUOM: string
+  defaultRcId: string | null
+  onPulled: () => void
 }
 
-export function RcAllocationPanel({ itemId, baseUnit }: Props) {
-  const { revenueCenters, activeRcId } = useRc()
+export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, onPulled }: Props) {
+  const { revenueCenters } = useRc()
   const [allocations, setAllocations] = useState<Allocation[]>([])
   const [transfers, setTransfers]     = useState<Transfer[]>([])
   const [showHistory, setShowHistory] = useState(false)
@@ -46,17 +49,16 @@ export function RcAllocationPanel({ itemId, baseUnit }: Props) {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const handlePull = async () => {
-    if (!pullRcId || !pullQty) return
+  const handlePull = async (rcId: string) => {
+    if (!pullQty) return
     setPulling(true)
     setPullError('')
-    const res = await fetch('/api/stock-transfers', {
+    const res = await fetch('/api/stock-allocations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        fromRcId: pullRcId,
-        toRcId: activeRcId,
         inventoryItemId: itemId,
+        rcId,
         quantity: parseFloat(pullQty),
         notes: pullNotes || null,
       }),
@@ -64,13 +66,15 @@ export function RcAllocationPanel({ itemId, baseUnit }: Props) {
     setPulling(false)
     if (!res.ok) {
       const d = await res.json()
-      setPullError(d.error || 'Transfer failed')
+      setPullError(d.error || 'Pull failed')
       return
     }
     setPullRcId(null)
     setPullQty('')
     setPullNotes('')
+    setPullError('')
     loadData()
+    onPulled()
   }
 
   return (
@@ -81,33 +85,48 @@ export function RcAllocationPanel({ itemId, baseUnit }: Props) {
 
       <div className="divide-y divide-gray-50">
         {revenueCenters.map(rc => {
+          const isDefaultRc = rc.id === defaultRcId
           const alloc = allocations.find(a => a.revenueCenterId === rc.id)
-          const qty   = alloc ? Number(alloc.quantity) : 0
-          const isActive = rc.id === activeRcId
+          const qty = isDefaultRc
+            ? stockOnHand
+            : alloc ? Number(alloc.quantity) : 0
           const isPulling = pullRcId === rc.id
 
           return (
             <div key={rc.id} className="px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
-                <span className={`flex-1 text-sm ${isActive ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
-                  {rc.name} {isActive && <span className="text-xs text-blue-500 font-normal ml-1">active</span>}
+                <span className={`flex-1 text-sm ${isDefaultRc ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+                  {rc.name}
+                  {isDefaultRc && <span className="text-xs text-gray-400 font-normal ml-1">main pool</span>}
                 </span>
                 <span className="text-sm font-medium text-gray-700">
-                  {qty.toFixed(2)} {baseUnit}
+                  {qty.toFixed(2)} <span className="text-xs text-gray-400">{countUOM}</span>
                 </span>
-                {!isActive && (
+                {!isDefaultRc && (
                   <button
-                    onClick={() => setPullRcId(isPulling ? null : rc.id)}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5"
+                    onClick={() => {
+                      setPullRcId(isPulling ? null : rc.id)
+                      setPullQty('')
+                      setPullNotes('')
+                      setPullError('')
+                    }}
+                    className={`text-xs font-medium flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors ${
+                      isPulling
+                        ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100'
+                    }`}
                   >
-                    Pull <ArrowRight size={12} />
+                    Pull <ArrowRight size={11} />
                   </button>
                 )}
               </div>
 
               {isPulling && (
-                <div className="mt-2 pl-4 space-y-2">
+                <div className="mt-3 pl-4 space-y-2">
+                  <div className="text-xs text-gray-500">
+                    Available: <span className="font-medium text-gray-700">{stockOnHand.toFixed(2)} {countUOM}</span>
+                  </div>
                   <div className="flex gap-2">
                     <input
                       type="number"
@@ -115,11 +134,14 @@ export function RcAllocationPanel({ itemId, baseUnit }: Props) {
                       step="any"
                       value={pullQty}
                       onChange={e => setPullQty(e.target.value)}
-                      placeholder={`Qty (${baseUnit})`}
+                      placeholder="Quantity"
                       className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    <div className="flex items-center justify-center px-2.5 bg-gray-100 rounded-lg text-sm text-gray-600 font-medium shrink-0">
+                      {countUOM}
+                    </div>
                     <button
-                      onClick={handlePull}
+                      onClick={() => handlePull(rc.id)}
                       disabled={pulling || !pullQty}
                       className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
                     >
@@ -158,7 +180,7 @@ export function RcAllocationPanel({ itemId, baseUnit }: Props) {
                   <ArrowRight size={10} />
                   <span style={{ color: rcHex(t.toRc.color) }}>●</span>
                   {t.toRc.name}
-                  <span className="ml-auto font-medium">{Number(t.quantity).toFixed(2)}</span>
+                  <span className="ml-auto font-medium">{Number(t.quantity).toFixed(2)} {countUOM}</span>
                 </div>
               ))}
             </div>

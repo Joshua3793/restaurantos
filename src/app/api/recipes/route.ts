@@ -9,6 +9,10 @@ export async function GET(req: NextRequest) {
   const categoryId = searchParams.get('categoryId')
   const isActiveParam = searchParams.get('isActive')
   const search = searchParams.get('search')
+  const rcId = searchParams.get('rcId') || ''
+
+  // Only filter by RC for MENU recipes; PREP recipes are shared across all RCs
+  const rcFilter = (rcId && type === 'MENU') ? { revenueCenterId: rcId } : {}
 
   const recipes = await prisma.recipe.findMany({
     where: {
@@ -16,6 +20,7 @@ export async function GET(req: NextRequest) {
       ...(categoryId ? { categoryId } : {}),
       ...(isActiveParam !== null ? { isActive: isActiveParam === 'true' } : {}),
       ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
+      ...rcFilter,
     },
     include: {
       category: true,
@@ -65,6 +70,7 @@ export async function GET(req: NextRequest) {
       categoryName: recipe.category.name,
       categoryColor: recipe.category.color,
       inventoryItemId: recipe.inventoryItemId,
+      revenueCenterId: recipe.revenueCenterId,
       baseYieldQty: Number(recipe.baseYieldQty),
       yieldUnit: recipe.yieldUnit,
       portionSize: recipe.portionSize !== null ? Number(recipe.portionSize) : null,
@@ -93,7 +99,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const {
     name, type, categoryId, baseYieldQty, yieldUnit,
-    portionSize, portionUnit, menuPrice, notes, isActive,
+    portionSize, portionUnit, menuPrice, notes, isActive, revenueCenterId,
   } = body
 
   if (!name || !type || !categoryId || !baseYieldQty || !yieldUnit) {
@@ -112,6 +118,7 @@ export async function POST(req: NextRequest) {
       menuPrice: menuPrice ? parseFloat(menuPrice) : null,
       notes: notes || null,
       isActive: isActive !== undefined ? isActive : true,
+      revenueCenterId: type === 'MENU' ? (revenueCenterId || null) : null,
     },
   })
 

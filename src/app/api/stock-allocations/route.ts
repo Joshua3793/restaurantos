@@ -15,3 +15,53 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(allocations)
 }
+
+// POST /api/stock-allocations — pull qty from main pool (stockOnHand) into an RC
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const { inventoryItemId, rcId, quantity, notes } = body
+
+  if (!inventoryItemId || !rcId || !quantity) {
+    return NextResponse.json(
+      { error: 'inventoryItemId, rcId, and quantity are required' },
+      { status: 400 },
+    )
+  }
+
+  const qty = parseFloat(String(quantity))
+  if (isNaN(qty) || qty <= 0) {
+    return NextResponse.json({ error: 'Quantity must be a positive number' }, { status: 400 })
+  }
+
+  const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
+  if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+
+  const available = Number(item.stockOnHand)
+  if (available < qty) {
+    return NextResponse.json(
+      { error: `Not enough stock. Available: ${available.toFixed(2)} ${item.countUOM || item.baseUnit}` },
+      { status: 400 },
+    )
+  }
+
+  const defaultRc = await prisma.revenueCenter.findFirst({ where: { isDefault: true } })
+
+  await prisma.$transaction([
+    prisma.inventoryItem.update({
+      where: { id: inventoryItemId },
+      data: { stockOnHand: { decrement: qty } },
+    }),
+    prisma.stockAllocation.upsert({
+      where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId } },
+      update: { quantity: { increment: qty } },
+      create: { revenueCenterId: rcId, inventoryItemId, quantity: qty },
+    }),
+    ...(defaultRc
+      ? [prisma.stockTransfer.create({
+          data: { fromRcId: defaultRc.id, toRcId: rcId, inventoryItemId, quantity: qty, notes: notes || null },
+        })]
+      : []),
+  ])
+
+  return NextResponse.json({ ok: true })
+}

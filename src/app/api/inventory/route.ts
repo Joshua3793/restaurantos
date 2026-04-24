@@ -4,31 +4,76 @@ import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/li
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const search = searchParams.get('search') || ''
-  const category = searchParams.get('category') || ''
-  const supplierId = searchParams.get('supplierId') || ''
+  const search      = searchParams.get('search') || ''
+  const category    = searchParams.get('category') || ''
+  const supplierId  = searchParams.get('supplierId') || ''
   const storageAreaId = searchParams.get('storageAreaId') || ''
-  const isActive = searchParams.get('isActive')
+  const isActive    = searchParams.get('isActive')
+  const rcId        = searchParams.get('rcId') || ''
+  const isDefault   = searchParams.get('isDefault') === 'true'
 
-  const items = await prisma.inventoryItem.findMany({
-    where: {
-      AND: [
-        search ? { itemName: { contains: search, mode: 'insensitive' } } : {},
-        category ? { category } : {},
-        supplierId ? { supplierId } : {},
-        storageAreaId ? { storageAreaId } : {},
-        isActive !== null && isActive !== '' ? { isActive: isActive === 'true' } : {},
-      ],
-    },
-    include: {
-      supplier: true,
-      storageArea: true,
-      recipe: { select: { id: true, name: true } },
-    },
-    orderBy: { itemName: 'asc' },
+  const itemWhere = {
+    AND: [
+      search ? { itemName: { contains: search, mode: 'insensitive' as const } } : {},
+      category ? { category } : {},
+      supplierId ? { supplierId } : {},
+      storageAreaId ? { storageAreaId } : {},
+      isActive !== null && isActive !== '' ? { isActive: isActive === 'true' } : {},
+    ],
+  }
+
+  const itemInclude = {
+    supplier: true,
+    storageArea: true,
+    recipe: { select: { id: true, name: true } },
+  }
+
+  // Non-default RC: only show items that have been allocated to this RC
+  if (rcId && !isDefault) {
+    const allocations = await prisma.stockAllocation.findMany({
+      where: { revenueCenterId: rcId },
+      include: { inventoryItem: { include: itemInclude } },
+      orderBy: [{ inventoryItem: { category: 'asc' } }, { inventoryItem: { itemName: 'asc' } }],
+    })
+    const lc = search.toLowerCase()
+    const items = allocations
+      .map(a => ({ ...a.inventoryItem, rcStock: Number(a.quantity) }))
+      .filter(i =>
+        (!search      || i.itemName?.toLowerCase().includes(lc)) &&
+        (!category    || i.category === category) &&
+        (!supplierId  || i.supplierId === supplierId) &&
+        (!storageAreaId || i.storageAreaId === storageAreaId) &&
+        (isActive === null || isActive === '' || String(i.isActive) === isActive)
+      )
+    return NextResponse.json(items, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
+  }
+
+  // Default RC (Cafe): stockOnHand IS Cafe's pool – return as-is
+  if (rcId && isDefault) {
+    const items = await prisma.inventoryItem.findMany({
+      where: itemWhere,
+      include: itemInclude,
+      orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
+    })
+    return NextResponse.json(items, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
+  }
+
+  // "All Revenue Centers": total physical stock = stockOnHand (Cafe pool) + all RC allocations
+  const rawItems = await prisma.inventoryItem.findMany({
+    where: itemWhere,
+    include: { ...itemInclude, stockAllocations: { select: { quantity: true } } },
+    orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
+  })
+  const items = rawItems.map(({ stockAllocations, ...item }) => {
+    const allocTotal = stockAllocations.reduce((s, a) => s + Number(a.quantity), 0)
+    return { ...item, stockOnHand: Number(item.stockOnHand) + allocTotal }
   })
   return NextResponse.json(items, {
-    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+    headers: { 'Cache-Control': 'no-store' },
   })
 }
 

@@ -10,6 +10,7 @@ import { CameraCapture } from '@/components/CameraCapture'
 interface Props {
   onClose: () => void
   onComplete: (newSessionId: string) => void
+  activeRcId: string | null
 }
 
 const MAX_PHOTOS = 5
@@ -20,7 +21,7 @@ const fileIcon = (fileType: string) => {
   return <Image size={16} className="text-blue-500" />
 }
 
-export function InvoiceUploadModal({ onClose, onComplete }: Props) {
+export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -82,11 +83,11 @@ export function InvoiceUploadModal({ onClose, onComplete }: Props) {
     setScanError(null)
     setNoApiKey(false)
 
-    // 1. Create session
+    // 1. Create session — tag with the active RC so it's attributable from upload
     const sess = await fetch('/api/invoices/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ revenueCenterId: activeRcId }),
     }).then(r => r.json())
 
     // 2a. Try UploadThing CDN first

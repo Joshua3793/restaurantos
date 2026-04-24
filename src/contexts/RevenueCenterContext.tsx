@@ -6,6 +6,12 @@ export interface RevenueCenter {
   name: string
   color: string
   isDefault: boolean
+  isActive: boolean
+  type: string
+  description: string | null
+  managerName: string | null
+  targetFoodCostPct: string | null  // Prisma Decimal → string in JSON
+  notes: string | null
   createdAt: string
 }
 
@@ -13,7 +19,7 @@ interface RcContextValue {
   revenueCenters: RevenueCenter[]
   activeRcId: string | null
   activeRc: RevenueCenter | null
-  setActiveRcId: (id: string) => void
+  setActiveRcId: (id: string | null) => void
   reload: () => Promise<void>
 }
 
@@ -34,6 +40,7 @@ export function RcProvider({ children }: { children: React.ReactNode }) {
     setRevenueCenters(data)
     setActiveRcIdState(prev => {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('activeRcId') : null
+      if (stored === 'all') return null
       if (stored && data.find(rc => rc.id === stored)) return stored
       return data.find(rc => rc.isDefault)?.id ?? data[0]?.id ?? null
     })
@@ -41,9 +48,12 @@ export function RcProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { load() }, [load])
 
-  const setActiveRcId = (id: string) => {
+  const setActiveRcId = (id: string | null) => {
     setActiveRcIdState(id)
-    if (typeof window !== 'undefined') localStorage.setItem('activeRcId', id)
+    if (typeof window !== 'undefined') {
+      if (id) localStorage.setItem('activeRcId', id)
+      else localStorage.setItem('activeRcId', 'all')
+    }
   }
 
   const activeRc = revenueCenters.find(rc => rc.id === activeRcId) ?? null

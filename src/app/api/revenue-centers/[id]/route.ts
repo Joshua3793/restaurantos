@@ -8,15 +8,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json(rc)
 }
 
+const RC_TYPES = ['restaurant', 'catering', 'events', 'retail', 'other'] as const
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}))
-  const { name, color, isDefault } = body
+  const { name, color, isDefault, isActive, type, description, managerName, targetFoodCostPct, notes } = body
 
   const existing = await prisma.revenueCenter.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const resolvedColor = color !== undefined
     ? (RC_COLORS.includes(color) ? color : existing.color)
+    : undefined
+  const resolvedType = type !== undefined
+    ? (RC_TYPES.includes(type) ? type : existing.type)
     : undefined
 
   const rc = await prisma.$transaction(async (tx) => {
@@ -26,9 +31,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return tx.revenueCenter.update({
       where: { id: params.id },
       data: {
-        ...(name?.trim() ? { name: name.trim() } : {}),
-        ...(resolvedColor !== undefined ? { color: resolvedColor } : {}),
-        ...(isDefault !== undefined ? { isDefault: !!isDefault } : {}),
+        ...(name?.trim()             ? { name: name.trim() }                                   : {}),
+        ...(resolvedColor !== undefined ? { color: resolvedColor }                             : {}),
+        ...(isDefault !== undefined  ? { isDefault: !!isDefault }                              : {}),
+        ...(isActive  !== undefined  ? { isActive:  !!isActive  }                              : {}),
+        ...(resolvedType !== undefined ? { type: resolvedType }                                : {}),
+        ...(description  !== undefined ? { description:       description       || null }      : {}),
+        ...(managerName  !== undefined ? { managerName:       managerName       || null }      : {}),
+        ...(targetFoodCostPct !== undefined ? { targetFoodCostPct: targetFoodCostPct != null ? parseFloat(targetFoodCostPct) : null } : {}),
+        ...(notes !== undefined      ? { notes: notes || null }                                : {}),
       },
     })
   })

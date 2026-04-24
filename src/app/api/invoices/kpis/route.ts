@@ -1,8 +1,20 @@
 // src/app/api/invoices/kpis/route.ts
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
+
+  // Session-scoped RC filter: default RC also sees legacy null-RC sessions;
+  // non-default RC sees only its own.
+  const rcWhere = rcId
+    ? (isDefault
+        ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+        : { revenueCenterId: rcId })
+    : {}
+
   const now = new Date()
 
   // ISO week: Monday-based
@@ -32,25 +44,28 @@ export async function GET() {
     lineItems,
   ] = await Promise.all([
     prisma.invoiceSession.aggregate({
-      where: { status: 'APPROVED', approvedAt: { gte: weekStart, lt: weekEnd } },
+      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: weekStart, lt: weekEnd } }, rcWhere] },
       _sum: { total: true },
     }),
     prisma.invoiceSession.aggregate({
-      where: { status: 'APPROVED', approvedAt: { gte: prevWeekStart, lt: prevWeekEnd } },
+      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: prevWeekStart, lt: prevWeekEnd } }, rcWhere] },
       _sum: { total: true },
     }),
     prisma.invoiceSession.aggregate({
-      where: { status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } },
+      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
       _sum: { total: true },
     }),
     prisma.invoiceSession.count({
-      where: { status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } },
+      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
     }),
     prisma.priceAlert.count({
-      where: { acknowledged: false },
+      where: {
+        acknowledged: false,
+        ...(rcId ? { session: rcWhere } : {}),
+      },
     }),
     prisma.invoiceSession.count({
-      where: { status: 'REVIEW' },
+      where: { AND: [{ status: 'REVIEW' }, rcWhere] },
     }),
     prisma.invoiceLineItem.findMany({
       // Invoice records are created at approval time, so createdAt ≈ approvedAt

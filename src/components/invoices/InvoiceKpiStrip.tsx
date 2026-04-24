@@ -5,17 +5,25 @@ import { formatCurrency } from '@/lib/utils'
 
 interface Props {
   refreshKey: number  // increment to trigger a refetch
+  activeRcId: string | null
+  isDefault: boolean
 }
 
-export function InvoiceKpiStrip({ refreshKey }: Props) {
+export function InvoiceKpiStrip({ refreshKey, activeRcId, isDefault }: Props) {
   const [kpis, setKpis] = useState<KpiData | null>(null)
 
   useEffect(() => {
-    fetch('/api/invoices/kpis')
+    const p = new URLSearchParams()
+    if (activeRcId) {
+      p.set('rcId', activeRcId)
+      if (isDefault) p.set('isDefault', 'true')
+    }
+    const qs = p.toString()
+    fetch(`/api/invoices/kpis${qs ? `?${qs}` : ''}`)
       .then(r => r.json())
       .then(setKpis)
       .catch(() => {})
-  }, [refreshKey])
+  }, [refreshKey, activeRcId, isDefault])
 
   const fmt = (n: number | undefined) =>
     n !== undefined ? formatCurrency(n) : '—'

@@ -1,12 +1,15 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal } from 'lucide-react'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
-import { PrepItemForm }    from '@/components/prep/PrepItemForm'
-import { PrepSettingsModal } from '@/components/prep/PrepSettingsModal'
-import { PrepDetailPanel } from '@/components/prep/PrepDetailPanel'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
+
+// Lazy-load conditional components — only mount when user opens them
+const PrepDetailPanel  = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
+const PrepItemForm     = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
+const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
 export default function PrepPage() {
   const [items,      setItems]      = useState<PrepItemRich[]>([])

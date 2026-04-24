@@ -1,11 +1,17 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { SupplierList } from '@/components/suppliers/SupplierList'
 import { SupplierDetail } from '@/components/suppliers/SupplierDetail'
-import { SupplierFormModal } from '@/components/suppliers/SupplierFormModal'
 import { SupplierSummary } from '@/components/suppliers/types'
 import { formatCurrency } from '@/lib/utils'
 import Link from 'next/link'
+
+// Lazy-load the form modal — only needed when user clicks Add or Edit
+const SupplierFormModal = dynamic(
+  () => import('@/components/suppliers/SupplierFormModal').then(m => ({ default: m.SupplierFormModal })),
+  { ssr: false, loading: () => null }
+)
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<SupplierSummary[]>([])

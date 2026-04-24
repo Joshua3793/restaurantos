@@ -18,6 +18,7 @@ export interface RecipeCategory {
   type: string
   color: string | null
   sortOrder: number
+  revenueCenterId: string | null
   _count?: { recipes: number }
 }
 
@@ -45,6 +46,7 @@ export interface Recipe {
   categoryName: string
   categoryColor: string | null
   inventoryItemId: string | null
+  revenueCenterId: string | null
   baseYieldQty: number
   yieldUnit: string
   portionSize: number | null
@@ -1322,11 +1324,12 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
 }
 
 // ─── CategoryManager ──────────────────────────────────────────────────────────
-export function CategoryManager({ type, categories, onClose, onUpdated }: {
+export function CategoryManager({ type, categories, onClose, onUpdated, revenueCenterId }: {
   type: string
   categories: RecipeCategory[]
   onClose: () => void
   onUpdated: () => void
+  revenueCenterId?: string | null
 }) {
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
@@ -1336,7 +1339,11 @@ export function CategoryManager({ type, categories, onClose, onUpdated }: {
 
   const addCat = async () => {
     if (!newName.trim()) return
-    await fetch('/api/recipes/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName, type, color: newColor }) })
+    await fetch('/api/recipes/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName, type, color: newColor, revenueCenterId: revenueCenterId ?? null }),
+    })
     setNewName(''); setAdding(false); onUpdated()
   }
 

@@ -4,6 +4,8 @@ import { useSearchParams } from 'next/navigation'
 import { Plus, X, UtensilsCrossed, Search, Pencil } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { rcHex } from '@/lib/rc-colors'
 
 export default function MenuPage() {
   return (
@@ -15,6 +17,7 @@ export default function MenuPage() {
 
 function MenuPageInner() {
   const searchParams = useSearchParams()
+  const { revenueCenters, activeRcId, activeRc } = useRc()
   const [recipes, setRecipes]             = useState<Recipe[]>([])
   const [categories, setCategories]       = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]     = useState<string | null>(null)
@@ -26,25 +29,35 @@ function MenuPageInner() {
   const [newForm, setNewForm]             = useState({
     name: '', categoryId: '', baseYieldQty: '', yieldUnit: '',
     portionSize: '', portionUnit: '', menuPrice: '', notes: '',
+    revenueCenterId: '',
   })
+
+  // Pre-fill RC in new form when active RC changes
+  useEffect(() => {
+    if (activeRcId) setNewForm(f => ({ ...f, revenueCenterId: activeRcId }))
+  }, [activeRcId])
 
   const type = 'MENU'
 
   const loadCategories = useCallback(async () => {
-    const data = await fetch('/api/recipes/categories').then(r => r.json())
+    const p = new URLSearchParams({ type })
+    if (activeRcId) p.set('rcId', activeRcId)
+    const data = await fetch(`/api/recipes/categories?${p}`).then(r => r.json())
     setCategories(Array.isArray(data) ? data : [])
-  }, [])
+  }, [activeRcId])
 
   const loadRecipes = useCallback(async () => {
     const params = new URLSearchParams({ type })
     if (!showInactive) params.set('isActive', 'true')
     if (search) params.set('search', search)
+    // Filter by active RC (skip filter when "All Revenue Centers" is selected)
+    if (activeRcId) params.set('rcId', activeRcId)
     const data = await fetch(`/api/recipes?${params}`).then(r => r.json())
     setRecipes(Array.isArray(data) ? data : [])
     // Deep-link: ?item=id selects that recipe
     const itemId = searchParams.get('item')
     if (itemId) setSelectedRecipeId(itemId)
-  }, [showInactive, search, searchParams])
+  }, [showInactive, search, searchParams, activeRcId])
 
   const displayRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
 
@@ -64,7 +77,7 @@ function MenuPageInner() {
     })
     const created = await res.json()
     setShowNewForm(false)
-    setNewForm({ name: '', categoryId: '', baseYieldQty: '', yieldUnit: '', portionSize: '', portionUnit: '', menuPrice: '', notes: '' })
+    setNewForm({ name: '', categoryId: '', baseYieldQty: '', yieldUnit: '', portionSize: '', portionUnit: '', menuPrice: '', notes: '', revenueCenterId: activeRcId || '' })
     await loadRecipes()
     await loadCategories()
     setSelectedRecipeId(created.id)
@@ -149,7 +162,7 @@ function MenuPageInner() {
         )}
       </div>
 
-      {/* ── CATEGORY FILTER PILLS ── */}
+      {/* ── CATEGORY FILTER PILLS + edit button ── */}
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => setActiveCatId(null)}
@@ -179,6 +192,14 @@ function MenuPageInner() {
             </button>
           )
         })}
+
+        <button
+          onClick={() => setShowCatManager(true)}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-gray-200 hover:border-gray-300 transition-all ml-auto"
+        >
+          <Pencil size={10} />
+          <span className="hidden sm:inline">Edit</span>
+        </button>
       </div>
 
       {/* ── SECONDARY TOOLBAR ── */}
@@ -189,32 +210,19 @@ function MenuPageInner() {
             : <>{displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} total</>
           }
         </p>
-
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowInactive(s => !s)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-              showInactive
-                ? 'bg-gray-100 text-gray-700 border border-gray-300'
-                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent'
-            }`}
-          >
-            <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-gray-600 border-gray-600' : 'border-gray-300'}`}>
-              {showInactive && <span className="text-white" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
-            </span>
-            Inactive
-          </button>
-
-          <div className="w-px h-4 bg-gray-200 mx-0.5" />
-
-          <button
-            onClick={() => setShowCatManager(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all"
-          >
-            <Pencil size={10} />
-            <span className="hidden sm:inline">Categories</span>
-          </button>
-        </div>
+        <button
+          onClick={() => setShowInactive(s => !s)}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+            showInactive
+              ? 'bg-gray-100 text-gray-700 border border-gray-300'
+              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent'
+          }`}
+        >
+          <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-gray-600 border-gray-600' : 'border-gray-300'}`}>
+            {showInactive && <span className="text-white" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
+          </span>
+          Inactive
+        </button>
       </div>
 
       {/* ── MAIN CONTENT ── */}
@@ -248,6 +256,20 @@ function MenuPageInner() {
                   >
                     <option value="">Select…</option>
                     {typeCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Revenue Center *</label>
+                  <select
+                    required
+                    value={newForm.revenueCenterId}
+                    onChange={e => setNewForm(f => ({ ...f, revenueCenterId: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">Select…</option>
+                    {revenueCenters.filter(rc => rc.isActive).map(rc => (
+                      <option key={rc.id} value={rc.id}>{rc.name}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -364,6 +386,7 @@ function MenuPageInner() {
           categories={categories}
           onClose={() => setShowCatManager(false)}
           onUpdated={loadCategories}
+          revenueCenterId={activeRcId}
         />
       )}
     </div>

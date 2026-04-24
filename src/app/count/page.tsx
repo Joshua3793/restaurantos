@@ -465,86 +465,80 @@ export default function CountPage() {
     </div>
   )
 
-  // ── Mobile full-page form (no modal height/scroll issues on iOS) ──────────
-  if (view === 'new') return (
-    <form id="new-session-form" onSubmit={handleCreate} className="flex flex-col min-h-screen bg-gray-50">
-      {/* Sticky header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => { setView('list'); setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] }) }}
-          className="p-1 -ml-1 text-gray-500 hover:text-gray-800"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-lg font-bold text-gray-900 flex-1">New count session</h1>
-      </div>
+  // ── New session form — full-page on mobile, centered card on desktop ──────
+  if (view === 'new') {
+    const cancelNew = () => { setView('list'); setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] }) }
+    return (
+      <>
+        {/* ── Mobile: full-page ── */}
+        <form id="new-session-form" onSubmit={handleCreate} className="md:hidden flex flex-col min-h-screen bg-gray-50">
+          <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-4 flex items-center gap-3">
+            <button type="button" onClick={cancelNew} className="p-1 -ml-1 text-gray-500 hover:text-gray-800">
+              <ArrowLeft size={20} />
+            </button>
+            <h1 className="text-lg font-bold text-gray-900 flex-1">New count session</h1>
+          </div>
+          <div className="flex-1 px-4 pt-6 pb-48">
+            {NewSessionFields}
+          </div>
+          <div className="fixed bottom-20 inset-x-0 bg-white border-t border-gray-100 px-4 py-4 flex gap-3 z-40">
+            <button type="button" onClick={cancelNew}
+              className="flex-1 py-3.5 border border-gray-200 rounded-2xl text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Cancel
+            </button>
+            <button type="submit"
+              className="flex-[2] py-3.5 bg-green-600 text-white rounded-2xl text-sm font-semibold hover:bg-green-700 transition-colors">
+              Start count →
+            </button>
+          </div>
+        </form>
 
-      {/* Form body — natural page scroll, no height constraint */}
-      <div className="flex-1 px-4 pt-6 pb-48 md:pb-24">
-        {NewSessionFields}
-      </div>
-
-      {/* Fixed bottom action bar — sits above the app's mobile nav bar (bottom-20) */}
-      <div className="fixed bottom-20 md:bottom-0 inset-x-0 md:max-w-md md:mx-auto bg-white border-t border-gray-100 px-4 py-4 flex gap-3 z-40">
-        <button
-          type="button"
-          onClick={() => { setView('list'); setForm({ label: '', countedBy: '', type: 'FULL', sessionDate: new Date().toISOString().slice(0, 10), areas: [] }) }}
-          className="flex-1 py-3.5 border border-gray-200 rounded-2xl text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="flex-[2] py-3.5 bg-green-600 text-white rounded-2xl text-sm font-semibold hover:bg-green-700 transition-colors"
-        >
-          Start count →
-        </button>
-      </div>
-    </form>
-  )
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // VIEW A — SESSION LIST
-  // ════════════════════════════════════════════════════════════════════════════
-  if (view === 'list') return (
-    <div className="max-w-2xl">
-      {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
-        <button
-          onClick={() => setView('new')}
-          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
-        >
-          <Plus size={16} /> Start Count
-        </button>
-      </div>
-
-      {/* Desktop-only modal (sm+ screens) */}
-      {showModal && (
-        <div className="fixed inset-0 z-40 bg-black/40 hidden sm:flex items-center justify-center">
-          <form onSubmit={handleCreate} className="bg-white w-full max-w-md mx-4 rounded-2xl shadow-2xl">
-            <div className="flex items-center gap-2 px-5 pt-5 pb-4 border-b border-gray-100">
-              <h2 className="text-base font-bold text-gray-900 flex-1">New count session</h2>
-              <button type="button" onClick={() => setShowModal(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
-            </div>
-            <div className="px-5 py-5">{NewSessionFields}</div>
-            <div className="flex gap-3 px-5 pb-5">
-              <button type="button" onClick={() => setShowModal(false)}
+        {/* ── Desktop: centered card ── */}
+        <div className="hidden md:flex flex-col gap-6 max-w-xl">
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={cancelNew} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+              <ArrowLeft size={18} />
+            </button>
+            <h1 className="text-xl font-bold text-gray-900">New count session</h1>
+          </div>
+          <form onSubmit={handleCreate} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+            {NewSessionFields}
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={cancelNew}
                 className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50">
                 Cancel
               </button>
               <button type="submit"
-                className="flex-[2] py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700">
+                className="flex-[2] py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
                 Start count →
               </button>
             </div>
           </form>
         </div>
-      )}
+      </>
+    )
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // VIEW A — SESSION LIST
+  // ════════════════════════════════════════════════════════════════════════════
+  if (view === 'list') return (
+    <div className="max-w-4xl">
+      {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Track inventory accuracy and COGS by counting your stock regularly.</p>
+        </div>
+        <button
+          onClick={() => setView('new')}
+          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+        >
+          <Plus size={16} /> Start Count
+        </button>
+      </div>
 
       {/* Session list */}
       {sessions.length === 0 ? (
@@ -634,73 +628,94 @@ export default function CountPage() {
             )
           })}
         </div>
-        <div className="hidden sm:block space-y-2">
+        <div className="hidden sm:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Table header */}
+          <div className="grid grid-cols-[120px_1fr_100px_120px_160px] gap-3 px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            <span>Date</span>
+            <span>Session</span>
+            <span>Type</span>
+            <span>Progress</span>
+            <span className="text-right">Actions</span>
+          </div>
+          <div className="divide-y divide-gray-50">
           {sessions.map(s => {
             const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
+            const pct = counts.total > 0 ? Math.round((counts.counted / counts.total) * 100) : 0
             return (
-              <div key={s.id} className="bg-white border border-gray-100 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-4">
-                <div className="text-xs text-gray-400 font-medium min-w-[44px] text-center">
-                  {fmtDate(s.sessionDate)}
+              <div key={s.id} className="grid grid-cols-[120px_1fr_100px_120px_160px] gap-3 px-5 py-3.5 items-center hover:bg-gray-50/60 transition-colors">
+                {/* Date */}
+                <div>
+                  <div className="text-sm font-medium text-gray-700">{fmtDate(s.sessionDate)}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{s.countedBy}</div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm text-gray-900 truncate">
-                    {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
+                {/* Label + status */}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900 truncate">
+                      {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
+                    </span>
+                    <StatusBadge status={s.status} />
                   </div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    {s.countedBy}
-                    {s.status === 'FINALIZED'
-                      ? ` · ${counts.total} items · ${formatCurrency(Number(s.totalCountedValue))}`
-                      : ` · ${counts.counted}/${counts.total} items`}
-                  </div>
+                  {s.status === 'FINALIZED' && (
+                    <div className="text-xs text-gray-400 mt-0.5">{counts.total} items · {formatCurrency(Number(s.totalCountedValue))}</div>
+                  )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <StatusBadge status={s.status} />
+                {/* Type */}
+                <div className="text-xs text-gray-500">{s.type === 'FULL' ? 'Full' : 'Partial'}</div>
+                {/* Progress */}
+                <div>
+                  {s.status === 'FINALIZED' ? (
+                    <span className="text-xs text-green-600 font-medium">Complete</span>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-xs text-gray-500">{counts.counted}/{counts.total}</span>
+                        <span className="text-xs text-gray-400">{pct}%</span>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 rounded-full w-full">
+                        <div className="h-1.5 bg-green-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                    </>
+                  )}
+                </div>
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-1">
                   {s.status === 'IN_PROGRESS' && (
                     <button onClick={() => openSession(s, 'count')}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 ml-1 mr-1">
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">
                       Continue →
                     </button>
                   )}
                   {s.status === 'PENDING_REVIEW' && (
                     <button onClick={() => openSession(s, 'count')}
-                      className="text-xs font-semibold text-amber-600 hover:text-amber-700 ml-1 mr-1">
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors">
                       Review →
                     </button>
                   )}
                   {s.status === 'FINALIZED' && (
                     <button onClick={() => openSession(s, 'review')}
-                      className="text-xs font-semibold text-green-700 hover:text-green-800 ml-1 mr-1">
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors">
                       Report
                     </button>
                   )}
-                  {/* Edit metadata */}
-                  <button
-                    onClick={e => { e.stopPropagation(); openEditModal(s) }}
-                    title="Edit session details"
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
-                  >
+                  <button onClick={e => { e.stopPropagation(); openEditModal(s) }} title="Edit"
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-blue-500 transition-colors">
                     <Pencil size={13} />
                   </button>
-                  {/* Reopen & edit counts */}
-                  <button
-                    onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
-                    title={s.status === 'FINALIZED' ? 'Reopen & edit counts' : 'Edit counts'}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-amber-600 transition-colors"
-                  >
+                  <button onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
+                    title={s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-amber-500 transition-colors">
                     <ClipboardList size={13} />
                   </button>
-                  {/* Delete */}
-                  <button
-                    onClick={e => { e.stopPropagation(); setDeleteTarget(s) }}
-                    title="Delete session"
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
-                  >
+                  <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} title="Delete"
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-red-500 transition-colors">
                     <Trash2 size={13} />
                   </button>
                 </div>
               </div>
             )
           })}
+          </div>
         </div>
         </>
       )}
@@ -1064,17 +1079,53 @@ export default function CountPage() {
       )
     }
 
+    const DesktopItems = () => (
+      <>
+        {catFilter ? (
+          filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderLine)
+        ) : (
+          !grouped || Object.keys(grouped).length === 0 ? <Empty /> :
+          Object.entries(grouped)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([cat, lines]) => {
+              const catDone = lines.filter(l => l.countedQty !== null || l.skipped).length
+              return (
+                <div key={cat} className="mb-2">
+                  <div className="flex items-center gap-2 px-4 py-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">{cat}</span>
+                    <span className="text-xs text-gray-400">{catDone}/{lines.length}</span>
+                    <div className="flex-1 max-w-[80px] h-1 bg-gray-100 rounded-full ml-1">
+                      <div className="h-1 bg-green-400 rounded-full"
+                        style={{ width: `${lines.length > 0 ? (catDone / lines.length) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                  {lines.map(renderLine)}
+                </div>
+              )
+            })
+        )}
+      </>
+    )
+
+    const sidebarNavBtn = (active: boolean, onClick: () => void, label: React.ReactNode) => (
+      <button onClick={onClick}
+        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${active ? 'bg-gray-900 text-white font-medium' : 'text-gray-600 hover:bg-gray-100'}`}>
+        {label}
+      </button>
+    )
+
     return (
-      <div className="max-w-2xl pb-28">
+      <div>
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
 
         {/* ── Sticky top bar ─────────────────────────────────────────────────── */}
-        <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
+        <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">
           <button onClick={backFromCount} className="-ml-1 p-1 text-gray-500 hover:text-gray-800">
             <ArrowLeft size={20} />
           </button>
-          <div className="flex-1 min-w-0 text-center">
+          <div className="flex-1 min-w-0">
             <span className="text-sm font-semibold text-gray-900 truncate block">{active.label}</span>
+            <span className="text-xs text-gray-400 hidden md:block">{active.countedBy} · {fmtDate(active.sessionDate)}</span>
           </div>
           <span className="shrink-0 bg-gray-100 text-gray-700 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap">
             {counted} / {total} done
@@ -1088,15 +1139,96 @@ export default function CountPage() {
         </div>
 
         {/* ── Progress bar ───────────────────────────────────────────────────── */}
-        <div className="h-1.5 bg-gray-200">
+        <div className="h-1.5 bg-gray-200 -mx-4 sm:-mx-6 md:-mx-8">
           <div
             className="h-1.5 bg-green-500 transition-all duration-300"
             style={{ width: `${total > 0 ? (counted / total) * 100 : 0}%` }}
           />
         </div>
 
+        {/* ════════════════════════════════════════
+            DESKTOP LAYOUT — sidebar + items
+        ════════════════════════════════════════ */}
+        <div className="hidden md:grid grid-cols-[220px_1fr] gap-6 pt-4 pb-8">
+          {/* ── Left sidebar ─────────────────────────────────────────── */}
+          <div className="sticky top-[57px] self-start space-y-5 max-h-[calc(100vh-80px)] overflow-y-auto pb-4 pr-1">
+
+            {/* Progress summary */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-semibold text-gray-500">Progress</span>
+                <span className="text-xs text-gray-500">{counted}/{total} · {total > 0 ? Math.round((counted/total)*100) : 0}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full">
+                <div className="h-2 bg-green-500 rounded-full transition-all duration-300"
+                  style={{ width: `${total > 0 ? (counted/total)*100 : 0}%` }} />
+              </div>
+              <div className="grid grid-cols-2 gap-1 pt-1 text-xs text-gray-400">
+                <span>{active.lines?.filter(l => l.countedQty !== null && !l.skipped).length ?? 0} counted</span>
+                <span>{active.lines?.filter(l => l.skipped).length ?? 0} skipped</span>
+              </div>
+            </div>
+
+            {/* Category filter */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">Category</p>
+              <div className="space-y-0.5">
+                {sidebarNavBtn(catFilter === null, () => setCatFilter(null),
+                  <span className="flex items-center justify-between">All items <span className="text-xs opacity-50">{active.lines?.length ?? 0}</span></span>
+                )}
+                {categories.map(([cat, n]) =>
+                  sidebarNavBtn(catFilter === cat, () => setCatFilter(catFilter === cat ? null : cat),
+                    <span className="flex items-center justify-between">{cat} <span className="text-xs opacity-50">{n}</span></span>
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* Location filter */}
+            {locations.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">Location</p>
+                <div className="space-y-0.5">
+                  {sidebarNavBtn(locFilter === null, () => setLocFilter(null), 'All locations')}
+                  {locations.map(loc => sidebarNavBtn(locFilter === loc, () => setLocFilter(locFilter === loc ? null : loc), loc))}
+                </div>
+              </div>
+            )}
+
+            {/* Status filter */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">Status</p>
+              <div className="space-y-0.5">
+                {(['all', 'uncounted', 'counted'] as const).map(f =>
+                  sidebarNavBtn(statusFilter === f, () => setStatusFilter(f),
+                    f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : 'Counted'
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* Clear filters */}
+            {(catFilter || locFilter || statusFilter !== 'all') && (
+              <button
+                onClick={() => { setCatFilter(null); setLocFilter(null); setStatusFilter('all') }}
+                className="w-full text-xs text-gray-400 hover:text-gray-600 py-1.5 border border-gray-200 rounded-lg transition-colors"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {/* ── Right: item list ─────────────────────────────────────── */}
+          <div className="pt-1">
+            <DesktopItems />
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════
+            MOBILE LAYOUT
+        ════════════════════════════════════════ */}
         {/* ── Mobile filter row ──────────────────────────────────────────────── */}
-        <div className="flex sm:hidden items-center gap-2 px-3 pt-2 pb-1.5">
+        <div className="flex md:hidden items-center gap-2 px-3 pt-2 pb-1.5">
           {(['all', 'uncounted', 'counted'] as const).map(f => (
             <Pill key={f} active={statusFilter === f} onClick={() => setStatusFilter(f)}>
               {f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : 'Counted'}
@@ -1117,7 +1249,7 @@ export default function CountPage() {
 
         {/* ── Mobile filter bottom sheet ──────────────────────────────────────── */}
         {showCountFilterSheet && (
-          <div className="fixed inset-0 z-50 flex items-end sm:hidden" onClick={() => setShowCountFilterSheet(false)}>
+          <div className="fixed inset-0 z-50 flex items-end md:hidden" onClick={() => setShowCountFilterSheet(false)}>
             <div className="absolute inset-0 bg-black/40" />
             <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
               <div className="w-9 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
@@ -1129,13 +1261,11 @@ export default function CountPage() {
                 <div>
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Category</div>
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setCatFilter(null)}
+                    <button onClick={() => setCatFilter(null)}
                       className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${catFilter === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
                     >All</button>
                     {categories.map(([cat]) => (
-                      <button key={cat}
-                        onClick={() => setCatFilter(cat)}
+                      <button key={cat} onClick={() => setCatFilter(cat)}
                         className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${catFilter === cat ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
                       >{cat}</button>
                     ))}
@@ -1145,13 +1275,11 @@ export default function CountPage() {
                   <div>
                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Location</div>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => setLocFilter(null)}
+                      <button onClick={() => setLocFilter(null)}
                         className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
                       >All</button>
                       {locations.map(loc => (
-                        <button key={loc}
-                          onClick={() => setLocFilter(loc)}
+                        <button key={loc} onClick={() => setLocFilter(loc)}
                           className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === loc ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
                         >{loc}</button>
                       ))}
@@ -1167,42 +1295,8 @@ export default function CountPage() {
           </div>
         )}
 
-        {/* ── Filter pills ───────────────────────────────────────────────────── */}
-        <div className="hidden sm:block px-4 pt-3 pb-2 space-y-2">
-          {/* Row 1 — Category */}
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
-            <Pill active={catFilter === null} onClick={() => setCatFilter(null)}>
-              All items <span className="opacity-60">{active.lines?.length ?? 0}</span>
-            </Pill>
-            {categories.map(([cat, n]) => (
-              <Pill key={cat} active={catFilter === cat} onClick={() => setCatFilter(cat)}>
-                {cat} <span className="opacity-60">{n}</span>
-              </Pill>
-            ))}
-          </div>
-
-          {/* Row 2 — Location (only when items have locations) */}
-          {locations.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
-              <Pill active={locFilter === null} onClick={() => setLocFilter(null)}>All locations</Pill>
-              {locations.map(loc => (
-                <Pill key={loc} active={locFilter === loc} onClick={() => setLocFilter(loc)}>{loc}</Pill>
-              ))}
-            </div>
-          )}
-
-          {/* Row 3 — Status */}
-          <div className="flex gap-1.5">
-            {(['all', 'uncounted', 'counted'] as const).map(f => (
-              <Pill key={f} active={statusFilter === f} onClick={() => setStatusFilter(f)}>
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </Pill>
-            ))}
-          </div>
-        </div>
-
         {/* ── Mobile items list ──────────────────────────────────────────────── */}
-        <div className="block sm:hidden px-3 pt-1 pb-28 space-y-1.5">
+        <div className="md:hidden px-3 pt-1 pb-28 space-y-1.5">
           {catFilter ? (
             filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderMobileLine)
           ) : (
@@ -1227,36 +1321,6 @@ export default function CountPage() {
               })
           )}
         </div>
-
-        {/* ── Items ──────────────────────────────────────────────────────────── */}
-        <div className="hidden sm:block pt-1">
-          {catFilter ? (
-            filteredLines.length === 0
-              ? <Empty />
-              : filteredLines.map(renderLine)
-          ) : (
-            !grouped || Object.keys(grouped).length === 0
-              ? <Empty />
-              : Object.entries(grouped)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([cat, lines]) => {
-                    const catDone = lines.filter(l => l.countedQty !== null || l.skipped).length
-                    return (
-                      <div key={cat} className="mb-2">
-                        <div className="flex items-center gap-2 px-4 py-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">{cat}</span>
-                          <span className="text-xs text-gray-400">{catDone}/{lines.length}</span>
-                          <div className="flex-1 max-w-[80px] h-1 bg-gray-100 rounded-full ml-1">
-                            <div className="h-1 bg-green-400 rounded-full"
-                              style={{ width: `${lines.length > 0 ? (catDone / lines.length) * 100 : 0}%` }} />
-                          </div>
-                        </div>
-                        {lines.map(renderLine)}
-                      </div>
-                    )
-                  })
-          )}
-        </div>
       </div>
     )
   }
@@ -1275,7 +1339,7 @@ export default function CountPage() {
     )
 
     return (
-      <div className="max-w-2xl">
+      <div className="max-w-4xl">
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
 
         {/* Header */}

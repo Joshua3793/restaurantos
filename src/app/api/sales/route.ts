@@ -7,6 +7,8 @@ const RECIPE_SELECT = {
   category: { select: { name: true, color: true } },
 }
 
+const RC_SELECT = { id: true, name: true, color: true }
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
@@ -18,15 +20,16 @@ export async function GET(req: NextRequest) {
   if (startDate) where.date = { ...(where.date as object ?? {}), gte: new Date(startDate) }
   if (endDate)   where.date = { ...(where.date as object ?? {}), lte: new Date(endDate + 'T23:59:59.999Z') }
   if (rcId) {
-    where.revenueCenterId = isDefault
-      ? { in: [rcId, null as unknown as string] }
-      : rcId
+    where.OR = isDefault
+      ? [{ revenueCenterId: rcId }, { revenueCenterId: null }]
+      : [{ revenueCenterId: rcId }]
   }
 
   const sales = await prisma.salesEntry.findMany({
     where,
     orderBy: { date: 'desc' },
     include: {
+      revenueCenter: { select: RC_SELECT },
       lineItems: {
         include: { recipe: { select: RECIPE_SELECT } },
         orderBy: { qtySold: 'desc' },
@@ -54,7 +57,10 @@ export async function POST(req: NextRequest) {
           .map(li => ({ recipeId: li.recipeId, qtySold: parseInt(String(li.qtySold)) })),
       },
     },
-    include: { lineItems: { include: { recipe: { select: RECIPE_SELECT } } } },
+    include: {
+      revenueCenter: { select: RC_SELECT },
+      lineItems: { include: { recipe: { select: RECIPE_SELECT } } },
+    },
   })
   return NextResponse.json(entry, { status: 201 })
 }

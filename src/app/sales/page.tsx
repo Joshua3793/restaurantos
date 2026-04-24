@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { rcHex } from '@/lib/rc-colors'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ interface Sale {
   covers: number | null
   notes: string | null
   createdAt: string
+  revenueCenterId: string | null
+  revenueCenter: { id: string; name: string; color: string } | null
   lineItems: SaleLineItem[]
 }
 
@@ -103,23 +106,29 @@ function KpiCard({ label, value, sub, accent = 'text-gray-900' }: {
 
 // ─── Sale Form Modal ───────────────────────────────────────────────────────────
 
+interface RcOption { id: string; name: string; color: string }
+
 interface SaleFormProps {
   initial?: Sale | null
   menuRecipes: RecipeSummary[]
+  revenueCenters: RcOption[]
+  defaultRcId: string | null
   onSave: (data: {
     date: string; totalRevenue: string; foodSalesPct: string
     covers: string; notes: string
+    revenueCenterId: string | null
     lineItems: { recipeId: string; qtySold: number }[]
   }) => Promise<void>
   onCancel: () => void
 }
 
-function SaleForm({ initial, menuRecipes, onSave, onCancel }: SaleFormProps) {
+function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, onCancel }: SaleFormProps) {
   const [date,          setDate]          = useState(initial ? toISO(new Date(initial.date)) : toISO(new Date()))
   const [revenue,       setRevenue]       = useState(initial ? String(initial.totalRevenue) : '')
   const [foodPct,       setFoodPct]       = useState(initial ? String(Math.round(Number(initial.foodSalesPct) * 100)) : '70')
   const [covers,        setCovers]        = useState(initial ? String(initial.covers ?? '') : '')
   const [notes,         setNotes]         = useState(initial?.notes ?? '')
+  const [rcId,          setRcId]          = useState<string | null>(initial ? initial.revenueCenterId : defaultRcId)
   const [saving,        setSaving]        = useState(false)
   const [recipeSearch,  setRecipeSearch]  = useState('')
 
@@ -142,7 +151,7 @@ function SaleForm({ initial, menuRecipes, onSave, onCancel }: SaleFormProps) {
     const lineItems = Object.entries(qtys)
       .map(([recipeId, q]) => ({ recipeId, qtySold: parseInt(q) || 0 }))
       .filter(li => li.qtySold > 0)
-    await onSave({ date, totalRevenue: revenue, foodSalesPct: String(parseFloat(foodPct) / 100), covers, notes, lineItems })
+    await onSave({ date, totalRevenue: revenue, foodSalesPct: String(parseFloat(foodPct) / 100), covers, notes, revenueCenterId: rcId, lineItems })
     setSaving(false)
   }
 
@@ -171,6 +180,40 @@ function SaleForm({ initial, menuRecipes, onSave, onCancel }: SaleFormProps) {
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
+
+            {/* Revenue center */}
+            {revenueCenters.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Revenue Center</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {revenueCenters.map(rc => {
+                    const active = rcId === rc.id
+                    return (
+                      <button
+                        key={rc.id}
+                        type="button"
+                        onClick={() => setRcId(rc.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                          active ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: rcHex(rc.color) }} />
+                        {rc.name}
+                      </button>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setRcId(null)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      rcId === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    Unassigned
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Row 2: revenue + food % */}
             <div className="grid grid-cols-2 gap-3">
@@ -265,7 +308,15 @@ function DayDetail({ sale, onEdit, onClose }: { sale: Sale; onEdit: () => void; 
       <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
           <div>
-            <div className="text-base font-semibold text-gray-900">{fmtDate(sale.date)}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-base font-semibold text-gray-900">{fmtDate(sale.date)}</div>
+              {sale.revenueCenter && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
+                  {sale.revenueCenter.name}
+                </span>
+              )}
+            </div>
             <div className="text-xs text-gray-400">{fmtDay(sale.date)}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -617,7 +668,7 @@ export default function SalesPage() {
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, revenueCenters } = useRc()
 
   const [startDate, endDate] = getRange(rangeMode, customStart, customEnd)
 
@@ -702,7 +753,7 @@ export default function SalesPage() {
       await fetch(`/api/sales/${editSale.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
       setEditSale(null)
     } else {
-      await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, revenueCenterId: activeRcId }) })
+      await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
       setShowAdd(false)
     }
     fetchSales()
@@ -860,7 +911,15 @@ export default function SalesPage() {
                       onClick={() => setViewSale(sale)}
                       className="hover:bg-gray-50 cursor-pointer">
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-800">{fmtDate(sale.date)}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-800">{fmtDate(sale.date)}</span>
+                          {sale.revenueCenter && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
+                              {sale.revenueCenter.name}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-400">{fmtDay(sale.date)}{sale.notes ? ` · ${sale.notes}` : ''}</div>
                       </td>
                       <td className="px-3 py-3 text-right">
@@ -946,6 +1005,8 @@ export default function SalesPage() {
         <SaleForm
           initial={editSale}
           menuRecipes={menuRecipes}
+          revenueCenters={revenueCenters}
+          defaultRcId={activeRcId}
           onSave={handleSave}
           onCancel={() => { setShowAdd(false); setEditSale(null) }}
         />

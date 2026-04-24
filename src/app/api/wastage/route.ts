@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
         endDate   ? { date: { lte: new Date(endDate) } }  : {},
         itemId    ? { inventoryItemId: itemId }            : {},
         reason    ? { reason }                             : {},
-        rcId      ? { revenueCenterId: isDefault ? { in: [rcId, null as unknown as string] } : rcId } : {},
+        rcId      ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId }) : {},
       ],
     },
     include: { inventoryItem: true },

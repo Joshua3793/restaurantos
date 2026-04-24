@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
+import { useRc } from '@/contexts/RevenueCenterContext'
 import {
   TrendingUp, Package, AlertTriangle, DollarSign,
   FileText, Trash2, ChefHat, ShoppingCart, ArrowRight,
@@ -51,9 +52,12 @@ interface HighCostRecipe {
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [highCostRecipes, setHighCostRecipes] = useState<HighCostRecipe[]>([])
+  const { activeRcId, activeRc } = useRc()
 
   useEffect(() => {
-    fetch('/api/reports/dashboard').then(r => r.json()).then(setData)
+    const p = new URLSearchParams()
+    if (activeRcId) { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
+    fetch(`/api/reports/dashboard?${p}`).then(r => r.json()).then(setData)
     fetch('/api/recipes?type=MENU&isActive=true').then(r => r.json()).then((recipes: Array<{ id: string; name: string; menuPrice: number | null; totalCost: number; foodCostPct: number | null }>) => {
       if (!Array.isArray(recipes)) return
       const high = recipes
@@ -62,7 +66,7 @@ export default function Dashboard() {
         .slice(0, 5)
       setHighCostRecipes(high)
     })
-  }, [])
+  }, [activeRcId])
 
   if (!data) {
     return (

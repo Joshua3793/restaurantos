@@ -4,12 +4,13 @@ import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
+import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
+import { useRc } from '@/contexts/RevenueCenterContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
 import {
-  Search, Plus, X, Download,
+  Search, Plus, X, Download, Loader2,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
   ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy,
-  MoreHorizontal,
 } from 'lucide-react'
 
 interface StorageArea { id: string; name: string }
@@ -24,6 +25,7 @@ interface InventoryItem {
   packSize: number; packUOM: string; countUOM: string
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number
+  rcStock?: number        // set when viewing a non-default RC (from StockAllocation)
   allergens?: string[]
   isActive: boolean
   lastCountDate?: string | null; lastCountQty?: number | null
@@ -166,6 +168,8 @@ export default function InventoryPage() {
 
 function InventoryPageInner() {
   const searchParams = useSearchParams()
+  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
   const [items,        setItems]        = useState<InventoryItem[]>([])
   const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
@@ -192,7 +196,6 @@ function InventoryPageInner() {
   const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
   const [showOrderList, setShowOrderList] = useState(false)
   const [orderQtys,    setOrderQtys]    = useState<Record<string, string>>({})
-  const [showMobileOverflow,    setShowMobileOverflow]    = useState(false)
   const [showMobileSortSheet,   setShowMobileSortSheet]   = useState(false)
   const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false)
   const [priceHistory, setPriceHistory] = useState<Array<{
@@ -214,8 +217,9 @@ function InventoryPageInner() {
     if (catFilter)      p.set('category', catFilter)
     if (supplierFilter) p.set('supplierId', supplierFilter)
     if (areaFilter)     p.set('storageAreaId', areaFilter)
+    if (activeRcId)     { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
     fetch(`/api/inventory?${p}`).then(r => r.json()).then(setItems)
-  }, [search, catFilter, supplierFilter, areaFilter])
+  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc])
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
@@ -271,13 +275,18 @@ function InventoryPageInner() {
 
   const catNames = useMemo(() => categories.map(c => c.name), [categories])
 
+  // Effective stock: for non-default RCs use the allocated quantity
+  const effStock = (i: InventoryItem) =>
+    i.rcStock !== undefined ? i.rcStock : parseFloat(String(i.stockOnHand))
+
   // KPIs
   const kpis = useMemo(() => {
     const active = items.filter(i => i.isActive)
     const totalValue = active.reduce((s, i) =>
-      s + parseFloat(String(i.stockOnHand)) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit)), 0)
+      s + effStock(i) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit)), 0)
     const counted = active.filter(isCountedThisWeek).length
     return { totalValue, counted, notCounted: active.length - counted, activeCount: active.length, totalCount: items.length }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
   // Pill filter
@@ -286,7 +295,7 @@ function InventoryPageInner() {
       case 'counted':    return items.filter(isCountedThisWeek)
       case 'notCounted': return items.filter(i => !isCountedThisWeek(i))
       case 'highValue':  return items.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01)
-      case 'outOfStock': return items.filter(i => parseFloat(String(i.stockOnHand)) <= 0)
+      case 'outOfStock': return items.filter(i => effStock(i) <= 0)
       case 'active':     return items.filter(i => i.isActive)
       case 'inactive':   return items.filter(i => !i.isActive)
       default:           return items
@@ -302,7 +311,7 @@ function InventoryPageInner() {
   }
 
   const invValue = (i: InventoryItem) =>
-    parseFloat(String(i.stockOnHand)) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit))
+    effStock(i) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit))
 
   // Sort
   const sortedItems = useMemo(() => {
@@ -316,7 +325,7 @@ function InventoryPageInner() {
         case 'category': return (a.category.localeCompare(b.category) || a.itemName.localeCompare(b.itemName)) * dir
         case 'supplier': return ((a.supplier?.name ?? '').localeCompare(b.supplier?.name ?? '')) * dir
         case 'price':    return (parseFloat(String(a.purchasePrice)) - parseFloat(String(b.purchasePrice))) * dir
-        case 'stock':    return (parseFloat(String(a.stockOnHand))   - parseFloat(String(b.stockOnHand)))   * dir
+        case 'stock':    return (effStock(a) - effStock(b)) * dir
         case 'value':    return (invValue(a) - invValue(b)) * dir
         default:         return 0
       }
@@ -326,8 +335,7 @@ function InventoryPageInner() {
       // Always keep category groups together; sort items *within* each group by active column
       const itemSort = colSort ? byCol(colSort.col) : (a: InventoryItem, b: InventoryItem) => a.itemName.localeCompare(b.itemName)
       return copy.sort((a, b) => {
-        const ia = catNames.indexOf(a.category), ib = catNames.indexOf(b.category)
-        const ci = (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
+        const ci = a.category.localeCompare(b.category)
         return ci !== 0 ? ci : itemSort(a, b)
       })
     }
@@ -342,12 +350,11 @@ function InventoryPageInner() {
     if (sortBy !== 'category') return null
 
     const map = new Map<string, InventoryItem[]>()
-    for (const cat of catNames) map.set(cat, [])
     for (const item of sortedItems) {
       if (!map.has(item.category)) map.set(item.category, [])
       map.get(item.category)!.push(item)
     }
-    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0) as [string, InventoryItem[]][]
+    return Array.from(map.entries()) as [string, InventoryItem[]][]
   }, [sortedItems, sortBy, catNames])
 
   // Checkbox helpers
@@ -491,7 +498,7 @@ function InventoryPageInner() {
           <div className="text-xs text-gray-400">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
         <td className="px-3 py-3 text-right text-sm text-gray-700">
-          {parseFloat(String(item.stockOnHand)).toFixed(1)}
+          {effStock(item).toFixed(1)}
           <span className="text-xs text-gray-400 ml-1">{item.countUOM || item.purchaseUnit}</span>
         </td>
         <td className="px-3 py-3 text-right">
@@ -500,7 +507,7 @@ function InventoryPageInner() {
           </span>
         </td>
         <td className="px-3 py-3 text-center hidden sm:table-cell">
-          <StockStatus stock={parseFloat(String(item.stockOnHand))} />
+          <StockStatus stock={effStock(item)} />
         </td>
         <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-center gap-2">
@@ -540,19 +547,39 @@ function InventoryPageInner() {
     )
   }
 
+  // Category accent colors for mobile rows
+  const CAT_DOT: Record<string, string> = {
+    BREAD: 'bg-amber-400',
+    DAIRY: 'bg-blue-400',
+    DRY:   'bg-yellow-400',
+    FISH:  'bg-cyan-400',
+    MEAT:  'bg-red-400',
+    PREPD: 'bg-purple-400',
+    PROD:  'bg-green-400',
+    CHM:   'bg-gray-400',
+  }
+
   const renderMobileRow = (item: InventoryItem) => {
-    const inStock = parseFloat(String(item.stockOnHand)) > 0
+    const inStock = effStock(item) > 0
     return (
       <div
         key={`m-${item.id}`}
         onClick={() => setSelected(item)}
-        className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 cursor-pointer active:bg-gray-50 transition-colors ${
-          !inStock ? 'bg-orange-50/50' : ''
+        className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-50 cursor-pointer active:bg-gray-50 transition-colors ${
+          !inStock ? 'bg-orange-50/40' : ''
         } ${!item.isActive ? 'opacity-50' : ''}`}
       >
-        <div className={`w-2 h-2 rounded-full shrink-0 ${inStock ? 'bg-green-500' : 'bg-orange-400'}`} />
+        {/* Category accent stripe */}
+        <div className={`w-1 h-10 rounded-full shrink-0 ${CAT_DOT[item.category] ?? 'bg-gray-300'}`} />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-gray-900 truncate">{item.itemName}</div>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className={`text-[11px] font-medium ${inStock ? 'text-gray-400' : 'text-orange-500'}`}>
+              {effStock(item).toFixed(1)} {item.countUOM || item.baseUnit}
+              {!inStock && ' · out'}
+            </span>
+            {item.supplier && <span className="text-[10px] text-gray-300">· {item.supplier.name}</span>}
+          </div>
           {item.allergens && item.allergens.length > 0 && (
             <div className="mt-0.5">
               <AllergenBadges allergens={item.allergens} size="xs" />
@@ -560,14 +587,10 @@ function InventoryPageInner() {
           )}
         </div>
         <div className="text-right shrink-0">
-          <div className="text-sm font-bold text-gray-900">
+          <div className="text-sm font-semibold text-gray-800">
             {formatCurrency(parseFloat(String(item.purchasePrice)))}
-            <span className="text-[10px] font-normal text-gray-400">/{item.purchaseUnit}</span>
           </div>
-          <div className={`text-[11px] ${inStock ? 'text-gray-500' : 'text-orange-500'}`}>
-            {parseFloat(String(item.stockOnHand)).toFixed(1)} {item.countUOM || item.baseUnit}
-            {!inStock && ' · out of stock'}
-          </div>
+          <div className="text-[10px] text-gray-400">/{item.purchaseUnit}</div>
         </div>
         <ChevronRight size={14} className="text-gray-300 shrink-0" />
       </div>
@@ -604,34 +627,6 @@ function InventoryPageInner() {
         >
           <Plus size={15} /> Add
         </button>
-        <div className="relative">
-          <button
-            onClick={() => setShowMobileOverflow(v => !v)}
-            className="flex items-center justify-center w-9 h-9 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl"
-          >
-            <MoreHorizontal size={16} />
-          </button>
-          {showMobileOverflow && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowMobileOverflow(false)} />
-              <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
-              <button
-                onClick={() => { window.location.href = '/api/inventory/export'; setShowMobileOverflow(false) }}
-                className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
-              >
-                <Download size={14} /> Export CSV
-              </button>
-              <button
-                onClick={() => { syncAllPrepd(); setShowMobileOverflow(false) }}
-                disabled={syncingPrepd}
-                className="flex items-center gap-2 w-full px-4 py-3 text-sm text-purple-700 hover:bg-purple-50 disabled:opacity-50"
-              >
-                {syncingPrepd ? '⟳ Syncing…' : '⟳ Sync PREPD'}
-              </button>
-            </div>
-            </>
-          )}
-        </div>
       </div>
 
       {/* Header */}
@@ -712,31 +707,79 @@ function InventoryPageInner() {
         ))}
       </div>
 
-      {/* Mobile filter pills */}
-      <div className="flex sm:hidden gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-        {pills.map(p => (
+      {/* Mobile controls — Sort & Filter always visible, pills scroll separately */}
+      <div className="flex sm:hidden flex-col gap-2">
+        {/* Always-visible controls row */}
+        <div className="flex items-center gap-1.5">
+          {/* Grouped / Flat toggle */}
+          <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
+            {([['category', '⊞'], ['all', '≡']] as [SortMode, string][]).map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => setSortBy(mode)}
+                title={mode === 'category' ? 'Grouped by category' : 'Flat list'}
+                className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                  sortBy === mode ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* Sort */}
           <button
-            key={p.key}
-            onClick={() => setActivePill(p.key)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-              activePill === p.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            onClick={() => setShowMobileSortSheet(true)}
+            className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              colSort ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'
             }`}
           >
-            {p.label}
+            <ChevronsUpDown size={11} />
+            {colSort ? (colSort.col === 'item' ? 'Name' : colSort.col === 'value' ? 'Value' : colSort.col === 'price' ? 'Price' : 'Sort') : 'Sort'}
+            {colSort && <span className="text-[10px] ml-0.5">{colSort.dir === 'asc' ? '↑' : '↓'}</span>}
           </button>
-        ))}
-        <button
-          onClick={() => setShowMobileSortSheet(true)}
-          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-600"
-        >
-          <ChevronsUpDown size={11} /> Sort
-        </button>
-        <button
-          onClick={() => setShowMobileFilterSheet(true)}
-          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-600"
-        >
-          ▽ Filter
-        </button>
+          {/* Filter */}
+          <button
+            onClick={() => setShowMobileFilterSheet(true)}
+            className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              (catFilter || supplierFilter || areaFilter) ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'
+            }`}
+          >
+            ▽ Filter{(catFilter || supplierFilter || areaFilter) ? ' ·' : ''}
+          </button>
+          <div className="flex-1" />
+          {/* Export CSV */}
+          <button
+            onClick={() => { window.location.href = '/api/inventory/export' }}
+            title="Export CSV"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50"
+          >
+            <Download size={11} /> CSV
+          </button>
+          {/* Sync PREPD */}
+          <button
+            onClick={syncAllPrepd}
+            disabled={syncingPrepd}
+            title="Re-sync all PREPD item prices from their recipes"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-purple-200 bg-purple-50 text-purple-700 transition-colors hover:bg-purple-100 disabled:opacity-50"
+          >
+            {syncingPrepd ? <Loader2 size={11} className="animate-spin" /> : <span className="text-[11px]">⟳</span>}
+            PREPD
+          </button>
+        </div>
+        {/* Status pills — scrollable */}
+        <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+          {pills.map(p => (
+            <button
+              key={p.key}
+              onClick={() => setActivePill(p.key)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                activePill === p.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Filter Pills */}
@@ -983,7 +1026,7 @@ function InventoryPageInner() {
       {/* Order List Modal */}
       {showOrderList && (() => {
         const activeItems = items.filter(i => i.isActive && i.category !== 'PREPD')
-        const outOfStock  = activeItems.filter(i => parseFloat(String(i.stockOnHand)) <= 0)
+        const outOfStock  = activeItems.filter(i => effStock(i) <= 0)
         const bySupplier  = new Map<string, { supplierName: string; items: InventoryItem[] }>()
         for (const item of outOfStock) {
           const key  = item.supplierId ?? '__none__'
@@ -1083,8 +1126,7 @@ function InventoryPageInner() {
       <div className="block sm:hidden bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {categoryGroups ? (
           categoryGroups.map(([cat, rows]) => {
-            const catValue = rows.reduce((s, i) =>
-              s + parseFloat(String(i.stockOnHand)) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit)), 0)
+            const catValue = rows.reduce((s, i) => s + invValue(i), 0)
             const collapsed = collapsedCats.has(cat)
             return (
               <React.Fragment key={`mg-${cat}`}>
@@ -1154,7 +1196,7 @@ function InventoryPageInner() {
             <tbody>
               {categoryGroups ? (
                 categoryGroups.map(([cat, rows]) => {
-                  const catValue  = rows.reduce((s, i) => s + parseFloat(String(i.stockOnHand)) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit)), 0)
+                  const catValue  = rows.reduce((s, i) => s + invValue(i), 0)
                   const allChecked = rows.length > 0 && rows.every(r => checkedIds.has(r.id))
                   const collapsed  = collapsedCats.has(cat)
                   return (
@@ -1192,11 +1234,11 @@ function InventoryPageInner() {
         </div>
       </div>
 
-      {/* Detail Panel */}
+      {/* Detail Panel — bottom sheet on mobile, right drawer on desktop */}
       {selected && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => { setSelected(null); setEditMode(false) }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-stretch sm:justify-end" onClick={() => { setSelected(null); setEditMode(false) }}>
           <div className="absolute inset-0 bg-black/30" />
-          <div className="relative bg-white w-full max-w-md h-full overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white w-full sm:max-w-md h-[92vh] sm:h-full overflow-y-auto shadow-xl rounded-t-2xl sm:rounded-none" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between gap-2">
               <div className="flex-1 min-w-0">
@@ -1451,7 +1493,7 @@ function InventoryPageInner() {
               <div className="p-4 space-y-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CategoryBadge category={selected.category} />
-                  <StockStatus stock={parseFloat(String(selected.stockOnHand))} />
+                  <StockStatus stock={effStock(selected)} />
                   {selected.allergens && selected.allergens.length > 0 && selected.allergens.map(a => (
                     <span key={a} className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
                   ))}
@@ -1469,7 +1511,7 @@ function InventoryPageInner() {
                     ['Yield',          `${parseFloat(String(selected.packSize ?? 1)).toLocaleString()} ${selected.baseUnit}`],
                     ['Batch Cost',     formatCurrency(parseFloat(String(selected.purchasePrice)))],
                     ['Count UOM',      selected.countUOM ?? selected.baseUnit],
-                    ['Stock On Hand',  `${parseFloat(String(selected.stockOnHand)).toFixed(2)} ${selected.countUOM ?? ''}`],
+                    ['Stock On Hand',  `${effStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
                     ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
                     ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
                   ] : [
@@ -1480,7 +1522,7 @@ function InventoryPageInner() {
                     ['Purchase Price', formatCurrency(parseFloat(String(selected.purchasePrice)))],
                     ['Pack Size',      `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
                     ['Count UOM',      selected.countUOM ?? 'each'],
-                    ['Stock On Hand',  `${parseFloat(String(selected.stockOnHand)).toFixed(2)} ${selected.countUOM ?? ''}`],
+                    ['Stock On Hand',  `${effStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
                     ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
                     ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
                   ]
@@ -1514,6 +1556,17 @@ function InventoryPageInner() {
                   </div>
                 </div>{/* end grid */}
 
+                {/* RC Allocation Panel — stock by revenue center + pull */}
+                {revenueCenters.length > 1 && (
+                  <RcAllocationPanel
+                    itemId={selected.id}
+                    stockOnHand={parseFloat(String(selected.stockOnHand))}
+                    countUOM={selected.countUOM || selected.baseUnit}
+                    defaultRcId={defaultRcId}
+                    onPulled={fetchItems}
+                  />
+                )}
+
                 {/* Price History */}
                 {priceHistory.length > 0 && (
                   <div className="mt-2">
@@ -1542,6 +1595,7 @@ function InventoryPageInner() {
           </div>
         </div>
       )}
+
 
       {showBulkAllergen && (
         <BulkAllergenModal

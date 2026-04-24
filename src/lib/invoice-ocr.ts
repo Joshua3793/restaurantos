@@ -101,7 +101,19 @@ Format C — Individual items (unit is EA, EACH, PC; or a single bottle/bag/unit
   "VINEGAR 500ML  3  EA  2.50  7.50" → qty:3, packQty:1, packSize:500, packUOM:"ml", unitPrice:2.50
 
 Format D — Weight-sold items (produce, meat — priced by weight)
-  "CHICKEN BREAST  5.2 LB  @3.99  20.75" → qty:1, packQty:1, packSize:5.2, packUOM:"lb", unitPrice:20.75
+  ⚠ CRITICAL: unitPrice MUST be the price per CASE (= lineTotal ÷ qty), NEVER the per-kg/per-lb rate.
+  When the invoice shows a weight column and a $/kg or $/lb rate column separately:
+    → Compute lineTotal = packSize × rate, then unitPrice = lineTotal ÷ qty
+    → The rate (e.g. $9.90/kg) is NEVER used as unitPrice
+
+  "CHICKEN BREAST  5.2 LB  @3.99  20.75"
+  → qty:1, packQty:1, packSize:5.2, packUOM:"lb", unitPrice:20.75, lineTotal:20.75
+
+  "PORK BUTT  26.1 KG  $9.90/KG" (Acecard-style: weight and rate columns, no explicit total)
+  → lineTotal = 26.1 × 9.90 = 258.39
+  → qty:1, packQty:1, packSize:26.1, packUOM:"kg", unitPrice:258.39, lineTotal:258.39
+  (CORRECT: unitPrice=258.39  WRONG: unitPrice=9.90)
+
   "TOMATOES  2 cases"  with no size info → packQty:null, packSize:null, packUOM:null
 
 Format E — Count items (eggs, portions, pieces)
@@ -117,6 +129,7 @@ Format F — Other suppliers (columns may be labeled differently)
 MISSING FIELD INFERENCE:
   If qty AND unitPrice known → compute lineTotal = qty × unitPrice
   If qty AND lineTotal known → compute unitPrice = lineTotal / qty
+  If packSize AND packUOM(weight/volume) AND rate/$/UOM shown but no lineTotal → lineTotal = packSize × rate; unitPrice = lineTotal ÷ qty
   If size appears in description (e.g. "5L") and packQty not shown → packQty:1, packSize:5, packUOM:"L"
 
 Rules:

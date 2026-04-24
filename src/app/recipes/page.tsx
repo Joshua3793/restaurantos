@@ -143,6 +143,11 @@ function RecipesInner() {
             </button>
           )
         })}
+        <button onClick={() => setShowCatManager(true)}
+          className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 border border-gray-200 hover:border-gray-300 transition-all">
+          <Pencil size={10} />
+          Edit
+        </button>
       </div>
 
       {/* ── SECONDARY TOOLBAR ── */}
@@ -152,21 +157,13 @@ function RecipesInner() {
             ? <>Filtering by <span className="font-medium text-gray-600">{typeCats.find(c => c.id === activeCatId)?.name}</span> · {displayRecipes.length} {displayRecipes.length === 1 ? 'recipe' : 'recipes'}</>
             : <>{displayRecipes.length} {displayRecipes.length === 1 ? 'recipe' : 'recipes'} total</>}
         </p>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setShowInactive(s => !s)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${showInactive ? 'bg-gray-100 text-gray-700 border border-gray-300' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent'}`}>
-            <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-gray-600 border-gray-600' : 'border-gray-300'}`}>
-              {showInactive && <span className="text-white" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
-            </span>
-            Inactive
-          </button>
-          <div className="w-px h-4 bg-gray-200 mx-0.5" />
-          <button onClick={() => setShowCatManager(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all">
-            <Pencil size={10} />
-            <span className="hidden sm:inline">Categories</span>
-          </button>
-        </div>
+        <button onClick={() => setShowInactive(s => !s)}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${showInactive ? 'bg-gray-100 text-gray-700 border border-gray-300' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent'}`}>
+          <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-gray-600 border-gray-600' : 'border-gray-300'}`}>
+            {showInactive && <span className="text-white" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
+          </span>
+          Inactive
+        </button>
       </div>
 
       {/* ── MAIN CONTENT ── */}

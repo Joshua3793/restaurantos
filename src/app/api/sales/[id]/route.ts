@@ -7,10 +7,15 @@ const RECIPE_SELECT = {
   category: { select: { name: true, color: true } },
 }
 
+const RC_SELECT = { id: true, name: true, color: true }
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const entry = await prisma.salesEntry.findUnique({
     where: { id: params.id },
-    include: { lineItems: { include: { recipe: { select: RECIPE_SELECT } }, orderBy: { qtySold: 'desc' } } },
+    include: {
+      revenueCenter: { select: RC_SELECT },
+      lineItems: { include: { recipe: { select: RECIPE_SELECT } }, orderBy: { qtySold: 'desc' } },
+    },
   })
   if (!entry) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(entry)
@@ -18,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
-  const { lineItems = [], ...rest } = body
+  const { lineItems = [], revenueCenterId, ...rest } = body
 
   // Replace all line items
   await prisma.saleLineItem.deleteMany({ where: { saleId: params.id } })
@@ -31,13 +36,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       foodSalesPct: parseFloat(rest.foodSalesPct) || 0.7,
       covers:       rest.covers ? parseInt(rest.covers) : null,
       notes:        rest.notes || null,
+      revenueCenterId: revenueCenterId ?? null,
       lineItems: {
         create: (lineItems as { recipeId: string; qtySold: number }[])
           .filter(li => li.recipeId && li.qtySold > 0)
           .map(li => ({ recipeId: li.recipeId, qtySold: parseInt(String(li.qtySold)) })),
       },
     },
-    include: { lineItems: { include: { recipe: { select: RECIPE_SELECT } } } },
+    include: {
+      revenueCenter: { select: RC_SELECT },
+      lineItems: { include: { recipe: { select: RECIPE_SELECT } } },
+    },
   })
   return NextResponse.json(entry)
 }

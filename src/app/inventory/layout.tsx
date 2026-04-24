@@ -15,21 +15,23 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
     <div className="space-y-4">
       {/* Sub-navigation */}
       <div className="border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6">
-        <nav className="flex gap-1 overflow-x-auto">
+        <nav className="flex">
           {tabs.map(({ href, label, icon: Icon }) => {
             const active = pathname === href
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium border-b-2 transition-colors md:flex-none md:px-4 md:justify-start md:gap-2 ${
                   active
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <Icon size={15} />
-                {label}
+                <Icon size={15} aria-hidden="true" />
+                {/* Full label on desktop, shortened on mobile */}
+                <span className="hidden sm:inline">{label}</span>
+                <span className="sm:hidden text-xs">{label.split(' ')[0]}</span>
               </Link>
             )
           })}

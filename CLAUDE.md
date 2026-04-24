@@ -81,6 +81,22 @@ purchasePrice / (qtyPerPurchaseUnit × packSize × getUnitConv(packUOM))
 
 **Client components** — all interactive pages use `'use client'`. Helper components defined inside a client component body will remount on every render and lose focus/state — always define sub-components at module scope.
 
+**Prisma Decimal fields** — Prisma `Decimal` values (e.g. `variancePct`, `varianceCost`, `pricePerBaseUnit`) are serialized as **strings** in JSON API responses, not JavaScript numbers, even when the TypeScript interface types them as `number`. Always wrap with `Number()` before calling arithmetic methods like `.toFixed()` or doing comparisons. Never call `.toFixed()` on a raw Prisma Decimal field from an API response.
+
+### Mobile UX patterns
+
+Pages use a **dual-renderer** pattern for mobile vs desktop: a mobile layout block (`block sm:hidden` / `flex sm:hidden`) is placed before the desktop block (`hidden sm:block` / `hidden sm:flex`). Both are mounted in the DOM simultaneously; CSS hides the irrelevant one. Changes to one renderer do not affect the other.
+
+**Bottom sheets** — `fixed inset-0 z-50 flex items-end sm:hidden` with a backdrop div (`fixed inset-0 z-40`) and content panel (`relative bg-white w-full rounded-t-2xl`). The `sm:hidden` on the fixed overlay suppresses it on desktop.
+
+**`cardRefs` namespacing** (`src/app/count/page.tsx`) — when both a desktop and mobile renderer for the same list are mounted, they must write to different ref keys to avoid overwriting each other. Desktop uses `d-${id}`, mobile uses `m-${id}`. Scroll-to-next logic selects the correct prefix at runtime via `window.innerWidth < 640`.
+
+**Stepper buttons in flex rows** — always add `shrink-0` to ± buttons and `min-w-0` to the number input, otherwise the input's default `min-width` can push the `+` button off-screen (clipped by `overflow-hidden` on the card).
+
+**Left-accent cards** — use a structural stripe div (`<div className="w-1 shrink-0 bg-amber-400" />`) inside a `flex` wrapper rather than stacking `border-l-*` and `border-*-color` utilities on the same element. Tailwind JIT processes border color utilities independently and the last-applied side color wins, making multi-side border colors unreliable.
+
+**⋯ action menus** — place the trigger as a proper flex sibling of the card body (not `position:absolute`) so it has its own non-overlapping tap target. Absolute positioning over card content causes the status badge and ⋯ button to compete for the same touch area.
+
 ## Environment variables
 
 ```
