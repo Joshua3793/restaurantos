@@ -19,7 +19,7 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
 
 // Status sort order for consistent grouping
 const STATUS_ORDER: Record<string, number> = {
-  REVIEW: 0, PROCESSING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4,
+  REVIEW: 0, PROCESSING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4, ERROR: 5,
 }
 
 interface Props {

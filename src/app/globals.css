@@ -20,6 +20,12 @@ body {
   }
 }
 
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-enter { animation: slide-up 0.3s ease-out both; }
+
 /* Prevent iOS auto-zoom on input focus — requires font-size >= 16px */
 @supports (-webkit-touch-callout: none) {
   input[type="text"],

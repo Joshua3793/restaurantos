@@ -18,7 +18,7 @@ export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismi
   const label = supplierName ?? invoiceNumber ?? 'Invoice'
 
   return (
-    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-8 z-[70] w-[calc(100vw-32px)] sm:w-80 bg-white border border-gray-200 rounded-2xl shadow-xl flex items-start gap-3 p-4 animate-in slide-in-from-bottom-4 duration-300">
+    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-8 z-[70] w-[calc(100vw-32px)] sm:w-80 bg-white border border-gray-200 rounded-2xl shadow-xl flex items-start gap-3 p-4 toast-enter">
       <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
         <CheckCircle2 size={16} className="text-green-600" />
       </div>

@@ -35,33 +35,37 @@ export default function InvoicesPage() {
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
 
   const fetchSessions = useCallback(async () => {
-    const p = new URLSearchParams()
-    if (activeRcId) {
-      p.set('rcId', activeRcId)
-      if (activeRc?.isDefault) p.set('isDefault', 'true')
-    }
-    const qs = p.toString()
-    const data: SessionSummary[] = await fetch(`/api/invoices/sessions${qs ? `?${qs}` : ''}`).then(r => r.json())
-
-    // Detect PROCESSING → REVIEW transitions and fire notification
-    const prev = prevStatusesRef.current
-    for (const s of data) {
-      if (prev.get(s.id) === 'PROCESSING' && s.status === 'REVIEW') {
-        setReadyNotification({
-          sessionId: s.id,
-          supplierName: s.supplierName,
-          invoiceNumber: s.invoiceNumber,
-        })
+    try {
+      const p = new URLSearchParams()
+      if (activeRcId) {
+        p.set('rcId', activeRcId)
+        if (activeRc?.isDefault) p.set('isDefault', 'true')
       }
+      const qs = p.toString()
+      const data: SessionSummary[] = await fetch(`/api/invoices/sessions${qs ? `?${qs}` : ''}`).then(r => r.json())
+
+      // Detect PROCESSING → REVIEW transitions and fire notification
+      const prev = prevStatusesRef.current
+      for (const s of data) {
+        if (prev.get(s.id) === 'PROCESSING' && s.status === 'REVIEW') {
+          setReadyNotification({
+            sessionId: s.id,
+            supplierName: s.supplierName,
+            invoiceNumber: s.invoiceNumber,
+          })
+        }
+      }
+
+      // Update previous statuses map
+      const next = new Map<string, SessionStatus>()
+      for (const s of data) next.set(s.id, s.status)
+      prevStatusesRef.current = next
+
+      setSessions(data)
+      return data
+    } catch {
+      // silent — keeps existing sessions on screen, polling continues
     }
-
-    // Update previous statuses map
-    const next = new Map<string, SessionStatus>()
-    for (const s of data) next.set(s.id, s.status)
-    prevStatusesRef.current = next
-
-    setSessions(data)
-    return data
   }, [activeRcId, activeRc])
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
