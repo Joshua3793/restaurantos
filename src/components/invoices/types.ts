@@ -1,4 +1,4 @@
-export type SessionStatus = 'UPLOADING' | 'PROCESSING' | 'REVIEW' | 'APPROVED' | 'REJECTED'
+export type SessionStatus = 'UPLOADING' | 'PROCESSING' | 'REVIEW' | 'APPROVED' | 'REJECTED' | 'ERROR'
 export type MatchConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE'
 export type LineItemAction = 'PENDING' | 'UPDATE_PRICE' | 'ADD_SUPPLIER' | 'CREATE_NEW' | 'SKIP'
 
@@ -104,6 +104,7 @@ export interface SessionSummary {
   }
   revenueCenterId?: string | null
   parentSessionId?: string | null
+  errorMessage?: string | null
 }
 
 export interface ApproveResult {
