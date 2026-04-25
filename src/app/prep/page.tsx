@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal } from 'lucide-react'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
@@ -12,6 +13,7 @@ const PrepItemForm     = dynamic(() => import('@/components/prep/PrepItemForm').
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
 export default function PrepPage() {
+  const { setDrawerOpen } = useDrawer()
   const [items,      setItems]      = useState<PrepItemRich[]>([])
   const [loading,    setLoading]    = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -54,6 +56,11 @@ export default function PrepPage() {
   }, [activeOnly])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    setDrawerOpen(selected !== null)
+    return () => setDrawerOpen(false)
+  }, [selected, setDrawerOpen])
 
   // Auto-generate removed — chef now manually plans the prep list from "Plan Prep List" view
 

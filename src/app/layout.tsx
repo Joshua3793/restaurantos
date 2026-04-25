@@ -7,6 +7,7 @@ import { GlobalSearch } from '@/components/GlobalSearch'
 import { RcProvider } from '@/contexts/RevenueCenterContext'
 import { AiChat } from '@/components/AiChat'
 import { UserProvider } from '@/contexts/UserContext'
+import { DrawerProvider } from '@/contexts/DrawerContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <UserProvider>
         <RcProvider>
+        <DrawerProvider>
           <Navigation />
           <MobileRcBar />
           <GlobalSearch />
@@ -37,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </main>
           <AiChat />
+        </DrawerProvider>
         </RcProvider>
         </UserProvider>
       </body>

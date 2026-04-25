@@ -6,6 +6,7 @@ import { InvoiceList } from '@/components/invoices/InvoiceList'
 import { ProcessingToast } from '@/components/invoices/ProcessingToast'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useDrawer } from '@/contexts/DrawerContext'
 
 const InvoiceDrawer = dynamic(
   () => import('@/components/invoices/InvoiceDrawer').then(m => ({ default: m.InvoiceDrawer })),
@@ -25,6 +26,7 @@ interface ReadyNotification {
 
 export default function InvoicesPage() {
   const { activeRcId, activeRc } = useRc()
+  const { setDrawerOpen } = useDrawer()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -34,6 +36,11 @@ export default function InvoicesPage() {
 
   // Track previous statuses to detect PROCESSING → REVIEW transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
+
+  useEffect(() => {
+    setDrawerOpen(selectedSessionId !== null)
+    return () => setDrawerOpen(false)
+  }, [selectedSessionId, setDrawerOpen])
 
   const fetchSessions = useCallback(async () => {
     try {

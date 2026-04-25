@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { Plus, X, BookOpen, Search, Pencil, Link2 } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
+import { useDrawer } from '@/contexts/DrawerContext'
 
 export default function RecipesPage() {
   return (
@@ -15,6 +16,7 @@ export default function RecipesPage() {
 
 function RecipesInner() {
   const searchParams = useSearchParams()
+  const { setDrawerOpen } = useDrawer()
   const [recipes, setRecipes]               = useState<Recipe[]>([])
   const [categories, setCategories]         = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]       = useState<string | null>(null)
@@ -51,6 +53,11 @@ function RecipesInner() {
     const itemId = searchParams.get('item')
     if (itemId) setSelectedRecipeId(itemId)
   }, [searchParams])
+
+  useEffect(() => {
+    setDrawerOpen(selectedRecipeId !== null)
+    return () => setDrawerOpen(false)
+  }, [selectedRecipeId, setDrawerOpen])
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
 

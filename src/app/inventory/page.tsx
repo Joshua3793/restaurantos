@@ -6,6 +6,7 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
 import {
   Search, Plus, X, Download, Loader2,
@@ -169,6 +170,7 @@ export default function InventoryPage() {
 function InventoryPageInner() {
   const searchParams = useSearchParams()
   const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { setDrawerOpen } = useDrawer()
   const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
   const [items,        setItems]        = useState<InventoryItem[]>([])
   const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
@@ -222,6 +224,11 @@ function InventoryPageInner() {
   }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc])
 
   useEffect(() => { fetchItems() }, [fetchItems])
+
+  useEffect(() => {
+    setDrawerOpen(selected !== null)
+    return () => setDrawerOpen(false)
+  }, [selected, setDrawerOpen])
 
   // Deep-link: ?item=id opens that item's drawer; ?orderList=1 opens the order list
   useEffect(() => {

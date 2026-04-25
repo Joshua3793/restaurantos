@@ -5,6 +5,7 @@ import { Plus, X, UtensilsCrossed, Search, Pencil } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useDrawer } from '@/contexts/DrawerContext'
 import { rcHex } from '@/lib/rc-colors'
 
 export default function MenuPage() {
@@ -18,6 +19,7 @@ export default function MenuPage() {
 function MenuPageInner() {
   const searchParams = useSearchParams()
   const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { setDrawerOpen } = useDrawer()
   const [recipes, setRecipes]             = useState<Recipe[]>([])
   const [categories, setCategories]       = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]     = useState<string | null>(null)
@@ -63,6 +65,11 @@ function MenuPageInner() {
 
   useEffect(() => { loadCategories() }, [loadCategories])
   useEffect(() => { loadRecipes() }, [loadRecipes])
+
+  useEffect(() => {
+    setDrawerOpen(selectedRecipeId !== null)
+    return () => setDrawerOpen(false)
+  }, [selectedRecipeId, setDrawerOpen])
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
 
