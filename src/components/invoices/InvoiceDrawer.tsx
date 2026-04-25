@@ -240,13 +240,19 @@ function ScanItemCard({
   const [localLineTotal, setLocalLineTotal] = useState(() => {
     if (item.rawLineTotal !== null) return String(item.rawLineTotal)
     if (item.rawQty !== null && item.rawUnitPrice !== null) {
-      const total = Number(item.rawQty) * Number(item.rawUnitPrice)
+      const pq = Number(item.invoicePackQty) || 1
+      const ps = Number(item.invoicePackSize) || 1
+      const pt = item.rawPriceType ?? 'CASE'
+      let total: number
+      if (pt === 'PKG') total = Number(item.rawQty) * pq * Number(item.rawUnitPrice)
+      else if (pt === 'UOM') total = Number(item.rawQty) * pq * ps * Number(item.rawUnitPrice)
+      else total = Number(item.rawQty) * Number(item.rawUnitPrice)
       return String(total.toFixed(2))
     }
     return ''
   })
   const [localPriceType, setLocalPriceType] = useState<'CASE' | 'PKG' | 'UOM'>(
-    (item.rawPriceType as 'CASE' | 'PKG' | 'UOM') ?? 'CASE'
+    item.rawPriceType ?? 'CASE'
   )
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -327,7 +333,7 @@ function ScanItemCard({
     const action: LineItemAction = newPrice !== null && Math.abs(Number(priceDiffPct ?? 0)) > 0.1
       ? 'UPDATE_PRICE' : 'ADD_SUPPLIER'
 
-    onUpdate({ matchedItemId: inv.id, action, previousPrice: newPrice !== null ? String(Number(inv.purchasePrice)) : null, newPrice: newPrice !== null ? String(newPrice) : null, priceDiffPct: priceDiffPct !== null ? String(priceDiffPct) : null, matchConfidence: 'HIGH', matchScore: 100 })
+    onUpdate({ matchedItemId: inv.id, action, previousPrice: newPrice !== null ? String(Number(inv.purchasePrice)) : null, newPrice: newPrice !== null ? String(newPrice) : null, priceDiffPct: priceDiffPct !== null ? String(priceDiffPct) : null, matchConfidence: 'HIGH', matchScore: 100, rawPriceType: localPriceType })
     setShowDropdown(false)
   }
 
@@ -614,7 +620,13 @@ function ScanItemCard({
                 <div className="flex flex-col items-center gap-0.5">
                   <select
                     value={localPriceType}
-                    onChange={e => setLocalPriceType(e.target.value as 'CASE' | 'PKG' | 'UOM')}
+                    onChange={e => {
+                      const pt = e.target.value as 'CASE' | 'PKG' | 'UOM'
+                      setLocalPriceType(pt)
+                      const cases = parseFloat(localCases), price = parseFloat(localUnitPrice)
+                      const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+                      if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, pt).toFixed(2))
+                    }}
                     className="text-[9px] text-gray-500 uppercase tracking-wide bg-transparent border-b border-gray-300 focus:outline-none cursor-pointer pb-0.5"
                   >
                     <option value="CASE">$/case</option>

@@ -49,6 +49,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         invoicePackQty:     body.invoicePackQty !== undefined ? body.invoicePackQty : undefined,
         invoicePackSize:    body.invoicePackSize !== undefined ? body.invoicePackSize : undefined,
         invoicePackUOM:     body.invoicePackUOM !== undefined ? body.invoicePackUOM : undefined,
+        rawPriceType:       body.rawPriceType !== undefined ? body.rawPriceType : undefined,
         needsFormatConfirm: body.needsFormatConfirm !== undefined ? body.needsFormatConfirm : undefined,
         revenueCenterId:    body.revenueCenterId !== undefined ? body.revenueCenterId : undefined,
       },
