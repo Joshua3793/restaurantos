@@ -19,3 +19,17 @@ body {
     text-wrap: balance;
   }
 }
+
+/* Prevent iOS auto-zoom on input focus — requires font-size >= 16px */
+@supports (-webkit-touch-callout: none) {
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  input[type="search"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
