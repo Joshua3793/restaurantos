@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { CheckCircle2, X } from 'lucide-react'
 
 interface Props {
@@ -10,10 +10,13 @@ interface Props {
 }
 
 export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismiss }: Props) {
+  const onDismissRef = useRef(onDismiss)
+  onDismissRef.current = onDismiss
+
   useEffect(() => {
-    const t = setTimeout(onDismiss, 6000)
+    const t = setTimeout(() => onDismissRef.current(), 6000)
     return () => clearTimeout(t)
-  }, [onDismiss])
+  }, []) // intentionally empty — timer starts once on mount
 
   const label = supplierName ?? invoiceNumber ?? 'Invoice'
 
