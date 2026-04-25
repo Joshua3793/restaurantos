@@ -87,10 +87,9 @@ export default function InvoicesPage() {
         <InvoiceUploadModal
           activeRcId={activeRcId}
           onClose={() => setShowUpload(false)}
-          onComplete={(newSessionId) => {
+          onComplete={() => {
             fetchSessions()
             setShowUpload(false)
-            setSelectedSessionId(newSessionId)
           }}
         />
       )}
