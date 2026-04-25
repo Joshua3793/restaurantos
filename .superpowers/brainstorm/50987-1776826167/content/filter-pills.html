@@ -1,0 +1,217 @@
+<h2>Count Mode — Filter Area</h2>
+<p class="subtitle">Currently up to 3 stacked pill rows eat significant vertical space before you reach your items. How should filters be handled?</p>
+
+<style>
+  body { font-family: -apple-system, sans-serif; }
+  .phone {
+    width: 390px; background: #f2f2f7; border-radius: 40px;
+    border: 3px solid #1c1c1e; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); margin: 16px auto 0;
+  }
+  .phone-top {
+    background: white; border-bottom: 1px solid #e5e7eb;
+    padding: 12px 16px 0;
+  }
+  .phone-topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .phone-back { font-size: 18px; color: #8e8e93; }
+  .phone-session-name { flex: 1; font-size: 14px; font-weight: 600; color: #1c1c1e; text-align: center; }
+  .phone-progress-label { font-size: 12px; background: #f3f4f6; color: #374151; padding: 3px 10px; border-radius: 20px; }
+  .phone-finish { font-size: 12px; font-weight: 700; background: #2563eb; color: white; padding: 5px 10px; border-radius: 8px; }
+  .progress-bar { height: 3px; background: #e5e7eb; margin-bottom: 0; }
+  .progress-fill { height: 3px; background: #16a34a; width: 25%; }
+
+  .pill { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; white-space: nowrap; background: white; color: #6b7280; border: 1px solid #e5e7eb; }
+  .pill-active { background: #1c1c1e; color: white; border-color: #1c1c1e; }
+  .pill-filter { background: white; color: #374151; border: 1px solid #e5e7eb; display: flex; align-items: center; gap: 4px; }
+  .pill-filter-active { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+
+  /* thin item rows */
+  .items { padding: 6px 10px; display: flex; flex-direction: column; gap: 5px; }
+  .row { background: white; border-radius: 12px; border: 1.5px solid #e5e7eb; display: flex; align-items: center; padding: 10px 12px; gap: 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
+  .dot-done { background: #16a34a; }
+  .row-name { flex: 1; font-size: 14px; font-weight: 500; color: #1c1c1e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub { font-size: 11px; color: #9ca3af; margin-top: 1px; }
+  .row-right { text-align: right; flex-shrink: 0; font-size: 12px; color: #d1d5db; }
+  .row-right-done { color: #374151; font-weight: 600; }
+  .row-var { font-size: 11px; color: #16a34a; }
+
+  .options { max-width: 900px; margin: 0 auto; }
+  .options .option { flex: 1; min-width: 260px; }
+
+  .divider-pill { width: 1px; height: 20px; background: #e5e7eb; flex-shrink: 0; margin: 0 2px; }
+
+  .filter-sheet {
+    background: white; border-radius: 20px 20px 0 0;
+    padding: 16px 14px 20px; border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+  }
+  .sheet-handle { width: 36px; height: 4px; background: #e5e7eb; border-radius: 2px; margin: 0 auto 14px; }
+  .sheet-title { font-size: 14px; font-weight: 700; color: #1c1c1e; margin-bottom: 12px; }
+  .sheet-section { margin-bottom: 12px; }
+  .sheet-label { font-size: 11px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .sheet-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sheet-pill { padding: 6px 14px; border-radius: 20px; font-size: 13px; border: 1.5px solid #e5e7eb; color: #374151; background: white; }
+  .sheet-pill-active { background: #1c1c1e; color: white; border-color: #1c1c1e; }
+</style>
+
+<div class="options">
+
+  <!-- Option A: single scrollable row -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Single scrollable row</h3>
+      <p>All filters (status + category) in one horizontally scrollable row, separated by a thin divider. Saves two rows of vertical space. Most items visible immediately.</p>
+
+      <div class="phone">
+        <div class="phone-top">
+          <div class="phone-topbar">
+            <span class="phone-back">←</span>
+            <span class="phone-session-name">Evening count</span>
+            <span class="phone-progress-label">12/48</span>
+            <span class="phone-finish">Review</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+        <!-- Single pill row -->
+        <div style="display:flex;gap:6px;overflow-x:auto;padding:8px 10px 7px;background:#f2f2f7;scrollbar-width:none">
+          <span class="pill pill-active">All</span>
+          <span class="pill">Uncounted</span>
+          <span class="pill">Counted</span>
+          <div class="divider-pill"></div>
+          <span class="pill">Dairy</span>
+          <span class="pill">Dry goods</span>
+          <span class="pill">Produce</span>
+          <span class="pill">Oils</span>
+        </div>
+        <div class="items">
+          <div class="row">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Whole milk 2L</div>
+              <div class="row-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-right">— —</div>
+          </div>
+          <div class="row">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Cheddar cheese 1kg</div>
+              <div class="row-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-right">— —</div>
+          </div>
+          <div class="row" style="background:#f0fdf4;border-color:#bbf7d0">
+            <div class="dot dot-done"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Butter unsalted 500g</div>
+              <div class="row-sub">Dairy · Dry store</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div class="row-right-done">6.0 kg</div>
+              <div class="row-var">+2.1%</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Greek yogurt plain</div>
+              <div class="row-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-right">— —</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: Filter button → bottom sheet -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Status pills + Filter button → sheet</h3>
+      <p>Keep the 3 status pills (All / Uncounted / Counted) always visible since they're used constantly. Category and location go behind a Filter button that opens a bottom sheet. Cleanest top area.</p>
+
+      <div class="phone">
+        <div class="phone-top">
+          <div class="phone-topbar">
+            <span class="phone-back">←</span>
+            <span class="phone-session-name">Evening count</span>
+            <span class="phone-progress-label">12/48</span>
+            <span class="phone-finish">Review</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+        <!-- Status + filter btn -->
+        <div style="display:flex;gap:6px;padding:8px 10px 7px;background:#f2f2f7;align-items:center">
+          <span class="pill pill-active">All</span>
+          <span class="pill">Uncounted</span>
+          <span class="pill">Counted</span>
+          <div style="flex:1"></div>
+          <span class="pill pill-filter">⧉ Filter</span>
+        </div>
+        <div class="items">
+          <div class="row">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Whole milk 2L</div>
+              <div class="row-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-right">— —</div>
+          </div>
+          <div class="row">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Cheddar cheese 1kg</div>
+              <div class="row-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-right">— —</div>
+          </div>
+          <div class="row" style="background:#f0fdf4;border-color:#bbf7d0">
+            <div class="dot dot-done"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Butter unsalted 500g</div>
+              <div class="row-sub">Dairy · Dry store</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div class="row-right-done">6.0 kg</div>
+              <div class="row-var">+2.1%</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="row-name">Greek yogurt plain</div>
+              <div class="row-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-right">— —</div>
+          </div>
+        </div>
+        <!-- Bottom sheet preview -->
+        <div class="filter-sheet">
+          <div class="sheet-handle"></div>
+          <div class="sheet-title">Filter items</div>
+          <div class="sheet-section">
+            <div class="sheet-label">Category</div>
+            <div class="sheet-pills">
+              <span class="sheet-pill sheet-pill-active">All</span>
+              <span class="sheet-pill">Dairy</span>
+              <span class="sheet-pill">Dry goods</span>
+              <span class="sheet-pill">Produce</span>
+            </div>
+          </div>
+          <div class="sheet-section">
+            <div class="sheet-label">Location</div>
+            <div class="sheet-pills">
+              <span class="sheet-pill sheet-pill-active">All</span>
+              <span class="sheet-pill">Walk-in cooler</span>
+              <span class="sheet-pill">Dry store</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

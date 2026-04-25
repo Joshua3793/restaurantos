@@ -1,0 +1,253 @@
+<h2>Count Mode — Item Row Design</h2>
+<p class="subtitle">Currently the category badge + location text sit on the same line as the item name — they collide on narrow screens. Pick a layout that fixes this.</p>
+
+<style>
+  body { font-family: -apple-system, sans-serif; }
+  .phone {
+    width: 390px; background: #f2f2f7; border-radius: 40px;
+    border: 3px solid #1c1c1e; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); margin: 16px auto 0;
+  }
+  .phone-top {
+    background: white; border-bottom: 1px solid #e5e7eb;
+    padding: 12px 16px 10px;
+  }
+  .phone-topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .phone-back { font-size: 18px; color: #8e8e93; }
+  .phone-session-name { flex: 1; font-size: 14px; font-weight: 600; color: #1c1c1e; text-align: center; }
+  .phone-progress-label { font-size: 12px; background: #f3f4f6; color: #374151; padding: 3px 10px; border-radius: 20px; }
+  .phone-finish { font-size: 12px; font-weight: 700; background: #2563eb; color: white; padding: 5px 10px; border-radius: 8px; }
+  .progress-bar { height: 3px; background: #e5e7eb; }
+  .progress-fill { height: 3px; background: #16a34a; width: 25%; }
+  .pills { display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px 6px; background: #f2f2f7; }
+  .pill { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; white-space: nowrap; background: white; color: #6b7280; border: 1px solid #e5e7eb; }
+  .pill-active { background: #1c1c1e; color: white; border-color: #1c1c1e; }
+
+  .items { padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* ── OPTION A: Two-line rows (category moves to subtitle) ── */
+  .row-a { background: white; border-radius: 14px; border: 1.5px solid #e5e7eb; overflow: hidden; }
+  .row-a-uncounted { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
+  .row-a-icon { color: #d1d5db; }
+  .row-a-body { flex: 1; min-width: 0; }
+  .row-a-name { font-size: 14px; font-weight: 500; color: #1c1c1e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-a-sub { font-size: 11px; color: #9ca3af; margin-top: 1px; display: flex; align-items: center; gap: 5px; }
+  .cat-dot { width: 6px; height: 6px; border-radius: 50%; background: #8b5cf6; display: inline-block; }
+  .cat-dot-green { background: #16a34a; }
+  .cat-dot-blue { background: #2563eb; }
+  .chevron { color: #9ca3af; font-size: 12px; }
+
+  .row-a-counted { background: #f0fdf4; border-color: #bbf7d0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+  .row-a-counted-icon { color: #16a34a; font-size: 18px; }
+  .row-a-counted-right { margin-left: auto; text-align: right; }
+  .row-a-counted-qty { font-size: 12px; color: #374151; font-weight: 600; }
+  .row-a-variance { font-size: 11px; color: #16a34a; }
+  .row-a-variance-warn { color: #d97706; }
+  .edit-link { font-size: 11px; color: #2563eb; font-weight: 600; margin-left: 6px; }
+
+  .row-a-open { border-color: #4ade80; border-width: 2px; }
+  .row-a-open-header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+  .row-a-open-body { padding: 0 12px 12px; border-top: 1px solid #f0fdf4; }
+  .expected-text { font-size: 12px; color: #6b7280; padding: 8px 0 10px; }
+  .stepper { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .step-btn { width: 52px; height: 56px; background: #f3f4f6; border-radius: 12px; border: none; font-size: 22px; color: #374151; display: flex; align-items: center; justify-content: center; }
+  .step-input { flex: 1; height: 56px; text-align: center; font-size: 26px; font-weight: 700; border: 2px solid #4ade80; border-radius: 12px; color: #1c1c1e; }
+  .step-uom { text-align: center; font-size: 12px; color: #6b7280; margin-bottom: 10px; }
+  .action-row { display: flex; gap: 8px; }
+  .confirm-btn { flex: 1; height: 44px; background: #16a34a; color: white; border-radius: 12px; border: none; font-size: 13px; font-weight: 700; }
+  .skip-btn { padding: 0 16px; height: 44px; border: 1.5px solid #e5e7eb; border-radius: 12px; background: white; font-size: 12px; color: #6b7280; }
+
+  /* ── OPTION B: Swipe-style flat list ── */
+  .row-b { background: white; border-radius: 14px; border: 1.5px solid #e5e7eb; display: flex; align-items: center; padding: 11px 12px; gap: 10px; }
+  .row-b-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; shrink: 0; }
+  .row-b-status-dot-done { background: #16a34a; }
+  .row-b-body { flex: 1; min-width: 0; }
+  .row-b-name { font-size: 14px; font-weight: 500; color: #1c1c1e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-b-sub { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+  .row-b-right { text-align: right; shrink: 0; }
+  .row-b-qty { font-size: 13px; font-weight: 600; color: #374151; }
+  .row-b-qty-empty { font-size: 12px; color: #d1d5db; }
+
+  .options { max-width: 860px; margin: 0 auto; }
+  .options .option { flex: 1; min-width: 240px; }
+</style>
+
+<div class="options">
+
+  <!-- Option A: Two-line rows -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Two-line rows — category as subtitle</h3>
+      <p>Item name on top. Category + location as a small coloured dot + text below. Counted rows show qty + variance on the right. Expanded row has the stepper input. Clean and readable at any name length.</p>
+
+      <div class="phone">
+        <div class="phone-top">
+          <div class="phone-topbar">
+            <span class="phone-back">←</span>
+            <span class="phone-session-name">Evening count</span>
+            <span class="phone-progress-label">12/48</span>
+            <span class="phone-finish">Review</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill pill-active">All items 48</span>
+          <span class="pill">Dairy 8</span>
+          <span class="pill">Dry goods 14</span>
+          <span class="pill">Produce 6</span>
+        </div>
+        <div class="items">
+          <!-- Uncounted -->
+          <div class="row-a">
+            <div class="row-a-uncounted">
+              <span class="row-a-icon">○</span>
+              <div class="row-a-body">
+                <div class="row-a-name">Whole milk 2L</div>
+                <div class="row-a-sub"><span class="cat-dot"></span> Dairy · Walk-in cooler</div>
+              </div>
+              <span class="chevron">›</span>
+            </div>
+          </div>
+          <!-- Open/expanded -->
+          <div class="row-a row-a-open">
+            <div class="row-a-open-header">
+              <span class="row-a-icon" style="color:#4ade80">○</span>
+              <div class="row-a-body">
+                <div class="row-a-name">Cheddar cheese 1kg</div>
+                <div class="row-a-sub"><span class="cat-dot"></span> Dairy · Walk-in cooler</div>
+              </div>
+              <span class="chevron" style="transform:rotate(90deg)">›</span>
+            </div>
+            <div class="row-a-open-body">
+              <div class="expected-text">Expected: 4.00 kg</div>
+              <div class="stepper">
+                <button class="step-btn">−</button>
+                <div class="step-input">3.5</div>
+                <button class="step-btn">+</button>
+              </div>
+              <div class="step-uom">kg</div>
+              <div class="action-row">
+                <button class="confirm-btn">✓ Confirm count</button>
+                <button class="skip-btn">Skip</button>
+              </div>
+            </div>
+          </div>
+          <!-- Counted -->
+          <div class="row-a">
+            <div class="row-a-counted">
+              <span class="row-a-counted-icon">✓</span>
+              <div class="row-a-body">
+                <div class="row-a-name" style="color:#1c1c1e">Butter unsalted 500g</div>
+                <div class="row-a-sub"><span class="cat-dot cat-dot-green"></span> Dairy · Dry store</div>
+              </div>
+              <div class="row-a-counted-right">
+                <div class="row-a-counted-qty">6.0 kg</div>
+                <div class="row-a-variance">+2.1%</div>
+              </div>
+              <span class="edit-link">Edit</span>
+            </div>
+          </div>
+          <!-- Counted with large variance -->
+          <div class="row-a">
+            <div class="row-a-counted">
+              <span class="row-a-counted-icon">✓</span>
+              <div class="row-a-body">
+                <div class="row-a-name" style="color:#1c1c1e">Olive oil extra virgin</div>
+                <div class="row-a-sub"><span class="cat-dot cat-dot-blue"></span> Oils · Dry store</div>
+              </div>
+              <div class="row-a-counted-right">
+                <div class="row-a-counted-qty">2.0 L</div>
+                <div class="row-a-variance row-a-variance-warn">−22.0%</div>
+              </div>
+              <span class="edit-link">Edit</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: Status dot + right-aligned qty -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Thin status-dot rows</h3>
+      <p>Inspired by the inventory list: small coloured dot on the left signals counted/uncounted. Category + location in the subtitle. Counted qty on the right. Ultra-compact — fits more items without scrolling. Tap to expand with the stepper.</p>
+
+      <div class="phone">
+        <div class="phone-top">
+          <div class="phone-topbar">
+            <span class="phone-back">←</span>
+            <span class="phone-session-name">Evening count</span>
+            <span class="phone-progress-label">12/48</span>
+            <span class="phone-finish">Review</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill pill-active">All items 48</span>
+          <span class="pill">Dairy 8</span>
+          <span class="pill">Dry goods 14</span>
+        </div>
+        <div class="items">
+          <div class="row-b">
+            <div class="row-b-status-dot"></div>
+            <div class="row-b-body">
+              <div class="row-b-name">Whole milk 2L</div>
+              <div class="row-b-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-b-right"><div class="row-b-qty-empty">— —</div></div>
+          </div>
+          <div class="row-b">
+            <div class="row-b-status-dot"></div>
+            <div class="row-b-body">
+              <div class="row-b-name">Cheddar cheese 1kg</div>
+              <div class="row-b-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-b-right"><div class="row-b-qty-empty">— —</div></div>
+          </div>
+          <div class="row-b" style="background:#f0fdf4; border-color:#bbf7d0">
+            <div class="row-b-status-dot row-b-status-dot-done"></div>
+            <div class="row-b-body">
+              <div class="row-b-name">Butter unsalted 500g</div>
+              <div class="row-b-sub">Dairy · Dry store</div>
+            </div>
+            <div class="row-b-right">
+              <div class="row-b-qty">6.0 kg</div>
+              <div style="font-size:11px;color:#16a34a">+2.1%</div>
+            </div>
+          </div>
+          <div class="row-b" style="background:#fffbeb; border-color:#fde68a">
+            <div class="row-b-status-dot row-b-status-dot-done" style="background:#d97706"></div>
+            <div class="row-b-body">
+              <div class="row-b-name">Olive oil extra virgin</div>
+              <div class="row-b-sub">Oils · Dry store</div>
+            </div>
+            <div class="row-b-right">
+              <div class="row-b-qty">2.0 L</div>
+              <div style="font-size:11px;color:#d97706">−22.0%</div>
+            </div>
+          </div>
+          <div class="row-b">
+            <div class="row-b-status-dot"></div>
+            <div class="row-b-body">
+              <div class="row-b-name">Greek yogurt plain</div>
+              <div class="row-b-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-b-right"><div class="row-b-qty-empty">— —</div></div>
+          </div>
+          <div class="row-b">
+            <div class="row-b-status-dot"></div>
+            <div class="row-b-body">
+              <div class="row-b-name">Heavy cream 1L</div>
+              <div class="row-b-sub">Dairy · Walk-in cooler</div>
+            </div>
+            <div class="row-b-right"><div class="row-b-qty-empty">— —</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

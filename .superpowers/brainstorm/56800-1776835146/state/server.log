@@ -1,0 +1,25 @@
+{"type":"server-started","port":59296,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:59296","screen_dir":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content","state_dir":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/state"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-options.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-options.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-options.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-options.html"}
+{"source":"user-event","type":"click","text":"$12kThis week\n        8Invoices\n        3Alerts\n        2Pending\n      \n      \n        \n          All\n          Review\n          Approved\n        \n        \n        \n        \n      \n    \n    \n      A — KPIs on top, list below\n      4-card KPI strip across the top, status tabs + invoice list underneath. Clean vertical flow. Simple to navigate.","choice":"a","id":null,"timestamp":1776835202873}
+{"source":"user-event","type":"click","text":"$12kThis week\n          8Invoices\n          3Alerts\n          2Pending\n        \n        \n          \n            All\n            Review\n          \n          \n          \n          \n        \n      \n    \n    \n      B — KPIs in sidebar, list right\n      KPI cards stacked on the left, invoice list takes the main area. Maximises list space but feels different from other pages.","choice":"b","id":null,"timestamp":1776835216872}
+{"source":"user-event","type":"click","text":"$12kThis week\n          8Invoices\n          3Alerts\n          2Pending\n        \n        \n          \n            All\n            Review\n          \n          \n          \n          \n        \n      \n    \n    \n      B — KPIs in sidebar, list right\n      KPI cards stacked on the left, invoice list takes the main area. Maximises list space but feels different from other pages.","choice":"b","id":null,"timestamp":1776835228756}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-b-detail.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-b-detail.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-b-detail.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-b-detail.html"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-detail.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-detail.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-detail.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-detail.html"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-compact.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-compact.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-compact.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/layout-a-compact.html"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/waiting-1.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/waiting-1.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/waiting-1.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/56800-1776835146/content/waiting-1.html"}
+{"type":"server-stopped","reason":"idle timeout"}

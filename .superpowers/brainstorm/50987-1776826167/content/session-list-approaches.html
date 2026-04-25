@@ -1,0 +1,296 @@
+<h2>Count Page — Session List Redesign</h2>
+<p class="subtitle">The current row crams date, label, counted-by, progress, status badge, and 3 icon buttons into one line — it breaks on mobile. Pick the approach that feels right.</p>
+
+<style>
+  .phone {
+    width: 390px;
+    background: #f2f2f7;
+    border-radius: 40px;
+    border: 3px solid #1c1c1e;
+    padding: 16px 0 24px;
+    margin: 0 auto;
+    font-family: -apple-system, sans-serif;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .phone-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px 12px;
+    background: #f2f2f7;
+  }
+  .phone-title { font-size: 24px; font-weight: 700; color: #1c1c1e; }
+  .phone-btn-green {
+    background: #16a34a; color: white; border: none;
+    padding: 8px 14px; border-radius: 12px; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .session-list { padding: 0 12px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* OPTION A — Two-line compact card */
+  .card-a {
+    background: white; border-radius: 16px; padding: 12px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .card-a-date {
+    font-size: 11px; color: #8e8e93; font-weight: 600;
+    text-align: center; min-width: 36px; line-height: 1.3;
+  }
+  .card-a-body { flex: 1; min-width: 0; }
+  .card-a-title { font-size: 14px; font-weight: 600; color: #1c1c1e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-a-sub { font-size: 12px; color: #8e8e93; margin-top: 2px; }
+  .card-a-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; shrink: 0; }
+  .badge { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-amber { background: #fef3c7; color: #b45309; }
+  .cta-link { font-size: 12px; font-weight: 700; color: #2563eb; }
+  .cta-link-green { font-size: 12px; font-weight: 700; color: #15803d; }
+  .dots-btn { font-size: 18px; color: #8e8e93; padding: 0 2px; }
+
+  /* OPTION B — Tall card with progress bar and prominent action */
+  .card-b {
+    background: white; border-radius: 16px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card-b-top {
+    padding: 12px 14px 10px;
+    display: flex; align-items: flex-start; justify-content: space-between;
+  }
+  .card-b-meta { font-size: 11px; color: #8e8e93; }
+  .card-b-title { font-size: 14px; font-weight: 700; color: #1c1c1e; margin-top: 2px; }
+  .card-b-sub { font-size: 12px; color: #8e8e93; margin-top: 3px; }
+  .card-b-progress {
+    height: 3px; background: #e5e7eb; margin: 0 14px 10px;
+    border-radius: 2px; overflow: hidden;
+  }
+  .card-b-progress-fill { height: 100%; background: #16a34a; border-radius: 2px; }
+  .card-b-footer {
+    border-top: 1px solid #f3f4f6;
+    display: flex; align-items: center;
+  }
+  .card-b-action {
+    flex: 1; padding: 10px 14px; font-size: 13px; font-weight: 700;
+    color: #2563eb; background: none; border: none; text-align: left;
+  }
+  .card-b-action-green { color: #15803d; }
+  .card-b-divider { width: 1px; height: 36px; background: #f3f4f6; }
+  .card-b-icon-btn {
+    padding: 10px 12px; font-size: 14px; color: #8e8e93;
+    background: none; border: none;
+  }
+
+  /* OPTION C — Date sidebar accent */
+  .card-c {
+    background: white; border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex; overflow: hidden;
+  }
+  .card-c-accent {
+    width: 4px; background: #16a34a; shrink: 0;
+  }
+  .card-c-accent-blue { background: #2563eb; }
+  .card-c-accent-amber { background: #d97706; }
+  .card-c-inner { flex: 1; padding: 11px 14px; min-width: 0; }
+  .card-c-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-c-title { font-size: 14px; font-weight: 600; color: #1c1c1e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .card-c-row2 { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+  .card-c-sub { font-size: 12px; color: #8e8e93; }
+  .card-c-cta { font-size: 12px; font-weight: 700; color: #2563eb; white-space: nowrap; }
+  .card-c-cta-green { font-size: 12px; font-weight: 700; color: #15803d; }
+
+  /* Progress ring */
+  .ring-wrap { position: relative; width: 36px; height: 36px; shrink: 0; }
+  .ring-label {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #1c1c1e; line-height: 1;
+  }
+
+  .options { max-width: 900px; margin: 0 auto; }
+  .options .option { flex: 1; min-width: 260px; }
+  .options .content { padding-top: 8px; }
+</style>
+
+<div class="options">
+
+  <!-- Option A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Compact two-line card + ⋯ menu</h3>
+      <p>Like the inventory redesign — thin rows with status badge on the right, ⋯ for secondary actions (edit, delete). Primary CTA (Continue / Report) is a tappable link. Very scannable.</p>
+
+      <div class="phone" style="margin-top:16px">
+        <div class="phone-header">
+          <span class="phone-title">Stock Count</span>
+          <button class="phone-btn-green">＋ Start Count</button>
+        </div>
+        <div class="session-list">
+          <!-- In progress -->
+          <div class="card-a">
+            <div class="card-a-date">Apr<br/>21</div>
+            <div class="card-a-body">
+              <div class="card-a-title">Evening count</div>
+              <div class="card-a-sub">Joshua · 12/48 items</div>
+            </div>
+            <div class="card-a-right">
+              <span class="badge badge-blue">In progress</span>
+              <span class="cta-link">Continue →</span>
+            </div>
+            <span class="dots-btn">⋯</span>
+          </div>
+          <!-- Pending review -->
+          <div class="card-a">
+            <div class="card-a-date">Apr<br/>14</div>
+            <div class="card-a-body">
+              <div class="card-a-title">Full count</div>
+              <div class="card-a-sub">Maria · 48/48 items</div>
+            </div>
+            <div class="card-a-right">
+              <span class="badge badge-amber">Pending review</span>
+              <span class="cta-link">Review →</span>
+            </div>
+            <span class="dots-btn">⋯</span>
+          </div>
+          <!-- Finalized -->
+          <div class="card-a">
+            <div class="card-a-date">Apr<br/>7</div>
+            <div class="card-a-body">
+              <div class="card-a-title">Full count</div>
+              <div class="card-a-sub">Joshua · 48 items · $4,820</div>
+            </div>
+            <div class="card-a-right">
+              <span class="badge badge-green">Finalized</span>
+              <span class="cta-link-green">Report</span>
+            </div>
+            <span class="dots-btn">⋯</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Tall card with footer action bar</h3>
+      <p>More breathing room — progress bar inside each card, action button pinned to the card's bottom edge. Edit/delete are icon buttons in the footer. Feels purposeful but takes more vertical space.</p>
+
+      <div class="phone" style="margin-top:16px">
+        <div class="phone-header">
+          <span class="phone-title">Stock Count</span>
+          <button class="phone-btn-green">＋ Start Count</button>
+        </div>
+        <div class="session-list">
+          <!-- In progress -->
+          <div class="card-b">
+            <div class="card-b-top">
+              <div>
+                <div class="card-b-meta">Apr 21 · Joshua</div>
+                <div class="card-b-title">Evening count</div>
+                <div class="card-b-sub">12 of 48 items counted</div>
+              </div>
+              <span class="badge badge-blue">In progress</span>
+            </div>
+            <div class="card-b-progress">
+              <div class="card-b-progress-fill" style="width:25%"></div>
+            </div>
+            <div class="card-b-footer">
+              <button class="card-b-action">Continue counting →</button>
+              <div class="card-b-divider"></div>
+              <button class="card-b-icon-btn">✏️</button>
+              <button class="card-b-icon-btn">🗑</button>
+            </div>
+          </div>
+          <!-- Finalized -->
+          <div class="card-b">
+            <div class="card-b-top">
+              <div>
+                <div class="card-b-meta">Apr 7 · Joshua</div>
+                <div class="card-b-title">Full count</div>
+                <div class="card-b-sub">48 items · $4,820 value</div>
+              </div>
+              <span class="badge badge-green">Finalized</span>
+            </div>
+            <div class="card-b-progress">
+              <div class="card-b-progress-fill" style="width:100%"></div>
+            </div>
+            <div class="card-b-footer">
+              <button class="card-b-action card-b-action-green">View report →</button>
+              <div class="card-b-divider"></div>
+              <button class="card-b-icon-btn">✏️</button>
+              <button class="card-b-icon-btn">🗑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Coloured left-accent card</h3>
+      <p>Status colour as a left border accent (blue = in progress, amber = review, green = finalized). Tap the whole card to open. Edit/delete accessible via a ⋯ menu. Very clean — nothing distracts from the session name.</p>
+
+      <div class="phone" style="margin-top:16px">
+        <div class="phone-header">
+          <span class="phone-title">Stock Count</span>
+          <button class="phone-btn-green">＋ Start Count</button>
+        </div>
+        <div class="session-list">
+          <!-- In progress -->
+          <div class="card-c">
+            <div class="card-c-accent card-c-accent-blue"></div>
+            <div class="card-c-inner">
+              <div class="card-c-row1">
+                <div class="card-c-title">Evening count</div>
+                <span class="badge badge-blue">In progress</span>
+              </div>
+              <div class="card-c-row2">
+                <span class="card-c-sub">Apr 21 · Joshua · 12/48</span>
+                <span class="card-c-cta">Continue →</span>
+              </div>
+            </div>
+            <span class="dots-btn" style="padding:12px 10px 12px 0">⋯</span>
+          </div>
+          <!-- Pending review -->
+          <div class="card-c">
+            <div class="card-c-accent card-c-accent-amber"></div>
+            <div class="card-c-inner">
+              <div class="card-c-row1">
+                <div class="card-c-title">Full count</div>
+                <span class="badge badge-amber">Pending review</span>
+              </div>
+              <div class="card-c-row2">
+                <span class="card-c-sub">Apr 14 · Maria · 48/48</span>
+                <span class="card-c-cta">Review →</span>
+              </div>
+            </div>
+            <span class="dots-btn" style="padding:12px 10px 12px 0">⋯</span>
+          </div>
+          <!-- Finalized -->
+          <div class="card-c">
+            <div class="card-c-accent"></div>
+            <div class="card-c-inner">
+              <div class="card-c-row1">
+                <div class="card-c-title">Full count</div>
+                <span class="badge badge-green">Finalized</span>
+              </div>
+              <div class="card-c-row2">
+                <span class="card-c-sub">Apr 7 · Joshua · $4,820</span>
+                <span class="card-c-cta-green">Report</span>
+              </div>
+            </div>
+            <span class="dots-btn" style="padding:12px 10px 12px 0">⋯</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

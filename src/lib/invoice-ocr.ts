@@ -2,7 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 
 // Use the fastest vision-capable model for daily invoice scanning
 const OCR_MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS = 8096
+const MAX_TOKENS = 20000
+const THINKING_BUDGET = 10000
 
 // Claude API limit is 5MB per image. Phone photos are often 8–15MB.
 // Compress using sharp (native, excluded from webpack via serverExternalPackages).
@@ -13,30 +14,30 @@ async function compressImageForClaude(
   const sharp = (await import('sharp')).default
   const inputBuffer = Buffer.from(base64Data, 'base64')
 
-  let quality = 85
-  // Resize to max 2000px longest edge, auto-rotate from EXIF, convert to JPEG
+  let quality = 90
+  // Resize to max 2500px longest edge, auto-rotate from EXIF, convert to JPEG
   let outputBuffer = await sharp(inputBuffer)
     .rotate()
-    .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
+    .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality })
     .toBuffer()
 
   // Reduce quality until under 4MB
-  while (outputBuffer.length > 4 * 1024 * 1024 && quality > 40) {
+  while (outputBuffer.length > 4 * 1024 * 1024 && quality > 60) {
     quality -= 15
     outputBuffer = await sharp(inputBuffer)
       .rotate()
-      .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
+      .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality })
       .toBuffer()
   }
 
-  // Last resort: shrink to 1400px
+  // Last resort: shrink to 1800px
   if (outputBuffer.length > 4 * 1024 * 1024) {
     outputBuffer = await sharp(inputBuffer)
       .rotate()
-      .resize(1400, 1400, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 70 })
+      .resize(1800, 1800, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 75 })
       .toBuffer()
   }
 
@@ -214,10 +215,12 @@ export async function extractInvoiceFromImages(
     source: { type: 'base64', media_type: img.mediaType, data: img.data },
   }))
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message = await client.messages.create({
     model: OCR_MODEL,
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
+    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
     messages: [{
       role: 'user',
       content: [
@@ -230,7 +233,7 @@ export async function extractInvoiceFromImages(
         },
       ],
     }],
-  })
+  } as any)
 
   const text = message.content
     .filter(b => b.type === 'text')
@@ -256,10 +259,12 @@ export async function extractInvoiceFromPdf(pdfBuffer: Buffer): Promise<OcrResul
   const client = new Anthropic({ apiKey })
   const base64 = pdfBuffer.toString('base64')
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message = await client.messages.create({
     model: OCR_MODEL,
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
+    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
     messages: [{
       role: 'user',
       content: [
@@ -268,7 +273,7 @@ export async function extractInvoiceFromPdf(pdfBuffer: Buffer): Promise<OcrResul
         { type: 'text', text: 'Parse this invoice and return JSON only.' },
       ],
     }],
-  })
+  } as any)
 
   const text = message.content
     .filter(b => b.type === 'text')
@@ -285,15 +290,17 @@ export async function extractInvoiceFromText(text: string): Promise<OcrResult> {
 
   const client = new Anthropic({ apiKey })
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message = await client.messages.create({
     model: OCR_MODEL,
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
+    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
     messages: [{
       role: 'user',
       content: `Parse this invoice text and return JSON only.\n\n${text}`,
     }],
-  })
+  } as any)
 
   const responseText = message.content
     .filter(b => b.type === 'text')

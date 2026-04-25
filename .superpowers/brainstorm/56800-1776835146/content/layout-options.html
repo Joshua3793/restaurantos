@@ -1,0 +1,87 @@
+<h2>Phase 1 Layout: How should the dashboard be structured?</h2>
+<p class="subtitle">KPI cards + Invoice list — how should they be arranged?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:16px;border-radius:8px;">
+      <div style="background:#3b82f6;height:10px;border-radius:4px;margin-bottom:8px;opacity:0.7;"></div>
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <div style="flex:1;background:#e2e8f0;border-radius:6px;height:44px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;">$12k<br>This week</div>
+        <div style="flex:1;background:#e2e8f0;border-radius:6px;height:44px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;">8<br>Invoices</div>
+        <div style="flex:1;background:#e2e8f0;border-radius:6px;height:44px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;">3<br>Alerts</div>
+        <div style="flex:1;background:#e2e8f0;border-radius:6px;height:44px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;">2<br>Pending</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px;">
+        <div style="display:flex;gap:4px;margin-bottom:8px;">
+          <div style="background:#3b82f6;color:#fff;border-radius:4px;padding:2px 8px;font-size:9px;">All</div>
+          <div style="background:#f1f5f9;border-radius:4px;padding:2px 8px;font-size:9px;color:#64748b;">Review</div>
+          <div style="background:#f1f5f9;border-radius:4px;padding:2px 8px;font-size:9px;color:#64748b;">Approved</div>
+        </div>
+        <div style="background:#f8fafc;height:6px;border-radius:2px;margin-bottom:4px;"></div>
+        <div style="background:#f8fafc;height:6px;border-radius:2px;margin-bottom:4px;"></div>
+        <div style="background:#f8fafc;height:6px;border-radius:2px;"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — KPIs on top, list below</h3>
+      <p>4-card KPI strip across the top, status tabs + invoice list underneath. Clean vertical flow. Simple to navigate.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:16px;border-radius:8px;">
+      <div style="background:#3b82f6;height:10px;border-radius:4px;margin-bottom:8px;opacity:0.7;"></div>
+      <div style="display:flex;gap:8px;">
+        <div style="width:90px;flex-shrink:0;display:flex;flex-direction:column;gap:4px;">
+          <div style="background:#e2e8f0;border-radius:6px;padding:6px;font-size:9px;color:#64748b;text-align:center;">$12k<br><span style="font-size:8px;">This week</span></div>
+          <div style="background:#e2e8f0;border-radius:6px;padding:6px;font-size:9px;color:#64748b;text-align:center;">8<br><span style="font-size:8px;">Invoices</span></div>
+          <div style="background:#fef3c7;border-radius:6px;padding:6px;font-size:9px;color:#92400e;text-align:center;">3<br><span style="font-size:8px;">Alerts</span></div>
+          <div style="background:#e2e8f0;border-radius:6px;padding:6px;font-size:9px;color:#64748b;text-align:center;">2<br><span style="font-size:8px;">Pending</span></div>
+        </div>
+        <div style="flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:6px;">
+          <div style="display:flex;gap:3px;margin-bottom:6px;">
+            <div style="background:#3b82f6;color:#fff;border-radius:3px;padding:1px 6px;font-size:8px;">All</div>
+            <div style="background:#f1f5f9;border-radius:3px;padding:1px 6px;font-size:8px;color:#64748b;">Review</div>
+          </div>
+          <div style="background:#f8fafc;height:5px;border-radius:2px;margin-bottom:3px;"></div>
+          <div style="background:#f8fafc;height:5px;border-radius:2px;margin-bottom:3px;"></div>
+          <div style="background:#f8fafc;height:5px;border-radius:2px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — KPIs in sidebar, list right</h3>
+      <p>KPI cards stacked on the left, invoice list takes the main area. Maximises list space but feels different from other pages.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:16px;border-radius:8px;">
+      <div style="background:#3b82f6;height:10px;border-radius:4px;margin-bottom:8px;opacity:0.7;"></div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px;margin-bottom:8px;">
+        <div style="display:flex;gap:6px;">
+          <div style="flex:1;background:#eff6ff;border-radius:4px;height:32px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#1d4ed8;">$12k</div>
+          <div style="flex:1;background:#f0fdf4;border-radius:4px;height:32px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#15803d;">8 done</div>
+          <div style="flex:1;background:#fef3c7;border-radius:4px;height:32px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#92400e;">3 alerts</div>
+          <div style="flex:1;background:#f1f5f9;border-radius:4px;height:32px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#475569;">2 review</div>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px;">
+        <div style="display:flex;gap:4px;margin-bottom:6px;">
+          <div style="background:#3b82f6;color:#fff;border-radius:4px;padding:2px 8px;font-size:9px;">All</div>
+          <div style="background:#f1f5f9;border-radius:4px;padding:2px 8px;font-size:9px;color:#64748b;">Review (2)</div>
+          <div style="background:#f1f5f9;border-radius:4px;padding:2px 8px;font-size:9px;color:#64748b;">Approved</div>
+        </div>
+        <div style="background:#f8fafc;height:6px;border-radius:2px;margin-bottom:4px;"></div>
+        <div style="background:#f8fafc;height:6px;border-radius:2px;margin-bottom:4px;"></div>
+        <div style="background:#f8fafc;height:6px;border-radius:2px;"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Compact KPI bar + full-width list</h3>
+      <p>KPIs in a slim colour-coded row at the top. Status tabs with counts act as secondary navigation. Densest view — best for power users.</p>
+    </div>
+  </div>
+
+</div>
