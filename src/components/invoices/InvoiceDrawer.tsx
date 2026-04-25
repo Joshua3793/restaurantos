@@ -687,7 +687,6 @@ function ScanItemCard({
                 value={showDropdown ? searchQuery : (displayName ?? (item.action === 'CREATE_NEW' ? 'Create new inventory item' : 'No match — tap to search'))}
                 onChange={e => handleSearchInput(e.target.value)}
                 onFocus={handleSearchFocus}
-                readOnly={!showDropdown}
               />
               {isSearching
                 ? <Loader2 size={10} className="animate-spin text-gray-300 shrink-0" />
