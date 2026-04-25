@@ -49,6 +49,7 @@ export default function InvoicesPage() {
       const prev = prevStatusesRef.current
       for (const s of data) {
         if (prev.get(s.id) === 'PROCESSING' && s.status === 'REVIEW') {
+          setApprovedNotification(null)   // clear any competing toast
           setReadyNotification({
             sessionId: s.id,
             supplierName: s.supplierName,
@@ -56,6 +57,7 @@ export default function InvoicesPage() {
           })
         }
         if (prev.get(s.id) === 'APPROVING' && s.status === 'APPROVED') {
+          setReadyNotification(null)      // clear any competing toast
           setApprovedNotification({
             sessionId: s.id,
             supplierName: s.supplierName,

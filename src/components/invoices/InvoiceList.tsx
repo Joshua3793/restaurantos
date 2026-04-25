@@ -306,7 +306,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                         : 'hover:bg-gray-50 cursor-pointer'
                 }`}
                 onClick={() => {
-                  if (s.status !== 'PROCESSING' && s.status !== 'ERROR') onSelect(s.id)
+                  if (s.status !== 'PROCESSING' && s.status !== 'APPROVING' && s.status !== 'ERROR') onSelect(s.id)
                 }}
               >
                 <Checkbox checked={isSelected} onChange={() => toggleOne(s.id)} />
@@ -364,7 +364,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                     : isSelected ? 'bg-blue-50 cursor-pointer' : s.status === 'REVIEW' ? 'bg-amber-50 cursor-pointer' : 'bg-white cursor-pointer'
                 }`}
                 onClick={() => {
-                  if (s.status !== 'PROCESSING' && s.status !== 'ERROR') onSelect(s.id)
+                  if (s.status !== 'PROCESSING' && s.status !== 'APPROVING' && s.status !== 'ERROR') onSelect(s.id)
                 }}
               >
                 <div className="flex items-center pl-3 pr-1 shrink-0"
