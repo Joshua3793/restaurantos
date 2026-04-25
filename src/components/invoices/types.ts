@@ -110,6 +110,7 @@ export interface SessionSummary {
 
 export interface ApproveResult {
   ok: boolean
+  queued?: boolean
   itemsUpdated: number
   newItemsCreated: number
   priceAlerts: number

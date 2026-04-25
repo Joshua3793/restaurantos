@@ -245,6 +245,9 @@ function ScanItemCard({
     }
     return ''
   })
+  const [localPriceType, setLocalPriceType] = useState<'CASE' | 'PKG' | 'UOM'>(
+    (item.rawPriceType as 'CASE' | 'PKG' | 'UOM') ?? 'CASE'
+  )
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -294,8 +297,10 @@ function ScanItemCard({
     let priceDiffPct: number | null = null
 
     if (pq && ps && ps > 0 && pUOM && rawPrice !== null) {
-      // unitPrice from OCR is always $/case; divide by pack to get $/packUOM for comparison
-      const invoicePricePerPackUOM = rawPrice / (Number(pq) * Number(ps))
+      const invoicePricePerPackUOM =
+        localPriceType === 'PKG' ? rawPrice / Number(ps)
+        : localPriceType === 'UOM' ? rawPrice
+        : rawPrice / (Number(pq) * Number(ps))  // CASE
       const invPackTotal = Number(inv.qtyPerPurchaseUnit) * Number(inv.packSize)
       const invPricePerPackUOM = invPackTotal > 0 ? Number(inv.purchasePrice) / invPackTotal : 0
       const normalized = comparePricesNormalized(
@@ -332,23 +337,35 @@ function ScanItemCard({
   }
 
   // ── Linked calculators ────────────────────────────────────────────────────
-  // unitPrice from OCR is always $/case — total = qty × unitPrice
-  const calcTotal = (cases: number, price: number) => cases * price
+  const calcTotal = (cases: number, price: number, pq: number, ps: number, pt: 'CASE' | 'PKG' | 'UOM') => {
+    if (pt === 'PKG') return cases * pq * price
+    if (pt === 'UOM') return cases * pq * ps * price
+    return cases * price  // CASE
+  }
 
   const handleCasesChange = (v: string) => {
     setLocalCases(v)
     const cases = parseFloat(v), price = parseFloat(localUnitPrice)
-    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price).toFixed(2))
+    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPriceType).toFixed(2))
   }
   const handleUnitPriceChange = (v: string) => {
     setLocalUnitPrice(v)
     const cases = parseFloat(localCases), price = parseFloat(v)
-    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price).toFixed(2))
+    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPriceType).toFixed(2))
   }
   const handleLineTotalChange = (v: string) => {
     setLocalLineTotal(v)
     const cases = parseFloat(localCases), total = parseFloat(v)
-    if (cases > 0 && total > 0) setLocalUnitPrice((total / cases).toFixed(4))
+    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
+    if (cases > 0 && total > 0) {
+      const price =
+        localPriceType === 'PKG' ? total / (cases * pq)
+        : localPriceType === 'UOM' ? total / (cases * pq * ps)
+        : total / cases
+      setLocalUnitPrice(price.toFixed(4))
+    }
   }
 
   // ── Unified save (purchases + format + price diff all at once) ────────────
@@ -359,15 +376,27 @@ function ScanItemCard({
     const pq  = parseFloat(localPackQty)  || null
     const ps  = parseFloat(localPackSize) || null
     const pUOM = localPackUOM || null
-    // unitPrice is always $/case
-    const lineTotal = manualTotal ?? (cases !== null && unitPrice !== null ? cases * unitPrice : null)
+    const lineTotal = manualTotal ?? (
+      cases !== null && unitPrice !== null
+        ? (() => {
+            const pqN = pq ?? 1, psN = ps ?? 1
+            if (localPriceType === 'PKG') return cases * pqN * unitPrice
+            if (localPriceType === 'UOM') return cases * pqN * psN * unitPrice
+            return cases * unitPrice
+          })()
+        : null
+    )
     let newPrice: number | null = unitPrice
     let priceDiffPct: number | null = null
 
     if (unitPrice !== null && item.matchedItem) {
       if (pq && ps && Number(ps) > 0 && pUOM) {
-        // unitPrice is always $/case; divide by pack to get $/packUOM for comparison
-        const invoicePPU = unitPrice / (pq * ps)
+        const invoicePPU =
+          pUOM && ps > 0
+            ? (localPriceType === 'PKG' ? unitPrice / ps
+               : localPriceType === 'UOM' ? unitPrice
+               : unitPrice / (pq * ps))  // CASE
+            : unitPrice
         const invPackTotal2 = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
         const invPPU2 = invPackTotal2 > 0 ? Number(item.matchedItem.purchasePrice) / invPackTotal2 : 0
         const normalized = comparePricesNormalized(
@@ -396,6 +425,7 @@ function ScanItemCard({
       invoicePackQty:  pq !== null ? String(pq) : null,
       invoicePackSize: ps !== null ? String(ps) : null,
       invoicePackUOM:  pUOM,
+      rawPriceType: localPriceType,
       needsFormatConfirm: false,
       newPrice:     newPrice !== null ? String(newPrice) : null,
       priceDiffPct: priceDiffPct !== null ? String(priceDiffPct) : null,
@@ -421,20 +451,29 @@ function ScanItemCard({
   const displayName   = item.matchedItem?.itemName ?? null
 
   // Derived display values (from saved item props — shown in view mode)
-  // rawUnitPrice is always $/case per OCR prompt spec
   const savedLineTotal = (() => {
     if (item.rawLineTotal !== null) return Number(item.rawLineTotal)
-    if (item.rawQty !== null && item.rawUnitPrice !== null)
-      return Number(item.rawQty) * Number(item.rawUnitPrice)
+    if (item.rawQty !== null && item.rawUnitPrice !== null) {
+      const pq = Number(item.invoicePackQty) || 1
+      const ps = Number(item.invoicePackSize) || 1
+      const pt = item.rawPriceType ?? 'CASE'
+      if (pt === 'PKG') return Number(item.rawQty) * pq * Number(item.rawUnitPrice)
+      if (pt === 'UOM') return Number(item.rawQty) * pq * ps * Number(item.rawUnitPrice)
+      return Number(item.rawQty) * Number(item.rawUnitPrice)  // CASE
+    }
     return null
   })()
 
-  // Base cost = $/packUOM — unitPrice is always $/case, divide by pack
+  // Base cost = $/packUOM
   const liveBaseCost = (() => {
     const price = parseFloat(localUnitPrice)
     const pq    = parseFloat(localPackQty)
     const ps    = parseFloat(localPackSize)
-    if (price > 0 && pq > 0 && ps > 0) return price / (pq * ps)
+    if (price > 0 && pq > 0 && ps > 0) {
+      if (localPriceType === 'PKG') return price / ps
+      if (localPriceType === 'UOM') return price
+      return price / (pq * ps)  // CASE
+    }
     return null
   })()
 
@@ -442,7 +481,10 @@ function ScanItemCard({
     if (!item.rawUnitPrice || !item.invoicePackQty || !item.invoicePackSize) return null
     const pq = Number(item.invoicePackQty), ps = Number(item.invoicePackSize)
     if (pq <= 0 || ps <= 0) return null
-    return Number(item.rawUnitPrice) / (pq * ps)
+    const pt = item.rawPriceType ?? 'CASE'
+    if (pt === 'PKG') return Number(item.rawUnitPrice) / ps
+    if (pt === 'UOM') return Number(item.rawUnitPrice)
+    return Number(item.rawUnitPrice) / (pq * ps)  // CASE
   })()
 
   return (
@@ -486,7 +528,11 @@ function ScanItemCard({
                 <>
                   <span className="text-gray-300">·</span>
                   <span className="text-gray-600">
-                    {formatCurrency(Number(item.rawUnitPrice))}/case
+                    {formatCurrency(Number(item.rawUnitPrice))}/{
+                      item.rawPriceType === 'PKG' ? 'pkg'
+                      : item.rawPriceType === 'UOM' ? (item.invoicePackUOM || 'uom')
+                      : 'case'
+                    }
                   </span>
                 </>
               )}
@@ -566,9 +612,15 @@ function ScanItemCard({
                 <span className="text-gray-400 pb-1">@</span>
                 {/* Unit price */}
                 <div className="flex flex-col items-center gap-0.5">
-                  <span className="text-[9px] text-gray-400 uppercase tracking-wide">
-                    $/case
-                  </span>
+                  <select
+                    value={localPriceType}
+                    onChange={e => setLocalPriceType(e.target.value as 'CASE' | 'PKG' | 'UOM')}
+                    className="text-[9px] text-gray-500 uppercase tracking-wide bg-transparent border-b border-gray-300 focus:outline-none cursor-pointer pb-0.5"
+                  >
+                    <option value="CASE">$/case</option>
+                    <option value="PKG">$/pkg</option>
+                    <option value="UOM">$/{localPackUOM || 'uom'}</option>
+                  </select>
                   <input type="number" step="any" min="0" value={localUnitPrice}
                     onChange={e => handleUnitPriceChange(e.target.value)}
                     className="w-18 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -1539,12 +1591,17 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approvedBy: approvedBy || 'Manager' }),
     })
     const result = await res.json()
-    setApproveResult(result)
     setIsApproving(false)
-    onApproveOrReject()
+    if (result.queued) {
+      // Background approval started — close drawer, list polls for APPROVED
+      onApproveOrReject()
+      onClose()
+    } else {
+      setApproveResult(result)
+      onApproveOrReject()
+    }
   }
 
   const handleReject = async () => {
@@ -1622,10 +1679,11 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   }
 
   // Determine drawer state
-  const drawerState: 'loading' | 'processing' | 'review' | 'done' =
+  const drawerState: 'loading' | 'processing' | 'approving' | 'review' | 'done' =
     approveResult ? 'done'
     : !session ? 'loading'
     : session.status === 'PROCESSING' ? 'processing'
+    : session.status === 'APPROVING' ? 'approving'
     : session.status === 'REVIEW' ? 'review'
     : (session.status === 'APPROVED' || session.status === 'REJECTED') ? 'done'
     : 'loading'
@@ -1672,6 +1730,26 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             {isCancelling ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
             {isCancelling ? 'Cancelling…' : 'Cancel'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── renderApproving ─────────────────────────────────────────────────────────
+
+  const renderApproving = () => (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-xl mx-auto space-y-6 text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-100 animate-pulse mb-2">
+          <CheckCircle2 size={32} className="text-amber-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900">Applying Invoice…</h2>
+        <p className="text-sm text-gray-500">
+          Updating inventory prices and recipe costs in the background. You can work on other invoices.
+        </p>
+        <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+          <Loader2 size={14} className="animate-spin" />
+          Working…
         </div>
       </div>
     </div>
@@ -2522,6 +2600,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             <ScanLine size={18} className="text-blue-600" />
             <span className="font-semibold text-gray-900">
               {drawerState === 'processing' ? 'Scanning…'
+                : drawerState === 'approving' ? 'Applying Invoice…'
                 : drawerState === 'review' ? 'Review Invoice'
                 : drawerState === 'done' ? 'Invoice'
                 : 'Loading…'}
@@ -2547,6 +2626,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               </div>
             )}
             {drawerState === 'processing' && renderProcessing()}
+            {drawerState === 'approving' && renderApproving()}
             {drawerState === 'review' && renderReview()}
             {drawerState === 'done' && renderDone()}
           </div>
@@ -2577,6 +2657,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               <ScanLine size={16} className="text-blue-600" />
               <span className="font-semibold text-gray-900 text-sm">
                 {drawerState === 'processing' ? 'Scanning…'
+                  : drawerState === 'approving' ? 'Applying Invoice…'
                   : drawerState === 'review' ? 'Review Invoice'
                   : drawerState === 'done' ? 'Invoice'
                   : 'Loading…'}
@@ -2613,6 +2694,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               </div>
             )}
             {drawerState === 'processing' && renderProcessing()}
+            {drawerState === 'approving' && renderApproving()}
             {drawerState === 'review' && (
               mobileTab === 'image' && session?.files?.length ? (
                 <InvoiceImageViewer files={session.files} />
