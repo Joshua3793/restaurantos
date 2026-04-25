@@ -30,6 +30,7 @@ export default function InvoicesPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
   const [readyNotification, setReadyNotification] = useState<ReadyNotification | null>(null)
+  const [approvedNotification, setApprovedNotification] = useState<ReadyNotification | null>(null)
 
   // Track previous statuses to detect PROCESSING → REVIEW transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
@@ -54,6 +55,13 @@ export default function InvoicesPage() {
             invoiceNumber: s.invoiceNumber,
           })
         }
+        if (prev.get(s.id) === 'APPROVING' && s.status === 'APPROVED') {
+          setApprovedNotification({
+            sessionId: s.id,
+            supplierName: s.supplierName,
+            invoiceNumber: s.invoiceNumber,
+          })
+        }
       }
 
       // Update previous statuses map
@@ -72,7 +80,7 @@ export default function InvoicesPage() {
 
   // Poll every 4s while any session is PROCESSING
   useEffect(() => {
-    const hasProcessing = sessions.some(s => s.status === 'PROCESSING')
+    const hasProcessing = sessions.some(s => s.status === 'PROCESSING' || s.status === 'APPROVING')
     if (!hasProcessing) return
     const interval = setInterval(fetchSessions, 4000)
     return () => clearInterval(interval)
@@ -149,6 +157,19 @@ export default function InvoicesPage() {
             setReadyNotification(null)
           }}
           onDismiss={() => setReadyNotification(null)}
+        />
+      )}
+      {approvedNotification && (
+        <ProcessingToast
+          supplierName={approvedNotification.supplierName}
+          invoiceNumber={approvedNotification.invoiceNumber}
+          label="Invoice Applied"
+          actionLabel="View"
+          onReview={() => {
+            setSelectedSessionId(approvedNotification.sessionId)
+            setApprovedNotification(null)
+          }}
+          onDismiss={() => setApprovedNotification(null)}
         />
       )}
     </div>

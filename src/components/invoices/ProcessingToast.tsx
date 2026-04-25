@@ -7,9 +7,11 @@ interface Props {
   invoiceNumber: string | null
   onReview: () => void
   onDismiss: () => void
+  label?: string
+  actionLabel?: string
 }
 
-export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismiss }: Props) {
+export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismiss, label: toastLabel, actionLabel }: Props) {
   const onDismissRef = useRef(onDismiss)
   onDismissRef.current = onDismiss
 
@@ -18,7 +20,9 @@ export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismi
     return () => clearTimeout(t)
   }, []) // intentionally empty — timer starts once on mount
 
-  const label = supplierName ?? invoiceNumber ?? 'Invoice'
+  const name = supplierName ?? invoiceNumber ?? 'Invoice'
+  const statusLabel = toastLabel ?? 'Ready for review'
+  const ctaLabel = actionLabel ?? 'Review'
 
   return (
     <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-8 z-[70] w-[calc(100vw-32px)] sm:w-80 bg-white border border-gray-200 rounded-2xl shadow-xl flex items-start gap-3 p-4 toast-enter">
@@ -26,13 +30,13 @@ export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismi
         <CheckCircle2 size={16} className="text-green-600" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-gray-900 truncate">{label}</p>
-        <p className="text-xs text-gray-500 mt-0.5">Ready for review</p>
+        <p className="text-sm font-semibold text-gray-900 truncate">{name}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{statusLabel}</p>
         <button
           onClick={onReview}
           className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-800"
         >
-          Review now →
+          {ctaLabel} →
         </button>
       </div>
       <button onClick={onDismiss} className="text-gray-300 hover:text-gray-500 shrink-0">

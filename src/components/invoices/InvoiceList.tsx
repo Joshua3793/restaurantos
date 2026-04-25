@@ -19,7 +19,7 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
 
 // Status sort order for consistent grouping
 const STATUS_ORDER: Record<string, number> = {
-  REVIEW: 0, PROCESSING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4, ERROR: 5,
+  REVIEW: 0, PROCESSING: 1, APPROVING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4, ERROR: 5,
 }
 
 interface Props {
@@ -43,6 +43,13 @@ function StatusBadge({ status }: { status: SessionStatus }) {
       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-600 flex items-center gap-1 w-fit">
         <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
         Processing
+      </span>
+    )
+  if (status === 'APPROVING')
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600 flex items-center gap-1 w-fit">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+        Applying
       </span>
     )
   if (status === 'ERROR')
@@ -290,7 +297,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
               {/* Desktop row */}
               <div
                 className={`hidden sm:grid grid-cols-[28px_1fr_100px_100px_60px_100px_32px] gap-2 px-4 py-2.5 border-b border-gray-100 items-center transition-colors ${
-                  s.status === 'PROCESSING' || s.status === 'ERROR'
+                  s.status === 'PROCESSING' || s.status === 'APPROVING' || s.status === 'ERROR'
                     ? 'opacity-70 cursor-default'
                     : isSelected
                       ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer'
@@ -352,7 +359,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
               {/* Mobile card */}
               <div
                 className={`sm:hidden flex items-stretch border-b border-gray-100 transition-colors ${
-                  s.status === 'PROCESSING' || s.status === 'ERROR'
+                  s.status === 'PROCESSING' || s.status === 'APPROVING' || s.status === 'ERROR'
                     ? 'opacity-70 cursor-default bg-white'
                     : isSelected ? 'bg-blue-50 cursor-pointer' : s.status === 'REVIEW' ? 'bg-amber-50 cursor-pointer' : 'bg-white cursor-pointer'
                 }`}
