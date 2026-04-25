@@ -223,6 +223,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[process] Unhandled error:', msg)
+    await prisma.invoiceFile.updateMany({
+      where: { sessionId: params.id, ocrStatus: 'PROCESSING' },
+      data: { ocrStatus: 'ERROR' },
+    }).catch(() => {})
     await prisma.invoiceSession.update({
       where: { id: params.id },
       data: { status: 'ERROR', errorMessage: msg.slice(0, 500) },
