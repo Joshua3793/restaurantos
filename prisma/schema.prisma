@@ -277,6 +277,7 @@ model InvoiceSession {
   subtotal        Decimal?
   tax             Decimal?
   total           Decimal?
+  errorMessage    String?
   approvedBy      String?
   approvedAt      DateTime?
   createdAt       DateTime          @default(now())
