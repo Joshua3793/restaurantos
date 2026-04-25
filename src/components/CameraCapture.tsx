@@ -323,13 +323,15 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
       <div className="flex-1 relative overflow-hidden">
 
         {/* ── LIVE MODE: video + overlay ── */}
-        {/* Video stays mounted always so srcObject is not lost when preview shows */}
+        {/* Video is always in the DOM — iOS pauses video on display:none so we
+            never hide it; the preview image is layered on top instead. */}
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={`absolute inset-0 w-full h-full object-cover ${mode !== 'live' || preview ? 'hidden' : ''}`}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ visibility: mode === 'live' ? 'visible' : 'hidden' }}
         />
         {mode === 'live' && !preview && (
           <>
