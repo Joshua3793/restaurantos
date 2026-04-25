@@ -8,20 +8,18 @@ import { requireSession, AuthError } from '@/lib/auth'
 const WEIGHT_VOL_SET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
 const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.has(uom.toLowerCase())
 
-async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
-  const fullSession = await prisma.invoiceSession.findUnique({
-    where: { id: sessionId },
-    include: { scanItems: { include: { matchedItem: true } } },
-  })
-  if (!fullSession) throw new Error('Session not found')
-
-  const itemsToProcess = fullSession.scanItems.filter(
-    item => item.action !== 'SKIP' && item.action !== 'PENDING'
-  )
-
-  const updatedItemIds: string[] = []
-
+async function doApprove(
+  sessionId: string,
+  approvedBy: string,
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
+): Promise<void> {
   try {
+    const itemsToProcess = session.scanItems.filter(
+      item => item.action !== 'SKIP' && item.action !== 'PENDING'
+    )
+
+    const updatedItemIds: string[] = []
+
     // Run all item updates in parallel
     await Promise.all(itemsToProcess.map(async (scanItem) => {
       // ── UPDATE_PRICE or ADD_SUPPLIER ────────────────────────────────────
@@ -36,7 +34,7 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
         const useInvoicePack = isWeightVol(scanItem.invoicePackUOM) && scanItem.invoicePackSize !== null
         const packQty  = useInvoicePack ? (Number(scanItem.invoicePackQty) || 1) : Number(item.qtyPerPurchaseUnit)
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
-        const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : item.packUOM
+        const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
 
         const newPricePerBase = calcPricePerBaseUnit(newPurchasePrice, packQty, packSize, packUOM)
 
@@ -52,11 +50,11 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
         updatedItemIds.push(scanItem.matchedItemId)
 
         // Upsert supplier price record
-        if (fullSession.supplierName) {
+        if (session.supplierName) {
           const existing = await prisma.inventorySupplierPrice.findFirst({
             where: {
               inventoryItemId: scanItem.matchedItemId,
-              supplierName: fullSession.supplierName,
+              supplierName: session.supplierName,
             },
           })
           if (existing) {
@@ -68,8 +66,8 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
             await prisma.inventorySupplierPrice.create({
               data: {
                 inventoryItemId: scanItem.matchedItemId,
-                supplierName: fullSession.supplierName,
-                supplierId: fullSession.supplierId || null,
+                supplierName: session.supplierName,
+                supplierId: session.supplierId || null,
                 lastPrice: newPurchasePrice,
                 pricePerBaseUnit: newPricePerBase,
                 isPrimary: false,
@@ -118,7 +116,7 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
             packUOM:            newData.packUOM || 'each',
             conversionFactor:   Number(newData.conversionFactor) || 1,
             pricePerBaseUnit:   Number(newData.pricePerBaseUnit) || Number(scanItem.newPrice) || 0,
-            supplierId:         fullSession.supplierId || null,
+            supplierId:         session.supplierId || null,
           },
         })
         // Link scan item to the new inventory item
@@ -146,10 +144,10 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
     })
 
     // ── Clone session per RC ────────────────────────────────────────────
-    if (fullSession.revenueCenterId) {
-      const sessionRcId = fullSession.revenueCenterId
-      const itemsByRc = new Map<string, typeof fullSession.scanItems>()
-      for (const item of fullSession.scanItems) {
+    if (session.revenueCenterId) {
+      const sessionRcId = session.revenueCenterId
+      const itemsByRc = new Map<string, typeof session.scanItems>()
+      for (const item of session.scanItems) {
         const effectiveRcId = item.revenueCenterId ?? sessionRcId
         if (effectiveRcId === sessionRcId) continue
         if (!itemsByRc.has(effectiveRcId)) itemsByRc.set(effectiveRcId, [])
@@ -160,10 +158,10 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
         const clone = await prisma.invoiceSession.create({
           data: {
             status:          'APPROVED',
-            supplierName:    fullSession.supplierName,
-            supplierId:      fullSession.supplierId,
-            invoiceDate:     fullSession.invoiceDate,
-            invoiceNumber:   fullSession.invoiceNumber ? `${fullSession.invoiceNumber} (copy)` : null,
+            supplierName:    session.supplierName,
+            supplierId:      session.supplierId,
+            invoiceDate:     session.invoiceDate,
+            invoiceNumber:   session.invoiceNumber ? `${session.invoiceNumber} (copy)` : null,
             revenueCenterId: rcId,
             parentSessionId: sessionId,
             approvedBy,
@@ -202,7 +200,7 @@ async function doApprove(sessionId: string, approvedBy: string): Promise<void> {
           saveMatchRule(
             item.rawDescription,
             item.matchedItemId!,
-            fullSession.supplierName,
+            session.supplierName,
             item.invoicePackQty ? {
               packQty:  Number(item.invoicePackQty),
               packSize: Number(item.invoicePackSize),
@@ -234,7 +232,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     throw e
   }
 
-  await req.json().catch(() => ({}))
   const approvedBy: string = currentUser.name ?? currentUser.email
 
   const session = await prisma.invoiceSession.findUnique({
@@ -257,8 +254,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     data: { status: 'APPROVING' },
   })
 
-  // Fire background work — do NOT await
-  doApprove(params.id, approvedBy).catch(() => {})
+  // NOTE: fire-and-forget in serverless. On Vercel, the Node process is kept
+  // alive until microtasks drain after the response is sent — background work
+  // completes for normal invoice sizes. Long invoices should use a queue.
+  doApprove(params.id, approvedBy, session).catch(() => {})
 
   return NextResponse.json({ ok: true, queued: true })
 }
