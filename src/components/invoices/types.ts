@@ -1,4 +1,4 @@
-export type SessionStatus = 'UPLOADING' | 'PROCESSING' | 'REVIEW' | 'APPROVED' | 'REJECTED' | 'ERROR'
+export type SessionStatus = 'UPLOADING' | 'PROCESSING' | 'REVIEW' | 'APPROVING' | 'APPROVED' | 'REJECTED' | 'ERROR'
 export type MatchConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE'
 export type LineItemAction = 'PENDING' | 'UPDATE_PRICE' | 'ADD_SUPPLIER' | 'CREATE_NEW' | 'SKIP'
 
@@ -45,6 +45,7 @@ export interface ScanItem {
   invoicePackSize: string | null
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
+  rawPriceType: 'CASE' | 'PKG' | 'UOM'
   revenueCenterId?: string | null
 }
 
