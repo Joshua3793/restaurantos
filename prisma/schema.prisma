@@ -329,6 +329,7 @@ model InvoiceScanItem {
   invoicePackSize    Decimal?
   invoicePackUOM     String?
   needsFormatConfirm Boolean        @default(false)
+  rawPriceType       String         @default("CASE")
   revenueCenterId    String?
   matchedItem        InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
   revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
