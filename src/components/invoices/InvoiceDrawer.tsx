@@ -240,12 +240,7 @@ function ScanItemCard({
   const [localLineTotal, setLocalLineTotal] = useState(() => {
     if (item.rawLineTotal !== null) return String(item.rawLineTotal)
     if (item.rawQty !== null && item.rawUnitPrice !== null) {
-      const pq = Number(item.invoicePackQty) || 1
-      const ps = Number(item.invoicePackSize) || 1
-      const wv = isWeightVol(item.invoicePackUOM)
-      const total = wv
-        ? Number(item.rawQty) * pq * ps * Number(item.rawUnitPrice)
-        : Number(item.rawQty) * Number(item.rawUnitPrice)
+      const total = Number(item.rawQty) * Number(item.rawUnitPrice)
       return String(total.toFixed(2))
     }
     return ''
@@ -299,12 +294,8 @@ function ScanItemCard({
     let priceDiffPct: number | null = null
 
     if (pq && ps && ps > 0 && pUOM && rawPrice !== null) {
-      // Normalize using unit-aware comparison (handles L vs mL, kg vs g, etc.)
-      // For weight/vol packUOM: rawPrice is already $/packUOM (e.g. $/kg), no division needed
-      // For count packUOM: rawPrice is $/case, divide by (packQty × packSize) to get per-unit rate
-      const invoicePricePerPackUOM = isWeightVol(pUOM)
-        ? rawPrice
-        : rawPrice / (Number(pq) * Number(ps))
+      // unitPrice from OCR is always $/case; divide by pack to get $/packUOM for comparison
+      const invoicePricePerPackUOM = rawPrice / (Number(pq) * Number(ps))
       const invPackTotal = Number(inv.qtyPerPurchaseUnit) * Number(inv.packSize)
       const invPricePerPackUOM = invPackTotal > 0 ? Number(inv.purchasePrice) / invPackTotal : 0
       const normalized = comparePricesNormalized(
@@ -313,11 +304,7 @@ function ScanItemCard({
       )
       if (normalized) {
         priceDiffPct = normalized.pctDiff
-        // Weight/vol: price = $/packUOM × invoice pack (qty × size) — uses actual invoice case size
-        // Count: convert per-unit rate to match inventory's purchase format
-        const calcPrice = isWeightVol(pUOM)
-          ? invoicePricePerPackUOM * pq * ps
-          : calcNewPurchasePrice(invoicePricePerPackUOM, pUOM, Number(inv.qtyPerPurchaseUnit), Number(inv.packSize), inv.packUOM)
+        const calcPrice = calcNewPurchasePrice(invoicePricePerPackUOM, pUOM, Number(inv.qtyPerPurchaseUnit), Number(inv.packSize), inv.packUOM)
         if (calcPrice !== null) newPrice = calcPrice
       } else {
         // Incompatible units — fall back to direct comparison
@@ -345,37 +332,23 @@ function ScanItemCard({
   }
 
   // ── Linked calculators ────────────────────────────────────────────────────
-  // For weight/volume packUOM: unitPrice is $/packUOM (e.g. $/kg)
-  //   total = qty × packQty × packSize × unitPrice
-  // For count/case packUOM: unitPrice is $/case
-  //   total = qty × unitPrice
-  const calcTotal = (cases: number, price: number, pq: number, ps: number, pUOM: string) => {
-    if (isWeightVol(pUOM) && pq > 0 && ps > 0) return cases * pq * ps * price
-    return cases * price
-  }
+  // unitPrice from OCR is always $/case — total = qty × unitPrice
+  const calcTotal = (cases: number, price: number) => cases * price
 
   const handleCasesChange = (v: string) => {
     setLocalCases(v)
     const cases = parseFloat(v), price = parseFloat(localUnitPrice)
-    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPackUOM).toFixed(2))
+    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price).toFixed(2))
   }
   const handleUnitPriceChange = (v: string) => {
     setLocalUnitPrice(v)
     const cases = parseFloat(localCases), price = parseFloat(v)
-    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPackUOM).toFixed(2))
+    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price).toFixed(2))
   }
   const handleLineTotalChange = (v: string) => {
     setLocalLineTotal(v)
     const cases = parseFloat(localCases), total = parseFloat(v)
-    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-    if (cases > 0 && total > 0) {
-      const price = isWeightVol(localPackUOM) && pq > 0 && ps > 0
-        ? total / (cases * pq * ps)
-        : total / cases
-      setLocalUnitPrice(price.toFixed(4))
-    }
+    if (cases > 0 && total > 0) setLocalUnitPrice((total / cases).toFixed(4))
   }
 
   // ── Unified save (purchases + format + price diff all at once) ────────────
@@ -386,19 +359,15 @@ function ScanItemCard({
     const pq  = parseFloat(localPackQty)  || null
     const ps  = parseFloat(localPackSize) || null
     const pUOM = localPackUOM || null
-    // Weight/vol: total = qty × packQty × packSize × $/packUOM; count: total = qty × $/case
-    const lineTotal = manualTotal ?? (
-      cases !== null && unitPrice !== null
-        ? (pq && ps && pUOM && isWeightVol(pUOM) ? cases * pq * ps * unitPrice : cases * unitPrice)
-        : null
-    )
+    // unitPrice is always $/case
+    const lineTotal = manualTotal ?? (cases !== null && unitPrice !== null ? cases * unitPrice : null)
     let newPrice: number | null = unitPrice
     let priceDiffPct: number | null = null
 
     if (unitPrice !== null && item.matchedItem) {
       if (pq && ps && Number(ps) > 0 && pUOM) {
-        // For weight/vol: unitPrice is already $/packUOM; for count: divide to get per-unit rate
-        const invoicePPU = isWeightVol(pUOM) ? unitPrice : unitPrice / (pq * ps)
+        // unitPrice is always $/case; divide by pack to get $/packUOM for comparison
+        const invoicePPU = unitPrice / (pq * ps)
         const invPackTotal2 = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
         const invPPU2 = invPackTotal2 > 0 ? Number(item.matchedItem.purchasePrice) / invPackTotal2 : 0
         const normalized = comparePricesNormalized(
@@ -407,11 +376,7 @@ function ScanItemCard({
         )
         if (normalized) {
           priceDiffPct = normalized.pctDiff
-          // Weight/vol: price = $/packUOM × invoice pack (qty × size) — uses actual invoice case size
-          // Count: convert per-unit rate to match inventory's purchase format
-          const calcPrice = isWeightVol(pUOM)
-            ? invoicePPU * pq * ps
-            : calcNewPurchasePrice(invoicePPU, pUOM, Number(item.matchedItem.qtyPerPurchaseUnit), Number(item.matchedItem.packSize), item.matchedItem.packUOM)
+          const calcPrice = calcNewPurchasePrice(invoicePPU, pUOM, Number(item.matchedItem.qtyPerPurchaseUnit), Number(item.matchedItem.packSize), item.matchedItem.packUOM)
           if (calcPrice !== null) newPrice = calcPrice
         } else {
           const prevPrice = Number(item.matchedItem.purchasePrice)
@@ -456,39 +421,27 @@ function ScanItemCard({
   const displayName   = item.matchedItem?.itemName ?? null
 
   // Derived display values (from saved item props — shown in view mode)
+  // rawUnitPrice is always $/case per OCR prompt spec
   const savedLineTotal = (() => {
     if (item.rawLineTotal !== null) return Number(item.rawLineTotal)
-    if (item.rawQty !== null && item.rawUnitPrice !== null) {
-      const pq = Number(item.invoicePackQty) || 1
-      const ps = Number(item.invoicePackSize) || 1
-      const wv = isWeightVol(item.invoicePackUOM)
-      return wv
-        ? Number(item.rawQty) * pq * ps * Number(item.rawUnitPrice)
-        : Number(item.rawQty) * Number(item.rawUnitPrice)
-    }
+    if (item.rawQty !== null && item.rawUnitPrice !== null)
+      return Number(item.rawQty) * Number(item.rawUnitPrice)
     return null
   })()
 
-  // Live base cost from current local state (used in edit mode preview)
-  // For weight/vol: unitPrice IS the $/packUOM rate already
-  // For count: divide by (packQty × packSize) to get per-unit rate
+  // Base cost = $/packUOM — unitPrice is always $/case, divide by pack
   const liveBaseCost = (() => {
     const price = parseFloat(localUnitPrice)
     const pq    = parseFloat(localPackQty)
     const ps    = parseFloat(localPackSize)
-    if (price > 0 && pq > 0 && ps > 0 && localPackUOM) {
-      if (isWeightVol(localPackUOM)) return price  // already per-packUOM
-      return price / (pq * ps)
-    }
+    if (price > 0 && pq > 0 && ps > 0) return price / (pq * ps)
     return null
   })()
 
-  // Saved base cost from item props (used in view mode)
   const savedBaseCost = (() => {
     if (!item.rawUnitPrice || !item.invoicePackQty || !item.invoicePackSize) return null
     const pq = Number(item.invoicePackQty), ps = Number(item.invoicePackSize)
     if (pq <= 0 || ps <= 0) return null
-    if (isWeightVol(item.invoicePackUOM)) return Number(item.rawUnitPrice) // already per-packUOM
     return Number(item.rawUnitPrice) / (pq * ps)
   })()
 
@@ -533,7 +486,7 @@ function ScanItemCard({
                 <>
                   <span className="text-gray-300">·</span>
                   <span className="text-gray-600">
-                    {formatCurrency(Number(item.rawUnitPrice))}/{isWeightVol(item.invoicePackUOM) ? item.invoicePackUOM : 'case'}
+                    {formatCurrency(Number(item.rawUnitPrice))}/case
                   </span>
                 </>
               )}
@@ -614,7 +567,7 @@ function ScanItemCard({
                 {/* Unit price */}
                 <div className="flex flex-col items-center gap-0.5">
                   <span className="text-[9px] text-gray-400 uppercase tracking-wide">
-                    {isWeightVol(localPackUOM) ? `$/${localPackUOM}` : 'Unit price'}
+                    $/case
                   </span>
                   <input type="number" step="any" min="0" value={localUnitPrice}
                     onChange={e => handleUnitPriceChange(e.target.value)}

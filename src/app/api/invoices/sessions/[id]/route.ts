@@ -36,6 +36,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: {
         action:             body.action,
         matchedItemId:      body.matchedItemId,
+        rawQty:             body.rawQty !== undefined ? body.rawQty : undefined,
+        rawUnit:            body.rawUnit !== undefined ? body.rawUnit : undefined,
+        rawUnitPrice:       body.rawUnitPrice !== undefined ? body.rawUnitPrice : undefined,
+        rawLineTotal:       body.rawLineTotal !== undefined ? body.rawLineTotal : undefined,
         newPrice:           body.newPrice !== undefined ? body.newPrice : undefined,
         previousPrice:      body.previousPrice !== undefined ? body.previousPrice : undefined,
         priceDiffPct:       body.priceDiffPct !== undefined ? body.priceDiffPct : undefined,
