@@ -8,6 +8,7 @@ import { RcProvider } from '@/contexts/RevenueCenterContext'
 import { AiChat } from '@/components/AiChat'
 import { UserProvider } from '@/contexts/UserContext'
 import { DrawerProvider } from '@/contexts/DrawerContext'
+import { NotificationProvider } from '@/contexts/NotificationContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <UserProvider>
         <RcProvider>
+        <NotificationProvider>
         <DrawerProvider>
           <Navigation />
           <MobileRcBar />
@@ -40,6 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </main>
           <AiChat />
         </DrawerProvider>
+        </NotificationProvider>
         </RcProvider>
         </UserProvider>
       </body>

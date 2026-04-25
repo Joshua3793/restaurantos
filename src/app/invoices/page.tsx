@@ -3,10 +3,10 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
 import { InvoiceList } from '@/components/invoices/InvoiceList'
-import { ProcessingToast } from '@/components/invoices/ProcessingToast'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useNotifications } from '@/contexts/NotificationContext'
 
 const InvoiceDrawer = dynamic(
   () => import('@/components/invoices/InvoiceDrawer').then(m => ({ default: m.InvoiceDrawer })),
@@ -18,23 +18,16 @@ const InvoiceUploadModal = dynamic(
   { ssr: false, loading: () => null }
 )
 
-interface ReadyNotification {
-  sessionId: string
-  supplierName: string | null
-  invoiceNumber: string | null
-}
-
 export default function InvoicesPage() {
   const { activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
+  const { push } = useNotifications()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
-  const [readyNotification, setReadyNotification] = useState<ReadyNotification | null>(null)
-  const [approvedNotification, setApprovedNotification] = useState<ReadyNotification | null>(null)
 
-  // Track previous statuses to detect PROCESSING → REVIEW transitions
+  // Track previous statuses to detect PROCESSING → REVIEW / APPROVING → APPROVED transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
 
   useEffect(() => {
@@ -52,23 +45,29 @@ export default function InvoicesPage() {
       const qs = p.toString()
       const data: SessionSummary[] = await fetch(`/api/invoices/sessions${qs ? `?${qs}` : ''}`).then(r => r.json())
 
-      // Detect PROCESSING → REVIEW transitions and fire notification
+      // Detect PROCESSING → REVIEW and APPROVING → APPROVED transitions
       const prev = prevStatusesRef.current
       for (const s of data) {
         if (prev.get(s.id) === 'PROCESSING' && s.status === 'REVIEW') {
-          setApprovedNotification(null)   // clear any competing toast
-          setReadyNotification({
-            sessionId: s.id,
+          const sid = s.id
+          push({
+            type: 'invoice_ready',
+            sessionId: sid,
             supplierName: s.supplierName,
             invoiceNumber: s.invoiceNumber,
+            actionLabel: 'Review',
+            onAction: () => setSelectedSessionId(sid),
           })
         }
         if (prev.get(s.id) === 'APPROVING' && s.status === 'APPROVED') {
-          setReadyNotification(null)      // clear any competing toast
-          setApprovedNotification({
-            sessionId: s.id,
+          const sid = s.id
+          push({
+            type: 'invoice_applied',
+            sessionId: sid,
             supplierName: s.supplierName,
             invoiceNumber: s.invoiceNumber,
+            actionLabel: 'View',
+            onAction: () => setSelectedSessionId(sid),
           })
         }
       }
@@ -83,7 +82,7 @@ export default function InvoicesPage() {
     } catch {
       // silent — keeps existing sessions on screen, polling continues
     }
-  }, [activeRcId, activeRc])
+  }, [activeRcId, activeRc, push])
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
 
@@ -155,30 +154,6 @@ export default function InvoicesPage() {
             fetchSessions()
             setShowUpload(false)
           }}
-        />
-      )}
-      {readyNotification && (
-        <ProcessingToast
-          supplierName={readyNotification.supplierName}
-          invoiceNumber={readyNotification.invoiceNumber}
-          onReview={() => {
-            setSelectedSessionId(readyNotification.sessionId)
-            setReadyNotification(null)
-          }}
-          onDismiss={() => setReadyNotification(null)}
-        />
-      )}
-      {approvedNotification && (
-        <ProcessingToast
-          supplierName={approvedNotification.supplierName}
-          invoiceNumber={approvedNotification.invoiceNumber}
-          label="Invoice Applied"
-          actionLabel="View"
-          onReview={() => {
-            setSelectedSessionId(approvedNotification.sessionId)
-            setApprovedNotification(null)
-          }}
-          onDismiss={() => setApprovedNotification(null)}
         />
       )}
     </div>

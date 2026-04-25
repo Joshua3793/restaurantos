@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { ChevronDown, Check, LayoutGrid } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
+import { AlertsBell } from '@/components/AlertsBell'
 
 export function MobileRcBar() {
   const { revenueCenters, activeRcId, activeRc, setActiveRcId } = useRc()
@@ -16,7 +17,7 @@ export function MobileRcBar() {
   return (
     <>
       <div
-        className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-100 flex items-center px-4 h-10"
+        className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-100 flex items-center justify-between px-4 h-10"
         style={{ borderLeftColor: hex, borderLeftWidth: 3 }}
       >
         <button
@@ -30,6 +31,7 @@ export function MobileRcBar() {
           {isAll ? 'All Revenue Centers' : activeRc?.name}
           <ChevronDown size={14} className="text-gray-400" />
         </button>
+        <AlertsBell dropdownAlign="right" />
       </div>
 
       {open && (

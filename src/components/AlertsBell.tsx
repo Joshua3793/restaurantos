@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check } from 'lucide-react'
+import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check, FileText, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
+import { useNotifications } from '@/contexts/NotificationContext'
 
 interface PriceAlert {
   id: string
@@ -27,12 +28,17 @@ interface RecipeAlert {
   session: { id: string; supplierName: string | null; invoiceDate: string | null }
 }
 
-export function AlertsBell() {
+interface AlertsBellProps {
+  dropdownAlign?: 'left' | 'right'
+}
+
+export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
   const [open, setOpen] = useState(false)
   const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>([])
   const [recipeAlerts, setRecipeAlerts] = useState<RecipeAlert[]>([])
   const [totalUnread, setTotalUnread] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
+  const { notifications, dismiss, dismissAll } = useNotifications()
 
   const fetchAlerts = async () => {
     try {
@@ -45,7 +51,7 @@ export function AlertsBell() {
 
   useEffect(() => {
     fetchAlerts()
-    const interval = setInterval(fetchAlerts, 30000) // poll every 30s
+    const interval = setInterval(fetchAlerts, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -63,8 +69,13 @@ export function AlertsBell() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acknowledgeAll: true }),
     })
+    dismissAll()
     fetchAlerts()
   }
+
+  const badgeCount = totalUnread + notifications.length
+
+  const dropdownPos = dropdownAlign === 'right' ? 'right-0' : 'left-0'
 
   return (
     <div ref={ref} className="relative">
@@ -73,20 +84,20 @@ export function AlertsBell() {
         className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
       >
         <Bell size={18} />
-        {totalUnread > 0 && (
+        {badgeCount > 0 && (
           <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-            {totalUnread > 9 ? '9+' : totalUnread}
+            {badgeCount > 9 ? '9+' : badgeCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+        <div className={`absolute ${dropdownPos} top-full mt-2 w-[min(320px,calc(100vw-16px))] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden`}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
-            <span className="font-semibold text-gray-900 text-sm">Alerts</span>
+            <span className="font-semibold text-gray-900 text-sm">Notifications</span>
             <div className="flex items-center gap-2">
-              {totalUnread > 0 && (
+              {(badgeCount > 0) && (
                 <button
                   onClick={acknowledgeAll}
                   className="text-xs text-blue-600 hover:underline flex items-center gap-1"
@@ -102,12 +113,47 @@ export function AlertsBell() {
 
           {/* Content */}
           <div className="max-h-80 overflow-y-auto">
-            {priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
+            {notifications.length === 0 && priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">
-                No unread alerts
+                No notifications
               </div>
             ) : (
               <>
+                {/* Soft / transient notifications */}
+                {notifications.map(n => (
+                  <div key={n.id} className="px-4 py-3 border-b border-gray-50 bg-blue-50/40 hover:bg-blue-50 transition-colors">
+                    <div className="flex items-start gap-2">
+                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_ready' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                        {n.type === 'invoice_ready'
+                          ? <FileText size={12} className="text-blue-500" />
+                          : <CheckCircle2 size={12} className="text-green-500" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">
+                          {n.type === 'invoice_ready' ? 'Invoice Ready' : 'Invoice Applied'}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {n.supplierName ?? 'Unknown supplier'}
+                          {n.invoiceNumber ? ` · #${n.invoiceNumber}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => { n.onAction(); dismiss(n.id); setOpen(false) }}
+                          className="text-xs font-medium text-blue-600 hover:underline px-1.5 py-0.5"
+                        >
+                          {n.actionLabel}
+                        </button>
+                        <button onClick={() => dismiss(n.id)}>
+                          <X size={12} className="text-gray-300 hover:text-gray-500" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* DB price alerts */}
                 {priceAlerts.map(alert => (
                   <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
                     <div className="flex items-start gap-2">
@@ -132,6 +178,8 @@ export function AlertsBell() {
                     </div>
                   </div>
                 ))}
+
+                {/* DB recipe alerts */}
                 {recipeAlerts.map(alert => (
                   <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
                     <div className="flex items-start gap-2">
