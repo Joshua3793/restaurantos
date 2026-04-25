@@ -28,6 +28,7 @@ interface Props {
   onUploadClick: () => void
   onDelete: (id: string, status: SessionStatus) => Promise<void>
   onBulkDelete: (ids: string[]) => Promise<void>
+  onRetry: (id: string) => Promise<void>
 }
 
 function StatusBadge({ status }: { status: SessionStatus }) {
@@ -38,7 +39,14 @@ function StatusBadge({ status }: { status: SessionStatus }) {
   if (status === 'REJECTED')
     return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600">Rejected</span>
   if (status === 'PROCESSING')
-    return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-600">Processing</span>
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-600 flex items-center gap-1 w-fit">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+        Processing
+      </span>
+    )
+  if (status === 'ERROR')
+    return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">Error</span>
   return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">Uploading</span>
 }
 
@@ -94,7 +102,7 @@ function Checkbox({ checked, indeterminate, onChange }: {
   )
 }
 
-export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBulkDelete }: Props) {
+export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBulkDelete, onRetry }: Props) {
   const [tab, setTab]                     = useState<Tab>('all')
   const [search, setSearch]               = useState('')
   const [openMenu, setOpenMenu]           = useState<string | null>(null)
@@ -281,14 +289,18 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
             <div key={s.id}>
               {/* Desktop row */}
               <div
-                className={`hidden sm:grid grid-cols-[28px_1fr_100px_100px_60px_100px_32px] gap-2 px-4 py-2.5 border-b border-gray-100 items-center cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-blue-50 hover:bg-blue-100'
-                    : s.status === 'REVIEW'
-                      ? 'bg-amber-50 hover:bg-amber-100'
-                      : 'hover:bg-gray-50'
+                className={`hidden sm:grid grid-cols-[28px_1fr_100px_100px_60px_100px_32px] gap-2 px-4 py-2.5 border-b border-gray-100 items-center transition-colors ${
+                  s.status === 'PROCESSING' || s.status === 'ERROR'
+                    ? 'opacity-70 cursor-default'
+                    : isSelected
+                      ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer'
+                      : s.status === 'REVIEW'
+                        ? 'bg-amber-50 hover:bg-amber-100 cursor-pointer'
+                        : 'hover:bg-gray-50 cursor-pointer'
                 }`}
-                onClick={() => onSelect(s.id)}
+                onClick={() => {
+                  if (s.status !== 'PROCESSING' && s.status !== 'ERROR') onSelect(s.id)
+                }}
               >
                 <Checkbox checked={isSelected} onChange={() => toggleOne(s.id)} />
                 <div className="min-w-0">
@@ -322,6 +334,12 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                   >⋯</button>
                   {openMenu === s.id && (
                     <div className="absolute right-0 top-8 z-10 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]">
+                      {s.status === 'ERROR' && (
+                        <button
+                          onClick={() => { onRetry(s.id); setOpenMenu(null) }}
+                          className="w-full px-3 py-2 text-left text-sm text-blue-600 hover:bg-blue-50"
+                        >Retry scan</button>
+                      )}
                       <button
                         onClick={() => { setDeleteConfirm({ id: s.id, status: s.status }); setOpenMenu(null) }}
                         className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
@@ -333,10 +351,14 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
 
               {/* Mobile card */}
               <div
-                className={`sm:hidden flex items-stretch border-b border-gray-100 cursor-pointer transition-colors ${
-                  isSelected ? 'bg-blue-50' : s.status === 'REVIEW' ? 'bg-amber-50' : 'bg-white'
+                className={`sm:hidden flex items-stretch border-b border-gray-100 transition-colors ${
+                  s.status === 'PROCESSING' || s.status === 'ERROR'
+                    ? 'opacity-70 cursor-default bg-white'
+                    : isSelected ? 'bg-blue-50 cursor-pointer' : s.status === 'REVIEW' ? 'bg-amber-50 cursor-pointer' : 'bg-white cursor-pointer'
                 }`}
-                onClick={() => onSelect(s.id)}
+                onClick={() => {
+                  if (s.status !== 'PROCESSING' && s.status !== 'ERROR') onSelect(s.id)
+                }}
               >
                 <div className="flex items-center pl-3 pr-1 shrink-0"
                   onClick={e => { e.stopPropagation(); toggleOne(s.id) }}>
@@ -371,6 +393,12 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                   >⋯</button>
                   {openMenu === s.id && (
                     <div className="absolute right-0 top-9 z-10 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]">
+                      {s.status === 'ERROR' && (
+                        <button
+                          onClick={() => { onRetry(s.id); setOpenMenu(null) }}
+                          className="w-full px-3 py-2 text-left text-sm text-blue-600 hover:bg-blue-50"
+                        >Retry scan</button>
+                      )}
                       <button
                         onClick={() => { setDeleteConfirm({ id: s.id, status: s.status }); setOpenMenu(null) }}
                         className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
