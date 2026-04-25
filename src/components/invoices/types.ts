@@ -56,6 +56,8 @@ export interface Session {
   supplierName: string | null
   invoiceDate: string | null
   invoiceNumber: string | null
+  subtotal: string | null
+  tax: string | null
   total: string | null
   files: ScanFile[]
   scanItems: ScanItem[]

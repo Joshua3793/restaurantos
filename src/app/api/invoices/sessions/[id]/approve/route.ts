@@ -5,6 +5,9 @@ import { saveMatchRule } from '@/lib/invoice-matcher'
 import { calcPricePerBaseUnit } from '@/lib/utils'
 import { requireSession, AuthError } from '@/lib/auth'
 
+const WEIGHT_VOL_SET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
+const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.has(uom.toLowerCase())
+
 // POST /api/invoices/sessions/[id]/approve
 // Applies all approved scan items: updates inventory prices, creates supplier price records,
 // creates price alerts and recipe alerts.
@@ -51,22 +54,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ) {
         const newPurchasePrice = Number(scanItem.newPrice)
         const item = scanItem.matchedItem!
-        // Use the same formula as the inventory PUT handler — includes getUnitConv(packUOM)
-        // so that volumetric/weight items (L, kg) aren't inflated 1000× vs each-based items.
-        const newPricePerBase = calcPricePerBaseUnit(
-          newPurchasePrice,
-          Number(item.qtyPerPurchaseUnit),
-          Number(item.packSize),
-          item.packUOM,
-        )
 
-        // Update inventory item price
+        // For weight/vol items: use invoice pack format (the actual size purchased) so
+        // pricePerBaseUnit reflects the real $/g or $/ml. Also update the inventory pack
+        // format to stay consistent with the new purchasePrice.
+        const useInvoicePack = isWeightVol(scanItem.invoicePackUOM) && scanItem.invoicePackSize !== null
+        const packQty  = useInvoicePack ? (Number(scanItem.invoicePackQty) || 1) : Number(item.qtyPerPurchaseUnit)
+        const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
+        const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : item.packUOM
+
+        const newPricePerBase = calcPricePerBaseUnit(newPurchasePrice, packQty, packSize, packUOM)
+
+        // Update inventory item price (and pack format for weight/vol so purchasePrice stays consistent)
         await tx.inventoryItem.update({
           where: { id: scanItem.matchedItemId },
           data: {
-            purchasePrice:   newPurchasePrice,
+            purchasePrice:    newPurchasePrice,
             pricePerBaseUnit: newPricePerBase,
-            lastUpdated:     new Date(),
+            lastUpdated:      new Date(),
+            ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
           },
         })
         updatedItemIds.push(scanItem.matchedItemId)

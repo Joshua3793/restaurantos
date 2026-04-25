@@ -313,10 +313,11 @@ function ScanItemCard({
       )
       if (normalized) {
         priceDiffPct = normalized.pctDiff
-        const calcPrice = calcNewPurchasePrice(
-          invoicePricePerPackUOM, pUOM,
-          Number(inv.qtyPerPurchaseUnit), Number(inv.packSize), inv.packUOM
-        )
+        // Weight/vol: price = $/packUOM × invoice pack (qty × size) — uses actual invoice case size
+        // Count: convert per-unit rate to match inventory's purchase format
+        const calcPrice = isWeightVol(pUOM)
+          ? invoicePricePerPackUOM * pq * ps
+          : calcNewPurchasePrice(invoicePricePerPackUOM, pUOM, Number(inv.qtyPerPurchaseUnit), Number(inv.packSize), inv.packUOM)
         if (calcPrice !== null) newPrice = calcPrice
       } else {
         // Incompatible units — fall back to direct comparison
@@ -382,11 +383,15 @@ function ScanItemCard({
     const cases     = parseFloat(localCases)     || null
     const unitPrice = parseFloat(localUnitPrice) || null
     const manualTotal = parseFloat(localLineTotal) || null
-    const lineTotal = manualTotal ?? (cases !== null && unitPrice !== null ? cases * unitPrice : null)
     const pq  = parseFloat(localPackQty)  || null
     const ps  = parseFloat(localPackSize) || null
     const pUOM = localPackUOM || null
-
+    // Weight/vol: total = qty × packQty × packSize × $/packUOM; count: total = qty × $/case
+    const lineTotal = manualTotal ?? (
+      cases !== null && unitPrice !== null
+        ? (pq && ps && pUOM && isWeightVol(pUOM) ? cases * pq * ps * unitPrice : cases * unitPrice)
+        : null
+    )
     let newPrice: number | null = unitPrice
     let priceDiffPct: number | null = null
 
@@ -402,10 +407,11 @@ function ScanItemCard({
         )
         if (normalized) {
           priceDiffPct = normalized.pctDiff
-          const calcPrice = calcNewPurchasePrice(
-            invoicePPU, pUOM,
-            Number(item.matchedItem.qtyPerPurchaseUnit), Number(item.matchedItem.packSize), item.matchedItem.packUOM
-          )
+          // Weight/vol: price = $/packUOM × invoice pack (qty × size) — uses actual invoice case size
+          // Count: convert per-unit rate to match inventory's purchase format
+          const calcPrice = isWeightVol(pUOM)
+            ? invoicePPU * pq * ps
+            : calcNewPurchasePrice(invoicePPU, pUOM, Number(item.matchedItem.qtyPerPurchaseUnit), Number(item.matchedItem.packSize), item.matchedItem.packUOM)
           if (calcPrice !== null) newPrice = calcPrice
         } else {
           const prevPrice = Number(item.matchedItem.purchasePrice)
@@ -1476,6 +1482,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const [editingHeader, setEditingHeader]   = useState(false)
   const [headerNumber,  setHeaderNumber]    = useState('')
   const [headerDate,    setHeaderDate]      = useState('')
+  const [headerSubtotal, setHeaderSubtotal] = useState('')
+  const [headerTax,      setHeaderTax]      = useState('')
   const [headerTotal,   setHeaderTotal]     = useState('')
   const [savingHeader,  setSavingHeader]    = useState(false)
 
@@ -1509,6 +1517,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     if (!session) return
     setHeaderNumber(session.invoiceNumber ?? '')
     setHeaderDate(session.invoiceDate ?? '')
+    setHeaderSubtotal(session.subtotal ? String(Number(session.subtotal)) : '')
+    setHeaderTax(session.tax ? String(Number(session.tax)) : '')
     setHeaderTotal(session.total ? String(Number(session.total)) : '')
     setEditingHeader(true)
   }
@@ -1522,7 +1532,9 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
       body: JSON.stringify({
         invoiceNumber: headerNumber.trim() || null,
         invoiceDate:   headerDate || null,
-        total:         headerTotal ? parseFloat(headerTotal) : null,
+        subtotal:      headerSubtotal ? parseFloat(headerSubtotal) : null,
+        tax:           headerTax      ? parseFloat(headerTax)      : null,
+        total:         headerTotal    ? parseFloat(headerTotal)    : null,
       }),
     })
     await fetchSession(session.id)
@@ -1727,18 +1739,24 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     const activeItems = totalItems - skipCount
 
     // Invoice total validation
+    const WVSET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
     const scannedTotal = session.scanItems
       .filter(i => i.action !== 'SKIP')
       .reduce((sum, i) => {
-        const lt = i.rawLineTotal !== null
-          ? Number(i.rawLineTotal)
-          : (i.rawQty !== null && i.rawUnitPrice !== null ? Number(i.rawQty) * Number(i.rawUnitPrice) : 0)
+        let lt: number
+        if (i.rawLineTotal !== null) {
+          lt = Number(i.rawLineTotal)
+        } else if (i.rawQty !== null && i.rawUnitPrice !== null) {
+          const wv = !!i.invoicePackUOM && WVSET.has(i.invoicePackUOM.toLowerCase())
+          lt = wv && i.invoicePackQty && i.invoicePackSize
+            ? Number(i.rawQty) * Number(i.invoicePackQty) * Number(i.invoicePackSize) * Number(i.rawUnitPrice)
+            : Number(i.rawQty) * Number(i.rawUnitPrice)
+        } else {
+          lt = 0
+        }
         return sum + lt
       }, 0)
     const invoiceTotal = session.total ? Number(session.total) : null
-    const totalDiff = invoiceTotal !== null ? invoiceTotal - scannedTotal : null
-    const totalIsOver = totalDiff !== null && totalDiff < -0.50
-    const totalIsOk   = totalDiff !== null && totalDiff >= 0 && totalDiff < (invoiceTotal ?? 0) * 0.25
 
     // Duplicate invoice number detection
     const duplicateSessions = session.invoiceNumber
@@ -1768,6 +1786,12 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   )}
                   {session.total && !editingHeader && (
                     <div className="text-xl font-bold text-white">{formatCurrency(Number(session.total))}</div>
+                  )}
+                  {(session.subtotal || session.tax) && !editingHeader && (
+                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                      {session.subtotal && <span>Sub: {formatCurrency(Number(session.subtotal))}</span>}
+                      {session.tax && <span>Tax: {formatCurrency(Number(session.tax))}</span>}
+                    </div>
                   )}
                   {!editingHeader && (
                     <button
@@ -1800,6 +1824,32 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                         value={headerDate}
                         onChange={e => setHeaderDate(e.target.value)}
                         className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Subtotal ($)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={headerSubtotal}
+                        onChange={e => setHeaderSubtotal(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Tax ($)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={headerTax}
+                        onChange={e => setHeaderTax(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
                       />
                     </div>
                   </div>
@@ -2002,36 +2052,61 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             )}
 
             {/* Total validation bar */}
-            {(invoiceTotal !== null || scannedTotal > 0) && (
-              <div className={`flex items-center gap-2 px-4 py-2 border-b text-xs ${
-                totalIsOver ? 'bg-red-50 border-red-200' :
-                totalIsOk   ? 'bg-green-50 border-green-200' :
-                              'bg-gray-50 border-gray-200'
-              }`}>
-                <div className="flex items-center gap-2 flex-1 flex-wrap">
-                  <span className="text-gray-500">Scanned:</span>
-                  <span className={`font-bold ${totalIsOver ? 'text-red-700' : 'text-gray-800'}`}>{formatCurrency(scannedTotal)}</span>
-                  {invoiceTotal !== null && (
-                    <>
-                      <span className="text-gray-300">·</span>
-                      <span className="text-gray-500">Invoice total:</span>
-                      <span className="font-bold text-gray-800">{formatCurrency(invoiceTotal)}</span>
-                      {totalDiff !== null && (
-                        <>
-                          <span className="text-gray-300">·</span>
-                          <span className={`font-medium ${totalIsOver ? 'text-red-600' : 'text-gray-400'}`}>
-                            {totalIsOver
-                              ? `⚠ Items exceed total by ${formatCurrency(Math.abs(totalDiff))}`
-                              : `${formatCurrency(totalDiff)} in taxes/fees`}
-                          </span>
-                        </>
-                      )}
-                    </>
-                  )}
+            {(invoiceTotal !== null || scannedTotal > 0) && (() => {
+              const ocrSubtotal = session.subtotal ? Number(session.subtotal) : null
+              const ocrTax      = session.tax      ? Number(session.tax)      : null
+              // Match scanned against subtotal (before tax) when available, otherwise against total
+              const compareTarget = ocrSubtotal ?? invoiceTotal
+              const subtotalDiff  = compareTarget !== null ? compareTarget - scannedTotal : null
+              const subtotalIsOk  = subtotalDiff !== null && Math.abs(subtotalDiff) < 0.50
+              const subtotalIsOver= subtotalDiff !== null && subtotalDiff < -0.50
+              return (
+                <div className={`flex items-center gap-2 px-4 py-2 border-b text-xs ${
+                  subtotalIsOver ? 'bg-red-50 border-red-200' :
+                  subtotalIsOk   ? 'bg-green-50 border-green-200' :
+                                   'bg-gray-50 border-gray-200'
+                }`}>
+                  <div className="flex items-center gap-2 flex-1 flex-wrap">
+                    <span className="text-gray-500">Scanned:</span>
+                    <span className={`font-bold ${subtotalIsOver ? 'text-red-700' : 'text-gray-800'}`}>{formatCurrency(scannedTotal)}</span>
+                    {ocrSubtotal !== null && (
+                      <>
+                        <span className="text-gray-300">·</span>
+                        <span className="text-gray-500">Subtotal:</span>
+                        <span className="font-bold text-gray-800">{formatCurrency(ocrSubtotal)}</span>
+                      </>
+                    )}
+                    {ocrTax !== null && (
+                      <>
+                        <span className="text-gray-300">·</span>
+                        <span className="text-gray-500">Tax:</span>
+                        <span className="font-bold text-gray-800">{formatCurrency(ocrTax)}</span>
+                      </>
+                    )}
+                    {invoiceTotal !== null && (
+                      <>
+                        <span className="text-gray-300">·</span>
+                        <span className="text-gray-500">{ocrSubtotal ? 'Total:' : 'Invoice total:'}</span>
+                        <span className="font-bold text-gray-800">{formatCurrency(invoiceTotal)}</span>
+                      </>
+                    )}
+                    {subtotalDiff !== null && !subtotalIsOk && (
+                      <>
+                        <span className="text-gray-300">·</span>
+                        <span className={`font-medium ${subtotalIsOver ? 'text-red-600' : 'text-gray-400'}`}>
+                          {subtotalIsOver
+                            ? `⚠ Items exceed by ${formatCurrency(Math.abs(subtotalDiff))}`
+                            : ocrSubtotal
+                              ? `${formatCurrency(subtotalDiff)} unscanned`
+                              : `${formatCurrency(subtotalDiff)} in taxes/fees`}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {subtotalIsOk && <span className="text-green-600 font-semibold">✓ Match</span>}
                 </div>
-                {totalIsOk && <span className="text-green-600 font-semibold">✓ Match</span>}
-              </div>
-            )}
+              )
+            })()}
 
             {/* Line items */}
             <div className="divide-y divide-gray-50">
@@ -2068,28 +2143,39 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             </div>
 
             {/* Invoice totals footer */}
-            {(scannedTotal > 0 || invoiceTotal !== null) && (
-              <div className="px-5 py-4 bg-gray-50 border-t border-gray-200">
-                <div className="flex flex-col items-end gap-1 text-sm">
-                  <div className="flex items-center gap-6">
-                    <span className="text-gray-500">Subtotal (scanned items)</span>
-                    <span className="font-semibold text-gray-800 w-24 text-right">{formatCurrency(scannedTotal)}</span>
+            {(scannedTotal > 0 || invoiceTotal !== null) && (() => {
+              const ocrSub = session.subtotal ? Number(session.subtotal) : null
+              const ocrTax = session.tax      ? Number(session.tax)      : null
+              const taxLine = ocrTax ?? (invoiceTotal !== null ? invoiceTotal - scannedTotal : null)
+              return (
+                <div className="px-5 py-4 bg-gray-50 border-t border-gray-200">
+                  <div className="flex flex-col items-end gap-1 text-sm">
+                    <div className="flex items-center gap-6">
+                      <span className="text-gray-500">Subtotal (scanned items)</span>
+                      <span className="font-semibold text-gray-800 w-24 text-right">{formatCurrency(scannedTotal)}</span>
+                    </div>
+                    {ocrSub !== null && Math.abs(ocrSub - scannedTotal) > 0.01 && (
+                      <div className="flex items-center gap-6 text-gray-400 text-xs">
+                        <span>Invoice subtotal</span>
+                        <span className="w-24 text-right">{formatCurrency(ocrSub)}</span>
+                      </div>
+                    )}
+                    {taxLine !== null && taxLine > 0.01 && (
+                      <div className="flex items-center gap-6 text-gray-400">
+                        <span>Taxes &amp; fees</span>
+                        <span className="w-24 text-right">{formatCurrency(taxLine)}</span>
+                      </div>
+                    )}
+                    {invoiceTotal !== null && (
+                      <div className="flex items-center gap-6 border-t border-gray-200 pt-1 mt-1">
+                        <span className="font-bold text-gray-700">Invoice Total</span>
+                        <span className="font-bold text-gray-900 w-24 text-right">{formatCurrency(invoiceTotal)}</span>
+                      </div>
+                    )}
                   </div>
-                  {invoiceTotal !== null && totalDiff !== null && totalDiff > 0 && (
-                    <div className="flex items-center gap-6 text-gray-400">
-                      <span>Taxes &amp; fees</span>
-                      <span className="w-24 text-right">{formatCurrency(totalDiff)}</span>
-                    </div>
-                  )}
-                  {invoiceTotal !== null && (
-                    <div className="flex items-center gap-6 border-t border-gray-200 pt-1 mt-1">
-                      <span className="font-bold text-gray-700">Invoice Total</span>
-                      <span className="font-bold text-gray-900 w-24 text-right">{formatCurrency(invoiceTotal)}</span>
-                    </div>
-                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         </div>
 
