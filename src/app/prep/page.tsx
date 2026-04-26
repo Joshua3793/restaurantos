@@ -25,7 +25,7 @@ export default function PrepPage() {
   const [syncing,    setSyncing]    = useState(false)
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
   const [planSort,   setPlanSort]   = useState<'az' | 'category'>('category')
-  const [planView,   setPlanView]   = useState<'all' | 'need-attention'>('all')
+  const [planView,   setPlanView]   = useState<'all' | 'need-attention' | 'pending'>('all')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
 
   // Prevent duplicate concurrent status mutations per item
@@ -76,12 +76,16 @@ export default function PrepPage() {
     if (filterCategory !== 'ALL' && item.category !== filterCategory)     return false
 
     if (viewMode === 'plan') {
-      // Need Attention sub-view: only system-flagged items (no manual overrides)
       if (planView === 'need-attention') {
         return !item.manualPriorityOverride &&
           (item.priority === '911' || item.priority === 'NEEDED_TODAY' || item.priority === 'LOW_STOCK')
       }
-      return true // 'all' sub-view: show everything
+      if (planView === 'pending') {
+        // Items with no log, or log that is NOT_STARTED or IN_PROGRESS (i.e. not yet finished)
+        const s = item.todayLog?.status
+        return !s || s === 'NOT_STARTED' || s === 'IN_PROGRESS'
+      }
+      return true
     }
 
     // Today: only items the chef has added to today's list
@@ -556,7 +560,7 @@ export default function PrepPage() {
       {viewMode === 'plan' && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 space-y-2.5">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            {/* Sub-view toggle: All Items / Needed Action */}
+            {/* Sub-view toggle: All / Pending / Need Attention */}
             <div className="flex items-center gap-1 bg-indigo-100 rounded-lg p-0.5">
               <button
                 onClick={() => setPlanView('all')}
@@ -565,10 +569,22 @@ export default function PrepPage() {
                 All Items
               </button>
               <button
+                onClick={() => setPlanView('pending')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'pending' ? 'bg-white text-blue-700 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
+              >
+                Pending
+                {(() => {
+                  const n = items.filter(i => { const s = i.todayLog?.status; return !s || s === 'NOT_STARTED' || s === 'IN_PROGRESS' }).length
+                  return n > 0 ? (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'pending' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-200 text-indigo-600'}`}>{n}</span>
+                  ) : null
+                })()}
+              </button>
+              <button
                 onClick={() => setPlanView('need-attention')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'need-attention' ? 'bg-white text-orange-700 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
               >
-                Need Attention
+                Low Stock
                 {items.filter(i => !i.manualPriorityOverride && (i.priority === '911' || i.priority === 'NEEDED_TODAY' || i.priority === 'LOW_STOCK')).length > 0 && (
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'need-attention' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-200 text-indigo-600'}`}>
                     {items.filter(i => !i.manualPriorityOverride && (i.priority === '911' || i.priority === 'NEEDED_TODAY' || i.priority === 'LOW_STOCK')).length}
@@ -598,6 +614,8 @@ export default function PrepPage() {
           <p className="text-xs text-indigo-600">
             {planView === 'need-attention'
               ? 'Items the system flagged based on stock levels. Tap ○ to add to today\'s list.'
+              : planView === 'pending'
+              ? 'Items not yet done today — unscheduled or in progress. Add what\'s still needed.'
               : 'Tap ○ to add items to today\'s list. Use priority chips to flag urgency.'}
           </p>
         </div>
@@ -616,6 +634,8 @@ export default function PrepPage() {
               ? 'No prep items yet.'
               : viewMode === 'plan' && planView === 'need-attention'
               ? 'No items flagged by the system — stock levels look good.'
+              : viewMode === 'plan' && planView === 'pending'
+              ? 'All items are done or skipped for today. Great work!'
               : viewMode === 'plan'
               ? 'No items match your filters.'
               : 'Nothing on today\'s list yet.'}

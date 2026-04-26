@@ -100,30 +100,70 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
 
   // ── PLAN MODE ───────────────────────────────────────────────────────────────
   if (planMode) {
-    const isScheduled     = item.todayLog !== null
+    const logStatus       = item.todayLog?.status ?? null
     const currentOverride = item.manualPriorityOverride ?? ''
     const isAtPar         = item.onHand >= item.parLevel
       && !item.manualPriorityOverride
       && item.priority !== '911'
       && item.priority !== 'NEEDED_TODAY'
 
+    // Only allow un-scheduling items that haven't been started yet
+    const canToggle = !logStatus || logStatus === 'NOT_STARTED'
+
+    const toggleClass = (() => {
+      if (!logStatus)                  return 'border-gray-300 text-transparent hover:border-blue-400'
+      if (logStatus === 'DONE')        return 'bg-green-500 border-green-500 text-white'
+      if (logStatus === 'PARTIAL')     return 'bg-yellow-400 border-yellow-400 text-white'
+      if (logStatus === 'IN_PROGRESS') return 'bg-blue-500 border-blue-500 text-white'
+      if (logStatus === 'SKIPPED')     return 'bg-gray-300 border-gray-300 text-white'
+      return 'bg-blue-200 border-blue-300 text-blue-700' // NOT_STARTED (scheduled)
+    })()
+
+    const toggleIcon = (() => {
+      if (!logStatus)                  return <Plus size={12} />
+      if (logStatus === 'DONE')        return <Check size={12} strokeWidth={3} />
+      if (logStatus === 'PARTIAL')     return <span className="text-[10px] font-bold leading-none">◐</span>
+      if (logStatus === 'IN_PROGRESS') return <Play size={10} fill="currentColor" />
+      if (logStatus === 'SKIPPED')     return <SkipForward size={10} />
+      return <Check size={12} strokeWidth={3} /> // NOT_STARTED
+    })()
+
+    const toggleTitle = (() => {
+      if (!logStatus)                  return 'Add to today'
+      if (logStatus === 'NOT_STARTED') return 'Remove from today'
+      return `${logStatus.replace(/_/g, ' ').toLowerCase()} — manage in Today tab`
+    })()
+
+    const statusLabel = (() => {
+      if (logStatus === 'DONE')        return <span className="text-[10px] font-semibold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full">Done</span>
+      if (logStatus === 'PARTIAL')     return <span className="text-[10px] font-semibold text-yellow-700 bg-yellow-100 px-1.5 py-0.5 rounded-full">Partial</span>
+      if (logStatus === 'IN_PROGRESS') return <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />In Progress</span>
+      if (logStatus === 'SKIPPED')     return <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Skipped</span>
+      if (logStatus === 'NOT_STARTED') return <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Scheduled</span>
+      return null
+    })()
+
     return (
-      <div className={`px-3 py-2.5 border-b border-gray-50 transition-all ${frame.border} ${frame.bg} ${isAtPar && !isScheduled ? 'opacity-40 hover:opacity-100' : ''}`}>
+      <div className={`px-3 py-2.5 border-b border-gray-50 transition-all ${frame.border} ${frame.bg} ${isAtPar && !logStatus ? 'opacity-40 hover:opacity-100' : ''} ${logStatus === 'DONE' || logStatus === 'SKIPPED' ? 'opacity-60' : ''}`}>
 
         {/* Row 1: toggle + name + arrow */}
         <div className="flex items-center gap-2">
           <button
-            onClick={e => { e.stopPropagation(); onScheduleToggle?.(item.id, item.todayLog?.id ?? null) }}
-            className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${
-              isScheduled ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 text-transparent hover:border-blue-400'
-            }`}
-            title={isScheduled ? 'Remove from today' : 'Add to today'}
+            onClick={e => {
+              e.stopPropagation()
+              if (canToggle) onScheduleToggle?.(item.id, item.todayLog?.id ?? null)
+            }}
+            className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${toggleClass} ${!canToggle ? 'cursor-default' : ''}`}
+            title={toggleTitle}
           >
-            {isScheduled ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
+            {toggleIcon}
           </button>
 
           <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-            <div className="text-sm font-semibold text-gray-800 truncate">{item.name}</div>
+            <div className={`text-sm font-semibold truncate flex items-center gap-1.5 ${logStatus === 'DONE' || logStatus === 'SKIPPED' ? 'text-gray-400' : 'text-gray-800'}`}>
+              <span className={logStatus === 'DONE' ? 'line-through' : ''}>{item.name}</span>
+              {statusLabel}
+            </div>
             {showReason && (() => {
               const reason = getAttentionReason(item)
               return reason ? <div className="text-xs text-orange-600 truncate">{reason}</div> : null
