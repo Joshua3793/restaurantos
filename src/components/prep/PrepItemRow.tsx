@@ -59,11 +59,19 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   const [confirmQty, setConfirmQty]             = useState('')
   const [pendingStatus, setPendingStatus]       = useState<'DONE' | 'PARTIAL'>('DONE')
   const [showRecipe, setShowRecipe]             = useState(false)
+  const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLInputElement>(null)
 
   const priority      = PREP_PRIORITY_META[item.priority]
   const currentStatus = item.todayLog?.status ?? 'NOT_STARTED'
   const frame         = getPriorityFrame(item.priority)
+
+  // Clear ingredient checkboxes when the item is marked done/partial
+  useEffect(() => {
+    if (currentStatus === 'DONE' || currentStatus === 'PARTIAL') {
+      setCheckedIngredients(new Set())
+    }
+  }, [currentStatus])
 
   useEffect(() => {
     if (confirmingDone && inputRef.current) {
@@ -353,6 +361,12 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           suggestedQty={item.suggestedQty > 0 ? item.suggestedQty : undefined}
           yieldUnit={item.unit}
           baseYieldQty={item.linkedRecipe?.baseYieldQty}
+          checkedIngredients={checkedIngredients}
+          onToggleIngredient={id => setCheckedIngredients(prev => {
+            const next = new Set(prev)
+            next.has(id) ? next.delete(id) : next.add(id)
+            return next
+          })}
           onClose={() => setShowRecipe(false)}
         />
       )}

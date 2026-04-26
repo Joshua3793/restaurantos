@@ -34,10 +34,12 @@ interface Props {
   suggestedQty?: number
   yieldUnit?: string
   baseYieldQty?: number
+  checkedIngredients: Set<string>
+  onToggleIngredient: (id: string) => void
   onClose: () => void
 }
 
-export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit, baseYieldQty, onClose }: Props) {
+export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit, baseYieldQty, checkedIngredients, onToggleIngredient, onClose }: Props) {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [loading, setLoading] = useState(true)
   const [scale, setScale] = useState(1)
@@ -142,21 +144,36 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    <th className="text-left px-5 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ingredient</th>
+                    <th className="w-8 px-3 py-2" />
+                    <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ingredient</th>
                     <th className="text-right px-5 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {recipe.ingredients.map(ing => {
                     const scaledQty = ing.qtyBase * scale
+                    const checked = checkedIngredients.has(ing.id)
                     return (
-                      <tr key={ing.id} className="hover:bg-gray-50/50">
-                        <td className="px-5 py-2.5">
-                          <div className="font-medium text-gray-800">{ing.ingredientName}</div>
+                      <tr
+                        key={ing.id}
+                        className={`transition-colors cursor-pointer ${checked ? 'bg-green-50/60' : 'hover:bg-gray-50/50'}`}
+                        onClick={() => onToggleIngredient(ing.id)}
+                      >
+                        <td className="px-3 py-2.5">
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${checked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
+                            {checked && (
+                              <svg viewBox="0 0 12 12" className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="1.5,6 4.5,9 10.5,3" />
+                              </svg>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <div className={`font-medium transition-colors ${checked ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{ing.ingredientName}</div>
                           {ing.notes && <div className="text-xs text-amber-600 mt-0.5">{ing.notes}</div>}
                         </td>
                         <td className="px-5 py-2.5 text-right">
-                          <span className="font-semibold text-gray-900">
+                          <span className={`font-semibold transition-colors ${checked ? 'text-gray-400' : 'text-gray-900'}`}>
                             {scaledQty % 1 === 0 ? scaledQty.toFixed(0) : scaledQty.toFixed(2).replace(/\.?0+$/, '')}
                           </span>
                           <span className="text-gray-500 ml-1">{ing.unit}</span>

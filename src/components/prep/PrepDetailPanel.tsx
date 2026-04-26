@@ -257,8 +257,8 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
                 <BookOpen size={14} className="text-gray-400" />
                 <span className="text-gray-700">{item.linkedRecipe.name}</span>
               </div>
-              <a href="/recipes" className="text-xs text-blue-600 hover:underline flex items-center gap-0.5">
-                Open <ChevronRight size={12} />
+              <a href={`/recipes?item=${item.linkedRecipe.id}`} className="text-xs text-blue-600 hover:underline flex items-center gap-0.5">
+                Open Recipe <ChevronRight size={12} />
               </a>
             </div>
           )}
