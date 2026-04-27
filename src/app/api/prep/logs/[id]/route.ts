@@ -131,7 +131,15 @@ export async function PUT(
     warning: null,
   }
 
-  // Only fire the transaction once (idempotency via inventoryAdjusted flag)
+  // When marking done/partial: clear manual priority override so Plan Prep resets to auto
+  if (status && COMPLETION_STATUSES.has(status)) {
+    await prisma.prepItem.update({
+      where: { id: existing.prepItemId },
+      data: { manualPriorityOverride: null },
+    })
+  }
+
+  // Only fire the inventory transaction once (idempotency via inventoryAdjusted flag)
   if (status && COMPLETION_STATUSES.has(status) && !existing.inventoryAdjusted && qty) {
     inventoryResult = await applyInventoryTransaction(params.id, qty)
   }

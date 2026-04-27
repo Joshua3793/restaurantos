@@ -219,13 +219,15 @@ export default function PrepPage() {
     if (!item) return
     pendingItems.current.add(itemId)
 
-    // Optimistic: update status immediately
+    // Optimistic: update status + clear manual priority when marking done/partial
     const now = new Date().toISOString()
+    const completingNow = newStatus === 'DONE' || newStatus === 'PARTIAL'
     setItems(prev => prev.map(i => {
       if (i.id !== itemId) return i
       const existingLog = i.todayLog
       return {
         ...i,
+        ...(completingNow && { manualPriorityOverride: null }),
         todayLog: existingLog
           ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}) }
           : {
