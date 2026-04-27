@@ -2,7 +2,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
-import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal } from 'lucide-react'
+import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal, WifiOff, RefreshCcw } from 'lucide-react'
+import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
@@ -24,6 +25,10 @@ export default function PrepPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [syncing,    setSyncing]    = useState(false)
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  const [isOffline,      setIsOffline]      = useState(false)
+  const [offlineSyncing, setOfflineSyncing] = useState(false)
+  const [pendingCount,   setPendingCount]   = useState(0)
+  const [cacheAge,       setCacheAge]       = useState<number | null>(null)
   const [planSort,   setPlanSort]   = useState<'az' | 'category'>('category')
   const [planView,   setPlanView]   = useState<'all' | 'need-attention' | 'pending'>('all')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
@@ -44,16 +49,40 @@ export default function PrepPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      if (!navigator.onLine) throw new Error('offline')
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      setItems(Array.isArray(data) ? data : [])
+      const items = Array.isArray(data) ? data : []
+      setItems(items)
+      savePrepCache(items)
+      setIsOffline(false)
+      setCacheAge(null)
     } catch (e) {
+      if (!navigator.onLine) {
+        const cached = loadPrepCache()
+        if (cached) {
+          setItems(cached.items)
+          setCacheAge(Math.round((Date.now() - cached.ts) / 60000))
+          setIsOffline(true)
+          return
+        }
+        setIsOffline(true)
+      }
       console.error('Failed to load prep items', e)
       setItems([])
     } finally {
       setLoading(false)
     }
   }, [activeOnly])
+
+  useEffect(() => {
+    // Initialise offline state and any pending mutations left from a previous session
+    setIsOffline(!navigator.onLine)
+    setPendingCount(loadQueue().length)
+    load()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => { load() }, [load])
 
@@ -62,13 +91,52 @@ export default function PrepPage() {
     return () => setDrawerOpen(false)
   }, [selected, setDrawerOpen])
 
+  // Online/offline events — auto-sync queue on reconnect
+  useEffect(() => {
+    const handleOnline = async () => {
+      setIsOffline(false)
+      const queue = loadQueue()
+      if (queue.length > 0) {
+        setOfflineSyncing(true)
+        const result = await flushQueue()
+        setPendingCount(0)
+        setOfflineSyncing(false)
+        if (result.failed > 0) {
+          setActionError(`Synced ${result.synced} change${result.synced !== 1 ? 's' : ''}, but ${result.failed} failed — please refresh.`)
+        }
+      }
+      load()
+    }
+    const handleOffline = () => setIsOffline(true)
+    window.addEventListener('online',  handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online',  handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [load])
+
+  // Manual sync (visible when online with unsent mutations)
+  const handleOfflineSync = useCallback(async () => {
+    if (isOffline || offlineSyncing) return
+    setOfflineSyncing(true)
+    const result = await flushQueue()
+    setPendingCount(0)
+    setOfflineSyncing(false)
+    if (result.failed > 0) {
+      setActionError(`Synced ${result.synced}, but ${result.failed} change${result.failed !== 1 ? 's' : ''} failed — please refresh.`)
+    }
+    load()
+  }, [isOffline, offlineSyncing, load])
+
   // Auto-generate removed — chef now manually plans the prep list from "Plan Prep List" view
 
-  // Auto-refresh every 60 seconds
+  // Auto-refresh every 60 seconds (paused while offline)
   useEffect(() => {
+    if (isOffline) return
     const id = setInterval(load, 60_000)
     return () => clearInterval(id)
-  }, [load])
+  }, [load, isOffline])
 
   const filtered = useMemo(() => items.filter(item => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -178,6 +246,14 @@ export default function PrepPage() {
       }
     }))
 
+    // Queue for later sync when offline
+    if (!navigator.onLine) {
+      enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty })
+      setPendingCount(n => n + 1)
+      pendingItems.current.delete(itemId)
+      return
+    }
+
     try {
       let logId = item.todayLog?.id
       if (!logId || logId.startsWith('_opt_')) {
@@ -218,10 +294,15 @@ export default function PrepPage() {
       return {
         ...item,
         manualPriorityOverride: priority || null,
-        // When clearing to Auto (''), keep the current displayed priority until server recalculates
         priority: (priority as PrepItemRich['priority']) || item.priority,
       }
     }))
+
+    if (!navigator.onLine) {
+      enqueueMutation({ type: 'priority', itemId, priority })
+      setPendingCount(n => n + 1)
+      return
+    }
 
     try {
       await fetch(`/api/prep/items/${itemId}`, {
@@ -277,6 +358,16 @@ export default function PrepPage() {
         },
       }
     }))
+
+    if (!navigator.onLine) {
+      if (logId) {
+        enqueueMutation({ type: 'schedule_remove', itemId, logId })
+      } else {
+        enqueueMutation({ type: 'schedule_add', itemId })
+      }
+      setPendingCount(n => n + 1)
+      return
+    }
 
     try {
       if (logId) {
@@ -463,6 +554,39 @@ export default function PrepPage() {
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
           <span>{actionError}</span>
           <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+        </div>
+      )}
+
+      {/* Offline / pending-sync banner */}
+      {(isOffline || pendingCount > 0) && (
+        <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
+          isOffline
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : 'bg-blue-50 border-blue-200 text-blue-800'
+        }`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <WifiOff size={14} className="shrink-0" />
+            <span className="truncate">
+              {offlineSyncing
+                ? 'Syncing changes…'
+                : isOffline
+                  ? `Offline${cacheAge !== null ? ` — data from ${cacheAge < 1 ? 'just now' : `${cacheAge}m ago`}` : ''}`
+                  : 'Back online'}
+            </span>
+            {pendingCount > 0 && !offlineSyncing && (
+              <span className="font-semibold shrink-0">
+                · {pendingCount} change{pendingCount !== 1 ? 's' : ''} pending
+              </span>
+            )}
+          </div>
+          {pendingCount > 0 && !isOffline && !offlineSyncing && (
+            <button
+              onClick={handleOfflineSync}
+              className="shrink-0 flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+            >
+              <RefreshCcw size={12} /> Sync now
+            </button>
+          )}
         </div>
       )}
 
