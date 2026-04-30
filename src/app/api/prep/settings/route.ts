@@ -4,11 +4,12 @@ import { PREP_CATEGORIES as DEFAULT_CATEGORIES, PREP_STATIONS as DEFAULT_STATION
 
 export async function GET() {
   try {
-    const settings = await prisma.prepSettings.upsert({
-      where:  { id: 'singleton' },
-      update: {},
-      create: { id: 'singleton', categories: DEFAULT_CATEGORIES, stations: DEFAULT_STATIONS },
-    })
+    let settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
+    if (!settings) {
+      settings = await prisma.prepSettings.create({
+        data: { id: 'singleton', categories: DEFAULT_CATEGORIES, stations: DEFAULT_STATIONS },
+      })
+    }
     return NextResponse.json({ categories: settings.categories, stations: settings.stations })
   } catch (err) {
     console.error('[prep/settings GET]', err)
@@ -26,11 +27,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Lists cannot be empty' }, { status: 400 })
     }
 
-    const settings = await prisma.prepSettings.upsert({
-      where:  { id: 'singleton' },
-      update: { categories, stations },
-      create: { id: 'singleton', categories, stations },
-    })
+    const existing = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
+    const settings = existing
+      ? await prisma.prepSettings.update({ where: { id: 'singleton' }, data: { categories, stations } })
+      : await prisma.prepSettings.create({ data: { id: 'singleton', categories, stations } })
+
     return NextResponse.json({ categories: settings.categories, stations: settings.stations })
   } catch (err) {
     console.error('[prep/settings PUT]', err)
