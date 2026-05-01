@@ -129,14 +129,12 @@ function NavigationInner() {
         style={{ background: '#09090b', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
 
         {/* Wordmark */}
-        <div className="px-4 pt-5 pb-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="[&_button]:text-white/30 [&_button:hover]:text-white [&_button:hover]:bg-white/5 rounded-lg ml-auto">
-              <AlertsBell />
-            </div>
+        <div className="px-4 pt-5 pb-4 flex items-center justify-between gap-2">
+          <Image src="/logo-wordmark.png" alt="Controla OS" width={160} height={42}
+            className="shrink-0 object-contain" style={{ height: 42, width: 'auto' }} />
+          <div className="[&_button]:text-white/30 [&_button:hover]:text-white [&_button:hover]:bg-white/5 rounded-lg shrink-0">
+            <AlertsBell />
           </div>
-          <Image src="/logo-wordmark.png" alt="Controla OS" width={200} height={52}
-            className="w-full object-contain object-left" style={{ height: 44 }} />
         </div>
 
         {/* RC selector */}
