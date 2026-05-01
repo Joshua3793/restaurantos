@@ -302,7 +302,7 @@ export default function CountPage() {
         countedBy:   form.countedBy.trim(),
         sessionDate: form.sessionDate,
         areaFilter:  form.areas.length ? form.areas.join(',') : undefined,
-        revenueCenterId: selectedRcId || activeRcId || undefined,
+        revenueCenterId: selectedRcId || undefined,
       }),
     })
     const session = await res.json()
@@ -463,7 +463,11 @@ export default function CountPage() {
         <div className="grid grid-cols-2 gap-2">
           {(['FULL', 'PARTIAL'] as const).map(t => (
             <button key={t} type="button"
-              onClick={() => setForm(f => ({ ...f, type: t }))}
+              onClick={() => {
+                setForm(f => ({ ...f, type: t }))
+                // Reset to active RC when switching to PARTIAL (no "All" option there)
+                if (t === 'PARTIAL' && !selectedRcId) setSelectedRcId(activeRcId ?? '')
+              }}
               className={`py-3 rounded-xl text-sm font-medium border transition-colors ${
                 form.type === t ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
@@ -516,6 +520,9 @@ export default function CountPage() {
             onChange={e => setSelectedRcId(e.target.value)}
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
           >
+            {form.type === 'FULL' && (
+              <option value="">All revenue centers</option>
+            )}
             {revenueCenters.map(rc => (
               <option key={rc.id} value={rc.id}>{rc.name}</option>
             ))}
