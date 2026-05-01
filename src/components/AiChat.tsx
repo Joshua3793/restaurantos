@@ -407,7 +407,10 @@ export function AiChat() {
       {/* Toggle button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-[52px] h-[52px] rounded-full bg-gradient-to-br from-blue-600 to-blue-700 shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow"
+        className="w-[52px] h-[52px] rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-all"
+        style={{ background: '#c9a84c' }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#a88930')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#c9a84c')}
         aria-label={open ? 'Close CONTROLA chat' : 'Open CONTROLA chat'}
       >
         {open ? (

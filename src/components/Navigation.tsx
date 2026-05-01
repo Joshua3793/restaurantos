@@ -125,57 +125,42 @@ function NavigationInner() {
   return (
     <>
       {/* ── Desktop Sidebar ────────────────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-56 min-h-screen fixed left-0 top-0 z-40"
-        style={{ background: '#0f0f0f' }}>
+      <aside className="hidden md:flex flex-col w-[240px] min-h-screen fixed left-0 top-0 z-40"
+        style={{ background: '#09090b', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
 
-        {/* Logo */}
-        <div className="px-4 pt-5 pb-4 flex items-center justify-between gap-2"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-          <div className="flex items-center gap-2.5">
-            <Image src="/logo-icon.png" alt="Controla OS" width={32} height={32}
-              className="rounded-lg shrink-0" />
-            <div>
-              <h1 className="text-sm font-bold tracking-wide leading-tight"
-                style={{ color: '#c9a84c' }}>
-                Controla OS
-              </h1>
-              <p className="text-[10px] text-white/30 leading-tight mt-0.5">
-                Fergie&apos;s Kitchen
-              </p>
-            </div>
-          </div>
+        {/* Wordmark */}
+        <div className="px-5 pt-5 pb-4 flex items-center justify-between gap-2">
+          <Image src="/logo-wordmark.png" alt="Controla OS" width={130} height={34}
+            className="shrink-0 object-contain" style={{ height: 34, width: 'auto' }} />
           <div className="[&_button]:text-white/30 [&_button:hover]:text-white [&_button:hover]:bg-white/5 rounded-lg">
             <AlertsBell />
           </div>
         </div>
 
-        <RcSelector />
+        {/* RC selector */}
+        <div className="px-3 pb-2">
+          <RcSelector />
+        </div>
 
         {/* Nav items */}
-        <nav className="flex-1 px-2 py-3 overflow-y-auto">
+        <nav className="flex-1 px-3 py-2 overflow-y-auto space-y-0.5">
           {visibleNavItems.map(item => {
             const active = isActive(item)
             const { href, label, icon: Icon } = item
             return (
               <div key={href}>
                 {item.dividerBefore && (
-                  <div className="my-3 mx-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+                  <div className="my-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
                 )}
                 <Link
                   href={href}
-                  style={active ? {
-                    borderLeftColor: '#c9a84c',
-                    borderLeftWidth: 3,
-                    backgroundColor: 'rgba(201,168,76,0.12)',
-                    color: '#e8c97a',
-                  } : undefined}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] transition-all duration-150 ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 ${
                     active
-                      ? 'font-semibold pl-[9px]'
-                      : 'text-white/40 hover:text-white/80 hover:bg-white/5 font-normal'
+                      ? 'bg-white text-gray-900 shadow-[0_0_24px_rgba(201,168,76,0.18)]'
+                      : 'text-white/40 hover:text-white/80 hover:bg-white/5'
                   }`}
                 >
-                  <Icon size={16} />
+                  <Icon size={16} color={active ? '#111' : undefined} />
                   {label}
                 </Link>
               </div>
@@ -184,15 +169,14 @@ function NavigationInner() {
         </nav>
 
         {/* Footer */}
-        <div className="px-2 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div className="px-3 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-[13px] text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors"
+            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-[13px] text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors"
           >
             <LogOut size={16} />
             Log Out
           </button>
-          <p className="text-[10px] text-white/15 px-3 mt-2">v1.0.0</p>
         </div>
       </aside>
 
