@@ -8,7 +8,7 @@ import {
   Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, BASE_UNITS } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
@@ -159,6 +159,18 @@ export default function CountPage() {
 
   // ── Storage areas (for partial count picker) ─────────────────────────────
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
+
+  // ── Add-item modal ────────────────────────────────────────────────────────
+  const [showAddItem,    setShowAddItem]    = useState(false)
+  const [addItemSaving,  setAddItemSaving]  = useState(false)
+  const [addItemForm,    setAddItemForm]    = useState({
+    itemName: '', category: '', supplierId: '', storageAreaId: '',
+    purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
+    baseUnit: 'g', conversionFactor: '1', stockOnHand: '0', location: '',
+  })
+  const [addItemCategories, setAddItemCategories] = useState<{ id: string; name: string }[]>([])
+  const [addItemSuppliers,  setAddItemSuppliers]  = useState<{ id: string; name: string }[]>([])
+  const [addItemAreas,      setAddItemAreas]      = useState<{ id: string; name: string }[]>([])
 
   // ── New-session form ──────────────────────────────────────────────────────
   const [form, setForm] = useState({
@@ -401,6 +413,52 @@ export default function CountPage() {
       body: JSON.stringify({ skipped: true }),
     })
   }
+
+  const openAddItem = async () => {
+    const [cats, sups, areas] = await Promise.all([
+      fetch('/api/categories').then(r => r.json()),
+      fetch('/api/suppliers').then(r => r.json()),
+      fetch('/api/storage-areas').then(r => r.json()),
+    ])
+    setAddItemCategories(cats)
+    setAddItemSuppliers(sups)
+    setAddItemAreas(areas)
+    setAddItemForm({
+      itemName: '', category: cats[0]?.name ?? '', supplierId: '', storageAreaId: '',
+      purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
+      baseUnit: 'g', conversionFactor: '1', stockOnHand: '0', location: '',
+    })
+    setShowAddItem(true)
+  }
+
+  const handleAddItem = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!active) return
+    setAddItemSaving(true)
+    const res = await fetch('/api/inventory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(addItemForm),
+    })
+    const newItem = await res.json()
+    // Add the new item as a count line in the active session
+    const lineRes = await fetch(`/api/count/sessions/${active.id}/lines`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inventoryItemId: newItem.id }),
+    })
+    if (lineRes.ok) {
+      const newLine = await lineRes.json()
+      setActive(prev => prev ? { ...prev, lines: [...(prev.lines ?? []), newLine] } : prev)
+    }
+    setAddItemSaving(false)
+    setShowAddItem(false)
+    setToast(`"${addItemForm.itemName}" added to inventory and count session.`)
+  }
+
+  const addItemPricePreview =
+    parseFloat(addItemForm.purchasePrice) /
+    (parseFloat(addItemForm.qtyPerPurchaseUnit) * parseFloat(addItemForm.conversionFactor)) || 0
 
   const handleFinalize = async () => {
     if (!active || finalizing) return
@@ -1302,12 +1360,97 @@ export default function CountPage() {
             {counted} / {total} done
           </span>
           <button
+            onClick={openAddItem}
+            className="shrink-0 flex items-center gap-1.5 border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 whitespace-nowrap"
+          >
+            <Plus size={14} />
+            <span className="hidden sm:inline">Add item</span>
+          </button>
+          <button
             onClick={() => setView('review')}
             className="shrink-0 bg-gold text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[#a88930] whitespace-nowrap"
           >
             Review &amp; finish
           </button>
         </div>
+
+        {/* ── Add Item Modal ─────────────────────────────────────────────────── */}
+        {showAddItem && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setShowAddItem(false)}>
+            <div className="absolute inset-0 bg-black/30" />
+            <div className="relative bg-white rounded-xl p-6 w-full max-w-lg shadow-xl my-8" onClick={e => e.stopPropagation()}>
+              <h3 className="font-semibold mb-4 text-lg">Add Inventory Item</h3>
+              <form onSubmit={handleAddItem} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Item Name *</label>
+                    <input required value={addItemForm.itemName} onChange={e => setAddItemForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                    <select value={addItemForm.category} onChange={e => setAddItemForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                      {addItemCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Supplier</label>
+                    <select value={addItemForm.supplierId} onChange={e => setAddItemForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                      <option value="">None</option>
+                      {addItemSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Storage Area</label>
+                    <select value={addItemForm.storageAreaId} onChange={e => setAddItemForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                      <option value="">None</option>
+                      {addItemAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
+                    <input required value={addItemForm.purchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, purchaseUnit: e.target.value }))} placeholder="e.g. kg, case, each" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Purchase Unit</label>
+                    <input type="number" required value={addItemForm.qtyPerPurchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
+                    <input type="number" required value={addItemForm.purchasePrice} onChange={e => setAddItemForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Base Unit</label>
+                    <select value={addItemForm.baseUnit} onChange={e => setAddItemForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                      {BASE_UNITS.map(u => <option key={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Conversion Factor</label>
+                    <input type="number" required value={addItemForm.conversionFactor} onChange={e => setAddItemForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
+                    <input type="number" value={addItemForm.stockOnHand} onChange={e => setAddItemForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
+                    <input value={addItemForm.location} onChange={e => setAddItemForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  </div>
+                </div>
+                <div className="bg-gold/10 rounded-lg p-3 text-sm">
+                  <span className="text-gold font-medium">Price per base unit preview: </span>
+                  <span className="font-bold text-gold">{formatUnitPrice(addItemPricePreview)} / {addItemForm.baseUnit}</span>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button type="button" onClick={() => setShowAddItem(false)} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50">Cancel</button>
+                  <button type="submit" disabled={addItemSaving} className="flex-1 bg-gold text-white rounded-lg py-2 text-sm hover:bg-[#a88930] disabled:opacity-60">
+                    {addItemSaving ? 'Adding…' : 'Add Item'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* ── Progress bar ───────────────────────────────────────────────────── */}
         <div className="h-1.5 bg-gray-200 -mx-4 sm:-mx-6 md:-mx-8">
