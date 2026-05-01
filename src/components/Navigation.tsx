@@ -130,8 +130,9 @@ function NavigationInner() {
 
         {/* Wordmark */}
         <div className="px-4 pt-5 pb-4 flex items-center justify-between gap-2">
-          <Image src="/logo-wordmark.png" alt="Controla OS" width={160} height={42}
-            className="shrink-0 object-contain" style={{ height: 42, width: 'auto' }} />
+          <Image src="/logo-wordmark.png" alt="Controla OS" width={176} height={52}
+            className="shrink-0 object-contain object-left"
+            style={{ height: 52, width: 176, maxWidth: 176 }} />
           <div className="[&_button]:text-white/30 [&_button:hover]:text-white [&_button:hover]:bg-white/5 rounded-lg shrink-0">
             <AlertsBell />
           </div>
