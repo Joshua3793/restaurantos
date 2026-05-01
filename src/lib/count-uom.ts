@@ -7,7 +7,7 @@
  * These functions handle converting back to baseUnit for persistence.
  */
 
-import { UOM_GROUPS, convertQty } from './uom'
+import { UOM_GROUPS, convertQty, getUnitGroup } from './uom'
 
 export interface CountableUom {
   label: string
@@ -46,6 +46,19 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
     if (unitsPerPurchase > 0) {
       add(item.purchaseUnit, unitsPerPurchase)
     }
+  }
+
+  // 1.5. Intermediate pack unit (e.g. "pkg" in case×pkg×each).
+  // Only for custom units not in UOM_GROUPS — weight/volume packUOMs (kg, lb…)
+  // are already covered by step 3 with the correct conversion factor.
+  if (
+    item.packUOM &&
+    item.packUOM.toLowerCase() !== item.baseUnit.toLowerCase() &&
+    item.packUOM.toLowerCase() !== item.purchaseUnit.toLowerCase() &&
+    getUnitGroup(item.packUOM) === null
+  ) {
+    const unitsPerPack = Number(item.packSize)
+    if (unitsPerPack > 0) add(item.packUOM, unitsPerPack)
   }
 
   // 2. Base unit — always available (1:1 with stockOnHand).
@@ -97,9 +110,19 @@ export function convertCountQtyToBase(
     if (unitsPerPurchase > 0) return qty * unitsPerPurchase
   }
 
+  // Check intermediate pack unit (e.g. "pkg") — only for custom units not in UOM_GROUPS
+  if (
+    item.packUOM &&
+    sel === item.packUOM.toLowerCase() &&
+    sel !== item.purchaseUnit.toLowerCase() &&
+    getUnitGroup(item.packUOM) === null
+  ) {
+    const unitsPerPack = Number(item.packSize)
+    if (unitsPerPack > 0) return qty * unitsPerPack
+  }
+
   // Fall back to standard weight/volume conversion
-  const converted = convertQty(qty, selectedUom, item.baseUnit)
-  return converted
+  return convertQty(qty, selectedUom, item.baseUnit)
 }
 
 /**
@@ -119,6 +142,16 @@ export function convertBaseToCountUom(
   if (sel === item.purchaseUnit.toLowerCase()) {
     const unitsPerPurchase = Number(item.qtyPerPurchaseUnit) * Number(item.packSize)
     if (unitsPerPurchase > 0) return baseQty / unitsPerPurchase
+  }
+
+  if (
+    item.packUOM &&
+    sel === item.packUOM.toLowerCase() &&
+    sel !== item.purchaseUnit.toLowerCase() &&
+    getUnitGroup(item.packUOM) === null
+  ) {
+    const unitsPerPack = Number(item.packSize)
+    if (unitsPerPack > 0) return baseQty / unitsPerPack
   }
 
   return convertQty(baseQty, item.baseUnit, selectedUom)
