@@ -5,7 +5,7 @@ import React, {
 } from 'react'
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
-  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, SkipForward, Trash2, WifiOff, X,
+  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, Search, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS } from '@/lib/utils'
@@ -156,6 +156,7 @@ export default function CountPage() {
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted'>('all')
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
+  const [searchQuery,   setSearchQuery]   = useState('')
 
   // ── Storage areas (for partial count picker) ─────────────────────────────
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
@@ -286,27 +287,30 @@ export default function CountPage() {
 
   const filteredLines = useMemo(() => {
     const lines = active?.lines ?? []
+    const q = searchQuery.trim().toLowerCase()
     return lines.filter(l => {
       if (catFilter && l.inventoryItem.category !== catFilter) return false
       if (locFilter) {
         const loc = l.inventoryItem.location ?? l.inventoryItem.storageArea?.name ?? ''
         if (!loc.toLowerCase().includes(locFilter.toLowerCase())) return false
       }
-      if (statusFilter === 'uncounted') return l.countedQty === null && !l.skipped
-      if (statusFilter === 'counted')   return l.countedQty !== null || l.skipped
+      if (statusFilter === 'uncounted') { if (l.countedQty !== null || l.skipped) return false }
+      if (statusFilter === 'counted')   { if (l.countedQty === null && !l.skipped) return false }
+      if (q && !l.inventoryItem.itemName.toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [active?.lines, catFilter, locFilter, statusFilter])
+  }, [active?.lines, catFilter, locFilter, statusFilter, searchQuery])
 
   const grouped = useMemo(() => {
-    if (catFilter) return null
+    // Flatten when searching so all matches appear together
+    if (catFilter || searchQuery.trim()) return null
     return filteredLines.reduce((acc, l) => {
       const cat = l.inventoryItem.category
       if (!acc[cat]) acc[cat] = []
       acc[cat].push(l)
       return acc
     }, {} as Record<string, Line[]>)
-  }, [filteredLines, catFilter])
+  }, [filteredLines, catFilter, searchQuery])
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const openSession = async (s: Session, target: View) => {
@@ -1471,6 +1475,25 @@ export default function CountPage() {
               : `Offline — counts are saved locally${pendingCount > 0 ? ` (${pendingCount} pending)` : ''}`}
           </div>
         )}
+
+        {/* ── Search bar ─────────────────────────────────────────────────────── */}
+        <div className="sticky top-[57px] z-10 bg-white border-b border-gray-100 px-4 py-2 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">
+          <div className="relative max-w-lg">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search items…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-8 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold focus:bg-white transition-colors"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* ════════════════════════════════════════
             DESKTOP LAYOUT — sidebar + items
