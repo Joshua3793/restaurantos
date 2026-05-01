@@ -15,6 +15,9 @@ import {
   enqueueCountMutation, flushCountQueue, loadCountQueue,
   saveCountSessionCache, pendingCountForSession,
 } from '@/lib/count-offline'
+import {
+  getCountableUoms, convertCountQtyToBase, convertBaseToCountUom,
+} from '@/lib/count-uom'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +25,11 @@ interface InventoryItemRef {
   id: string
   itemName: string
   category: string
+  baseUnit: string
   purchaseUnit: string
+  qtyPerPurchaseUnit: number
+  packSize: number
+  packUOM: string
   location: string | null
   storageArea: { name: string } | null
 }
@@ -328,9 +335,10 @@ export default function CountPage() {
   }
 
   const confirmLine = async (line: Line, qty: number) => {
-    // Optimistic update
-    const vPct  = Number(line.expectedQty) > 0 ? ((qty - Number(line.expectedQty)) / Number(line.expectedQty)) * 100 : 0
-    const vCost = (qty - Number(line.expectedQty)) * Number(line.priceAtCount)
+    // qty is in line.selectedUom — convert to baseUnit for variance (expectedQty is in baseUnit)
+    const qtyBase = convertCountQtyToBase(qty, line.selectedUom, line.inventoryItem)
+    const vPct  = Number(line.expectedQty) > 0 ? ((qtyBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100 : 0
+    const vCost = (qtyBase - Number(line.expectedQty)) * Number(line.priceAtCount)
     setActive(prev => ({
       ...prev!,
       lines: prev!.lines!.map(l =>
@@ -357,6 +365,24 @@ export default function CountPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ countedQty: qty }),
     })
+  }
+
+  const changeUom = async (line: Line, newUom: string) => {
+    // When the open card's UOM changes, convert the current inputQty to the new unit
+    if (openId === line.id) {
+      const inBase = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
+      setInputQty(Math.round(convertBaseToCountUom(inBase, newUom, line.inventoryItem) * 1000) / 1000)
+    }
+    setActive(prev => ({
+      ...prev!, lines: prev!.lines!.map(l => l.id === line.id ? { ...l, selectedUom: newUom } : l),
+    }))
+    if (!isOffline) {
+      await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selectedUom: newUom }),
+      })
+    }
   }
 
   const skipLine = async (line: Line) => {
@@ -933,8 +959,10 @@ export default function CountPage() {
       const isSkipped = line.skipped
       const locLabel  = line.inventoryItem.location ?? line.inventoryItem.storageArea?.name
 
+      // inputQty is in line.selectedUom; expectedQty is in baseUnit — convert before comparing
+      const inputBase = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
       const liveVar = isOpen && Number(line.expectedQty) > 0
-        ? ((inputQty - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
+        ? ((inputBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
 
       if (isSkipped) return (
@@ -1004,15 +1032,42 @@ export default function CountPage() {
           {/* Expanded body */}
           {isOpen && (
             <div className="px-4 pb-4 pt-1 border-t border-gray-100">
-              {/* Expected + live variance */}
-              <div className="text-xs text-gray-500 mb-3 flex items-center gap-1.5">
-                <span>Expected: {Number(line.expectedQty).toFixed(2)} {line.selectedUom}</span>
-                {liveVar !== null && (
-                  <span className={`font-medium ${varColor(liveVar)}`}>
-                    · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
-                  </span>
-                )}
-              </div>
+              {/* UOM selector */}
+              {(() => {
+                const uoms = getCountableUoms(line.inventoryItem)
+                const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
+                return (
+                  <>
+                    {uoms.length > 1 && (
+                      <div className="flex gap-1 mb-3">
+                        {uoms.map(opt => (
+                          <button
+                            key={opt.label}
+                            onClick={() => changeUom(line, opt.label)}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                              line.selectedUom === opt.label
+                                ? 'bg-gray-900 text-white'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Expected + live variance */}
+                    <div className="text-xs text-gray-500 mb-3 flex items-center gap-1.5">
+                      <span>Expected: {expectedDisplay.toFixed(2)} {line.selectedUom}</span>
+                      {liveVar !== null && (
+                        <span className={`font-medium ${varColor(liveVar)}`}>
+                          · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
 
               {/* ± stepper — 66px tall */}
               <div className="flex items-center gap-2 mb-3">
@@ -1037,7 +1092,7 @@ export default function CountPage() {
                 </button>
               </div>
 
-              {/* UOM */}
+              {/* UOM label below stepper */}
               <div className="text-center text-sm font-medium text-gray-500 mb-4">{line.selectedUom}</div>
 
               {/* Action buttons */}
@@ -1068,8 +1123,9 @@ export default function CountPage() {
       const locLabel  = line.inventoryItem.location ?? line.inventoryItem.storageArea?.name
       const subtitle  = [line.inventoryItem.category, locLabel].filter(Boolean).join(' · ')
 
+      const inputBase2 = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
       const liveVar = isOpen && Number(line.expectedQty) > 0
-        ? ((inputQty - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
+        ? ((inputBase2 - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
 
       const dotColor = isSkipped
@@ -1126,14 +1182,40 @@ export default function CountPage() {
 
           {isOpen && (
             <div className="px-3 pb-3 pt-1 border-t border-gray-100">
-              <div className="text-xs text-gray-500 mb-2 flex items-center gap-1.5">
-                <span>Expected: {Number(line.expectedQty).toFixed(2)} {line.selectedUom}</span>
-                {liveVar !== null && (
-                  <span className={`font-medium ${varColor(liveVar)}`}>
-                    · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
-                  </span>
-                )}
-              </div>
+              {/* UOM selector + expected */}
+              {(() => {
+                const uoms = getCountableUoms(line.inventoryItem)
+                const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
+                return (
+                  <>
+                    {uoms.length > 1 && (
+                      <div className="flex gap-1 mb-2">
+                        {uoms.map(opt => (
+                          <button
+                            key={opt.label}
+                            onClick={() => changeUom(line, opt.label)}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                              line.selectedUom === opt.label
+                                ? 'bg-gray-900 text-white'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500 mb-2 flex items-center gap-1.5">
+                      <span>Expected: {expectedDisplay.toFixed(2)} {line.selectedUom}</span>
+                      {liveVar !== null && (
+                        <span className={`font-medium ${varColor(liveVar)}`}>
+                          · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
               <div className="flex items-center gap-2 mb-2">
                 <button
                   onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}

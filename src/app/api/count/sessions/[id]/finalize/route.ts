@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { convertCountQtyToBase } from '@/lib/count-uom'
 
 // POST /api/count/sessions/:id/finalize
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -25,16 +26,28 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   for (const line of session.lines) {
     const item = line.inventoryItem
+    const itemDims = {
+      baseUnit:           item.baseUnit,
+      purchaseUnit:       item.purchaseUnit,
+      qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+      packSize:           Number(item.packSize),
+      packUOM:            item.packUOM,
+    }
 
     if (line.skipped || line.countedQty !== null) {
-      const qty   = Number(line.skipped ? line.expectedQty : line.countedQty)
-      const price = Number(line.priceAtCount)
-      const value = qty * price
+      // rawQty is in line.selectedUom; convert to baseUnit for stockOnHand
+      const rawQty  = Number(line.skipped ? line.expectedQty : line.countedQty)
+      // skipped lines use expectedQty which is already in baseUnit
+      const qtyBase = line.skipped
+        ? rawQty
+        : convertCountQtyToBase(rawQty, line.selectedUom, itemDims)
+      const price   = Number(line.priceAtCount)
+      const value   = qtyBase * price
       totalCountedValue += value
 
       snapshotData.push({
         sessionId: session.id, inventoryItemId: item.id,
-        snapshotDate: now, qtyOnHand: qty, unit: line.selectedUom,
+        snapshotDate: now, qtyOnHand: qtyBase, unit: item.baseUnit,
         pricePerBaseUnit: price, totalValue: value, category: item.category,
       })
 
@@ -46,18 +59,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         stockUpdates.push(
           prisma.inventoryItem.update({
             where: { id: item.id },
-            data: { stockOnHand: qty, lastCountDate: now, lastCountQty: qty },
+            data: { stockOnHand: qtyBase, lastCountDate: now, lastCountQty: qtyBase },
           })
         )
       }
     } else {
-      // Uncounted — snapshot with expected qty but don't update stock
+      // Uncounted — snapshot with expected qty (already in baseUnit)
       const qty   = Number(line.expectedQty)
       const price = Number(line.priceAtCount)
       totalCountedValue += qty * price
       snapshotData.push({
         sessionId: session.id, inventoryItemId: item.id,
-        snapshotDate: now, qtyOnHand: qty, unit: line.selectedUom,
+        snapshotDate: now, qtyOnHand: qty, unit: item.baseUnit,
         pricePerBaseUnit: price, totalValue: qty * price, category: item.category,
       })
     }
