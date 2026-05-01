@@ -114,7 +114,7 @@ function MenuPageInner() {
     await loadCategories()
   }
 
-  const activePill  = 'bg-blue-600 text-white shadow-sm'
+  const activePill  = 'bg-gold text-white shadow-sm'
   const inactivePill = 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
 
   return (
@@ -123,7 +123,7 @@ function MenuPageInner() {
       {/* ── TOP BAR ── */}
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-2 mr-auto">
-          <UtensilsCrossed size={18} className="text-blue-600" />
+          <UtensilsCrossed size={18} className="text-gold" />
           <h1 className="text-lg font-bold text-gray-900">Menu</h1>
         </div>
 
@@ -134,7 +134,7 @@ function MenuPageInner() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search dishes…"
-            className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all focus:w-64"
+            className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-all focus:w-64"
           />
           {search && (
             <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
@@ -145,7 +145,7 @@ function MenuPageInner() {
 
         <button
           onClick={() => setShowNewForm(true)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white bg-gold hover:bg-[#a88930] transition-colors"
         >
           <Plus size={15} />
           <span className="hidden sm:inline">New Dish</span>
@@ -160,7 +160,7 @@ function MenuPageInner() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search dishes…"
-          className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold"
         />
         {search && (
           <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
@@ -250,7 +250,7 @@ function MenuPageInner() {
                     required
                     value={newForm.name}
                     onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
@@ -259,7 +259,7 @@ function MenuPageInner() {
                     required
                     value={newForm.categoryId}
                     onChange={e => setNewForm(f => ({ ...f, categoryId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
                   >
                     <option value="">Select…</option>
                     {typeCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -271,7 +271,7 @@ function MenuPageInner() {
                     required
                     value={newForm.revenueCenterId}
                     onChange={e => setNewForm(f => ({ ...f, revenueCenterId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
                   >
                     <option value="">Select…</option>
                     {revenueCenters.filter(rc => rc.isActive).map(rc => (
@@ -293,13 +293,13 @@ function MenuPageInner() {
                       placeholder="1"
                       value={newForm.baseYieldQty}
                       onChange={e => setNewForm(f => ({ ...f, baseYieldQty: e.target.value }))}
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
                     />
                     <select
                       required
                       value={newForm.yieldUnit}
                       onChange={e => setNewForm(f => ({ ...f, yieldUnit: e.target.value }))}
-                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
                     >
                       <option value="">Unit…</option>
                       <option value="portion">portion</option>
@@ -325,13 +325,13 @@ function MenuPageInner() {
                       placeholder="0.00"
                       value={newForm.menuPrice}
                       onChange={e => setNewForm(f => ({ ...f, menuPrice: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
                     />
                   </div>
                 </div>
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+                <button type="submit" className="flex-1 bg-gold text-white py-2 rounded-lg text-sm font-medium hover:bg-[#a88930]">
                   Create
                 </button>
                 <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
@@ -350,7 +350,7 @@ function MenuPageInner() {
               {search ? `No dishes match "${search}"` : 'No dishes yet'}
             </p>
             {!search && (
-              <button onClick={() => setShowNewForm(true)} className="mt-3 text-sm text-blue-600 hover:text-blue-700">
+              <button onClick={() => setShowNewForm(true)} className="mt-3 text-sm text-gold hover:text-gold">
                 Create your first dish →
               </button>
             )}

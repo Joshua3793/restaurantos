@@ -58,10 +58,10 @@ export default function TheoreticalUsagePage() {
       {/* Date range */}
       <div className="flex items-center gap-3 flex-wrap">
         <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
         <span className="text-gray-400 text-sm">to</span>
         <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
       </div>
 
       {/* KPI cards */}
@@ -73,7 +73,7 @@ export default function TheoreticalUsagePage() {
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <div className="text-xs text-gray-500 font-medium mb-1">Theoretical COGS</div>
-            <div className="text-2xl font-bold text-blue-700">{formatCurrency(meta.totalTheoreticalCost)}</div>
+            <div className="text-2xl font-bold text-gold">{formatCurrency(meta.totalTheoreticalCost)}</div>
           </div>
           {hasActual && (
             <>
@@ -97,9 +97,9 @@ export default function TheoreticalUsagePage() {
 
       {/* No actual data notice */}
       {!hasActual && meta && (
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-gold/10 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
           <Info size={18} className="text-blue-500 shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-700">
+          <div className="text-sm text-gold">
             <span className="font-semibold">No finalized count sessions found for this range. </span>
             Showing theoretical usage only (from sales × recipe quantities). Finalize count sessions before and after the period to see the actual gap.
           </div>

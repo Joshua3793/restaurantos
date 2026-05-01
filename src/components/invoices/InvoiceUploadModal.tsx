@@ -158,8 +158,8 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                <ScanLine size={16} className="text-blue-600" />
+              <div className="w-8 h-8 rounded-lg bg-gold/15 flex items-center justify-center">
+                <ScanLine size={16} className="text-gold" />
               </div>
               <h2 className="text-base font-bold text-gray-900">Scan Invoice</h2>
             </div>
@@ -217,7 +217,7 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
                   className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors ${
-                    isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                    isDragging ? 'border-blue-400 bg-gold/10' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
                   }`}
                 >
                   <Upload size={32} className="text-gray-300" />
@@ -290,13 +290,13 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                   <button
                     type="button"
                     onClick={() => setShowCamera(true)}
-                    className="w-full border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-2xl py-10 flex flex-col items-center gap-3 transition-colors"
+                    className="w-full border-2 border-dashed border-gold/30 bg-gold/10 hover:bg-gold/15 rounded-2xl py-10 flex flex-col items-center gap-3 transition-colors"
                   >
-                    <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
+                    <div className="w-16 h-16 rounded-full bg-gold flex items-center justify-center shadow-lg">
                       <Camera size={28} className="text-white" />
                     </div>
                     <div className="text-center">
-                      <p className="font-semibold text-blue-700">
+                      <p className="font-semibold text-gold">
                         {photoPreviews.length === 0 ? 'Take Photo' : 'Add Another Page'}
                       </p>
                       <p className="text-xs text-blue-500 mt-0.5">
@@ -328,7 +328,7 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
             <button
               onClick={handleStartScan}
               disabled={files.length === 0 || isCreating || isUploading}
-              className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="w-full bg-gold text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-[#a88930] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {(isCreating || isUploading) ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
               {isUploading ? 'Uploading…' : isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} ${files.length > 1 ? 'pages' : 'file'}` : 'Invoice'}`}

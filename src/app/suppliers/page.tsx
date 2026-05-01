@@ -69,7 +69,7 @@ export default function SuppliersPage() {
           <h1 className="text-xl font-bold text-gray-900">Suppliers</h1>
           <button
             onClick={() => setShowAdd(true)}
-            className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm font-semibold hover:bg-blue-700"
+            className="bg-gold text-white rounded-lg px-3 py-1.5 text-sm font-semibold hover:bg-[#a88930]"
           >
             + Add
           </button>

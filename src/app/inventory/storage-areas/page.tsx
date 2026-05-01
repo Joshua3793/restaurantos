@@ -51,9 +51,9 @@ export default function StorageAreasPage() {
           value={newName}
           onChange={e => setNewName(e.target.value)}
           placeholder="New storage area name..."
-          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
         />
-        <button type="submit" className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700">
+        <button type="submit" className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930]">
           <Plus size={15} /> Add
         </button>
       </form>
@@ -82,7 +82,7 @@ export default function StorageAreasPage() {
                   <div className="text-sm font-medium text-gray-800">{area.name}</div>
                   <div className="text-xs text-gray-400">{area._count?.items ?? 0} items</div>
                 </div>
-                <button onClick={() => { setEditId(area.id); setEditName(area.name) }} className="text-gray-400 hover:text-blue-600 p-1"><Pencil size={14} /></button>
+                <button onClick={() => { setEditId(area.id); setEditName(area.name) }} className="text-gray-400 hover:text-gold p-1"><Pencil size={14} /></button>
                 <button onClick={() => handleDelete(area.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 size={14} /></button>
               </>
             )}

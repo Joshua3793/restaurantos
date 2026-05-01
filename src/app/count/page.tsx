@@ -100,7 +100,7 @@ function Toast({ msg, onDone }: { msg: string; onDone: () => void }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    IN_PROGRESS:    'bg-blue-100 text-blue-700',
+    IN_PROGRESS:    'bg-gold/15 text-gold',
     PENDING_REVIEW: 'bg-amber-100 text-amber-700',
     UPDATING:       'bg-violet-100 text-violet-700',
     FINALIZED:      'bg-green-100 text-green-700',
@@ -632,7 +632,7 @@ export default function CountPage() {
           <p className="text-sm mt-1 mb-5">Regular stock counts keep your inventory accurate and food costs on target.</p>
           <button
             onClick={() => setView('new')}
-            className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 bg-gold text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-[#a88930] transition-colors"
           >
             <Plus size={16} /> Start First Count
           </button>
@@ -670,7 +670,7 @@ export default function CountPage() {
                         ? `${counts.total} items · ${formatCurrency(Number(s.totalCountedValue))}`
                         : `${counts.counted}/${counts.total} items`}
                     </span>
-                    {s.status === 'IN_PROGRESS'    && <span className="text-xs font-bold text-blue-600 shrink-0">Continue →</span>}
+                    {s.status === 'IN_PROGRESS'    && <span className="text-xs font-bold text-gold shrink-0">Continue →</span>}
                     {s.status === 'PENDING_REVIEW' && <span className="text-xs font-bold text-amber-600 shrink-0">Review →</span>}
                     {s.status === 'FINALIZED'      && <span className="text-xs font-bold text-green-700 shrink-0">Report</span>}
                     {isUpdating && (
@@ -773,7 +773,7 @@ export default function CountPage() {
                 <div className="flex items-center justify-end gap-1">
                   {s.status === 'IN_PROGRESS' && (
                     <button onClick={() => openSession(s, 'count')}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gold hover:bg-[#a88930] transition-colors">
                       Continue →
                     </button>
                   )}
@@ -839,7 +839,7 @@ export default function CountPage() {
             </div>
             <button
               onClick={() => setView('new')}
-              className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${isOverdue ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${isOverdue ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-gold text-white hover:bg-[#a88930]'}`}
             >
               <Plus size={14} /> Start Count
             </button>
@@ -1229,7 +1229,7 @@ export default function CountPage() {
           </span>
           <button
             onClick={() => setView('review')}
-            className="shrink-0 bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-700 whitespace-nowrap"
+            className="shrink-0 bg-gold text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[#a88930] whitespace-nowrap"
           >
             Review &amp; finish
           </button>
@@ -1246,7 +1246,7 @@ export default function CountPage() {
         {/* ── Offline banner ─────────────────────────────────────────────────── */}
         {(isOffline || offlineSyncing) && (
           <div className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${
-            offlineSyncing ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'
+            offlineSyncing ? 'bg-gold/10 text-gold' : 'bg-amber-50 text-amber-800'
           }`}>
             <WifiOff size={14} className="shrink-0" />
             {offlineSyncing
@@ -1348,7 +1348,7 @@ export default function CountPage() {
             onClick={() => setShowCountFilterSheet(true)}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               catFilter || locFilter
-                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                ? 'bg-gold/10 text-gold border-gold/30'
                 : 'bg-white text-gray-600 border-gray-200'
             }`}
           >
@@ -1464,7 +1464,7 @@ export default function CountPage() {
             <p className="text-xs text-gray-400 mt-0.5">{active.label} · {active.countedBy}</p>
           </div>
           {!isFinalized && (
-            <button onClick={() => setView('count')} className="text-sm text-blue-600 hover:text-blue-700 font-medium shrink-0">
+            <button onClick={() => setView('count')} className="text-sm text-gold hover:text-gold font-medium shrink-0">
               ← Back to counting
             </button>
           )}
@@ -1473,7 +1473,7 @@ export default function CountPage() {
         {/* Stats — mobile compact strip */}
         <div className="flex sm:hidden gap-2 mb-4">
           {[
-            { val: countedLines.length.toString(),   label: 'Counted',  cls: 'bg-blue-50 text-blue-700'   },
+            { val: countedLines.length.toString(),   label: 'Counted',  cls: 'bg-gold/10 text-gold'   },
             { val: flagged.length.toString(),         label: 'Flagged',  cls: flagged.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-gray-500' },
             { val: formatCurrency(totalValue),        label: 'Value',    cls: 'bg-green-50 text-green-700' },
           ].map(s => (

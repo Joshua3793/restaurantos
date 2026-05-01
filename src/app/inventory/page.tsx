@@ -58,7 +58,7 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
 
 const CATEGORY_HEADER: Record<string, string> = {
   BREAD: 'bg-amber-50 border-amber-200 text-amber-800',
-  DAIRY: 'bg-blue-50 border-blue-200 text-blue-800',
+  DAIRY: 'bg-gold/10 border-gold/30 text-blue-800',
   DRY:   'bg-yellow-50 border-yellow-200 text-yellow-800',
   FISH:  'bg-cyan-50 border-cyan-200 text-cyan-800',
   MEAT:  'bg-red-50 border-red-200 text-red-800',
@@ -98,7 +98,7 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
         onChange={e => setQuery(e.target.value)}
         onFocus={() => { setOpen(true); setQuery('') }}
         placeholder={placeholder}
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
       />
       {open && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
@@ -106,7 +106,7 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
           {filtered.map(item => (
             <button key={item.id} type="button"
               onMouseDown={() => { onSelect(item.id, item.name); setQuery(''); setOpen(false) }}
-              className="block w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
+              className="block w-full text-left px-3 py-2 text-sm hover:bg-gold/10"
             >{item.name}</button>
           ))}
           {!exactMatch && query && onAddNew && (
@@ -115,7 +115,7 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
                 const r = await onAddNew(query)
                 onSelect(r.id, r.name); setQuery(''); setOpen(false)
               }}
-              className="block w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100"
+              className="block w-full text-left px-3 py-2 text-sm text-gold hover:bg-gold/10 border-t border-gray-100"
             >+ Add &ldquo;{query}&rdquo;</button>
           )}
         </div>
@@ -134,8 +134,8 @@ function SortIcon({ col, colSort }: { col: ColKey; colSort: { col: ColKey; dir: 
   if (!colSort || colSort.col !== col)
     return <ChevronsUpDown size={10} className="text-gray-300 ml-0.5 inline-block shrink-0" />
   return colSort.dir === 'asc'
-    ? <ChevronUp size={10} className="text-blue-600 ml-0.5 inline-block shrink-0" />
-    : <ChevronDown size={10} className="text-blue-600 ml-0.5 inline-block shrink-0" />
+    ? <ChevronUp size={10} className="text-gold ml-0.5 inline-block shrink-0" />
+    : <ChevronDown size={10} className="text-gold ml-0.5 inline-block shrink-0" />
 }
 
 function SortTh({ col, label, colSort, onSort, className = '' }: {
@@ -150,7 +150,7 @@ function SortTh({ col, label, colSort, onSort, className = '' }: {
       <button
         onClick={() => onSort(col)}
         className={`inline-flex items-center gap-0.5 text-xs font-medium rounded transition-colors group
-          ${active ? 'text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-800'}`}
+          ${active ? 'text-gold font-semibold' : 'text-gray-500 hover:text-gray-800'}`}
       >
         {label}
         <SortIcon col={col} colSort={colSort} />
@@ -484,8 +484,8 @@ function InventoryPageInner() {
         onClick={() => setSelected(item)}
       >
         <td className="pl-4 py-3 pr-2" onClick={e => e.stopPropagation()}>
-          <button onClick={() => toggleCheck(item.id)} className="text-gray-400 hover:text-blue-600">
-            {checkedIds.has(item.id) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
+          <button onClick={() => toggleCheck(item.id)} className="text-gray-400 hover:text-gold">
+            {checkedIds.has(item.id) ? <CheckSquare size={16} className="text-gold" /> : <Square size={16} />}
           </button>
         </td>
         <td className="px-3 py-3">
@@ -630,7 +630,7 @@ function InventoryPageInner() {
         </button>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 h-9 rounded-xl text-sm font-semibold"
+          className="flex items-center gap-1.5 bg-gold text-white px-3 h-9 rounded-xl text-sm font-semibold"
         >
           <Plus size={15} /> Add
         </button>
@@ -665,7 +665,7 @@ function InventoryPageInner() {
           </button>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] transition-colors"
           >
             <Plus size={15} /> Add Item
           </button>
@@ -674,9 +674,9 @@ function InventoryPageInner() {
 
       {/* Mobile KPI strip */}
       <div className="flex sm:hidden gap-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-        <div className="flex-shrink-0 bg-blue-50 rounded-xl px-3 py-2.5 min-w-[110px]">
+        <div className="flex-shrink-0 bg-gold/10 rounded-xl px-3 py-2.5 min-w-[110px]">
           <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">Stock Value</div>
-          <div className="text-lg font-extrabold text-blue-700 mt-0.5">{formatCurrency(kpis.totalValue)}</div>
+          <div className="text-lg font-extrabold text-gold mt-0.5">{formatCurrency(kpis.totalValue)}</div>
         </div>
         <div className="flex-shrink-0 bg-green-50 rounded-xl px-3 py-2.5 min-w-[100px]">
           <div className="text-[9px] font-bold text-green-600 uppercase tracking-wide">Counted</div>
@@ -697,7 +697,7 @@ function InventoryPageInner() {
       {/* KPI Cards */}
       <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
-          { label: 'CURRENT STOCK VALUE',  value: formatCurrency(kpis.totalValue), sub: `${kpis.activeCount} active items`, accent: 'text-blue-600',   alert: false },
+          { label: 'CURRENT STOCK VALUE',  value: formatCurrency(kpis.totalValue), sub: `${kpis.activeCount} active items`, accent: 'text-gold',   alert: false },
           { label: 'PREVIOUS STOCK VALUE', value: lastCount ? formatCurrency(lastCount.totalCountedValue) : '$0.00', sub: lastCount ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}` : 'No prior count', accent: lastCount ? 'text-purple-600' : 'text-gray-400', alert: false },
           { label: 'COUNTED THIS WEEK',    value: String(kpis.counted),             sub: `of ${kpis.activeCount} active`,    accent: 'text-green-600',  alert: false },
           { label: 'NOT YET COUNTED',      value: String(kpis.notCounted),          sub: 'items need counting',              accent: 'text-orange-500', alert: kpis.notCounted > 0 },
@@ -726,7 +726,7 @@ function InventoryPageInner() {
                 onClick={() => setSortBy(mode)}
                 title={mode === 'category' ? 'Grouped by category' : 'Flat list'}
                 className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                  sortBy === mode ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500'
+                  sortBy === mode ? 'bg-gold text-white shadow-sm' : 'text-gray-500'
                 }`}
               >
                 {label}
@@ -737,7 +737,7 @@ function InventoryPageInner() {
           <button
             onClick={() => setShowMobileSortSheet(true)}
             className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-              colSort ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'
+              colSort ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-gray-200 text-gray-600'
             }`}
           >
             <ChevronsUpDown size={11} />
@@ -748,7 +748,7 @@ function InventoryPageInner() {
           <button
             onClick={() => setShowMobileFilterSheet(true)}
             className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-              (catFilter || supplierFilter || areaFilter) ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'
+              (catFilter || supplierFilter || areaFilter) ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-gray-200 text-gray-600'
             }`}
           >
             ▽ Filter{(catFilter || supplierFilter || areaFilter) ? ' ·' : ''}
@@ -780,7 +780,7 @@ function InventoryPageInner() {
               key={p.key}
               onClick={() => setActivePill(p.key)}
               className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                activePill === p.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                activePill === p.key ? 'bg-gold text-white' : 'bg-gray-100 text-gray-600'
               }`}
             >
               {p.label}
@@ -796,7 +796,7 @@ function InventoryPageInner() {
             key={p.key}
             onClick={() => setActivePill(p.key)}
             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              activePill === p.key ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
+              activePill === p.key ? 'bg-gold text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
             }`}
           >
             {p.label}
@@ -812,14 +812,14 @@ function InventoryPageInner() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search items..."
-            className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
         </div>
-        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
           <option value="">All Categories</option>
           {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
-        <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+        <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
           <option value="">All Suppliers</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
@@ -830,7 +830,7 @@ function InventoryPageInner() {
               onClick={() => setSortBy(mode)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 sortBy === mode
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-gold text-white shadow-sm'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
               }`}
             >
@@ -846,8 +846,8 @@ function InventoryPageInner() {
       {checkedIds.size > 0 && (
         <div className="fixed bottom-16 md:bottom-4 left-0 right-0 z-40 px-3 pointer-events-none">
           <div className="max-w-5xl mx-auto pointer-events-auto">
-            <div className="bg-white border border-blue-200 rounded-xl px-4 py-3 shadow-xl flex flex-wrap items-center gap-2 ring-1 ring-blue-100">
-              <span className="text-sm font-semibold text-blue-700 shrink-0">{checkedIds.size} selected</span>
+            <div className="bg-white border border-gold/30 rounded-xl px-4 py-3 shadow-xl flex flex-wrap items-center gap-2 ring-1 ring-blue-100">
+              <span className="text-sm font-semibold text-gold shrink-0">{checkedIds.size} selected</span>
               <div className="flex gap-2 flex-wrap flex-1">
                 <button onClick={() => executeBulk('activate')}   className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700">Activate</button>
                 <button onClick={() => executeBulk('deactivate')} className="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600">Deactivate</button>
@@ -938,7 +938,7 @@ function InventoryPageInner() {
                     key={mode}
                     onClick={() => { setSortBy(mode); setShowMobileSortSheet(false) }}
                     className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-                      sortBy === mode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'
+                      sortBy === mode ? 'bg-gold text-white border-gold' : 'bg-white text-gray-600 border-gray-200'
                     }`}
                   >
                     {label}
@@ -961,7 +961,7 @@ function InventoryPageInner() {
                     key={col}
                     onClick={() => { toggleColSort(col); setShowMobileSortSheet(false) }}
                     className={`flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm transition-colors ${
-                      colSort?.col === col ? 'bg-blue-50 text-blue-700 font-semibold' : 'bg-gray-50 text-gray-700'
+                      colSort?.col === col ? 'bg-gold/10 text-gold font-semibold' : 'bg-gray-50 text-gray-700'
                     }`}
                   >
                     <span>{label}</span>
@@ -991,7 +991,7 @@ function InventoryPageInner() {
                 <select
                   value={catFilter}
                   onChange={e => setCatFilter(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">All Categories</option>
                   {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -1002,7 +1002,7 @@ function InventoryPageInner() {
                 <select
                   value={supplierFilter}
                   onChange={e => setSupplierFilter(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">All Suppliers</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -1013,7 +1013,7 @@ function InventoryPageInner() {
                 <select
                   value={areaFilter}
                   onChange={e => setAreaFilter(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">All Areas</option>
                   {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -1170,9 +1170,9 @@ function InventoryPageInner() {
               <tr>
                 {/* Checkbox */}
                 <th className="pl-4 py-3 pr-2 w-8">
-                  <button onClick={toggleAll} className="text-gray-400 hover:text-blue-600">
+                  <button onClick={toggleAll} className="text-gray-400 hover:text-gold">
                     {checkedIds.size === sortedItems.length && sortedItems.length > 0
-                      ? <CheckSquare size={15} className="text-blue-600" /> : <Square size={15} />}
+                      ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
                   </button>
                 </th>
 
@@ -1214,7 +1214,7 @@ function InventoryPageInner() {
                       >
                         <td className="pl-4 py-2 pr-2" onClick={e => e.stopPropagation()}>
                           <button onClick={() => toggleCatGroup(rows)} className="hover:opacity-70">
-                            {allChecked ? <CheckSquare size={15} className="text-blue-600" /> : <Square size={15} />}
+                            {allChecked ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
                           </button>
                         </td>
                         <td className="px-3 py-2" colSpan={6}>
@@ -1253,7 +1253,7 @@ function InventoryPageInner() {
                   <input
                     value={editForm.itemName}
                     onChange={e => setEditForm(f => ({ ...f, itemName: e.target.value }))}
-                    className="w-full font-semibold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full font-semibold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 ) : (
                   <h2 className="font-semibold text-gray-900 truncate">{selected.itemName}</h2>
@@ -1263,7 +1263,7 @@ function InventoryPageInner() {
               <div className="flex items-center gap-2 shrink-0">
                 {editMode ? (
                   <>
-                    <button onClick={handleSave} className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">Save</button>
+                    <button onClick={handleSave} className="px-3 py-1.5 bg-gold text-white text-xs rounded-lg hover:bg-[#a88930]">Save</button>
                     <button onClick={() => setEditMode(false)} className="px-3 py-1.5 border border-gray-200 text-xs rounded-lg hover:bg-gray-50">Cancel</button>
                   </>
                 ) : (
@@ -1305,7 +1305,7 @@ function InventoryPageInner() {
                     type="checkbox"
                     checked={editForm.isActive}
                     onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="w-4 h-4 rounded border-gray-300 text-gold focus:ring-gold"
                   />
                   <span className="text-sm font-medium text-gray-700">Active</span>
                   <span className="text-xs text-gray-400">&mdash; uncheck to exclude from inventory totals</span>
@@ -1387,24 +1387,24 @@ function InventoryPageInner() {
                       <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
                       <input value={editForm.purchaseUnit} placeholder="case, dozen…"
                         onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Case</label>
                       <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
                         onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Pack Size</label>
                       <input type="number" step="any" value={editForm.packSize} placeholder="e.g. 480, 9, 1"
                         onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Pack UOM</label>
                       <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                         {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
                       </select>
                     </div>
@@ -1412,7 +1412,7 @@ function InventoryPageInner() {
                       <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
                       <input type="number" step="any" value={editForm.purchasePrice}
                         onChange={e => setEditForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                   </div>
                 )}
@@ -1429,7 +1429,7 @@ function InventoryPageInner() {
                       )}
                     </label>
                     <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                       {(selected?.recipe
                         ? compatibleCountUnits(selected.baseUnit)
                         : COUNT_UOMS
@@ -1440,7 +1440,7 @@ function InventoryPageInner() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
                     <input type="number" step="any" value={editForm.stockOnHand}
                       onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
 
@@ -1474,17 +1474,17 @@ function InventoryPageInner() {
                     ? parseFloat(String(selected?.conversionFactor ?? 1))
                     : calcConversionFactor(cu, qty, ps, pu)
                   return (
-                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-purple-50' : 'bg-blue-50'}`}>
-                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>
+                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-purple-50' : 'bg-gold/10'}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-purple-700' : 'text-gold'}`}>
                         {isPrep ? 'Recipe-derived cost' : 'Auto-calculated'}
                       </div>
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-blue-600'}`}>Price per {bu}:</span>
-                        <span className={`text-lg font-bold ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>{formatUnitPrice(ppbu)}</span>
+                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-gold'}`}>Price per {bu}:</span>
+                        <span className={`text-lg font-bold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>{formatUnitPrice(ppbu)}</span>
                       </div>
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-blue-600'}`}>1 {cu} =</span>
-                        <span className={`font-semibold ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>{cf.toFixed(4)} {bu}</span>
+                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-gold'}`}>1 {cu} =</span>
+                        <span className={`font-semibold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>{cf.toFixed(4)} {bu}</span>
                       </div>
                       <div className={`text-xs ${isPrep ? 'text-purple-500' : 'text-blue-500'}`}>
                         {isPrep
@@ -1540,17 +1540,17 @@ function InventoryPageInner() {
                     </div>
                   ))
                 })()}
-                  <div className={`rounded-lg p-3 col-span-2 mt-0 ${selected.recipe ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                  <div className={`rounded-lg p-3 col-span-2 mt-0 ${selected.recipe ? 'bg-purple-50' : 'bg-gold/10'}`}>
                     {selected.recipe && (
                       <div className="flex items-center gap-1.5 mb-1.5">
                         <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full">Recipe</span>
                         <span className="text-xs text-purple-700 font-medium">{selected.recipe.name}</span>
                       </div>
                     )}
-                    <div className={`text-xs font-medium ${selected.recipe ? 'text-purple-600' : 'text-blue-600'}`}>
+                    <div className={`text-xs font-medium ${selected.recipe ? 'text-purple-600' : 'text-gold'}`}>
                       Price per {selected.baseUnit}
                     </div>
-                    <div className={`text-lg font-bold mt-0.5 ${selected.recipe ? 'text-purple-700' : 'text-blue-700'}`}>
+                    <div className={`text-lg font-bold mt-0.5 ${selected.recipe ? 'text-purple-700' : 'text-gold'}`}>
                       {formatUnitPrice(parseFloat(String(selected.pricePerBaseUnit)))} / {selected.baseUnit}
                     </div>
                     <div className={`text-xs mt-1 ${selected.recipe ? 'text-purple-500' : 'text-blue-500'}`}>
@@ -1625,66 +1625,66 @@ function InventoryPageInner() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Item Name *</label>
-                  <input required value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input required value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Supplier</label>
-                  <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     <option value="">None</option>
                     {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Storage Area</label>
-                  <select value={form.storageAreaId} onChange={e => setForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select value={form.storageAreaId} onChange={e => setForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     <option value="">None</option>
                     {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                  <input required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} placeholder="e.g. kg, case, each" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} placeholder="e.g. kg, case, each" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Purchase Unit</label>
-                  <input type="number" required value={form.qtyPerPurchaseUnit} onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" step="any" />
+                  <input type="number" required value={form.qtyPerPurchaseUnit} onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
-                  <input type="number" required value={form.purchasePrice} onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" step="any" />
+                  <input type="number" required value={form.purchasePrice} onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Base Unit</label>
-                  <select value={form.baseUnit} onChange={e => setForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select value={form.baseUnit} onChange={e => setForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     {BASE_UNITS.map(u => <option key={u}>{u}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Conversion Factor</label>
-                  <input type="number" required value={form.conversionFactor} onChange={e => setForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" step="any" />
+                  <input type="number" required value={form.conversionFactor} onChange={e => setForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
-                  <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" step="any" />
+                  <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
-                  <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
               </div>
-              <div className="bg-blue-50 rounded-lg p-3 text-sm">
-                <span className="text-blue-600 font-medium">Price per base unit preview: </span>
-                <span className="font-bold text-blue-700">{formatUnitPrice(pricePreview)} / {form.baseUnit}</span>
+              <div className="bg-gold/10 rounded-lg p-3 text-sm">
+                <span className="text-gold font-medium">Price per base unit preview: </span>
+                <span className="font-bold text-gold">{formatUnitPrice(pricePreview)} / {form.baseUnit}</span>
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAdd(false)} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm hover:bg-blue-700">Add Item</button>
+                <button type="submit" className="flex-1 bg-gold text-white rounded-lg py-2 text-sm hover:bg-[#a88930]">Add Item</button>
               </div>
             </form>
           </div>

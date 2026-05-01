@@ -430,7 +430,7 @@ export default function PrepPage() {
     }
   }
 
-  const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
 
   const activeFilterCount = [filterPriority !== 'ALL', filterStatus !== 'ALL', filterCategory !== 'ALL'].filter(Boolean).length
 
@@ -442,7 +442,7 @@ export default function PrepPage() {
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
-              <ChefHat size={20} className="text-blue-600" /> Prep
+              <ChefHat size={20} className="text-gold" /> Prep
             </h1>
             <p className="text-xs text-gray-500">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -460,12 +460,12 @@ export default function PrepPage() {
               <Settings size={16} />
             </button>
             <button onClick={handleSync} disabled={syncing}
-              className="p-2 rounded-lg border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+              className="p-2 rounded-lg border border-gold/30 text-gold bg-gold/10 hover:bg-gold/15 disabled:opacity-50"
               title="Sync from Recipes">
               <BookOpen size={16} className={syncing ? 'animate-pulse' : ''} />
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="p-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+              className="p-2 rounded-lg bg-gold text-white hover:bg-[#a88930]">
               <Plus size={16} />
             </button>
           </div>
@@ -493,7 +493,7 @@ export default function PrepPage() {
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
               placeholder="Search prep items…"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -503,11 +503,11 @@ export default function PrepPage() {
             onClick={() => setShowMobileFilters(v => !v)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
               showMobileFilters || activeFilterCount > 0
-                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                ? 'border-blue-300 bg-gold/10 text-gold'
                 : 'border-gray-200 text-gray-600 hover:bg-gray-50'
             }`}>
             <SlidersHorizontal size={15} />
-            {activeFilterCount > 0 ? <span className="bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
+            {activeFilterCount > 0 ? <span className="bg-gold text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
           </button>
         </div>
 
@@ -542,7 +542,7 @@ export default function PrepPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <ChefHat size={24} className="text-blue-600" /> Prep
+              <ChefHat size={24} className="text-gold" /> Prep
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -559,12 +559,12 @@ export default function PrepPage() {
               {generating ? 'Refreshing…' : 'Refresh'}
             </button>
             <button onClick={handleSync} disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-blue-200 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50">
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-gold/30 text-gold bg-gold/10 rounded-lg hover:bg-gold/15 disabled:opacity-50">
               <BookOpen size={14} className={syncing ? 'animate-pulse' : ''} />
               {syncing ? 'Syncing…' : 'Sync from Recipes'}
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-gold text-white rounded-lg hover:bg-[#a88930]">
               <Plus size={14} /> Add Item
             </button>
           </div>
@@ -584,7 +584,7 @@ export default function PrepPage() {
         <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
           isOffline
             ? 'bg-amber-50 border-amber-200 text-amber-800'
-            : 'bg-blue-50 border-blue-200 text-blue-800'
+            : 'bg-gold/10 border-gold/30 text-blue-800'
         }`}>
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff size={14} className="shrink-0" />
@@ -604,7 +604,7 @@ export default function PrepPage() {
           {pendingCount > 0 && !isOffline && !offlineSyncing && (
             <button
               onClick={handleOfflineSync}
-              className="shrink-0 flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+              className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-900"
             >
               <RefreshCcw size={12} /> Sync now
             </button>
@@ -639,7 +639,7 @@ export default function PrepPage() {
             <div className="relative flex-1 min-w-48">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                className="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold"
                 placeholder="Search prep items…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -667,7 +667,7 @@ export default function PrepPage() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={activeOnly}
                 onChange={e => setActiveOnly(e.target.checked)}
-                className="rounded text-blue-600" />
+                className="rounded text-gold" />
               <span className="text-gray-600">Active only</span>
             </label>
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
@@ -685,9 +685,9 @@ export default function PrepPage() {
 
       {/* Currently Making — only in Today view */}
       {inProgress.length > 0 && viewMode === 'today' && !loading && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+        <div className="bg-gold/10 border border-gold/30 rounded-xl overflow-hidden">
           <div className="px-4 py-2 flex items-center gap-2 border-b border-blue-100">
-            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Currently Making</span>
+            <span className="text-xs font-semibold text-gold uppercase tracking-wide">Currently Making</span>
             <span className="text-xs text-blue-500">{inProgress.length} in progress</span>
           </div>
           <div className="divide-y divide-blue-50">
@@ -717,13 +717,13 @@ export default function PrepPage() {
               </button>
               <button
                 onClick={() => setPlanView('pending')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'pending' ? 'bg-white text-blue-700 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'pending' ? 'bg-white text-gold shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
               >
                 Pending
                 {(() => {
                   const n = items.filter(i => { const s = i.todayLog?.status; return !s || s === 'NOT_STARTED' || s === 'IN_PROGRESS' }).length
                   return n > 0 ? (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'pending' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-200 text-indigo-600'}`}>{n}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'pending' ? 'bg-gold/15 text-gold' : 'bg-indigo-200 text-indigo-600'}`}>{n}</span>
                   ) : null
                 })()}
               </button>
@@ -780,7 +780,7 @@ export default function PrepPage() {
               max={new Date().toISOString().slice(0, 10)}
               value={historyDate}
               onChange={e => setHistoryDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
             />
             <span className="text-xs text-gray-400 ml-auto">
               {new Date(historyDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
@@ -789,7 +789,7 @@ export default function PrepPage() {
 
           {historyLoading ? (
             <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-blue-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-gold" />
             </div>
           ) : historyLogs.length === 0 ? (
             <div className="bg-white border border-gray-100 rounded-xl py-14 text-center">
@@ -801,7 +801,7 @@ export default function PrepPage() {
             const STATUS_HIST: Record<string, { label: string; cls: string }> = {
               DONE:        { label: 'Done',        cls: 'bg-green-100 text-green-700' },
               PARTIAL:     { label: 'Partial',     cls: 'bg-amber-100 text-amber-700' },
-              IN_PROGRESS: { label: 'In Progress', cls: 'bg-blue-100 text-blue-700' },
+              IN_PROGRESS: { label: 'In Progress', cls: 'bg-gold/15 text-gold' },
               BLOCKED:     { label: 'Blocked',     cls: 'bg-red-100 text-red-700' },
               SKIPPED:     { label: 'Skipped',     cls: 'bg-gray-100 text-gray-400' },
               NOT_STARTED: { label: 'Not Started', cls: 'bg-gray-100 text-gray-400' },
@@ -872,7 +872,7 @@ export default function PrepPage() {
       {/* Main list (Today + Plan modes only) */}
       {viewMode !== 'history' && (loading ? (
         <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
@@ -894,7 +894,7 @@ export default function PrepPage() {
             </p>
           )}
           {items.length === 0 && (
-            <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-blue-600 hover:text-blue-700">
+            <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-gold hover:text-gold">
               Add your first prep item →
             </button>
           )}

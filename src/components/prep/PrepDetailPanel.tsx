@@ -29,7 +29,7 @@ interface HistoryLog {
 const STATUS_SHORT: Record<string, { label: string; cls: string }> = {
   DONE:        { label: 'Done',       cls: 'bg-green-100 text-green-700' },
   PARTIAL:     { label: 'Partial',    cls: 'bg-amber-100 text-amber-700' },
-  IN_PROGRESS: { label: 'In Progress',cls: 'bg-blue-100 text-blue-700' },
+  IN_PROGRESS: { label: 'In Progress',cls: 'bg-gold/15 text-gold' },
   BLOCKED:     { label: 'Blocked',    cls: 'bg-red-100 text-red-700' },
   SKIPPED:     { label: 'Skipped',    cls: 'bg-gray-100 text-gray-500' },
   NOT_STARTED: { label: 'Not Started',cls: 'bg-gray-100 text-gray-400' },
@@ -164,7 +164,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
             {[
               { label: 'On Hand',   value: `${item.onHand.toFixed(1)} ${item.unit}`,     color: item.onHand <= 0 ? 'text-red-600' : 'text-gray-900' },
               { label: 'Par Level', value: `${item.parLevel.toFixed(1)} ${item.unit}`,   color: 'text-gray-900' },
-              { label: 'Make',      value: `${item.suggestedQty.toFixed(1)} ${item.unit}`, color: item.suggestedQty > 0 ? 'text-blue-600 font-bold' : 'text-gray-400' },
+              { label: 'Make',      value: `${item.suggestedQty.toFixed(1)} ${item.unit}`, color: item.suggestedQty > 0 ? 'text-gold font-bold' : 'text-gray-400' },
             ].map(c => (
               <div key={c.label} className="bg-gray-50 rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-400 mb-1">{c.label}</div>
@@ -187,7 +187,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
               </label>
               <input
                 type="number" min="0" step="0.1"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 placeholder={`e.g. ${item.suggestedQty.toFixed(1)}`}
                 value={actualQty}
                 onChange={e => setActualQty(e.target.value)}
@@ -196,7 +196,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
 
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => updateStatus('IN_PROGRESS')} disabled={loading}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-blue-200 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50">
+                className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-gold/30 text-gold bg-gold/10 rounded-lg hover:bg-gold/15 disabled:opacity-50">
                 <Clock size={14} /> Start
               </button>
               <button onClick={() => updateStatus('DONE')} disabled={loading}
@@ -244,10 +244,10 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
 
           {/* Inventory impact preview */}
           {item.linkedRecipe && actualQty && parseFloat(actualQty) > 0 && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs space-y-1">
-              <div className="font-semibold text-blue-700 mb-1">Inventory impact when completed:</div>
+            <div className="bg-gold/10 border border-gold/30 rounded-xl p-3 text-xs space-y-1">
+              <div className="font-semibold text-gold mb-1">Inventory impact when completed:</div>
               {(detail?.ingredients ?? []).filter(i => i.inventoryItemId).map(ing => (
-                <div key={ing.id} className="flex justify-between text-blue-600">
+                <div key={ing.id} className="flex justify-between text-gold">
                   <span>− {(ing.qtyBase * scale).toFixed(2)} {ing.unit} {ing.itemName}</span>
                   <span className={ing.isAvailable === false ? 'text-red-500 font-medium' : ''}>
                     {ing.isAvailable === false ? '⚠ low stock' : ''}
@@ -255,7 +255,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
                 </div>
               ))}
               {item.linkedRecipe.baseYieldQty && (
-                <div className="flex justify-between text-green-700 font-medium border-t border-blue-200 pt-1 mt-1">
+                <div className="flex justify-between text-green-700 font-medium border-t border-gold/30 pt-1 mt-1">
                   <span>+ {(baseYield * scale).toFixed(2)} {yieldUnit} {item.linkedRecipe.name}</span>
                 </div>
               )}
@@ -288,7 +288,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
                 <BookOpen size={14} className="text-gray-400" />
                 <span className="text-gray-700">{item.linkedRecipe.name}</span>
               </div>
-              <a href={`/recipes?item=${item.linkedRecipe.id}`} className="text-xs text-blue-600 hover:underline flex items-center gap-0.5">
+              <a href={`/recipes?item=${item.linkedRecipe.id}`} className="text-xs text-gold hover:underline flex items-center gap-0.5">
                 Open Recipe <ChevronRight size={12} />
               </a>
             </div>

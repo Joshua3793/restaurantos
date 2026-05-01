@@ -49,7 +49,7 @@ export default function ReportsPage() {
           {PERIOD_OPTIONS.map(opt => (
             <button key={opt.value} onClick={() => setPeriod(opt.value)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                period === opt.value ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                period === opt.value ? 'bg-gold text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
               }`}>
               {opt.label}
             </button>
@@ -68,7 +68,7 @@ export default function ReportsPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
                 active
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-gold text-gold'
                   : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
               }`}
             >

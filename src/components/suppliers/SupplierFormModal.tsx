@@ -140,7 +140,7 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
                 value={form[f.key] as string}
                 onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                 placeholder={f.placeholder ?? ''}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
           ))}
@@ -174,7 +174,7 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
                 onChange={e => setNewAlias(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlias() } }}
                 placeholder="Add invoice name…"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold font-mono"
               />
               <button
                 type="button"
@@ -197,7 +197,7 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50"
             >
               {saving ? 'Saving…' : supplier ? 'Save Changes' : 'Add Supplier'}
             </button>

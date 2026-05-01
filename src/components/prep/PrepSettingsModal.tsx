@@ -24,7 +24,7 @@ function ListEditor({
   onAdd: () => void
   addPlaceholder: string
 }) {
-  const inputCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full'
+  const inputCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full'
   return (
     <div>
       <h3 className="text-sm font-semibold text-gray-700 mb-2">{label}</h3>
@@ -62,7 +62,7 @@ function ListEditor({
           type="button"
           onClick={onAdd}
           disabled={!newValue.trim()}
-          className="shrink-0 p-1.5 text-blue-600 hover:text-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="shrink-0 p-1.5 text-gold hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Add"
           title="Add"
         >
@@ -185,7 +185,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
 
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gold" />
           </div>
         ) : (
           <div className="p-5 space-y-6">
@@ -219,7 +219,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
                 Cancel
               </button>
               <button type="button" onClick={handleSave} disabled={saving}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                className="px-4 py-2 text-sm bg-gold text-white rounded-lg hover:bg-[#a88930] disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>

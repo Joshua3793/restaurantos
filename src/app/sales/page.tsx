@@ -171,13 +171,13 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
                 <input type="date" required value={date} onChange={e => setDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Covers (guests)</label>
                 <input type="number" min="0" value={covers} onChange={e => setCovers(e.target.value)}
                   placeholder="0"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
 
@@ -221,14 +221,14 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                 <label className="block text-xs font-medium text-gray-600 mb-1">Total Revenue ($)</label>
                 <input type="number" required min="0" step="0.01" value={revenue} onChange={e => setRevenue(e.target.value)}
                   placeholder="0.00"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Food Sales %</label>
                 <div className="relative">
                   <input type="number" min="0" max="100" value={foodPct} onChange={e => setFoodPct(e.target.value)}
                     placeholder="70"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
                 </div>
               </div>
@@ -239,7 +239,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
               <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
               <input value={notes} onChange={e => setNotes(e.target.value)}
                 placeholder="e.g. Busy Friday night, private event..."
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
             </div>
 
             {/* Menu items */}
@@ -251,7 +251,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)}
                   placeholder="Search menu items..."
-                  className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
               <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50 max-h-64 overflow-y-auto">
                 {filteredRecipes.length === 0 && (
@@ -270,7 +270,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                       value={qtys[r.id] ?? ''}
                       onChange={e => setQtys(q => ({ ...q, [r.id]: e.target.value }))}
                       placeholder="0"
-                      className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gold"
                     />
                   </div>
                 ))}
@@ -285,7 +285,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+              className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-white text-sm font-medium hover:bg-[#a88930] disabled:opacity-60">
               {saving ? 'Saving…' : (initial ? 'Save changes' : 'Record sales')}
             </button>
           </div>
@@ -507,7 +507,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
         {/* ── Upload step ── */}
         {step === 'upload' && (
           <div className="px-5 py-5 space-y-4">
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
+            <div className="bg-gold/10 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
               Upload the <strong>ProductMix</strong> Excel exported from Toast POS. The system will extract food sales totals and BRUNCH item quantities automatically.
             </div>
 
@@ -550,14 +550,14 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
                   <div className="relative">
                     <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
                     <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
                 <div>
@@ -567,7 +567,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                   <div className="relative">
                     <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
                     <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
               </div>
@@ -599,7 +599,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                                 setQtys(q => ({ ...q, [val]: item.qtySold }))
                               }
                             }}
-                            className="mt-1 w-full border border-gray-100 rounded-lg px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-gray-50"
+                            className="mt-1 w-full border border-gray-100 rounded-lg px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-gold bg-gray-50"
                           >
                             <option value="">— not matched —</option>
                             {menuRecipes.map(r => (
@@ -616,7 +616,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                               const rid = recipeId
                               if (rid) setQtys(q => ({ ...q, [rid]: parseInt(e.target.value) || 0 }))
                             }}
-                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gold"
                           />
                         </div>
                       </div>
@@ -638,7 +638,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                 ← Back
               </button>
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+                className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-white text-sm font-medium hover:bg-[#a88930] disabled:opacity-60">
                 {saving ? 'Saving…' : `Save sales for ${date}`}
               </button>
             </div>
@@ -744,7 +744,7 @@ export default function SalesPage() {
 
   const SortIcon = ({ col }: { col: SortCol }) =>
     sortCol === col
-      ? (sortDir === 'asc' ? <ChevronUp size={12} className="text-blue-600 inline ml-1" /> : <ChevronDown size={12} className="text-blue-600 inline ml-1" />)
+      ? (sortDir === 'asc' ? <ChevronUp size={12} className="text-gold inline ml-1" /> : <ChevronDown size={12} className="text-gold inline ml-1" />)
       : <ArrowUpDown size={12} className="text-gray-300 inline ml-1" />
 
   // ── CRUD handlers ──
@@ -788,7 +788,7 @@ export default function SalesPage() {
             <Upload size={15} /> Import
           </button>
           <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors">
+            className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] transition-colors">
             <Plus size={15} /> Add Sales Day
           </button>
         </div>
@@ -799,7 +799,7 @@ export default function SalesPage() {
         {(['week', 'month', 'lastMonth', 'custom'] as RangeMode[]).map(mode => (
           <button key={mode} onClick={() => setRangeMode(mode)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              rangeMode === mode ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
+              rangeMode === mode ? 'bg-gold text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
             }`}>
             {{ week: 'This Week', month: 'This Month', lastMonth: 'Last Month', custom: 'Custom' }[mode]}
           </button>
@@ -807,28 +807,28 @@ export default function SalesPage() {
         {rangeMode === 'custom' && (
           <div className="flex items-center gap-2 ml-1">
             <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
-              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
             <span className="text-gray-400 text-sm">to</span>
             <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
-              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
           </div>
         )}
       </div>
 
       {/* Onboarding card — shown when no sales have ever been recorded */}
       {!loading && sales.length === 0 && rangeMode === 'week' && (
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex gap-4 items-start">
-          <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
-            <BarChart2 size={20} className="text-blue-600" />
+        <div className="bg-gold/10 border border-blue-100 rounded-xl p-5 flex gap-4 items-start">
+          <div className="w-10 h-10 rounded-xl bg-gold/15 flex items-center justify-center shrink-0">
+            <BarChart2 size={20} className="text-gold" />
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-blue-900 text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
-            <p className="text-xs text-blue-700 leading-relaxed mb-3">
+            <p className="text-xs text-gold leading-relaxed mb-3">
               Add each service day — total revenue, covers, and which menu items sold. This powers the food cost % calculation in your dashboard and analytics.
               You can also <button onClick={() => setShowImport(true)} className="underline font-medium">import from Toast POS</button> if you have a ProductMix export.
             </p>
             <button onClick={() => setShowAdd(true)}
-              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+              className="inline-flex items-center gap-2 bg-gold text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a88930] transition-colors">
               <Plus size={14} /> Add First Sales Day
             </button>
           </div>
@@ -838,7 +838,7 @@ export default function SalesPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard label="Total Revenue" value={formatCurrency(kpis.totalRevenue)} sub={`${kpis.days} days`} accent="text-green-600" />
-        <KpiCard label="Food Sales" value={formatCurrency(kpis.totalFoodSales)} sub="estimated" accent="text-blue-600" />
+        <KpiCard label="Food Sales" value={formatCurrency(kpis.totalFoodSales)} sub="estimated" accent="text-gold" />
         <KpiCard label="Total Covers" value={kpis.totalCovers.toLocaleString()} sub="guests" accent="text-gray-900" />
         <KpiCard label="Avg per Cover" value={kpis.avgPerCover > 0 ? formatCurrency(kpis.avgPerCover) : '—'} />
         <KpiCard label="Avg Daily" value={kpis.avgDaily > 0 ? formatCurrency(kpis.avgDaily) : '—'} />
@@ -850,7 +850,7 @@ export default function SalesPage() {
         {([['list', 'Sales Log'], ['analytics', 'Top Items']] as const).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              activeTab === tab ? 'border-gold text-gold' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
             {label}
           </button>
@@ -864,7 +864,7 @@ export default function SalesPage() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search days…"
-              className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
           </div>
 
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -896,7 +896,7 @@ export default function SalesPage() {
                     <td colSpan={6} className="text-center py-12">
                       <div className="text-gray-400 mb-3">No sales recorded for this period</div>
                       <button onClick={() => setShowAdd(true)}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-gold text-white rounded-lg text-sm hover:bg-[#a88930]">
                         <Plus size={14} /> Add Sales Day
                       </button>
                     </td>
@@ -943,7 +943,7 @@ export default function SalesPage() {
                       </td>
                       <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1 justify-end">
-                          <button onClick={() => setEditSale(sale)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600">
+                          <button onClick={() => setEditSale(sale)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gold">
                             <Pencil size={13} />
                           </button>
                           <button onClick={() => setDeleteId(sale.id)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500">
@@ -984,7 +984,7 @@ export default function SalesPage() {
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-gray-800 truncate">{item.name}</div>
                         <div className="h-1.5 bg-gray-100 rounded-full mt-1.5 overflow-hidden">
-                          <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          <div className="h-full bg-gold/100 rounded-full transition-all" style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                       <div className="text-right shrink-0">

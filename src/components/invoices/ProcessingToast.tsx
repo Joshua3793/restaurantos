@@ -34,7 +34,7 @@ export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismi
         <p className="text-xs text-gray-500 mt-0.5">{statusLabel}</p>
         <button
           onClick={onReview}
-          className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-800"
+          className="mt-2 text-xs font-semibold text-gold hover:text-blue-800"
         >
           {ctaLabel} →
         </button>

@@ -93,11 +93,11 @@ export default function CategoriesPage() {
             value={newName}
             onChange={e => { setNewName(e.target.value); setError('') }}
             placeholder="New category name (e.g. BAKERY)..."
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
           {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
         </div>
-        <button type="submit" className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 whitespace-nowrap">
+        <button type="submit" className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] whitespace-nowrap">
           <Plus size={15} /> Add
         </button>
       </form>
@@ -135,11 +135,11 @@ export default function CategoriesPage() {
                       <span className="text-xs font-semibold text-gray-700">${cat.totalValue.toFixed(2)}</span>
                     </div>
                     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      <div className="h-full bg-gold/100 rounded-full transition-all" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                   <span className="text-xs text-gray-400 w-9 text-right shrink-0">{pct.toFixed(1)}%</span>
-                  <button onClick={() => { setEditId(cat.id); setEditName(cat.name) }} className="text-gray-400 hover:text-blue-600 p-1"><Pencil size={13} /></button>
+                  <button onClick={() => { setEditId(cat.id); setEditName(cat.name) }} className="text-gray-400 hover:text-gold p-1"><Pencil size={13} /></button>
                   <button onClick={() => handleDelete(cat.id, cat.name)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 size={13} /></button>
                 </>
               )}

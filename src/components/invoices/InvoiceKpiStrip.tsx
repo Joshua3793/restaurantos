@@ -58,9 +58,9 @@ export function InvoiceKpiStrip({ refreshKey, activeRcId, isDefault }: Props) {
       </div>
 
       {/* Awaiting Approval */}
-      <div className={`flex-1 min-w-[140px] rounded-lg px-3 py-2 border ${kpis && kpis.awaitingApprovalCount > 0 ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-        <p className={`text-[10px] uppercase tracking-wide ${kpis && kpis.awaitingApprovalCount > 0 ? 'text-blue-700' : 'text-gray-400'}`}>Awaiting Approval</p>
-        <p className={`text-base font-bold leading-tight ${kpis && kpis.awaitingApprovalCount > 0 ? 'text-blue-700' : 'text-gray-900'}`}>
+      <div className={`flex-1 min-w-[140px] rounded-lg px-3 py-2 border ${kpis && kpis.awaitingApprovalCount > 0 ? 'bg-gold/10 border-gold/30' : 'bg-white border-gray-200'}`}>
+        <p className={`text-[10px] uppercase tracking-wide ${kpis && kpis.awaitingApprovalCount > 0 ? 'text-gold' : 'text-gray-400'}`}>Awaiting Approval</p>
+        <p className={`text-base font-bold leading-tight ${kpis && kpis.awaitingApprovalCount > 0 ? 'text-gold' : 'text-gray-900'}`}>
           {kpis?.awaitingApprovalCount ?? '—'} sessions
         </p>
       </div>

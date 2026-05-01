@@ -43,11 +43,11 @@ function SidebarNav() {
                     href={href}
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       active
-                        ? 'bg-blue-50 text-blue-700'
+                        ? 'bg-gold/10 text-gold'
                         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                   >
-                    <Icon size={16} className={active ? 'text-blue-600' : 'text-gray-400'} />
+                    <Icon size={16} className={active ? 'text-gold' : 'text-gray-400'} />
                     {label}
                   </Link>
                 )
@@ -108,7 +108,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           <MobileSettingsIndex />
         ) : (
           <div>
-            <Link href="/settings" className="inline-flex items-center gap-1 text-sm text-blue-600 mb-4">
+            <Link href="/settings" className="inline-flex items-center gap-1 text-sm text-gold mb-4">
               <ChevronRight size={14} className="rotate-180" />
               Settings
             </Link>

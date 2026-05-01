@@ -12,6 +12,8 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        // Brand gold — supports opacity modifiers: bg-gold/10, text-gold, border-gold/30, etc.
+        gold: 'rgb(var(--gold) / <alpha-value>)',
       },
     },
   },

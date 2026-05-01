@@ -53,15 +53,15 @@ export default function CogsTab() {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">End Date</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
           </div>
           <button onClick={load} disabled={loading}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+            className="flex items-center gap-2 bg-gold text-white px-4 py-2 rounded-lg text-sm hover:bg-[#a88930] disabled:opacity-50">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             {loading ? 'Calculating…' : 'Calculate COGS'}
           </button>
@@ -103,9 +103,9 @@ export default function CogsTab() {
               {data.endingInventory.fallback && <div className="text-[10px] text-amber-500 mt-1">⚠ estimated</div>}
               {data.endingInventory.sessionDate && <div className="text-[10px] text-gray-400 mt-1">{data.endingInventory.sessionDate}</div>}
             </Card>
-            <Card className="text-center border-blue-200 bg-blue-50">
-              <div className="text-xs font-semibold text-blue-600 mb-1">= COGS</div>
-              <div className="text-2xl font-bold text-blue-700">{formatCurrency(data.cogs)}</div>
+            <Card className="text-center border-gold/30 bg-gold/10">
+              <div className="text-xs font-semibold text-gold mb-1">= COGS</div>
+              <div className="text-2xl font-bold text-gold">{formatCurrency(data.cogs)}</div>
               {data.foodSales > 0 && (
                 <div className={`text-lg font-bold mt-1 ${fcColor(data.foodCostPct)}`}>{data.foodCostPct.toFixed(1)}% food cost</div>
               )}

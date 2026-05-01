@@ -71,7 +71,7 @@ export default function Dashboard() {
   if (!data) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold"></div>
       </div>
     )
   }
@@ -86,8 +86,8 @@ export default function Dashboard() {
       {/* KPI Cards — every card is a link */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <Link href="/inventory"
-          className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 col-span-2 md:col-span-1 hover:border-blue-200 hover:shadow-md transition-all group">
-          <div className="flex items-center gap-2 text-blue-600 mb-2">
+          className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 col-span-2 md:col-span-1 hover:border-gold/30 hover:shadow-md transition-all group">
+          <div className="flex items-center gap-2 text-gold mb-2">
             <DollarSign size={18} />
             <span className="text-xs font-medium text-gray-500">Inventory Value</span>
           </div>
@@ -214,7 +214,7 @@ export default function Dashboard() {
           <div className="p-4 border-b border-gray-100 flex items-center gap-2">
             <Package size={18} className="text-gray-500" />
             <h2 className="font-semibold text-gray-900">Top 10 by Inventory Value</h2>
-            <Link href="/inventory" className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-0.5">
+            <Link href="/inventory" className="ml-auto text-xs text-gold hover:underline flex items-center gap-0.5">
               View all →
             </Link>
           </div>
@@ -228,7 +228,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-xs text-gray-400 w-4 shrink-0">{i + 1}</span>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-800 truncate group-hover:text-blue-600 transition-colors">{item.itemName}</div>
+                    <div className="text-sm font-medium text-gray-800 truncate group-hover:text-gold transition-colors">{item.itemName}</div>
                     <div className="flex items-center gap-1.5">
                       <CategoryBadge category={item.category} />
                       <span className="text-xs text-gray-400">{formatCurrency(parseFloat(String(item.pricePerBaseUnit)))}/{item.baseUnit}</span>
@@ -252,7 +252,7 @@ export default function Dashboard() {
           <div className="p-4 border-b border-gray-100 flex items-center gap-2">
             <FileText size={18} className="text-gray-500" />
             <h2 className="font-semibold text-gray-900">Recent Invoices</h2>
-            <Link href="/invoices" className="ml-auto text-xs text-blue-600 hover:underline">
+            <Link href="/invoices" className="ml-auto text-xs text-gold hover:underline">
               View all →
             </Link>
           </div>
@@ -264,7 +264,7 @@ export default function Dashboard() {
                 className="px-4 py-3 flex items-center justify-between gap-2 hover:bg-gray-50 transition-colors group"
               >
                 <div>
-                  <div className="text-sm font-medium text-gray-800 group-hover:text-blue-600 transition-colors">{inv.invoiceNumber}</div>
+                  <div className="text-sm font-medium text-gray-800 group-hover:text-gold transition-colors">{inv.invoiceNumber}</div>
                   <div className="text-xs text-gray-500">
                     {inv.supplier.name} &middot; {new Date(inv.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
                   </div>
@@ -274,7 +274,7 @@ export default function Dashboard() {
                     <div className="text-sm font-semibold">{formatCurrency(parseFloat(String(inv.totalAmount)))}</div>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       inv.status === 'COMPLETE'    ? 'bg-green-100 text-green-700' :
-                      inv.status === 'PROCESSING'  ? 'bg-blue-100 text-blue-700' :
+                      inv.status === 'PROCESSING'  ? 'bg-gold/15 text-gold' :
                                                      'bg-amber-100 text-amber-700'
                     }`}>
                       {inv.status}

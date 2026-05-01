@@ -22,7 +22,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 const ROLE_COLORS: Record<UserRole, string> = {
   ADMIN: 'bg-purple-100 text-purple-700',
-  MANAGER: 'bg-blue-100 text-blue-700',
+  MANAGER: 'bg-gold/15 text-gold',
   STAFF: 'bg-gray-100 text-gray-600',
 }
 
@@ -116,8 +116,8 @@ export default function UsersSettingsPage() {
       {/* Invite card */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
-          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
-            <Send size={15} className="text-blue-600" />
+          <div className="w-8 h-8 bg-gold/15 rounded-lg flex items-center justify-center shrink-0">
+            <Send size={15} className="text-gold" />
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">Invite a Team Member</p>
@@ -134,7 +134,7 @@ export default function UsersSettingsPage() {
               value={inviteName}
               onChange={e => setInviteName(e.target.value)}
               placeholder="Name (optional)"
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
             />
           </div>
           <div className="flex gap-2">
@@ -146,14 +146,14 @@ export default function UsersSettingsPage() {
               onChange={e => setInviteEmail(e.target.value)}
               placeholder="Email address"
               required
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
             />
             <label htmlFor="invite-role" className="sr-only">Role</label>
             <select
               id="invite-role"
               value={inviteRole}
               onChange={e => setInviteRole(e.target.value as UserRole)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white"
             >
               <option value="STAFF">Staff</option>
               <option value="MANAGER">Manager</option>
@@ -162,7 +162,7 @@ export default function UsersSettingsPage() {
             <button
               type="submit"
               disabled={inviting}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap transition-colors"
+              className="flex items-center gap-2 bg-gold text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a88930] disabled:opacity-50 whitespace-nowrap transition-colors"
             >
               <Send size={13} />
               {inviting ? 'Sending…' : 'Send Invite'}
@@ -245,7 +245,7 @@ export default function UsersSettingsPage() {
                       value={u.role}
                       onChange={e => handleRoleChange(u.id, e.target.value as UserRole)}
                       disabled={!u.isActive}
-                      className={`text-xs font-medium px-2 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${ROLE_COLORS[u.role]} disabled:cursor-default`}
+                      className={`text-xs font-medium px-2 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gold ${ROLE_COLORS[u.role]} disabled:cursor-default`}
                     >
                       <option value="STAFF">Staff</option>
                       <option value="MANAGER">Manager</option>

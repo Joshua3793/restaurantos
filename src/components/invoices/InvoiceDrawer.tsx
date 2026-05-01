@@ -50,7 +50,7 @@ const fileIcon = (fileType: string) => {
 
 const ocrStatusBadge = (status: string) => {
   if (status === 'COMPLETE') return <span className="text-[10px] font-semibold text-green-600 flex items-center gap-1"><CheckCircle2 size={10} />Done</span>
-  if (status === 'PROCESSING') return <span className="text-[10px] font-semibold text-blue-600 flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Processing</span>
+  if (status === 'PROCESSING') return <span className="text-[10px] font-semibold text-gold flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Processing</span>
   if (status === 'ERROR') return <span className="text-[10px] font-semibold text-red-600 flex items-center gap-1"><AlertTriangle size={10} />Error</span>
   return <span className="text-[10px] font-semibold text-gray-400">Pending</span>
 }
@@ -141,7 +141,7 @@ function AddItemModal({
                 value={desc}
                 onChange={e => setDesc(e.target.value)}
                 placeholder="e.g. Cream 4/4L, Chicken Breast, Olive Oil 3L…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
@@ -155,7 +155,7 @@ function AddItemModal({
                   value={qty}
                   onChange={e => setQty(e.target.value)}
                   placeholder="1"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 />
               </div>
               <div>
@@ -167,14 +167,14 @@ function AddItemModal({
                   value={unitPrice}
                   onChange={e => setUnitPrice(e.target.value)}
                   placeholder="0.00"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 />
               </div>
             </div>
 
             {total !== null && (
-              <div className="flex items-center justify-between text-sm bg-blue-50 rounded-lg px-3 py-2">
-                <span className="text-blue-600">Line total</span>
+              <div className="flex items-center justify-between text-sm bg-gold/10 rounded-lg px-3 py-2">
+                <span className="text-gold">Line total</span>
                 <span className="font-bold text-blue-800">{new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(total)}</span>
               </div>
             )}
@@ -187,7 +187,7 @@ function AddItemModal({
               <button
                 type="submit"
                 disabled={!desc.trim() || saving}
-                className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 {saving ? 'Adding…' : 'Add to Invoice'}
@@ -586,10 +586,10 @@ function ScanItemCard({
                   <div className="flex items-center gap-0.5">
                     <input type="number" step="any" min="0" value={localCases}
                       onChange={e => handleCasesChange(e.target.value)}
-                      className="w-12 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-12 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
                     <input value={localUnit} onChange={e => setLocalUnit(e.target.value)}
                       placeholder="cs"
-                      className="w-9 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-9 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
                   </div>
                 </div>
                 <span className="text-gray-400 pb-1">×</span>
@@ -598,7 +598,7 @@ function ScanItemCard({
                   <span className="text-[9px] text-gray-400 uppercase tracking-wide">Qty/case</span>
                   <input type="number" step="any" min="0" value={localPackQty}
                     onChange={e => setLocalPackQty(e.target.value)}
-                    className="w-14 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-14 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
                 </div>
                 <span className="text-gray-400 pb-1">×</span>
                 {/* Pack size + UOM */}
@@ -607,9 +607,9 @@ function ScanItemCard({
                   <div className="flex items-center gap-0.5">
                     <input type="number" step="any" min="0" value={localPackSize}
                       onChange={e => setLocalPackSize(e.target.value)}
-                      className="w-14 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-14 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
                     <select value={localPackUOM} onChange={e => setLocalPackUOM(e.target.value)}
-                      className="border border-blue-300 rounded px-1 py-1 bg-blue-50 focus:outline-none text-xs">
+                      className="border border-blue-300 rounded px-1 py-1 bg-gold/10 focus:outline-none text-xs">
                       <option value="">—</option>
                       {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
@@ -635,7 +635,7 @@ function ScanItemCard({
                   </select>
                   <input type="number" step="any" min="0" value={localUnitPrice}
                     onChange={e => handleUnitPriceChange(e.target.value)}
-                    className="w-18 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-18 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
                 </div>
                 <span className="text-gray-400 pb-1">=</span>
                 {/* Total */}
@@ -643,12 +643,12 @@ function ScanItemCard({
                   <span className="text-[9px] text-gray-400 uppercase tracking-wide">Total</span>
                   <input type="number" step="any" min="0" value={localLineTotal}
                     onChange={e => handleLineTotalChange(e.target.value)}
-                    className="w-20 border border-blue-300 rounded px-1 py-1 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400 font-semibold" />
+                    className="w-20 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold font-semibold" />
                 </div>
                 {/* Save / cancel */}
                 <div className="flex items-center gap-1 pb-0.5">
                   <button onClick={handlePurchaseSave}
-                    className="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 transition-colors font-medium">✓</button>
+                    className="bg-gold text-white px-2 py-1 rounded text-xs hover:bg-[#a88930] transition-colors font-medium">✓</button>
                   <button onClick={() => setEditingPurchase(false)}
                     className="text-gray-400 hover:text-gray-600 px-1 text-xs">✕</button>
                 </div>
@@ -721,7 +721,7 @@ function ScanItemCard({
                   <button
                     key={inv.id}
                     onMouseDown={e => { e.preventDefault(); handleSelectItem(inv) }}
-                    className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+                    className="w-full text-left px-3 py-2 hover:bg-gold/10 transition-colors border-b border-gray-50 last:border-0"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
@@ -821,7 +821,7 @@ function ActionSelect({
 
   const colorMap: Record<LineItemAction, string> = {
     PENDING:       'bg-gray-100 text-gray-600',
-    UPDATE_PRICE:  'bg-blue-100 text-blue-700',
+    UPDATE_PRICE:  'bg-gold/15 text-gold',
     ADD_SUPPLIER:  'bg-teal-100 text-teal-700',
     CREATE_NEW:    'bg-purple-100 text-purple-700',
     SKIP:          'bg-gray-100 text-gray-400',
@@ -831,7 +831,7 @@ function ActionSelect({
     <select
       value={value}
       onChange={e => onChange(e.target.value as LineItemAction)}
-      className={`text-xs font-semibold rounded-lg px-2 py-1 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400 ${colorMap[value]}`}
+      className={`text-xs font-semibold rounded-lg px-2 py-1 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gold ${colorMap[value]}`}
     >
       {options.filter(o => hasMatch || o.value === 'CREATE_NEW' || o.value === 'SKIP').map(o => (
         <option key={o.value} value={o.value}>{o.label}</option>
@@ -941,7 +941,7 @@ function ItemDetailPanel({
               <input
                 value={form.itemName}
                 onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
@@ -951,7 +951,7 @@ function ItemDetailPanel({
               <select
                 value={form.category}
                 onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 {ITEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -970,7 +970,7 @@ function ItemDetailPanel({
                     value={form.purchaseUnit}
                     onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))}
                     placeholder="case, bag, box…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
@@ -981,7 +981,7 @@ function ItemDetailPanel({
                     min="0"
                     value={form.qtyPerPurchaseUnit}
                     onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
@@ -993,7 +993,7 @@ function ItemDetailPanel({
                     value={form.packSize}
                     onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))}
                     placeholder="4, 500, 1…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
@@ -1001,7 +1001,7 @@ function ItemDetailPanel({
                   <select
                     value={form.packUOM}
                     onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                   >
                     {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
@@ -1014,7 +1014,7 @@ function ItemDetailPanel({
                     min="0"
                     value={form.purchasePrice}
                     onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
@@ -1022,7 +1022,7 @@ function ItemDetailPanel({
                   <select
                     value={form.countUOM}
                     onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                   >
                     {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
@@ -1031,23 +1031,23 @@ function ItemDetailPanel({
             </div>
 
             {/* Auto-calculated preview */}
-            <div className="bg-blue-50 rounded-lg p-3 space-y-1">
-              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Auto-calculated</p>
+            <div className="bg-gold/10 rounded-lg p-3 space-y-1">
+              <p className="text-xs font-semibold text-gold uppercase tracking-wide">Auto-calculated</p>
               <div className="flex justify-between text-xs">
-                <span className="text-blue-600">Base unit:</span>
+                <span className="text-gold">Base unit:</span>
                 <span className="font-medium text-blue-800">{bu}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-blue-600">Price per {bu}:</span>
+                <span className="text-gold">Price per {bu}:</span>
                 <span className="font-medium text-blue-800">{formatCurrency(ppbu)}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-blue-600">Total base units per case:</span>
+                <span className="text-gold">Total base units per case:</span>
                 <span className="font-medium text-blue-800">{(qty * ps).toFixed(2)} {bu}</span>
               </div>
               {cf !== 1 && (
                 <div className="flex justify-between text-xs">
-                  <span className="text-blue-600">Conversion factor:</span>
+                  <span className="text-gold">Conversion factor:</span>
                   <span className="font-medium text-blue-800">{cf.toFixed(4)}</span>
                 </div>
               )}
@@ -1082,8 +1082,8 @@ function ItemDetailPanel({
                 </div>
 
                 {item.action === 'UPDATE_PRICE' && item.newPrice !== null && (
-                  <div className="bg-blue-50 rounded-xl p-4 space-y-2">
-                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Proposed Price Change</p>
+                  <div className="bg-gold/10 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gold uppercase tracking-wide">Proposed Price Change</p>
                     <div className="flex items-center gap-3">
                       <div className="text-center">
                         <p className="text-xs text-gray-400">Current</p>
@@ -1092,7 +1092,7 @@ function ItemDetailPanel({
                       <ArrowRight size={16} className="text-gray-300" />
                       <div className="text-center">
                         <p className="text-xs text-gray-400">New</p>
-                        <p className="text-lg font-bold text-blue-700">{formatCurrency(Number(item.newPrice))}</p>
+                        <p className="text-lg font-bold text-gold">{formatCurrency(Number(item.newPrice))}</p>
                       </div>
                       {item.priceDiffPct !== null && (
                         <div className={`ml-auto flex items-center gap-1 font-bold text-sm ${Number(item.priceDiffPct) > 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -1129,7 +1129,7 @@ function ItemDetailPanel({
                   },
                 })
               }}
-              className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
+              className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] transition-colors"
             >
               Save Item Details
             </button>
@@ -1303,7 +1303,7 @@ function InventoryEditModal({
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Item Name</label>
               <input value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
             </div>
 
             {/* Category + Abbreviation */}
@@ -1311,7 +1311,7 @@ function InventoryEditModal({
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
                 <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
                   {ITEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
@@ -1319,7 +1319,7 @@ function InventoryEditModal({
                 <label className="block text-xs font-medium text-gray-600 mb-1">Abbreviation</label>
                 <input value={form.abbreviation} onChange={e => setForm(f => ({ ...f, abbreviation: e.target.value }))}
                   placeholder="optional"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
 
@@ -1331,24 +1331,24 @@ function InventoryEditModal({
                   <label className="block text-xs text-gray-500 mb-1">Purchase Unit</label>
                   <input value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))}
                     placeholder="case, bag…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Qty per case</label>
                   <input type="number" step="any" min="0" value={form.qtyPerPurchaseUnit}
                     onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Pack Size</label>
                   <input type="number" step="any" min="0" value={form.packSize}
                     onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Pack UOM</label>
                   <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
                     {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
@@ -1356,12 +1356,12 @@ function InventoryEditModal({
                   <label className="block text-xs text-gray-500 mb-1">Purchase Price ($)</label>
                   <input type="number" step="any" min="0" value={form.purchasePrice}
                     onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
                   <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
                     {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
@@ -1425,7 +1425,7 @@ function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileName: st
               key={f.id}
               onClick={() => setActiveIdx(i)}
               className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                activeIdx === i ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'
+                activeIdx === i ? 'bg-gold/15 text-gold' : 'text-gray-500 hover:bg-gray-100'
               }`}
             >
               Page {i + 1}
@@ -1709,8 +1709,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const renderProcessing = () => (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-xl mx-auto space-y-6 text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-100 animate-pulse mb-2">
-          <ScanLine size={32} className="text-blue-600" />
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gold/15 animate-pulse mb-2">
+          <ScanLine size={32} className="text-gold" />
         </div>
         <h2 className="text-xl font-bold text-gray-900">Scanning Invoice…</h2>
         <p className="text-sm text-gray-500">
@@ -1917,7 +1917,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                     <button
                       onClick={saveHeader}
                       disabled={savingHeader}
-                      className="flex-[2] py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-colors"
+                      className="flex-[2] py-1.5 rounded-lg text-xs font-semibold bg-gold hover:bg-gold/100 text-white disabled:opacity-50 transition-colors"
                     >
                       {savingHeader ? 'Saving…' : 'Save changes'}
                     </button>
@@ -1967,7 +1967,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                       </div>
                       <button
                         onClick={() => { loadSuppliers(); setSupplierComboOpen(true) }}
-                        className="text-xs text-blue-600 hover:text-blue-800 shrink-0 flex items-center gap-0.5"
+                        className="text-xs text-gold hover:text-blue-800 shrink-0 flex items-center gap-0.5"
                       >
                         Change <ChevronDown size={12} />
                       </button>
@@ -1982,7 +1982,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                       </p>
                       <button
                         onClick={() => { loadSuppliers(); setSupplierComboOpen(true) }}
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 shrink-0 flex items-center gap-0.5"
+                        className="text-xs font-semibold text-gold hover:text-blue-800 shrink-0 flex items-center gap-0.5"
                       >
                         Link <ArrowRight size={12} />
                       </button>
@@ -2011,7 +2011,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                             <button
                               key={s.id}
                               onClick={() => handleLinkSupplier(s.id)}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gold/10 transition-colors"
                             >
                               <span className="font-medium text-gray-900">{s.name}</span>
                               {s.aliases && s.aliases.length > 0 && (
@@ -2028,7 +2028,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                             setCreateSupplierOpen(true)
                             setSupplierComboOpen(false)
                           }}
-                          className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 font-semibold transition-colors"
+                          className="w-full text-left px-3 py-2 text-sm text-gold hover:bg-gold/10 border-t border-gray-100 font-semibold transition-colors"
                         >
                           + Create &ldquo;{session.supplierName || 'new supplier'}&rdquo; as new supplier
                         </button>
@@ -2060,7 +2060,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                       body: JSON.stringify({ revenueCenterId: rcId }),
                     })
                   }}
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold bg-white"
                 >
                   {revenueCenters.map(rc => (
                     <option key={rc.id} value={rc.id}>{rc.name}</option>
@@ -2178,7 +2178,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
               <button
                 onClick={() => setIsAddingItem(true)}
-                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                className="flex items-center gap-2 text-sm text-gold hover:text-blue-800 font-medium transition-colors"
               >
                 <Plus size={15} className="border border-blue-300 rounded" /> Add line item manually
               </button>
@@ -2226,7 +2226,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           <div className="flex-1 flex items-center gap-2 flex-wrap">
             <span className="text-sm text-gray-500">{activeItems} items to apply</span>
             {actionCounts['UPDATE_PRICE'] > 0 && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/15 text-gold border border-gold/30">
                 {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
               </span>
             )}
@@ -2242,7 +2242,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               placeholder="Your name"
               value={approvedBy}
               onChange={e => { setApprovedBy(e.target.value); localStorage.setItem('approvedBy', e.target.value) }}
-              className={`border rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-blue-500 ${!approvedBy ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
+              className={`border rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-gold ${!approvedBy ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
             />
             <button
               onClick={handleReject}
@@ -2299,7 +2299,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             )}
             <button
               onClick={onClose}
-              className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors"
+              className="w-full bg-gold text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-[#a88930] transition-colors"
             >
               <ScanLine size={18} /> Close
             </button>
@@ -2368,7 +2368,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
     const actionBadge = (action: string, isNewItem: boolean) => {
       if (action === 'UPDATE_PRICE') return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">price update</span>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/15 text-gold border border-gold/30">price update</span>
       )
       if (action === 'CREATE_NEW' || isNewItem) return (
         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">new item</span>
@@ -2573,7 +2573,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               onChange={e => setNewSupplierName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleCreateAndLinkSupplier() }}
               placeholder="e.g. Legends Haul"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold mb-3"
             />
             <div className="flex gap-2">
               <button
@@ -2585,7 +2585,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               <button
                 onClick={handleCreateAndLinkSupplier}
                 disabled={savingSupplier || !newSupplierName.trim()}
-                className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50"
               >
                 {savingSupplier ? 'Creating…' : 'Create & Link'}
               </button>
@@ -2609,7 +2609,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         {/* Drawer header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
-            <ScanLine size={18} className="text-blue-600" />
+            <ScanLine size={18} className="text-gold" />
             <span className="font-semibold text-gray-900">
               {drawerState === 'processing' ? 'Scanning…'
                 : drawerState === 'approving' ? 'Applying Invoice…'
@@ -2666,7 +2666,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
             <div className="flex items-center gap-2">
-              <ScanLine size={16} className="text-blue-600" />
+              <ScanLine size={16} className="text-gold" />
               <span className="font-semibold text-gray-900 text-sm">
                 {drawerState === 'processing' ? 'Scanning…'
                   : drawerState === 'approving' ? 'Applying Invoice…'
@@ -2685,13 +2685,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             <div className="flex border-b border-gray-100 shrink-0">
               <button
                 onClick={() => setMobileTab('review')}
-                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'review' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500'}`}
+                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}
               >
                 Review
               </button>
               <button
                 onClick={() => setMobileTab('image')}
-                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'image' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500'}`}
+                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'image' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}
               >
                 Invoice Image
               </button>

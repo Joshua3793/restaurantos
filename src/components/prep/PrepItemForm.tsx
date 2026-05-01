@@ -125,7 +125,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
       {children}
     </div>
   )
-  const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold'
   const selCls   = inputCls + ' bg-white'
 
   return (
@@ -194,7 +194,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
                 <input className={inputCls + ' flex-1 min-w-0'} type="number" min="0" step="0.5"
                   value={form.estimatedPrepTime} onChange={e => set('estimatedPrepTime', e.target.value)} placeholder="—" />
                 <select
-                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold shrink-0"
                   value={prepTimeUnit}
                   onChange={e => setPrepTimeUnit(e.target.value as TimeUnit)}
                 >
@@ -229,7 +229,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              className="px-4 py-2 text-sm bg-gold text-white rounded-lg hover:bg-[#a88930] disabled:opacity-50">
               {saving ? 'Saving…' : item ? 'Save Changes' : 'Create Prep Item'}
             </button>
           </div>

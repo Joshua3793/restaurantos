@@ -26,7 +26,7 @@ interface RawResults {
 
 const STATUS_COLORS: Record<string, string> = {
   COMPLETE: 'bg-green-100 text-green-700',
-  PROCESSING: 'bg-blue-100 text-blue-700',
+  PROCESSING: 'bg-gold/15 text-gold',
   PENDING: 'bg-amber-100 text-amber-700',
 }
 
@@ -245,9 +245,9 @@ export function GlobalSearch() {
                       key={item.id}
                       onMouseEnter={() => setSelectedIdx(idx)}
                       onClick={() => navigate(item.href)}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-gold/10' : 'hover:bg-gray-50'}`}
                     >
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${active ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${active ? 'bg-gold/15' : 'bg-gray-100'}`}>
                         {item.icon}
                       </div>
                       <div className="flex-1 min-w-0">

@@ -113,8 +113,8 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                     }}
                     className={`text-xs font-medium flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors ${
                       isPulling
-                        ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100'
+                        ? 'bg-gold/15 text-gold border border-gold/30'
+                        : 'bg-gold/10 text-gold hover:bg-gold/15 border border-blue-100'
                     }`}
                   >
                     Pull <ArrowRight size={11} />
@@ -135,7 +135,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                       value={pullQty}
                       onChange={e => setPullQty(e.target.value)}
                       placeholder="Quantity"
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                     />
                     <div className="flex items-center justify-center px-2.5 bg-gray-100 rounded-lg text-sm text-gray-600 font-medium shrink-0">
                       {countUOM}
@@ -143,7 +143,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                     <button
                       onClick={() => handlePull(rc.id)}
                       disabled={pulling || !pullQty}
-                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                      className="px-3 py-1.5 bg-gold text-white rounded-lg text-sm font-medium hover:bg-[#a88930] disabled:opacity-50"
                     >
                       {pulling ? '…' : 'Pull'}
                     </button>

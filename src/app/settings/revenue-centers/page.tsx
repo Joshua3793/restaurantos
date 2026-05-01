@@ -100,7 +100,7 @@ function RcFormModal({
                 value={form.name}
                 onChange={e => f('name', e.target.value)}
                 placeholder="e.g. Catering, Events..."
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
@@ -110,7 +110,7 @@ function RcFormModal({
               <select
                 value={form.type}
                 onChange={e => f('type', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 {RC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
@@ -139,7 +139,7 @@ function RcFormModal({
                 value={form.description}
                 onChange={e => f('description', e.target.value)}
                 placeholder="What does this revenue center handle?"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
@@ -151,7 +151,7 @@ function RcFormModal({
                   value={form.managerName}
                   onChange={e => f('managerName', e.target.value)}
                   placeholder="Name"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 />
               </div>
               <div>
@@ -165,7 +165,7 @@ function RcFormModal({
                     value={form.targetFoodCostPct}
                     onChange={e => f('targetFoodCostPct', e.target.value)}
                     placeholder="e.g. 28"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
                 </div>
@@ -180,7 +180,7 @@ function RcFormModal({
                 onChange={e => f('notes', e.target.value)}
                 placeholder="Any internal notes..."
                 rows={2}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold resize-none"
               />
             </div>
 
@@ -348,7 +348,7 @@ export default function RevenueCentersPage() {
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700"
+          className="flex items-center gap-1.5 bg-gold text-white px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#a88930]"
         >
           <Plus size={16} /> Add
         </button>

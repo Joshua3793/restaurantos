@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, Suspense } from 'react'
 import {
@@ -10,7 +11,6 @@ import {
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
 import { useRc } from '@/contexts/RevenueCenterContext'
-import { rcHex } from '@/lib/rc-colors'
 import { useUser } from '@/contexts/UserContext'
 import { createClient } from '@/lib/supabase/client'
 
@@ -102,7 +102,7 @@ function NavigationInner() {
   const pathname  = usePathname()
   const router    = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
-  const { activeRc } = useRc()
+  useRc()
   const { role }  = useUser()
 
   const isActive = (item: { href: string }) =>
@@ -125,51 +125,74 @@ function NavigationInner() {
   return (
     <>
       {/* ── Desktop Sidebar ────────────────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-56 bg-gray-900 text-white min-h-screen fixed left-0 top-0 z-40">
-        <div className="p-4 border-b border-gray-700 flex items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-bold text-white">CONTROLA OS</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Fergie&apos;s Kitchen</p>
+      <aside className="hidden md:flex flex-col w-56 min-h-screen fixed left-0 top-0 z-40"
+        style={{ background: '#0f0f0f' }}>
+
+        {/* Logo */}
+        <div className="px-4 pt-5 pb-4 flex items-center justify-between gap-2"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="flex items-center gap-2.5">
+            <Image src="/logo-icon.png" alt="Controla OS" width={32} height={32}
+              className="rounded-lg shrink-0" />
+            <div>
+              <h1 className="text-sm font-bold tracking-wide leading-tight"
+                style={{ color: '#c9a84c' }}>
+                Controla OS
+              </h1>
+              <p className="text-[10px] text-white/30 leading-tight mt-0.5">
+                Fergie&apos;s Kitchen
+              </p>
+            </div>
           </div>
-          <div className="text-white [&_button]:text-gray-400 [&_button:hover]:text-white [&_button:hover]:bg-gray-800">
+          <div className="[&_button]:text-white/30 [&_button:hover]:text-white [&_button:hover]:bg-white/5 rounded-lg">
             <AlertsBell />
           </div>
         </div>
+
         <RcSelector />
-        <nav className="flex-1 p-3">
+
+        {/* Nav items */}
+        <nav className="flex-1 px-2 py-3 overflow-y-auto">
           {visibleNavItems.map(item => {
             const active = isActive(item)
             const { href, label, icon: Icon } = item
             return (
               <div key={href}>
-                {item.dividerBefore && <div className="my-2 border-t border-gray-700/60" />}
+                {item.dividerBefore && (
+                  <div className="my-3 mx-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+                )}
                 <Link
                   href={href}
                   style={active ? {
-                    borderLeftColor: rcHex(activeRc?.color ?? 'blue'),
-                    borderLeftWidth: 4,
-                    backgroundColor: `${rcHex(activeRc?.color ?? 'blue')}30`,
+                    borderLeftColor: '#c9a84c',
+                    borderLeftWidth: 3,
+                    backgroundColor: 'rgba(201,168,76,0.12)',
+                    color: '#e8c97a',
                   } : undefined}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    active ? 'text-white pl-[8px]' : 'text-gray-400 hover:bg-gray-800 hover:text-white font-normal'
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] transition-all duration-150 ${
+                    active
+                      ? 'font-semibold pl-[9px]'
+                      : 'text-white/40 hover:text-white/80 hover:bg-white/5 font-normal'
                   }`}
                 >
-                  <Icon size={18} />
+                  <Icon size={16} />
                   {label}
                 </Link>
               </div>
             )
           })}
         </nav>
-        <div className="p-3 border-t border-gray-700">
+
+        {/* Footer */}
+        <div className="px-2 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+            className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-[13px] text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
             Log Out
           </button>
-          <p className="text-xs text-gray-600 px-3 mt-2">v1.0.0</p>
+          <p className="text-[10px] text-white/15 px-3 mt-2">v1.0.0</p>
         </div>
       </aside>
 
@@ -187,7 +210,7 @@ function NavigationInner() {
             return (
               <Link key={href} href={href}
                 className={`relative flex-1 flex flex-col items-center pt-2 pb-2 gap-0.5 transition-colors ${
-                  active ? 'text-blue-600' : 'text-gray-400'
+                  active ? 'text-gold' : 'text-gray-400'
                 }`}
               >
                 <Icon size={22} />
@@ -220,7 +243,7 @@ function NavigationInner() {
             return (
               <Link key={href} href={href}
                 className={`relative flex-1 flex flex-col items-center pt-2 pb-2 gap-0.5 transition-colors ${
-                  active ? 'text-blue-600' : 'text-gray-400'
+                  active ? 'text-gold' : 'text-gray-400'
                 }`}
               >
                 <Icon size={22} />
@@ -270,9 +293,9 @@ function NavigationInner() {
                           href={href}
                           onClick={() => setMoreOpen(false)}
                           style={active ? {
-                            borderLeftColor: rcHex(activeRc?.color ?? 'blue'),
+                            borderLeftColor: '#c9a84c',
                             borderLeftWidth: 3,
-                            backgroundColor: `${rcHex(activeRc?.color ?? 'blue')}18`,
+                            backgroundColor: 'rgba(201,168,76,0.10)',
                           } : undefined}
                           className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${
                             active

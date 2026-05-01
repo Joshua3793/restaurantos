@@ -105,7 +105,7 @@ export function PullModal({ item, revenueCenters, activeRcId, onClose, onSuccess
                     onClick={() => setRcId(rc.id)}
                     className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm transition-colors ${
                       rcId === rc.id
-                        ? 'border-blue-300 bg-blue-50 text-blue-800 font-medium'
+                        ? 'border-blue-300 bg-gold/10 text-blue-800 font-medium'
                         : 'border-gray-200 text-gray-700 hover:bg-gray-50'
                     }`}
                   >
@@ -138,7 +138,7 @@ export function PullModal({ item, revenueCenters, activeRcId, onClose, onSuccess
                 placeholder="0"
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handlePull()}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
               <div className="flex items-center justify-center px-3 bg-gray-100 rounded-xl text-sm font-medium text-gray-600 shrink-0 min-w-[3rem]">
                 {countUOM}
@@ -159,7 +159,7 @@ export function PullModal({ item, revenueCenters, activeRcId, onClose, onSuccess
           <button
             onClick={handlePull}
             disabled={pulling || !qty || !rcId || available <= 0}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="w-full py-2.5 bg-gold text-white rounded-xl text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50 transition-colors"
           >
             {pulling ? 'Pulling…' : `Pull to ${targetRc?.name ?? '…'}`}
           </button>

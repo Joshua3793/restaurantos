@@ -29,7 +29,7 @@ export function DeltaBadge({ change, inverse = false }: { change: number | null;
 export function KpiCard({ label, value, sub, change, inverse = false, accent = 'blue', icon: Icon }:
   { label: string; value: string; sub?: string; change?: number | null; inverse?: boolean; accent?: string; icon?: React.ElementType }) {
   const accentMap: Record<string, string> = {
-    blue: 'text-blue-600', green: 'text-green-600', amber: 'text-amber-500',
+    blue: 'text-gold', green: 'text-green-600', amber: 'text-amber-500',
     red: 'text-red-500', purple: 'text-purple-600', gray: 'text-gray-600',
   }
   return (

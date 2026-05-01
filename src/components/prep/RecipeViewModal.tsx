@@ -77,7 +77,7 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4 border-b border-gray-100">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <ChefHat size={16} className="text-blue-600 shrink-0" />
+              <ChefHat size={16} className="text-gold shrink-0" />
               <h2 className="text-base font-bold text-gray-900 truncate">{recipe?.name ?? recipeName}</h2>
             </div>
             {recipe && (
@@ -95,13 +95,13 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
         </div>
 
         {/* Scale control */}
-        <div className="px-5 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-4">
-          <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Making</span>
+        <div className="px-5 py-3 bg-gold/10 border-b border-blue-100 flex items-center gap-4">
+          <span className="text-xs font-semibold text-gold uppercase tracking-wide">Making</span>
           <div className="flex items-center gap-2 flex-1">
             <button
               onClick={dec}
               disabled={scale <= 0.5}
-              className="w-8 h-8 rounded-full border border-blue-200 bg-white flex items-center justify-center text-blue-600 hover:bg-blue-100 disabled:opacity-40 transition-colors"
+              className="w-8 h-8 rounded-full border border-gold/30 bg-white flex items-center justify-center text-gold hover:bg-gold/15 disabled:opacity-40 transition-colors"
             >
               <Minus size={14} />
             </button>
@@ -120,13 +120,13 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
             <button
               onClick={inc}
               disabled={scale >= 20}
-              className="w-8 h-8 rounded-full border border-blue-200 bg-white flex items-center justify-center text-blue-600 hover:bg-blue-100 disabled:opacity-40 transition-colors"
+              className="w-8 h-8 rounded-full border border-gold/30 bg-white flex items-center justify-center text-gold hover:bg-gold/15 disabled:opacity-40 transition-colors"
             >
               <Plus size={14} />
             </button>
           </div>
           <div className="text-right shrink-0">
-            <div className="text-sm font-bold text-blue-700">
+            <div className="text-sm font-bold text-gold">
               {scaledYield % 1 === 0 ? scaledYield.toFixed(0) : scaledYield.toFixed(1)} {unit}
             </div>
             <div className="text-xs text-blue-500">×{scale}</div>
@@ -137,7 +137,7 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex justify-center py-12">
-              <div className="w-8 h-8 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin" />
+              <div className="w-8 h-8 rounded-full border-2 border-gold/30 border-t-blue-600 animate-spin" />
             </div>
           ) : recipe ? (
             <>

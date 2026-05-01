@@ -114,9 +114,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
       if (!logStatus)                  return 'border-gray-300 text-transparent hover:border-blue-400'
       if (logStatus === 'DONE')        return 'bg-green-500 border-green-500 text-white'
       if (logStatus === 'PARTIAL')     return 'bg-yellow-400 border-yellow-400 text-white'
-      if (logStatus === 'IN_PROGRESS') return 'bg-blue-500 border-blue-500 text-white'
+      if (logStatus === 'IN_PROGRESS') return 'bg-gold/100 border-gold text-white'
       if (logStatus === 'SKIPPED')     return 'bg-gray-300 border-gray-300 text-white'
-      return 'bg-blue-200 border-blue-300 text-blue-700' // NOT_STARTED (scheduled)
+      return 'bg-blue-200 border-blue-300 text-gold' // NOT_STARTED (scheduled)
     })()
 
     const toggleIcon = (() => {
@@ -137,9 +137,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
     const statusLabel = (() => {
       if (logStatus === 'DONE')        return <span className="text-[10px] font-semibold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full">Done</span>
       if (logStatus === 'PARTIAL')     return <span className="text-[10px] font-semibold text-yellow-700 bg-yellow-100 px-1.5 py-0.5 rounded-full">Partial</span>
-      if (logStatus === 'IN_PROGRESS') return <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />In Progress</span>
+      if (logStatus === 'IN_PROGRESS') return <span className="text-[10px] font-semibold text-gold bg-gold/15 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-gold/100 animate-pulse" />In Progress</span>
       if (logStatus === 'SKIPPED')     return <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Skipped</span>
-      if (logStatus === 'NOT_STARTED') return <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Scheduled</span>
+      if (logStatus === 'NOT_STARTED') return <span className="text-[10px] font-semibold text-gold bg-gold/10 px-1.5 py-0.5 rounded-full">Scheduled</span>
       return null
     })()
 
@@ -221,7 +221,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
               value={confirmQty}
               onChange={e => setConfirmQty(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="h-9 w-28 rounded-lg border border-gray-300 px-3 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="h-9 w-28 rounded-lg border border-gray-300 px-3 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gold"
               placeholder={item.unit}
             />
             <button
@@ -289,7 +289,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           ) : (
             <div className="flex items-center gap-2 mt-0.5">
               {item.suggestedQty > 0 && (
-                <span className="text-xs font-semibold text-blue-600">
+                <span className="text-xs font-semibold text-gold">
                   Make {item.suggestedQty.toFixed(1)} {item.unit}
                 </span>
               )}
@@ -306,7 +306,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
         {item.linkedRecipeId && !isCompleted && (
           <button
             onClick={e => { e.stopPropagation(); setShowRecipe(true) }}
-            className="shrink-0 p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            className="shrink-0 p-1.5 text-gray-400 hover:text-gold hover:bg-gold/10 rounded-lg transition-colors"
             title="View recipe"
           >
             <BookOpen size={15} />
@@ -319,7 +319,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
             <>
               <button
                 onClick={() => onStatusChange(item.id, 'IN_PROGRESS')}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gold/10 text-gold border border-gold/30 hover:bg-gold/15 transition-colors"
               >
                 <Play size={10} fill="currentColor" /> Start
               </button>
@@ -370,7 +370,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Blocked</span>
               <button
                 onClick={() => onStatusChange(item.id, 'IN_PROGRESS')}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gold/10 text-gold border border-gold/30 hover:bg-gold/15 transition-colors"
               >
                 <Play size={10} fill="currentColor" /> Resume
               </button>

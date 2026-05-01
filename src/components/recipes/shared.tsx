@@ -131,12 +131,12 @@ export function InlineEdit({ value, onSave, className = '' }: { value: string; o
         onChange={e => setVal(e.target.value)}
         onBlur={save}
         onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setVal(value); setEditing(false) } }}
-        className={`border-b border-blue-500 outline-none bg-transparent ${className}`}
+        className={`border-b border-gold outline-none bg-transparent ${className}`}
       />
     )
   }
   return (
-    <span onClick={() => setEditing(true)} className={`cursor-pointer hover:text-blue-600 group ${className}`}>
+    <span onClick={() => setEditing(true)} className={`cursor-pointer hover:text-gold group ${className}`}>
       {value} <Pencil size={11} className="inline opacity-0 group-hover:opacity-40 ml-1" />
     </span>
   )
@@ -335,14 +335,14 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
               <button
                 key={s}
                 onClick={() => setScale(s)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${scale === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${scale === s ? 'bg-gold text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
                 {s === 1 ? '×1 (base)' : `×${s}`}
               </button>
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handlePrint} className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700">
+            <button onClick={handlePrint} className="flex items-center gap-2 bg-gold text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#a88930]">
               <Printer size={14} /> Print
             </button>
             <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
@@ -496,7 +496,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
   const numInput = (key: keyof typeof form, placeholder?: string) => (
     <input type="number" step="any" value={form[key]} placeholder={placeholder}
       onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
   )
 
   const handleSave = async () => {
@@ -536,7 +536,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
     : calcPricePerBaseUnit(pp, qty, ps, pu)
   const bu   = isPrep ? (item?.baseUnit ?? 'each') : deriveBaseUnit(pu)
 
-  const inputCls = 'w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400'
+  const inputCls = 'w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold'
   const selectCls = inputCls + ' bg-white'
 
   return (
@@ -606,11 +606,11 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
           </div>
 
           {/* Cost preview */}
-          <div className={`rounded-xl p-3 ${isPrep ? 'bg-purple-50' : 'bg-blue-50'}`}>
-            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${isPrep ? 'text-purple-600' : 'text-blue-600'}`}>
+          <div className={`rounded-xl p-3 ${isPrep ? 'bg-purple-50' : 'bg-gold/10'}`}>
+            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${isPrep ? 'text-purple-600' : 'text-gold'}`}>
               {isPrep ? 'Recipe-derived cost' : 'Cost preview'}
             </div>
-            <div className={`text-xl font-bold ${isPrep ? 'text-purple-700' : 'text-blue-700'}`}>
+            <div className={`text-xl font-bold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>
               {formatUnitPrice(ppbu)}<span className="text-sm font-normal ml-1">/ {bu}</span>
             </div>
             {!isPrep && (
@@ -627,7 +627,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !item}
-            className="flex-1 bg-blue-600 text-white rounded-xl py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            className="flex-1 bg-gold text-white rounded-xl py-2 text-sm font-medium hover:bg-[#a88930] disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
@@ -689,7 +689,7 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
         <button
           onClick={onEditItem}
           title={`Quick-edit ${ing.ingredientName}`}
-          className="text-sm text-gray-800 text-left hover:text-blue-600 group/name flex items-start gap-1 min-w-0"
+          className="text-sm text-gray-800 text-left hover:text-gold group/name flex items-start gap-1 min-w-0"
         >
           <span className="line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
           <Pencil size={10} className="shrink-0 opacity-0 group-hover/name:opacity-50 text-blue-500 transition-opacity mt-0.5" />
@@ -716,7 +716,7 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
             onKeyDown={e => e.key === 'Enter' && saveQty()}
             className="w-full text-right border border-blue-300 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none" autoFocus />
         ) : (
-          <span onClick={() => setEditingQty(true)} className="text-sm text-gray-800 cursor-pointer hover:text-blue-600">
+          <span onClick={() => setEditingQty(true)} className="text-sm text-gray-800 cursor-pointer hover:text-gold">
             {Number(displayQty.toFixed(3)).toString()}
           </span>
         )}
@@ -724,7 +724,7 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
 
       <div className="col-span-2">
         <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
           {!unitInList && <option value="__custom__">{unit}</option>}
           {compatibleGroups.map(group => (
             <optgroup key={group.label} label={group.label}>
@@ -822,7 +822,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
   if (!recipe) return (
     <div className="fixed inset-y-0 right-0 w-full md:w-[600px] bg-white shadow-2xl flex items-center justify-center z-50">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
     </div>
   )
 
@@ -843,7 +843,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-lg font-bold text-gray-900" />
             <div className="flex items-center gap-2 mt-0.5">
               {isMenu ? (
-                <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="text-xs text-gold bg-gold/10 px-2 py-0.5 rounded-full flex items-center gap-1">
                   <UtensilsCrossed size={10} /> Menu
                 </span>
               ) : (
@@ -881,7 +881,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">Category</label>
               <select value={recipe.categoryId} onChange={e => patchRecipe({ categoryId: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold">
                 {categories.filter(c => c.type === recipe.type).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
@@ -892,11 +892,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               </label>
               <div className="flex gap-1">
                 <input type="number" min="0" step="0.01" defaultValue={recipe.baseYieldQty} onBlur={e => patchRecipe({ baseYieldQty: e.target.value })}
-                  className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                 <select
                   value={recipe.yieldUnit}
                   onChange={e => patchRecipe({ yieldUnit: e.target.value })}
-                  className="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
                 >
                   {(isMenu
                     ? ['portion', 'portions', 'serving', 'servings', 'each', 'piece', 'pieces', 'plate', 'bowl']
@@ -925,7 +925,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
                 <input type="number" min="0" step="0.01" defaultValue={recipe.menuPrice ?? ''} placeholder="0.00"
                   onBlur={e => patchRecipe({ menuPrice: e.target.value || null })}
-                  className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
           </div>
@@ -944,7 +944,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             </button>
             {showNotes && (
               <textarea defaultValue={recipe.notes ?? ''} onBlur={e => patchRecipe({ notes: e.target.value || null })} rows={3}
-                className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold resize-none"
                 placeholder="Recipe notes, storage instructions…" />
             )}
           </div>
@@ -955,16 +955,16 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 <span className="text-sm font-semibold text-gray-700">Scale Recipe</span>
                 {sf !== 1 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-blue-600 font-semibold">×{sf}</span>
+                    <span className="text-xs text-gold font-semibold">×{sf}</span>
                     <button onClick={() => { setShowSaveScale(s => !s); setNewScaleName(`${recipe.name} ×${sf}`) }}
-                      className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-lg hover:bg-blue-700">Save as new</button>
+                      className="text-xs bg-gold text-white px-2.5 py-1 rounded-lg hover:bg-[#a88930]">Save as new</button>
                   </div>
                 )}
               </div>
               <div className="flex gap-2 flex-wrap mb-3">
                 {SCALE_PRESETS.map(p => (
                   <button key={p} onClick={() => { setScaleFactor(p); setCustomScale('') }}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${sf === p ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:border-blue-400'}`}>
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${sf === p ? 'bg-gold text-white' : 'bg-white border border-gray-200 text-gray-700 hover:border-blue-400'}`}>
                     ×{p}
                   </button>
                 ))}
@@ -977,14 +977,14 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 <input type="number" min="0.1" step="0.1" value={customScale} onChange={e => setCustomScale(e.target.value)}
                   onBlur={() => { const v = parseFloat(customScale); if (!isNaN(v) && v > 0) setScaleFactor(v) }}
                   placeholder="e.g. 2.5"
-                  className="w-20 border border-gray-200 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  className="w-20 border border-gray-200 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-gold" />
                 <span className="text-xs text-gray-400">×</span>
               </div>
               {showSaveScale && (
                 <div className="mt-3 flex gap-2">
                   <input value={newScaleName} onChange={e => setNewScaleName(e.target.value)} placeholder="New recipe name…"
-                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <button onClick={saveScale} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700">Save</button>
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <button onClick={saveScale} className="bg-gold text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#a88930]">Save</button>
                   <button onClick={() => setShowSaveScale(false)} className="p-1.5 text-gray-400 hover:text-gray-600"><X size={14} /></button>
                 </div>
               )}
@@ -1040,7 +1040,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                       <span className="flex-1 text-gray-800">{item.name}</span>
                       <span className="text-xs text-gray-400">{item.unit}</span>
                       <span className="text-xs text-gray-500">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
                         {item.type === 'recipe' ? 'PREP' : item.category}
                       </span>
                     </button>
@@ -1248,7 +1248,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                         {item.type === 'recipe' ? <ChefHat size={12} className="text-emerald-600 shrink-0" /> : <Package size={12} className="text-blue-500 shrink-0" />}
                         <span className="flex-1 text-gray-800">{item.name}</span>
                         <span className="text-xs text-gray-400">{item.unit}</span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
                           {item.type === 'recipe' ? 'PREP' : item.category}
                         </span>
                       </button>
@@ -1306,7 +1306,7 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
       </div>
       <div className="col-span-2">
         <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
           {!unitInList && <option value="__custom__">{unit}</option>}
           {compatibleGroups.map(group => (
             <optgroup key={group.label} label={group.label}>
@@ -1395,12 +1395,12 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
               <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addCat(); if (e.key === 'Escape') setAdding(false) }}
                 placeholder="Category name"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <button onClick={addCat} className="text-blue-600"><Check size={16} /></button>
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+              <button onClick={addCat} className="text-gold"><Check size={16} /></button>
               <button onClick={() => setAdding(false)} className="text-gray-400"><X size={14} /></button>
             </div>
           ) : (
-            <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-2">
+            <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-sm text-gold hover:text-gold mt-2">
               <Plus size={14} /> Add category
             </button>
           )}

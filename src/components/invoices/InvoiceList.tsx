@@ -40,8 +40,8 @@ function StatusBadge({ status }: { status: SessionStatus }) {
     return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-600">Rejected</span>
   if (status === 'PROCESSING')
     return (
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-600 flex items-center gap-1 w-fit">
-        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/15 text-gold flex items-center gap-1 w-fit">
+        <span className="w-1.5 h-1.5 rounded-full bg-gold/100 animate-pulse" />
         Processing
       </span>
     )
@@ -61,8 +61,8 @@ function SortIcon({ col, colSort }: { col: ColKey; colSort: { col: ColKey; dir: 
   if (!colSort || colSort.col !== col)
     return <ChevronsUpDown size={10} className="text-gray-300 ml-0.5 inline-block shrink-0" />
   return colSort.dir === 'asc'
-    ? <ChevronUp   size={10} className="text-blue-600 ml-0.5 inline-block shrink-0" />
-    : <ChevronDown size={10} className="text-blue-600 ml-0.5 inline-block shrink-0" />
+    ? <ChevronUp   size={10} className="text-gold ml-0.5 inline-block shrink-0" />
+    : <ChevronDown size={10} className="text-gold ml-0.5 inline-block shrink-0" />
 }
 
 function SortTh({ col, label, colSort, onSort, className = '' }: {
@@ -76,7 +76,7 @@ function SortTh({ col, label, colSort, onSort, className = '' }: {
     <button
       onClick={() => onSort(col)}
       className={`inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide rounded transition-colors whitespace-nowrap
-        ${active ? 'text-blue-600' : 'text-gray-400 hover:text-gray-700'} ${className}`}
+        ${active ? 'text-gold' : 'text-gray-400 hover:text-gray-700'} ${className}`}
     >
       {label}
       <SortIcon col={col} colSort={colSort} />
@@ -95,7 +95,7 @@ function Checkbox({ checked, indeterminate, onChange }: {
       onClick={e => { e.stopPropagation(); onChange(!checked) }}
       className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
         checked || indeterminate
-          ? 'bg-blue-600 border-blue-600'
+          ? 'bg-gold border-gold'
           : 'border-gray-300 hover:border-blue-400 bg-white'
       }`}
     >
@@ -239,31 +239,31 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
             ))}
           </div>
           <button onClick={onUploadClick}
-            className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition-colors shrink-0 sm:px-3 sm:py-1.5 sm:text-xs">
+            className="bg-gold text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#a88930] transition-colors shrink-0 sm:px-3 sm:py-1.5 sm:text-xs">
             + Scan Invoice
           </button>
         </div>
         <div className="px-3 pb-2 sm:hidden">
           <input value={search} onChange={e => { setSearch(e.target.value); clearSelection() }}
             placeholder="Search supplier or invoice #…"
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold"
           />
         </div>
         <div className="hidden sm:block px-4 pb-2">
           <input value={search} onChange={e => { setSearch(e.target.value); clearSelection() }}
             placeholder="Search supplier or invoice #…"
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold"
           />
         </div>
       </div>
 
       {/* ── Bulk action bar ── */}
       {selectedInView.length > 0 && (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-2 bg-blue-50 border-b border-blue-100">
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2 bg-gold/10 border-b border-blue-100">
           <span className="text-sm font-semibold text-blue-800">{selectedInView.length} selected</span>
           <div className="flex-1" />
           <button onClick={clearSelection}
-            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+            className="flex items-center gap-1 text-xs text-gold hover:text-blue-800 font-medium">
             <X size={13} /> Clear
           </button>
           <button onClick={() => setBulkDeleteConfirm(true)}
@@ -300,7 +300,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                   s.status === 'PROCESSING' || s.status === 'APPROVING' || s.status === 'ERROR'
                     ? 'opacity-70 cursor-default'
                     : isSelected
-                      ? 'bg-blue-50 hover:bg-blue-100 cursor-pointer'
+                      ? 'bg-gold/10 hover:bg-gold/15 cursor-pointer'
                       : s.status === 'REVIEW'
                         ? 'bg-amber-50 hover:bg-amber-100 cursor-pointer'
                         : 'hover:bg-gray-50 cursor-pointer'
@@ -344,7 +344,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                       {s.status === 'ERROR' && (
                         <button
                           onClick={() => { onRetry(s.id); setOpenMenu(null) }}
-                          className="w-full px-3 py-2 text-left text-sm text-blue-600 hover:bg-blue-50"
+                          className="w-full px-3 py-2 text-left text-sm text-gold hover:bg-gold/10"
                         >Retry scan</button>
                       )}
                       <button
@@ -361,7 +361,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                 className={`sm:hidden flex items-stretch border-b border-gray-100 transition-colors ${
                   s.status === 'PROCESSING' || s.status === 'APPROVING' || s.status === 'ERROR'
                     ? 'opacity-70 cursor-default bg-white'
-                    : isSelected ? 'bg-blue-50 cursor-pointer' : s.status === 'REVIEW' ? 'bg-amber-50 cursor-pointer' : 'bg-white cursor-pointer'
+                    : isSelected ? 'bg-gold/10 cursor-pointer' : s.status === 'REVIEW' ? 'bg-amber-50 cursor-pointer' : 'bg-white cursor-pointer'
                 }`}
                 onClick={() => {
                   if (s.status !== 'PROCESSING' && s.status !== 'APPROVING' && s.status !== 'ERROR') onSelect(s.id)
@@ -403,7 +403,7 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
                       {s.status === 'ERROR' && (
                         <button
                           onClick={() => { onRetry(s.id); setOpenMenu(null) }}
-                          className="w-full px-3 py-2 text-left text-sm text-blue-600 hover:bg-blue-50"
+                          className="w-full px-3 py-2 text-left text-sm text-gold hover:bg-gold/10"
                         >Retry scan</button>
                       )}
                       <button

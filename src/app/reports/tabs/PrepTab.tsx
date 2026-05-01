@@ -81,14 +81,14 @@ export default function PrepTab() {
       {/* Header + period selector */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <ChefHat size={18} className="text-blue-600" />
+          <ChefHat size={18} className="text-gold" />
           <h2 className="text-base font-semibold text-gray-800">Prep Performance</h2>
         </div>
         <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white">
           {PERIOD_OPTIONS.map(opt => (
             <button key={opt.days} onClick={() => setPeriod(opt.days)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                period === opt.days ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+                period === opt.days ? 'bg-gold text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
               }`}>
               {opt.label}
             </button>
@@ -98,7 +98,7 @@ export default function PrepTab() {
 
       {loading ? (
         <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
         </div>
       ) : error ? (
         <div className="text-sm text-red-600 text-center py-12">{error}</div>

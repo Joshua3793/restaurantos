@@ -49,11 +49,11 @@ export function SupplierList({ suppliers, selectedId, onSelect, onAdd }: Props) 
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search suppliers…"
-          className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold"
         />
         <button
           onClick={onAdd}
-          className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 shrink-0 transition-colors"
+          className="bg-gold text-white rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-[#a88930] shrink-0 transition-colors"
         >
           + Add
         </button>
@@ -71,12 +71,12 @@ export function SupplierList({ suppliers, selectedId, onSelect, onAdd }: Props) 
               key={s.id}
               onClick={() => onSelect(s.id)}
               className={`w-full text-left flex border-b border-gray-100 transition-colors overflow-hidden ${
-                selected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
+                selected ? 'bg-gold/10' : 'bg-white hover:bg-gray-50'
               }`}
             >
-              <div className={`w-1 shrink-0 ${selected ? 'bg-blue-500' : 'bg-transparent'}`} />
+              <div className={`w-1 shrink-0 ${selected ? 'bg-gold/100' : 'bg-transparent'}`} />
               <div className="flex-1 min-w-0 px-3 py-3">
-                <p className={`text-sm font-semibold truncate ${selected ? 'text-blue-700' : 'text-gray-900'}`}>
+                <p className={`text-sm font-semibold truncate ${selected ? 'text-gold' : 'text-gray-900'}`}>
                   {s.name}
                 </p>
                 {s.aliases && s.aliases.length > 0 && (

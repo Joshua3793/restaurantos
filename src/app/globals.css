@@ -2,31 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Brand design tokens ───────────────────────────────────────────────────── */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f0f0f;
+  /* Gold: 201 168 76 = #c9a84c — used via Tailwind as rgb(var(--gold) / alpha) */
+  --gold: 201 168 76;
+  --gold-hex: #c9a84c;
+  --gold-dark: #a88930;
+  /* Override Tailwind's global focus ring → brand gold */
+  --tw-ring-color: rgb(201 168 76 / 0.45);
 }
 
-
+/* ── Base ──────────────────────────────────────────────────────────────────── */
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter, 'Inter', system-ui, -apple-system, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
-}
+/* ── Scrollbar — subtle, premium ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
+/* ── Selection color ───────────────────────────────────────────────────────── */
+::selection { background: rgb(201 168 76 / 0.2); }
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
 @keyframes slide-up {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.toast-enter { animation: slide-up 0.3s ease-out both; }
+.toast-enter { animation: slide-up 0.25s ease-out both; }
 
-/* Prevent iOS auto-zoom on input focus — requires font-size >= 16px */
+/* ── Gold gradient text utility ───────────────────────────────────────────── */
+.text-gold-gradient {
+  background: linear-gradient(135deg, #e8c97a 0%, #c9a84c 50%, #a88930 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Safe area utility ─────────────────────────────────────────────────────── */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* ── Text balance ──────────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+}
+
+/* ── Prevent iOS auto-zoom on input focus ──────────────────────────────────── */
 @supports (-webkit-touch-callout: none) {
   input[type="text"],
   input[type="number"],
@@ -35,7 +64,5 @@ body {
   input[type="date"],
   input[type="search"],
   textarea,
-  select {
-    font-size: 16px !important;
-  }
+  select { font-size: 16px !important; }
 }

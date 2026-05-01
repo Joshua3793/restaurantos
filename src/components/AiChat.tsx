@@ -342,7 +342,7 @@ export function AiChat() {
                         <button
                           key={prompt}
                           onClick={() => sendMessage(prompt)}
-                          className="w-full text-left text-sm px-3 py-2 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-gray-700 transition-colors"
+                          className="w-full text-left text-sm px-3 py-2 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-gold/10 text-gray-700 transition-colors"
                         >
                           {prompt}
                         </button>
@@ -363,7 +363,7 @@ export function AiChat() {
                         <div
                           className={
                             msg.role === 'user'
-                              ? 'bg-blue-600 rounded-2xl rounded-br-sm px-3 py-2 ml-8 max-w-[85%]'
+                              ? 'bg-gold rounded-2xl rounded-br-sm px-3 py-2 ml-8 max-w-[85%]'
                               : 'bg-gray-100 rounded-2xl rounded-bl-sm px-3 py-2 mr-8 max-w-[85%]'
                           }
                         >
@@ -387,12 +387,12 @@ export function AiChat() {
                     onKeyDown={handleKeyDown}
                     placeholder="Ask anything..."
                     disabled={loading}
-                    className="flex-1 min-w-0 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                    className="flex-1 min-w-0 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-gold disabled:opacity-50"
                   />
                   <button
                     onClick={() => sendMessage(input)}
                     disabled={loading || !input.trim()}
-                    className="shrink-0 w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+                    className="shrink-0 w-9 h-9 rounded-full bg-gold hover:bg-[#a88930] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
                     aria-label="Send message"
                   >
                     <Send size={16} className="text-white" />

@@ -34,7 +34,7 @@ const REASON_COLORS: Record<string, string> = {
   OVERPRODUCTION: 'bg-orange-100 text-orange-700',
   PREP_TRIM:      'bg-yellow-100 text-yellow-700',
   BURNT:          'bg-gray-100 text-gray-700',
-  DROPPED:        'bg-blue-100 text-blue-700',
+  DROPPED:        'bg-gold/15 text-gold',
   EXPIRED:        'bg-purple-100 text-purple-700',
   STAFF_MEAL:     'bg-green-100 text-green-700',
   UNKNOWN:        'bg-gray-100 text-gray-600',
@@ -132,7 +132,7 @@ export default function WastagePage() {
         <h1 className="text-2xl font-bold text-gray-900">Wastage Log</h1>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] transition-colors"
         >
           <Plus size={16} /> Log Wastage
         </button>
@@ -155,7 +155,7 @@ export default function WastagePage() {
         <select
           value={reasonFilter}
           onChange={e => setReasonFilter(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
         >
           <option value="">All Reasons</option>
           {WASTAGE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
@@ -165,14 +165,14 @@ export default function WastagePage() {
             type="date"
             value={startDate}
             onChange={e => setStartDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
           <span className="text-gray-400 text-sm">to</span>
           <input
             type="date"
             value={endDate}
             onChange={e => setEndDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
         </div>
         {(reasonFilter || startDate || endDate) && (
@@ -257,7 +257,7 @@ export default function WastagePage() {
                     const item = inventoryItems.find(i => i.id === e.target.value)
                     setForm(f => ({ ...f, inventoryItemId: e.target.value, unit: item?.baseUnit || 'g' }))
                   }}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">Select item...</option>
                   {inventoryItems.map(item => (
@@ -273,7 +273,7 @@ export default function WastagePage() {
                     required
                     value={form.qtyWasted}
                     onChange={e => setForm(f => ({ ...f, qtyWasted: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                     step="any"
                   />
                 </div>
@@ -282,7 +282,7 @@ export default function WastagePage() {
                   <input
                     value={form.unit}
                     onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
               </div>
@@ -291,7 +291,7 @@ export default function WastagePage() {
                 <select
                   value={form.reason}
                   onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   {WASTAGE_REASONS.map(r => <option key={r}>{r}</option>)}
                 </select>
@@ -303,7 +303,7 @@ export default function WastagePage() {
                     type="date"
                     value={form.date}
                     onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
@@ -312,7 +312,7 @@ export default function WastagePage() {
                     value={form.loggedBy}
                     onChange={e => setForm(f => ({ ...f, loggedBy: e.target.value }))}
                     placeholder="Name"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
               </div>
@@ -321,7 +321,7 @@ export default function WastagePage() {
                 <textarea
                   value={form.notes}
                   onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   rows={2}
                 />
               </div>

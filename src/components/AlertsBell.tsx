@@ -100,7 +100,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
               {(badgeCount > 0) && (
                 <button
                   onClick={acknowledgeAll}
-                  className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                  className="text-xs text-gold hover:underline flex items-center gap-1"
                 >
                   <Check size={10} /> Mark all read
                 </button>
@@ -121,9 +121,9 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
               <>
                 {/* Soft / transient notifications */}
                 {notifications.map(n => (
-                  <div key={n.id} className="px-4 py-3 border-b border-gray-50 bg-blue-50/40 hover:bg-blue-50 transition-colors">
+                  <div key={n.id} className="px-4 py-3 border-b border-gray-50 bg-gold/10/40 hover:bg-gold/10 transition-colors">
                     <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_ready' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_ready' ? 'bg-gold/15' : 'bg-green-100'}`}>
                         {n.type === 'invoice_ready'
                           ? <FileText size={12} className="text-blue-500" />
                           : <CheckCircle2 size={12} className="text-green-500" />
@@ -141,7 +141,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => { n.onAction(); dismiss(n.id); setOpen(false) }}
-                          className="text-xs font-medium text-blue-600 hover:underline px-1.5 py-0.5"
+                          className="text-xs font-medium text-gold hover:underline px-1.5 py-0.5"
                         >
                           {n.actionLabel}
                         </button>
@@ -206,7 +206,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           <Link
             href="/invoices"
             onClick={() => setOpen(false)}
-            className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs text-blue-600 hover:bg-blue-50 transition-colors border-t border-gray-50"
+            className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs text-gold hover:bg-gold/10 transition-colors border-t border-gray-50"
           >
             View all invoices <ChevronRight size={12} />
           </Link>

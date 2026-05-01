@@ -45,8 +45,8 @@ export default function SettingsPage() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Section header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
-          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
-            <Mail size={16} className="text-blue-600" />
+          <div className="w-8 h-8 bg-gold/15 rounded-lg flex items-center justify-center shrink-0">
+            <Mail size={16} className="text-gold" />
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">Weekly Email Digest</p>
@@ -67,12 +67,12 @@ export default function SettingsPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="manager@fergies.kitchen"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
               <button
                 onClick={sendDigest}
                 disabled={sending || !email}
-                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap transition-colors"
+                className="flex items-center gap-2 bg-gold text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a88930] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap transition-colors"
               >
                 <Send size={13} />
                 {sending ? 'Sending…' : 'Send Test'}
