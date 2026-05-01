@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import {
-  TrendingUp, Package, ShoppingCart, DollarSign, BarChart2,
+  TrendingUp, Package, ShoppingCart, DollarSign, BarChart2, ChefHat,
 } from 'lucide-react'
 import { LoadingState } from './report-components'
 
@@ -12,6 +12,7 @@ const SalesTab      = dynamic(() => import('./tabs/SalesTab'),      { ssr: false
 const InventoryTab  = dynamic(() => import('./tabs/InventoryTab'),  { ssr: false, loading: () => <LoadingState /> })
 const PurchasingTab = dynamic(() => import('./tabs/PurchasingTab'), { ssr: false, loading: () => <LoadingState /> })
 const CogsTab       = dynamic(() => import('./tabs/CogsTab'),       { ssr: false, loading: () => <LoadingState /> })
+const PrepTab       = dynamic(() => import('./tabs/PrepTab'),       { ssr: false, loading: () => <LoadingState /> })
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const PERIOD_OPTIONS = [
@@ -26,6 +27,7 @@ const TABS = [
   { id: 'inventory',  label: 'Inventory',  icon: Package },
   { id: 'purchasing', label: 'Purchasing', icon: ShoppingCart },
   { id: 'cogs',       label: 'Cost & COGS',icon: DollarSign },
+  { id: 'prep',       label: 'Prep',       icon: ChefHat },
 ]
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ export default function ReportsPage() {
         {activeTab === 'inventory'  && <InventoryTab  period={period} />}
         {activeTab === 'purchasing' && <PurchasingTab period={period} />}
         {activeTab === 'cogs'       && <CogsTab />}
+        {activeTab === 'prep'       && <PrepTab />}
       </div>
     </div>
   )

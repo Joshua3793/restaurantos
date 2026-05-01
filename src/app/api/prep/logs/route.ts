@@ -5,6 +5,21 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const dateStr    = searchParams.get('date')
   const prepItemId = searchParams.get('prepItemId')
+  const daysStr    = searchParams.get('days') // if set + prepItemId, return last N days (no single-date filter)
+
+  // Per-item recent history mode: ?prepItemId=X&days=7
+  if (prepItemId && daysStr) {
+    const days  = Math.min(parseInt(daysStr, 10) || 7, 90)
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    since.setHours(0, 0, 0, 0)
+
+    const logs = await prisma.prepLog.findMany({
+      where:   { prepItemId, logDate: { gte: since } },
+      orderBy: { logDate: 'desc' },
+    })
+    return NextResponse.json(logs)
+  }
 
   const date = dateStr ? new Date(dateStr) : new Date()
   date.setHours(0, 0, 0, 0)

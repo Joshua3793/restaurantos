@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { X, BookOpen, CheckCircle, Clock, AlertCircle, RotateCcw, ChevronRight } from 'lucide-react'
+import { X, BookOpen, CheckCircle, Clock, AlertCircle, RotateCcw, ChevronRight, History } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import {
   PREP_PRIORITY_META,
@@ -17,6 +17,29 @@ interface Props {
   onEdit: () => void
 }
 
+interface HistoryLog {
+  id: string
+  logDate: string
+  status: string
+  actualPrepQty: string | number | null
+  note: string | null
+  assignedTo: string | null
+}
+
+const STATUS_SHORT: Record<string, { label: string; cls: string }> = {
+  DONE:        { label: 'Done',       cls: 'bg-green-100 text-green-700' },
+  PARTIAL:     { label: 'Partial',    cls: 'bg-amber-100 text-amber-700' },
+  IN_PROGRESS: { label: 'In Progress',cls: 'bg-blue-100 text-blue-700' },
+  BLOCKED:     { label: 'Blocked',    cls: 'bg-red-100 text-red-700' },
+  SKIPPED:     { label: 'Skipped',    cls: 'bg-gray-100 text-gray-500' },
+  NOT_STARTED: { label: 'Not Started',cls: 'bg-gray-100 text-gray-400' },
+}
+
+function fmtDate(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
   const [detail, setDetail]             = useState<PrepItemDetail | null>(null)
   const [actualQty, setActualQty]       = useState('')
@@ -24,11 +47,19 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
   const [showRevert, setShowRevert]     = useState(false)
   const [loading, setLoading]           = useState(false)
   const [warning, setWarning]           = useState<string | null>(null)
+  const [history, setHistory]           = useState<HistoryLog[]>([])
+  const [showHistory, setShowHistory]   = useState(false)
 
   useEffect(() => {
     fetch(`/api/prep/items/${item.id}`)
       .then(r => r.json())
       .then(setDetail)
+  }, [item.id])
+
+  useEffect(() => {
+    fetch(`/api/prep/logs?prepItemId=${item.id}&days=14`)
+      .then(r => r.json())
+      .then((logs: HistoryLog[]) => setHistory(logs.filter(l => l.status !== 'NOT_STARTED')))
   }, [item.id])
 
   // Pre-fill actualQty from existing log
@@ -262,6 +293,52 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
               </a>
             </div>
           )}
+
+          {/* 14-day history */}
+          <div>
+            <button
+              onClick={() => setShowHistory(v => !v)}
+              className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-full"
+            >
+              <History size={13} />
+              Recent History
+              <span className="ml-auto text-gray-400">{history.length} entries · {showHistory ? '▲' : '▼'}</span>
+            </button>
+
+            {showHistory && (
+              <div className="mt-2 rounded-xl border border-gray-100 overflow-hidden">
+                {history.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">No activity in the last 14 days</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-400">
+                        <th className="text-left px-3 py-2 font-medium">Date</th>
+                        <th className="text-left px-3 py-2 font-medium">Status</th>
+                        <th className="text-right px-3 py-2 font-medium">Qty Made</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map(log => {
+                        const meta = STATUS_SHORT[log.status] ?? STATUS_SHORT.NOT_STARTED
+                        return (
+                          <tr key={log.id} className="border-t border-gray-50">
+                            <td className="px-3 py-2 text-gray-600">{fmtDate(log.logDate)}</td>
+                            <td className="px-3 py-2">
+                              <span className={`px-1.5 py-0.5 rounded-full ${meta.cls}`}>{meta.label}</span>
+                            </td>
+                            <td className="px-3 py-2 text-right text-gray-600">
+                              {log.actualPrepQty != null ? `${Number(log.actualPrepQty).toFixed(1)} ${item.unit}` : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Priority override */}
           <div>

@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
-import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal, WifiOff, RefreshCcw } from 'lucide-react'
+import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal, WifiOff, RefreshCcw, History } from 'lucide-react'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
@@ -44,7 +44,17 @@ export default function PrepPage() {
   const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
-  const [viewMode,       setViewMode]       = useState<'today' | 'plan'>('today')
+  const [viewMode,       setViewMode]       = useState<'today' | 'plan' | 'history'>('today')
+
+  // History tab state
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
+  const [historyDate,    setHistoryDate]    = useState(yesterday.toISOString().slice(0, 10))
+  const [historyLogs,    setHistoryLogs]    = useState<Array<{
+    id: string; status: string; actualPrepQty: number | null
+    note: string | null; assignedTo: string | null; logDate: string
+    prepItem: { id: string; name: string; unit: string }
+  }>>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -128,6 +138,16 @@ export default function PrepPage() {
     }
     load()
   }, [isOffline, offlineSyncing, load])
+
+  // Fetch history logs when History tab is active or date changes
+  useEffect(() => {
+    if (viewMode !== 'history') return
+    setHistoryLoading(true)
+    fetch(`/api/prep/logs?date=${historyDate}`)
+      .then(r => r.json())
+      .then(data => { setHistoryLogs(Array.isArray(data) ? data : []); setHistoryLoading(false) })
+      .catch(() => setHistoryLoading(false))
+  }, [viewMode, historyDate])
 
   // Auto-generate removed — chef now manually plans the prep list from "Plan Prep List" view
 
@@ -453,16 +473,16 @@ export default function PrepPage() {
 
         {/* View tabs */}
         <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
-          {(['today', 'plan'] as const).map(m => (
+          {(['today', 'plan', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
-              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-              {m === 'today' ? 'Today' : 'Plan Prep List'}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+              {m === 'today' ? 'Today' : m === 'plan' ? 'Plan' : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
 
         {/* KPI strip */}
-        {viewMode !== 'plan' && (
+        {viewMode === 'today' && (
           <div className="mt-2">
             <PrepKpiStrip items={todayItems} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
           </div>
@@ -611,7 +631,7 @@ export default function PrepPage() {
 
       {/* ── Desktop KPI strip + filters ── */}
       <div className="hidden md:block space-y-5">
-        {viewMode !== 'plan' && (
+        {viewMode === 'today' && (
           <PrepKpiStrip items={todayItems} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
         )}
         <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
@@ -651,10 +671,11 @@ export default function PrepPage() {
               <span className="text-gray-600">Active only</span>
             </label>
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-              {(['today', 'plan'] as const).map(m => (
+              {(['today', 'plan', 'history'] as const).map(m => (
                 <button key={m} onClick={() => setViewMode(m)}
-                  className={`px-3 py-1 text-xs rounded-md transition-colors ${viewMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
-                  {m === 'today' ? 'Today' : 'Plan Prep List'}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors flex items-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {m === 'history' && <History size={11} />}
+                  {m === 'today' ? 'Today' : m === 'plan' ? 'Plan Prep List' : 'History'}
                 </button>
               ))}
             </div>
@@ -663,7 +684,7 @@ export default function PrepPage() {
       </div>
 
       {/* Currently Making — only in Today view */}
-      {inProgress.length > 0 && viewMode === 'today' && (
+      {inProgress.length > 0 && viewMode === 'today' && !loading && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
           <div className="px-4 py-2 flex items-center gap-2 border-b border-blue-100">
             <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Currently Making</span>
@@ -747,8 +768,109 @@ export default function PrepPage() {
         </div>
       )}
 
-      {/* Main list */}
-      {loading ? (
+      {/* ── History view ── */}
+      {viewMode === 'history' && (
+        <div className="space-y-4">
+          {/* Date picker */}
+          <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 flex-wrap">
+            <History size={16} className="text-gray-400 shrink-0" />
+            <span className="text-sm font-medium text-gray-700">View date:</span>
+            <input
+              type="date"
+              max={new Date().toISOString().slice(0, 10)}
+              value={historyDate}
+              onChange={e => setHistoryDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="text-xs text-gray-400 ml-auto">
+              {new Date(historyDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            </span>
+          </div>
+
+          {historyLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-blue-600" />
+            </div>
+          ) : historyLogs.length === 0 ? (
+            <div className="bg-white border border-gray-100 rounded-xl py-14 text-center">
+              <History size={28} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500 text-sm">No prep was logged on this date.</p>
+              <p className="text-xs text-gray-400 mt-1">Try a different date or check if items were added to today&apos;s list.</p>
+            </div>
+          ) : (() => {
+            const STATUS_HIST: Record<string, { label: string; cls: string }> = {
+              DONE:        { label: 'Done',        cls: 'bg-green-100 text-green-700' },
+              PARTIAL:     { label: 'Partial',     cls: 'bg-amber-100 text-amber-700' },
+              IN_PROGRESS: { label: 'In Progress', cls: 'bg-blue-100 text-blue-700' },
+              BLOCKED:     { label: 'Blocked',     cls: 'bg-red-100 text-red-700' },
+              SKIPPED:     { label: 'Skipped',     cls: 'bg-gray-100 text-gray-400' },
+              NOT_STARTED: { label: 'Not Started', cls: 'bg-gray-100 text-gray-400' },
+            }
+            const done    = historyLogs.filter(l => l.status === 'DONE').length
+            const partial = historyLogs.filter(l => l.status === 'PARTIAL').length
+            const blocked = historyLogs.filter(l => l.status === 'BLOCKED').length
+            const total   = historyLogs.length
+            const completionRate = total > 0 ? Math.round(((done + partial) / total) * 100) : 0
+            return (
+              <>
+                {/* Summary strip */}
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { label: 'Total', value: total, cls: 'text-gray-800' },
+                    { label: 'Done', value: done, cls: 'text-green-700' },
+                    { label: 'Partial', value: partial, cls: 'text-amber-700' },
+                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-700' : completionRate >= 50 ? 'text-amber-700' : 'text-red-600' },
+                  ].map(c => (
+                    <div key={c.label} className="bg-white border border-gray-100 rounded-xl p-3 text-center">
+                      <div className="text-xs text-gray-400 mb-1">{c.label}</div>
+                      <div className={`text-lg font-bold ${c.cls}`}>{c.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {blocked > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-700">
+                    {blocked} item{blocked !== 1 ? 's were' : ' was'} blocked — see notes below.
+                  </div>
+                )}
+
+                {/* Log table */}
+                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Items Logged</span>
+                    <span className="text-xs text-gray-400">{total}</span>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {historyLogs.map(log => {
+                      const meta = STATUS_HIST[log.status] ?? STATUS_HIST.NOT_STARTED
+                      return (
+                        <div key={log.id} className="px-4 py-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-800 truncate">{log.prepItem.name}</div>
+                            {log.note && <div className="text-xs text-gray-400 mt-0.5 truncate">{log.note}</div>}
+                            {log.assignedTo && <div className="text-xs text-gray-400">by {log.assignedTo}</div>}
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            {log.actualPrepQty != null && (
+                              <span className="text-sm text-gray-600 font-medium">
+                                {Number(log.actualPrepQty).toFixed(1)} {log.prepItem.unit}
+                              </span>
+                            )}
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${meta.cls}`}>{meta.label}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* Main list (Today + Plan modes only) */}
+      {viewMode !== 'history' && (loading ? (
         <div className="flex justify-center py-16">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         </div>
@@ -836,7 +958,7 @@ export default function PrepPage() {
             />
           ))}
         </div>
-      )}
+      ))}
 
       {/* Detail panel */}
       {selectedLive && (
