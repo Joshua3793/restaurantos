@@ -6,10 +6,15 @@ export async function GET() {
   try {
     let settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
     if (!settings) {
-      settings = await prisma.prepSettings.create({
-        data: { id: 'singleton', categories: DEFAULT_CATEGORIES, stations: DEFAULT_STATIONS },
-      })
+      // Use raw INSERT to avoid any pgbouncer array-handling issues on first create
+      await prisma.$executeRaw`
+        INSERT INTO "PrepSettings" (id, categories, stations, "updatedAt")
+        VALUES ('singleton', ${DEFAULT_CATEGORIES}, ${DEFAULT_STATIONS}, NOW())
+        ON CONFLICT (id) DO NOTHING
+      `
+      settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
     }
+    if (!settings) throw new Error('Could not create singleton row')
     return NextResponse.json({ categories: settings.categories, stations: settings.stations })
   } catch (err) {
     console.error('[prep/settings GET]', err)
@@ -27,14 +32,21 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Lists cannot be empty' }, { status: 400 })
     }
 
-    const existing = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
-    const settings = existing
-      ? await prisma.prepSettings.update({ where: { id: 'singleton' }, data: { categories, stations } })
-      : await prisma.prepSettings.create({ data: { id: 'singleton', categories, stations } })
+    // Raw SQL bypasses Prisma's array serialisation, which can fail
+    // with pgBouncer in transaction mode (prepared-statement restrictions).
+    await prisma.$executeRaw`
+      INSERT INTO "PrepSettings" (id, categories, stations, "updatedAt")
+      VALUES ('singleton', ${categories}, ${stations}, NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET categories = EXCLUDED.categories,
+            stations   = EXCLUDED.stations,
+            "updatedAt" = NOW()
+    `
 
-    return NextResponse.json({ categories: settings.categories, stations: settings.stations })
+    return NextResponse.json({ categories, stations })
   } catch (err) {
     console.error('[prep/settings PUT]', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
