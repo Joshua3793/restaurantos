@@ -1039,20 +1039,16 @@ export default function CountPage() {
                 return (
                   <>
                     {uoms.length > 1 && (
-                      <div className="flex gap-1 mb-3">
-                        {uoms.map(opt => (
-                          <button
-                            key={opt.label}
-                            onClick={() => changeUom(line, opt.label)}
-                            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                              line.selectedUom === opt.label
-                                ? 'bg-gray-900 text-white'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                      <div className="mb-3">
+                        <select
+                          value={line.selectedUom}
+                          onChange={e => changeUom(line, e.target.value)}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                        >
+                          {uoms.map(opt => (
+                            <option key={opt.label} value={opt.label}>{opt.label}</option>
+                          ))}
+                        </select>
                       </div>
                     )}
 
@@ -1189,20 +1185,16 @@ export default function CountPage() {
                 return (
                   <>
                     {uoms.length > 1 && (
-                      <div className="flex gap-1 mb-2">
-                        {uoms.map(opt => (
-                          <button
-                            key={opt.label}
-                            onClick={() => changeUom(line, opt.label)}
-                            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                              line.selectedUom === opt.label
-                                ? 'bg-gray-900 text-white'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                      <div className="mb-2">
+                        <select
+                          value={line.selectedUom}
+                          onChange={e => changeUom(line, e.target.value)}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                        >
+                          {uoms.map(opt => (
+                            <option key={opt.label} value={opt.label}>{opt.label}</option>
+                          ))}
+                        </select>
                       </div>
                     )}
                     <div className="text-xs text-gray-500 mb-2 flex items-center gap-1.5">

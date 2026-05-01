@@ -51,29 +51,27 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
   // 2. Base unit — always available (1:1 with stockOnHand).
   add(item.baseUnit, 1)
 
-  // 3. A single compatible "partner" unit for weight/volume bases so staff
-  //    can count in whichever system their scale uses.
-  const WEIGHT_PARTNERS: Record<string, string> = {
-    lb: 'kg', kg: 'lb', g: 'oz', oz: 'g',
-  }
-  const VOLUME_PARTNERS: Record<string, string> = {
-    l: 'fl oz', ml: 'l', 'fl oz': 'l',
-  }
+  // 3. All practical units from the same weight/volume group so staff can
+  //    use whatever scale or measure they have on hand.
+  const PRACTICAL_WEIGHT = ['kg', 'lb', 'g', 'oz']
+  const PRACTICAL_VOLUME = ['l', 'ml', 'fl oz', 'cup', 'qt']
 
-  const partners: Record<string, string> = { ...WEIGHT_PARTNERS, ...VOLUME_PARTNERS }
-  const partnerLabel = partners[item.baseUnit.toLowerCase()]
+  for (const group of UOM_GROUPS) {
+    const baseDef = group.units.find(u => u.label.toLowerCase() === item.baseUnit.toLowerCase())
+    if (!baseDef) continue
 
-  if (partnerLabel) {
-    // Compute conversion factor via UOM_GROUPS
-    for (const group of UOM_GROUPS) {
-      const baseDef    = group.units.find(u => u.label.toLowerCase() === item.baseUnit.toLowerCase())
-      const partnerDef = group.units.find(u => u.label.toLowerCase() === partnerLabel.toLowerCase())
-      if (baseDef && partnerDef) {
-        // 1 partnerLabel = (partnerDef.toBase / baseDef.toBase) baseUnits
-        add(partnerDef.label, partnerDef.toBase / baseDef.toBase)
-        break
-      }
+    const practical =
+      group.label === 'Weight' ? PRACTICAL_WEIGHT :
+      group.label === 'Volume' ? PRACTICAL_VOLUME :
+      [] // Count items: no extra unit conversions beyond purchaseUnit
+
+    for (const unitLabel of practical) {
+      const unitDef = group.units.find(u => u.label === unitLabel)
+      if (!unitDef) continue
+      // 1 unitLabel = (unitDef.toBase / baseDef.toBase) baseUnits
+      add(unitDef.label, unitDef.toBase / baseDef.toBase)
     }
+    break
   }
 
   return result
