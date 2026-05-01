@@ -5,12 +5,16 @@ import React, {
 } from 'react'
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
-  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, SkipForward, Trash2, X,
+  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
+import {
+  enqueueCountMutation, flushCountQueue, loadCountQueue,
+  saveCountSessionCache, pendingCountForSession,
+} from '@/lib/count-offline'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,6 +135,11 @@ export default function CountPage() {
   const [editDate,      setEditDate]      = useState('')
   const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
 
+  // ── Offline state ─────────────────────────────────────────────────────────
+  const [isOffline,      setIsOffline]      = useState(false)
+  const [pendingCount,   setPendingCount]   = useState(0)
+  const [offlineSyncing, setOfflineSyncing] = useState(false)
+
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
   const [inputQty,      setInputQty]      = useState(0)
@@ -179,6 +188,35 @@ export default function CountPage() {
     fetch('/api/storage-areas').then(r => r.json()).then(d => {
       if (Array.isArray(d)) setStorageAreas(d)
     })
+  }, [])
+
+  // Offline detection + auto-sync on reconnect
+  useEffect(() => {
+    setIsOffline(!navigator.onLine)
+    setPendingCount(loadCountQueue().length)
+    const goOnline = async () => {
+      setIsOffline(false)
+      const q = loadCountQueue()
+      if (q.length === 0) return
+      setOfflineSyncing(true)
+      const { synced } = await flushCountQueue()
+      setOfflineSyncing(false)
+      setPendingCount(0)
+      if (synced > 0) setToast(`Synced ${synced} offline update${synced !== 1 ? 's' : ''}.`)
+      // Refresh active session after sync so variances update
+      if (active) {
+        const refreshed = await loadSession(active.id)
+        if (refreshed) setActive(refreshed)
+      }
+    }
+    const goOffline = () => setIsOffline(true)
+    window.addEventListener('online',  goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online',  goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // No body-scroll lock needed — new session form is its own view on mobile
@@ -245,6 +283,8 @@ export default function CountPage() {
   const openSession = async (s: Session, target: View) => {
     const full = await loadSession(s.id)
     if (!full) return
+    saveCountSessionCache(s.id, full)
+    setPendingCount(pendingCountForSession(s.id))
     setActive(full)
     setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null)
     setView(target)
@@ -270,7 +310,11 @@ export default function CountPage() {
     setShowModal(false)
     await loadSessions()
     const full = await loadSession(session.id)
-    if (full) { setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count') }
+    if (full) {
+      saveCountSessionCache(session.id, full)
+      setPendingCount(0)
+      setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count')
+    }
   }
 
   const confirmLine = async (line: Line, qty: number) => {
@@ -293,7 +337,11 @@ export default function CountPage() {
         cardRefs.current[`${prefix}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }, 120)
     }
-    // Persist
+    if (isOffline) {
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty })
+      setPendingCount(c => c + 1)
+      return
+    }
     await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -306,6 +354,11 @@ export default function CountPage() {
       ...prev!, lines: prev!.lines!.map(l => l.id === line.id ? { ...l, skipped: true } : l),
     }))
     setOpenId(null)
+    if (isOffline) {
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'skip' })
+      setPendingCount(c => c + 1)
+      return
+    }
     await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -316,6 +369,13 @@ export default function CountPage() {
   const handleFinalize = async () => {
     if (!active || finalizing) return
     setFinalizing(true)
+    // Sync any offline mutations before finalizing
+    if (loadCountQueue().length > 0) {
+      setOfflineSyncing(true)
+      await flushCountQueue()
+      setOfflineSyncing(false)
+      setPendingCount(0)
+    }
     await fetch(`/api/count/sessions/${active.id}/finalize`, { method: 'POST' })
     setToast('Inventory updated · Snapshot saved · COGS report now available for this period.')
     await loadSessions()
@@ -1145,6 +1205,18 @@ export default function CountPage() {
             style={{ width: `${total > 0 ? (counted / total) * 100 : 0}%` }}
           />
         </div>
+
+        {/* ── Offline banner ─────────────────────────────────────────────────── */}
+        {(isOffline || offlineSyncing) && (
+          <div className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${
+            offlineSyncing ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'
+          }`}>
+            <WifiOff size={14} className="shrink-0" />
+            {offlineSyncing
+              ? 'Syncing offline changes…'
+              : `Offline — counts are saved locally${pendingCount > 0 ? ` (${pendingCount} pending)` : ''}`}
+          </div>
+        )}
 
         {/* ════════════════════════════════════════
             DESKTOP LAYOUT — sidebar + items
