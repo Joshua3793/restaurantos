@@ -79,6 +79,7 @@ function fmtDate(d: string) {
 const SESSION_ACCENT: Record<string, string> = {
   IN_PROGRESS:    '#3b82f6',
   PENDING_REVIEW: '#f59e0b',
+  UPDATING:       '#8b5cf6',
   FINALIZED:      '#22c55e',
   CANCELLED:      '#d1d5db',
 }
@@ -101,12 +102,13 @@ function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     IN_PROGRESS:    'bg-blue-100 text-blue-700',
     PENDING_REVIEW: 'bg-amber-100 text-amber-700',
+    UPDATING:       'bg-violet-100 text-violet-700',
     FINALIZED:      'bg-green-100 text-green-700',
     CANCELLED:      'bg-gray-100 text-gray-500',
   }
   const labels: Record<string, string> = {
     IN_PROGRESS: 'In progress', PENDING_REVIEW: 'Pending review',
-    FINALIZED: 'Finalized', CANCELLED: 'Cancelled',
+    UPDATING: 'Updating changes', FINALIZED: 'Finalized', CANCELLED: 'Cancelled',
   }
   return (
     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
@@ -218,6 +220,14 @@ export default function CountPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Poll while any session is UPDATING so the list flips to FINALIZED automatically
+  useEffect(() => {
+    const hasUpdating = sessions.some(s => s.status === 'UPDATING')
+    if (!hasUpdating) return
+    const timer = setInterval(() => { loadSessions() }, 3000)
+    return () => clearInterval(timer)
+  }, [sessions, loadSessions])
 
   // No body-scroll lock needed — new session form is its own view on mobile
   // and a small centered modal on desktop (sm+).
@@ -376,10 +386,17 @@ export default function CountPage() {
       setOfflineSyncing(false)
       setPendingCount(0)
     }
-    await fetch(`/api/count/sessions/${active.id}/finalize`, { method: 'POST' })
-    setToast('Inventory updated · Snapshot saved · COGS report now available for this period.')
+    // Mark as UPDATING immediately so the list reflects processing state
+    await fetch(`/api/count/sessions/${active.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'UPDATING' }),
+    })
+    // Navigate back to list right away — don't wait for heavy processing
     await loadSessions()
-    setTimeout(() => { setView('list'); setActive(null); setFinalizing(false) }, 2000)
+    setView('list'); setActive(null); setFinalizing(false)
+    // Fire finalize in background — polling will detect when it flips to FINALIZED
+    fetch(`/api/count/sessions/${active.id}/finalize`, { method: 'POST' })
   }
 
   const handleDeleteSession = async () => {
@@ -626,6 +643,7 @@ export default function CountPage() {
         <div className="flex sm:hidden flex-col gap-2">
           {sessions.map(s => {
             const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
+            const isUpdating = s.status === 'UPDATING'
             const handleCardTap = () => {
               setSessionMenuId(null)
               if (s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') openSession(s, 'count')
@@ -636,8 +654,8 @@ export default function CountPage() {
                 style={{ borderLeftColor: SESSION_ACCENT[s.status] ?? '#d1d5db' }}>
                 {/* Card body — tappable to navigate */}
                 <div
-                  className={`flex-1 min-w-0 px-4 py-3 ${s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`}
-                  onClick={s.status !== 'CANCELLED' ? handleCardTap : undefined}
+                  className={`flex-1 min-w-0 px-4 py-3 ${!isUpdating && s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`}
+                  onClick={!isUpdating && s.status !== 'CANCELLED' ? handleCardTap : undefined}
                 >
                   <div className="flex items-center gap-2 pr-1">
                     <span className="flex-1 text-sm font-semibold text-gray-900 truncate">
@@ -655,6 +673,12 @@ export default function CountPage() {
                     {s.status === 'IN_PROGRESS'    && <span className="text-xs font-bold text-blue-600 shrink-0">Continue →</span>}
                     {s.status === 'PENDING_REVIEW' && <span className="text-xs font-bold text-amber-600 shrink-0">Review →</span>}
                     {s.status === 'FINALIZED'      && <span className="text-xs font-bold text-green-700 shrink-0">Report</span>}
+                    {isUpdating && (
+                      <span className="flex items-center gap-1 text-xs text-violet-600 shrink-0">
+                        <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                        Processing…
+                      </span>
+                    )}
                   </div>
                 </div>
                 {/* ⋯ menu trigger — separate flex column so it never overlaps card text */}
@@ -758,6 +782,12 @@ export default function CountPage() {
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors">
                       Review →
                     </button>
+                  )}
+                  {s.status === 'UPDATING' && (
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-violet-600 bg-violet-50 border border-violet-200">
+                      <span className="w-3 h-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                      Updating…
+                    </span>
                   )}
                   {s.status === 'FINALIZED' && (
                     <button onClick={() => openSession(s, 'review')}

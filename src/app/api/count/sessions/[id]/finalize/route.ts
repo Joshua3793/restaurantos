@@ -8,6 +8,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     include: { lines: { include: { inventoryItem: true } } },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // UPDATING is the transitional state set by the client before firing this request
   if (session.status === 'FINALIZED') return NextResponse.json({ error: 'Already finalized' }, { status: 400 })
 
   const now = new Date()
