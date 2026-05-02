@@ -1575,7 +1575,7 @@ export default function CountPage() {
 
           {/* ── Right: item list ─────────────────────────────────────── */}
           <div className="pt-1">
-            <DesktopItems />
+            {DesktopItems()}
           </div>
         </div>
 
