@@ -71,10 +71,10 @@ interface StorageArea { id: string; name: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function uomOptionLabel(label: string, toBase: number, baseUnit: string): string {
-  if (label.toLowerCase() === baseUnit.toLowerCase()) return label
-  const qty = Number.isInteger(toBase) ? toBase.toString() : toBase >= 10 ? Math.round(toBase).toString() : toBase.toFixed(1)
-  return `${label} — ${qty} ${baseUnit}`
+function uomOptionLabel(opt: { label: string; hint?: string }, baseUnit: string): string {
+  if (opt.label.toLowerCase() === baseUnit.toLowerCase()) return opt.label
+  if (!opt.hint) return opt.label
+  return `${opt.label} — ${opt.hint}`
 }
 
 function varColor(pct: number | null) {
@@ -1114,7 +1114,7 @@ export default function CountPage() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
                         >
                           {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt.label, opt.toBase, line.inventoryItem.baseUnit)}</option>
+                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt, line.inventoryItem.baseUnit)}</option>
                           ))}
                         </select>
                       </div>
@@ -1260,7 +1260,7 @@ export default function CountPage() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
                         >
                           {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt.label, opt.toBase, line.inventoryItem.baseUnit)}</option>
+                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt, line.inventoryItem.baseUnit)}</option>
                           ))}
                         </select>
                       </div>
