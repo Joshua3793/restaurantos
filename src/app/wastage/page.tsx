@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import { formatCurrency, formatDate, WASTAGE_REASONS } from '@/lib/utils'
+import { formatCurrency, formatDate, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { Plus, X, AlertTriangle } from 'lucide-react'
@@ -279,11 +279,15 @@ export default function WastagePage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
-                  <input
+                  <select
                     value={form.unit}
                     onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                  >
+                    {(compatibleCountUnits(inventoryItems.find(i => i.id === form.inventoryItemId)?.baseUnit ?? 'each')).map(u => (
+                      <option key={u}>{u}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div>

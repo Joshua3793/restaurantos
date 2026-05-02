@@ -175,8 +175,9 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
                 title="Early warning — set above par level" />
             ))}
             {field('Unit', (
-              <input className={inputCls} value={form.unit}
-                onChange={e => set('unit', e.target.value)} placeholder="batch" />
+              <select className={inputCls + ' bg-white'} value={form.unit} onChange={e => set('unit', e.target.value)}>
+                {['batch', 'portion', 'serve', 'each', 'pkg', 'tray', 'kg', 'g', 'lb', 'oz', 'l', 'ml'].map(u => <option key={u}>{u}</option>)}
+              </select>
             ))}
           </div>
 

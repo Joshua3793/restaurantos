@@ -1,7 +1,7 @@
 'use client'
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -69,7 +69,8 @@ const CATEGORY_HEADER: Record<string, string> = {
 
 const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
-  purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
+  purchaseUnit: 'case', qtyPerPurchaseUnit: '1', purchasePrice: '0',
+  packSize: '1', packUOM: 'each', countUOM: 'each',
   baseUnit: 'g', conversionFactor: '1', stockOnHand: '0',
   location: '', allergens: [] as string[],
 }
@@ -1385,9 +1386,10 @@ function InventoryPageInner() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                      <input value={editForm.purchaseUnit} placeholder="case, dozen…"
-                        onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                      <select value={editForm.purchaseUnit} onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                        {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Case</label>
@@ -1649,11 +1651,29 @@ function InventoryPageInner() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                  <input required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} placeholder="e.g. kg, case, each" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <select required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                    {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Purchase Unit</label>
                   <input type="number" required value={form.qtyPerPurchaseUnit} onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Pack Size</label>
+                  <input type="number" step="any" value={form.packSize} onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Pack UOM</label>
+                  <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                    {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Count UOM</label>
+                  <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                    {COUNT_UOMS.map(u => <option key={u}>{u}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>

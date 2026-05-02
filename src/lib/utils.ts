@@ -10,6 +10,11 @@ export const UNIT_CONV: Record<string, number> = {
 
 export const PACK_UOMS = ['each', 'g', 'kg', 'lb', 'oz', 'ml', 'l'] as const
 
+export const PURCHASE_UNITS = [
+  'case', 'bag', 'box', 'pack', 'dozen', 'pallet', 'tray', 'sleeve',
+  'each', 'kg', 'g', 'lb', 'oz', 'l', 'ml',
+] as const
+
 // Grouped count UOMs by dimension
 export const WEIGHT_COUNT_UOMS = ['g', 'kg', 'lb', 'oz'] as const
 export const VOLUME_COUNT_UOMS = ['ml', 'cl', 'l', 'fl oz', 'cup', 'tsp', 'tbsp'] as const

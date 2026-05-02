@@ -8,7 +8,7 @@ import {
   Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, Search, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
-import { formatCurrency, formatUnitPrice, BASE_UNITS } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
@@ -1419,7 +1419,9 @@ export default function CountPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                    <input required value={addItemForm.purchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, purchaseUnit: e.target.value }))} placeholder="e.g. kg, case, each" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    <select required value={addItemForm.purchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                      {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Purchase Unit</label>
