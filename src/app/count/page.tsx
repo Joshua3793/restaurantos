@@ -1314,10 +1314,10 @@ export default function CountPage() {
 
     const DesktopItems = () => (
       <>
-        {catFilter ? (
+        {(catFilter || !grouped) ? (
           filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderLine)
         ) : (
-          !grouped || Object.keys(grouped).length === 0 ? <Empty /> :
+          Object.keys(grouped).length === 0 ? <Empty /> :
           Object.entries(grouped)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([cat, lines]) => {
@@ -1646,10 +1646,10 @@ export default function CountPage() {
 
         {/* ── Mobile items list ──────────────────────────────────────────────── */}
         <div className="md:hidden px-3 pt-1 pb-28 space-y-1.5">
-          {catFilter ? (
+          {(catFilter || !grouped) ? (
             filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderMobileLine)
           ) : (
-            !grouped || Object.keys(grouped).length === 0 ? <Empty /> :
+            Object.keys(grouped).length === 0 ? <Empty /> :
             Object.entries(grouped)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([cat, lines]) => {
