@@ -23,6 +23,7 @@ export async function PATCH(
     qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
     packSize:           Number(item.packSize),
     packUOM:            item.packUOM,
+    countUOM:           item.countUOM,
   }
 
   let data: Parameters<typeof prisma.countLine.update>[0]['data'] = {}

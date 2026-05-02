@@ -23,6 +23,7 @@ interface ItemDims {
   qtyPerPurchaseUnit: number
   packSize: number
   packUOM: string
+  countUOM: string
 }
 
 function fmtNum(n: number): string {
@@ -65,18 +66,24 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
     }
   }
 
-  // 1.5. Intermediate pack unit (e.g. "pkg" in case×pkg×each).
-  //      Only for custom units not in UOM_GROUPS — standard packUOMs (kg, lb…)
-  //      are already covered by step 3 with the correct conversion factor.
+  // 1.5. Intermediate counting unit (e.g. "pkg" in case×pkg×each).
+  //      Uses countUOM — the field explicitly set on the item for how staff count it.
+  //      packUOM defaults to "each" for count items so it can't be used here.
+  //      Also catches custom packUOM values (e.g. "pkg") as a fallback.
+  const intermediateUnit =
+    item.countUOM && item.countUOM.toLowerCase() !== item.baseUnit.toLowerCase()
+      ? item.countUOM
+      : item.packUOM && item.packUOM.toLowerCase() !== item.baseUnit.toLowerCase()
+        ? item.packUOM
+        : null
   if (
-    item.packUOM &&
-    item.packUOM.toLowerCase() !== item.baseUnit.toLowerCase() &&
-    item.packUOM.toLowerCase() !== item.purchaseUnit.toLowerCase() &&
-    getUnitGroup(item.packUOM) === null
+    intermediateUnit &&
+    intermediateUnit.toLowerCase() !== item.purchaseUnit.toLowerCase() &&
+    getUnitGroup(intermediateUnit) === null
   ) {
     const unitsPerPack = Number(item.packSize)
     if (unitsPerPack > 0) {
-      add(item.packUOM, unitsPerPack, `${fmtNum(unitsPerPack)} ${item.baseUnit}`)
+      add(intermediateUnit, unitsPerPack, `${fmtNum(unitsPerPack)} ${item.baseUnit}`)
     }
   }
 
@@ -129,13 +136,11 @@ export function convertCountQtyToBase(
     if (unitsPerPurchase > 0) return qty * unitsPerPurchase
   }
 
-  // Intermediate pack unit (e.g. "pkg") — only for custom units not in UOM_GROUPS
-  if (
-    item.packUOM &&
-    sel === item.packUOM.toLowerCase() &&
-    sel !== item.purchaseUnit.toLowerCase() &&
-    getUnitGroup(item.packUOM) === null
-  ) {
+  // Intermediate counting unit (countUOM takes priority; custom packUOM as fallback)
+  const inter =
+    item.countUOM && item.countUOM.toLowerCase() !== item.baseUnit.toLowerCase() ? item.countUOM :
+    item.packUOM  && item.packUOM.toLowerCase()  !== item.baseUnit.toLowerCase() ? item.packUOM  : null
+  if (inter && sel === inter.toLowerCase() && sel !== item.purchaseUnit.toLowerCase() && getUnitGroup(inter) === null) {
     const unitsPerPack = Number(item.packSize)
     if (unitsPerPack > 0) return qty * unitsPerPack
   }
@@ -164,12 +169,10 @@ export function convertBaseToCountUom(
     if (unitsPerPurchase > 0) return baseQty / unitsPerPurchase
   }
 
-  if (
-    item.packUOM &&
-    sel === item.packUOM.toLowerCase() &&
-    sel !== item.purchaseUnit.toLowerCase() &&
-    getUnitGroup(item.packUOM) === null
-  ) {
+  const inter2 =
+    item.countUOM && item.countUOM.toLowerCase() !== item.baseUnit.toLowerCase() ? item.countUOM :
+    item.packUOM  && item.packUOM.toLowerCase()  !== item.baseUnit.toLowerCase() ? item.packUOM  : null
+  if (inter2 && sel === inter2.toLowerCase() && sel !== item.purchaseUnit.toLowerCase() && getUnitGroup(inter2) === null) {
     const unitsPerPack = Number(item.packSize)
     if (unitsPerPack > 0) return baseQty / unitsPerPack
   }

@@ -32,6 +32,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
       packSize:           Number(item.packSize),
       packUOM:            item.packUOM,
+      countUOM:           item.countUOM,
     }
 
     if (line.skipped || line.countedQty !== null) {

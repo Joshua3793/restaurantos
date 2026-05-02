@@ -30,6 +30,7 @@ interface InventoryItemRef {
   qtyPerPurchaseUnit: number
   packSize: number
   packUOM: string
+  countUOM: string
   location: string | null
   storageArea: { name: string } | null
 }
