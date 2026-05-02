@@ -71,6 +71,12 @@ interface StorageArea { id: string; name: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function uomOptionLabel(label: string, toBase: number, baseUnit: string): string {
+  if (toBase === 1) return label
+  const qty = Number.isInteger(toBase) ? toBase.toString() : toBase >= 10 ? Math.round(toBase).toString() : toBase.toFixed(1)
+  return `${label} — ${qty} ${baseUnit}`
+}
+
 function varColor(pct: number | null) {
   if (pct === null) return ''
   const a = Math.abs(pct)
@@ -1108,7 +1114,7 @@ export default function CountPage() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
                         >
                           {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{opt.label}</option>
+                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt.label, opt.toBase, line.inventoryItem.baseUnit)}</option>
                           ))}
                         </select>
                       </div>
@@ -1254,7 +1260,7 @@ export default function CountPage() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
                         >
                           {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{opt.label}</option>
+                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt.label, opt.toBase, line.inventoryItem.baseUnit)}</option>
                           ))}
                         </select>
                       </div>
