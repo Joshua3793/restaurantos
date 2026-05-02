@@ -72,7 +72,7 @@ interface StorageArea { id: string; name: string }
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function uomOptionLabel(label: string, toBase: number, baseUnit: string): string {
-  if (toBase === 1) return label
+  if (label.toLowerCase() === baseUnit.toLowerCase()) return label
   const qty = Number.isInteger(toBase) ? toBase.toString() : toBase >= 10 ? Math.round(toBase).toString() : toBase.toFixed(1)
   return `${label} — ${qty} ${baseUnit}`
 }
