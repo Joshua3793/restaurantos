@@ -30,6 +30,8 @@ export async function PATCH(
 
   if (skipped === true) {
     data = { skipped: true, countedQty: line.expectedQty, variancePct: 0, varianceCost: 0 }
+  } else if (skipped === false) {
+    data = { skipped: false, countedQty: null, variancePct: null, varianceCost: null }
   } else if (countedQty !== undefined) {
     const counted   = parseFloat(String(countedQty))
     // selectedUom from body takes priority; fall back to what's already on the line

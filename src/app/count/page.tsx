@@ -433,6 +433,21 @@ export default function CountPage() {
     })
   }
 
+  const unskipLine = async (line: Line) => {
+    setActive(prev => ({
+      ...prev!, lines: prev!.lines!.map(l =>
+        l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null } : l
+      ),
+    }))
+    setOpenId(line.id)
+    setInputQty(0)
+    await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skipped: false }),
+    })
+  }
+
   const openAddItem = async () => {
     const [cats, sups, areas] = await Promise.all([
       fetch('/api/categories').then(r => r.json()),
@@ -1063,13 +1078,17 @@ export default function CountPage() {
       if (isSkipped) return (
         <div key={line.id} id={`ln-${line.id}`}
           ref={el => { cardRefs.current[`d-${line.id}`] = el }}
-          onClick={() => setOpenId(isOpen ? null : line.id)}
-          className="mx-4 mb-2 border border-gray-100 bg-gray-50 rounded-xl opacity-60 cursor-pointer"
+          className="mx-4 mb-2 border border-gray-100 bg-gray-50 rounded-xl"
         >
           <div className="flex items-center gap-3 px-4 py-3">
             <SkipForward size={16} className="text-gray-400 shrink-0" />
-            <span className="flex-1 text-sm text-gray-500 line-through">{line.inventoryItem.itemName}</span>
-            <span className="text-xs text-gray-400">Skipped</span>
+            <span className="flex-1 text-sm text-gray-400 line-through">{line.inventoryItem.itemName}</span>
+            <button
+              onClick={() => unskipLine(line)}
+              className="text-xs text-blue-500 font-medium hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
+            >
+              Count it
+            </button>
           </div>
         </div>
       )
@@ -1253,7 +1272,12 @@ export default function CountPage() {
             </div>
             <div className="text-right shrink-0">
               {isSkipped ? (
-                <span className="text-xs text-gray-400">Skipped</span>
+                <button
+                  onClick={e => { e.stopPropagation(); unskipLine(line) }}
+                  className="text-xs text-blue-500 font-medium px-2 py-1 rounded hover:bg-blue-50"
+                >
+                  Count it
+                </button>
               ) : isCounted ? (
                 <>
                   <div className="text-sm font-semibold text-gray-900">
