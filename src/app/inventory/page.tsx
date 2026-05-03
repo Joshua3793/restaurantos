@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
+import { convertCountQtyToBase, convertBaseToCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -283,9 +284,19 @@ function InventoryPageInner() {
 
   const catNames = useMemo(() => categories.map(c => c.name), [categories])
 
-  // Effective stock: for non-default RCs use the allocated quantity
+  // Effective stock: for non-default RCs use the allocated quantity (always in baseUnit)
   const effStock = (i: InventoryItem) =>
     i.rcStock !== undefined ? i.rcStock : parseFloat(String(i.stockOnHand))
+
+  // Stock converted from baseUnit to countUOM for human display
+  const displayStock = (i: InventoryItem) => convertBaseToCountUom(effStock(i), i.countUOM || i.baseUnit, {
+    baseUnit: i.baseUnit,
+    purchaseUnit: i.purchaseUnit,
+    qtyPerPurchaseUnit: Number(i.qtyPerPurchaseUnit),
+    packSize: Number(i.packSize ?? 1),
+    packUOM: i.packUOM ?? 'each',
+    countUOM: i.countUOM || i.baseUnit,
+  })
 
   // KPIs
   const kpis = useMemo(() => {
@@ -439,8 +450,17 @@ function InventoryPageInner() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
+    const stockBase = convertCountQtyToBase(parseFloat(form.stockOnHand) || 0, form.countUOM, {
+      baseUnit: form.baseUnit,
+      purchaseUnit: form.purchaseUnit,
+      qtyPerPurchaseUnit: parseFloat(form.qtyPerPurchaseUnit) || 1,
+      packSize: parseFloat(form.packSize) || 1,
+      packUOM: form.packUOM,
+      countUOM: form.countUOM,
+    })
     await fetch('/api/inventory', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, stockOnHand: stockBase }),
     })
     setShowAdd(false); setForm(defaultForm); fetchItems()
   }
@@ -461,7 +481,14 @@ function InventoryPageInner() {
         packSize: editForm.packSize,
         packUOM: editForm.packUOM,
         countUOM: editForm.countUOM,
-        stockOnHand: editForm.stockOnHand,
+        stockOnHand: convertCountQtyToBase(parseFloat(editForm.stockOnHand) || 0, editForm.countUOM, {
+          baseUnit: selected.baseUnit,
+          purchaseUnit: editForm.purchaseUnit,
+          qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
+          packSize: parseFloat(editForm.packSize) || 1,
+          packUOM: editForm.packUOM,
+          countUOM: editForm.countUOM,
+        }),
         isActive: editForm.isActive,
         allergens: editForm.allergens,
       }),
@@ -506,7 +533,7 @@ function InventoryPageInner() {
           <div className="text-xs text-gray-400">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
         <td className="px-3 py-3 text-right text-sm text-gray-700">
-          {effStock(item).toFixed(1)}
+          {displayStock(item).toFixed(1)}
           <span className="text-xs text-gray-400 ml-1">{item.countUOM || item.purchaseUnit}</span>
         </td>
         <td className="px-3 py-3 text-right">
@@ -583,7 +610,7 @@ function InventoryPageInner() {
           <div className="text-sm font-semibold text-gray-900 truncate">{item.itemName}</div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className={`text-[11px] font-medium ${inStock ? 'text-gray-400' : 'text-orange-500'}`}>
-              {effStock(item).toFixed(1)} {item.countUOM || item.baseUnit}
+              {displayStock(item).toFixed(1)} {item.countUOM || item.baseUnit}
               {!inStock && ' · out'}
             </span>
             {item.supplier && <span className="text-[10px] text-gray-300">· {item.supplier.name}</span>}
@@ -1283,7 +1310,14 @@ function InventoryPageInner() {
                         packSize: String(selected.packSize ?? 1),
                         packUOM: selected.packUOM ?? 'each',
                         countUOM: selected.countUOM ?? 'each',
-                        stockOnHand: String(selected.stockOnHand),
+                        stockOnHand: String(parseFloat(convertBaseToCountUom(Number(selected.stockOnHand), selected.countUOM ?? 'each', {
+                          baseUnit: selected.baseUnit,
+                          purchaseUnit: selected.purchaseUnit,
+                          qtyPerPurchaseUnit: Number(selected.qtyPerPurchaseUnit),
+                          packSize: Number(selected.packSize ?? 1),
+                          packUOM: selected.packUOM ?? 'each',
+                          countUOM: selected.countUOM ?? 'each',
+                        }).toFixed(4))),
                         isActive: selected.isActive,
                         allergens: selected.allergens ?? [],
                       })
@@ -1439,7 +1473,7 @@ function InventoryPageInner() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand ({editForm.countUOM})</label>
                     <input type="number" step="any" value={editForm.stockOnHand}
                       onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
@@ -1520,9 +1554,9 @@ function InventoryPageInner() {
                     ['Yield',          `${parseFloat(String(selected.packSize ?? 1)).toLocaleString()} ${selected.baseUnit}`],
                     ['Batch Cost',     formatCurrency(parseFloat(String(selected.purchasePrice)))],
                     ['Count UOM',      selected.countUOM ?? selected.baseUnit],
-                    ['Stock On Hand',  `${effStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
+                    ['Stock On Hand',  `${displayStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
                     ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
-                    ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
+                    ['Last Count Qty', selected.lastCountQty != null ? `${convertBaseToCountUom(parseFloat(String(selected.lastCountQty)), selected.countUOM ?? selected.baseUnit, { baseUnit: selected.baseUnit, purchaseUnit: selected.purchaseUnit, qtyPerPurchaseUnit: Number(selected.qtyPerPurchaseUnit), packSize: Number(selected.packSize ?? 1), packUOM: selected.packUOM ?? 'each', countUOM: selected.countUOM ?? selected.baseUnit }).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
                   ] : [
                     ['Supplier',       selected.supplier?.name || '\u2014'],
                     ['Storage Area',   selected.storageArea?.name || '\u2014'],
@@ -1531,9 +1565,9 @@ function InventoryPageInner() {
                     ['Purchase Price', formatCurrency(parseFloat(String(selected.purchasePrice)))],
                     ['Pack Size',      `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
                     ['Count UOM',      selected.countUOM ?? 'each'],
-                    ['Stock On Hand',  `${effStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
+                    ['Stock On Hand',  `${displayStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
                     ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
-                    ['Last Count Qty', selected.lastCountQty != null ? `${parseFloat(String(selected.lastCountQty)).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
+                    ['Last Count Qty', selected.lastCountQty != null ? `${convertBaseToCountUom(parseFloat(String(selected.lastCountQty)), selected.countUOM ?? selected.baseUnit, { baseUnit: selected.baseUnit, purchaseUnit: selected.purchaseUnit, qtyPerPurchaseUnit: Number(selected.qtyPerPurchaseUnit), packSize: Number(selected.packSize ?? 1), packUOM: selected.packUOM ?? 'each', countUOM: selected.countUOM ?? selected.baseUnit }).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
                   ]
                   return rows.map(([label, value]) => (
                     <div key={label} className="bg-gray-50 rounded-lg p-3">
@@ -1690,7 +1724,7 @@ function InventoryPageInner() {
                   <input type="number" required value={form.conversionFactor} onChange={e => setForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand ({form.countUOM})</label>
                   <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div className="col-span-2">
