@@ -169,7 +169,7 @@ export default function CountPage() {
   const [inputQty,      setInputQty]      = useState(0)
   const [catFilter,     setCatFilter]     = useState<string | null>(null)
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
-  const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted'>('all')
+  const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped'>('all')
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
   const [searchQuery,   setSearchQuery]   = useState('')
 
@@ -310,7 +310,8 @@ export default function CountPage() {
         if (!loc.toLowerCase().includes(locFilter.toLowerCase())) return false
       }
       if (statusFilter === 'uncounted') { if (l.countedQty !== null || l.skipped) return false }
-      if (statusFilter === 'counted')   { if (l.countedQty === null && !l.skipped) return false }
+      if (statusFilter === 'counted')   { if (l.countedQty === null || l.skipped) return false }
+      if (statusFilter === 'skipped')   { if (!l.skipped) return false }
       if (q && !l.inventoryItem.itemName.toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => a.sortOrder - b.sortOrder)
@@ -1616,9 +1617,9 @@ export default function CountPage() {
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">Status</p>
               <div className="space-y-0.5">
-                {(['all', 'uncounted', 'counted'] as const).map(f =>
+                {(['all', 'uncounted', 'counted', 'skipped'] as const).map(f =>
                   sidebarNavBtn(statusFilter === f, () => setStatusFilter(f),
-                    f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : 'Counted'
+                    f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : f === 'counted' ? 'Counted' : 'Skipped'
                   )
                 )}
               </div>
@@ -1646,9 +1647,9 @@ export default function CountPage() {
         ════════════════════════════════════════ */}
         {/* ── Mobile filter row ──────────────────────────────────────────────── */}
         <div className="flex md:hidden items-center gap-2 px-3 pt-2 pb-1.5">
-          {(['all', 'uncounted', 'counted'] as const).map(f => (
+          {(['all', 'uncounted', 'counted', 'skipped'] as const).map(f => (
             <Pill key={f} active={statusFilter === f} onClick={() => setStatusFilter(f)}>
-              {f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : 'Counted'}
+              {f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : f === 'counted' ? 'Counted' : 'Skipped'}
             </Pill>
           ))}
           <div className="flex-1" />
