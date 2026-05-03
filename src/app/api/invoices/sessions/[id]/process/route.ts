@@ -42,6 +42,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'No pending files to process' }, { status: 400 })
   }
 
+  // Learning mode: supplier unknown or fewer than 3 approved invoices from this supplier.
+  // Uses higher image quality and larger thinking budget for better first-time format detection.
+  const approvedCount = session.supplierName
+    ? await prisma.invoiceSession.count({
+        where: { supplierName: session.supplierName, status: 'APPROVED', id: { not: params.id } },
+      })
+    : 0
+  const isLearning = !session.supplierName || approvedCount < 3
+  if (isLearning) {
+    console.log(`[process] Learning mode active (supplier: ${session.supplierName ?? 'unknown'}, approved invoices: ${approvedCount})`)
+  }
+
   const needsFreshOcr = filesToProcess.some(f => !f.ocrRawJson)
   if (needsFreshOcr && !process.env.ANTHROPIC_API_KEY) {
     await prisma.invoiceSession.update({
@@ -101,7 +113,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             }
           })
         )
-        const result = await extractInvoiceFromImages(imagePayloads, session.supplierName)
+        const result = await extractInvoiceFromImages(imagePayloads, session.supplierName, isLearning)
         mergeResult(result, sessionMeta)
         allOcrItems = [...allOcrItems, ...result.lineItems]
         await prisma.invoiceFile.update({
@@ -134,7 +146,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           if (ft === 'text/csv' || file.fileName.endsWith('.csv')) {
             result = await extractInvoiceFromCsv(buf.toString('utf-8'))
           } else {
-            result = await extractInvoiceFromPdf(buf, session.supplierName)
+            result = await extractInvoiceFromPdf(buf, session.supplierName, isLearning)
           }
           await prisma.invoiceFile.update({
             where: { id: file.id },

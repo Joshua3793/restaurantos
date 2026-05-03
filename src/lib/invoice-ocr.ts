@@ -1,45 +1,69 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-// Use the fastest vision-capable model for daily invoice scanning
 const OCR_MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS = 20000
-const THINKING_BUDGET = 10000
+
+// Learning mode: used for the first few invoices from a new supplier.
+// Higher quality image + more thinking tokens → slower but more accurate format detection.
+// Normal mode: faster, cheaper — used once the supplier format is well understood.
+const NORMAL_MAX_TOKENS   = 20000
+const NORMAL_THINKING     = 10000
+const LEARNING_MAX_TOKENS = 32000
+const LEARNING_THINKING   = 24000
+
+// Claude API hard limit per image (bytes after base64 decode)
+const API_IMAGE_LIMIT = 5 * 1024 * 1024
 
 // Claude API limit is 5MB per image. Phone photos are often 8–15MB.
 // Compress using sharp (native, excluded from webpack via serverExternalPackages).
 async function compressImageForClaude(
-  base64Data: string
+  base64Data: string,
+  learning = false
 ): Promise<{ data: string; mediaType: 'image/jpeg' }> {
-  // Dynamic import keeps webpack happy — sharp stays in Node.js land
   const sharp = (await import('sharp')).default
   const inputBuffer = Buffer.from(base64Data, 'base64')
 
-  // Resize, auto-rotate, normalize contrast, sharpen text edges
+  // Learning mode: larger max dimension, higher quality — preserve more detail for
+  // format analysis. Normal mode: smaller, faster.
+  const maxPx   = learning ? 3500 : 2500
+  const quality = learning ? 95   : 90
+
   let resized = await sharp(inputBuffer)
-    .rotate()                                                           // fix EXIF orientation
-    .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })   // limit to 2500px
-    .normalize()                                                        // auto-contrast: stretches histogram to full [0,255]
-    .sharpen({ sigma: 1.2, m2: 0.5 })                                  // mild unsharp mask — helps text edges without artifacts
-    .jpeg({ quality: 90 })
+    .rotate()
+    .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
+    .normalize()
+    .sharpen({ sigma: 1.2, m2: 0.5 })
+    .jpeg({ quality })
     .toBuffer()
 
-  // Reduce quality on the already-resized buffer (avoids re-reading original each pass)
-  let quality = 90
-  while (resized.length > 4 * 1024 * 1024 && quality > 60) {
-    quality -= 15
-    resized = await sharp(resized).jpeg({ quality }).toBuffer()
+  if (learning) {
+    // Learning mode: one quality pass only if over the hard API limit.
+    // We accept up to 4.8MB to preserve as much detail as possible.
+    if (resized.length > 4.8 * 1024 * 1024) {
+      resized = await sharp(resized).jpeg({ quality: 85 }).toBuffer()
+    }
+    // If still over the hard limit, fall back to a tighter resize.
+    if (resized.length > API_IMAGE_LIMIT) {
+      resized = await sharp(resized)
+        .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 85 })
+        .toBuffer()
+    }
+  } else {
+    // Normal mode: reduce quality in steps, then shrink if still too large.
+    let q = quality
+    while (resized.length > 4 * 1024 * 1024 && q > 60) {
+      q -= 15
+      resized = await sharp(resized).jpeg({ quality: q }).toBuffer()
+    }
+    if (resized.length > 4 * 1024 * 1024) {
+      resized = await sharp(resized)
+        .resize(1800, 1800, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 75 })
+        .toBuffer()
+    }
   }
 
-  // Last resort: shrink to 1800px
-  let outputBuffer = resized
-  if (outputBuffer.length > 4 * 1024 * 1024) {
-    outputBuffer = await sharp(resized)
-      .resize(1800, 1800, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 75 })
-      .toBuffer()
-  }
-
-  return { data: outputBuffer.toString('base64'), mediaType: 'image/jpeg' }
+  return { data: resized.toString('base64'), mediaType: 'image/jpeg' }
 }
 
 // ── Base system prompt ─────────────────────────────────────────────────────────
@@ -400,10 +424,15 @@ function getSupplierHint(supplierName: string | null | undefined): string {
   return ''
 }
 
-function buildSystemPrompt(supplierName?: string | null): string {
+function buildSystemPrompt(supplierName?: string | null, learning = false): string {
   const hint = getSupplierHint(supplierName)
-  if (!hint) return BASE_PROMPT
-  return BASE_PROMPT + '\n\n' +
+  const learningNote = learning
+    ? '\n\n⚑ LEARNING MODE: This is one of the first invoices from this supplier. ' +
+      'Take extra care to identify all columns correctly, capture every product line, ' +
+      'and pay close attention to the supplier-specific format described below.'
+    : ''
+  if (!hint) return BASE_PROMPT + learningNote
+  return BASE_PROMPT + learningNote + '\n\n' +
     '═══════════════════════════════════════════════════════\n' +
     'SUPPLIER-SPECIFIC RULES — these override general rules:\n' +
     '═══════════════════════════════════════════════════════' +
@@ -460,20 +489,23 @@ function parseOcrResponse(rawText: string): OcrResult {
 // ── Multi-image (ALL pages in ONE API call — fastest approach for photo invoices) ──
 export async function extractInvoiceFromImages(
   files: Array<{ base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }>,
-  supplierName?: string | null
+  supplierName?: string | null,
+  learning = false
 ): Promise<OcrResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
+  const maxTokens     = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
+  const thinkingBudget = learning ? LEARNING_THINKING  : NORMAL_THINKING
 
-  // Compress all images in parallel
+  // Compress all images in parallel (learning mode preserves more detail)
   const compressedImages = await Promise.all(
     files.map(async (f) => {
       const rawBytes = Buffer.byteLength(f.base64, 'base64')
       if (rawBytes > 4 * 1024 * 1024 || f.mediaType !== 'image/jpeg') {
-        const compressed = await compressImageForClaude(f.base64)
-        console.log(`[ocr] Compressed: ${(rawBytes / 1024 / 1024).toFixed(1)}MB → ${(Buffer.byteLength(compressed.data, 'base64') / 1024 / 1024).toFixed(1)}MB`)
+        const compressed = await compressImageForClaude(f.base64, learning)
+        console.log(`[ocr] Compressed${learning ? ' (learning)' : ''}: ${(rawBytes / 1024 / 1024).toFixed(1)}MB → ${(Buffer.byteLength(compressed.data, 'base64') / 1024 / 1024).toFixed(1)}MB`)
         return compressed
       }
       return { data: f.base64, mediaType: f.mediaType as 'image/jpeg' }
@@ -489,9 +521,9 @@ export async function extractInvoiceFromImages(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message = await client.messages.create({
     model: OCR_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(supplierName),
-    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
+    max_tokens: maxTokens,
+    system: buildSystemPrompt(supplierName, learning),
+    thinking: { type: 'enabled', budget_tokens: thinkingBudget },
     messages: [{
       role: 'user',
       content: [
@@ -525,20 +557,23 @@ export async function extractInvoiceFromImage(
 // ── PDF — send as document to Claude (handles multi-page natively) ──
 export async function extractInvoiceFromPdf(
   pdfBuffer: Buffer,
-  supplierName?: string | null
+  supplierName?: string | null,
+  learning = false
 ): Promise<OcrResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
   const base64 = pdfBuffer.toString('base64')
+  const maxTokens      = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
+  const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message = await client.messages.create({
     model: OCR_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(supplierName),
-    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
+    max_tokens: maxTokens,
+    system: buildSystemPrompt(supplierName, learning),
+    thinking: { type: 'enabled', budget_tokens: thinkingBudget },
     messages: [{
       role: 'user',
       content: [
@@ -560,19 +595,22 @@ export async function extractInvoiceFromPdf(
 // ── Plain text (Claude-assisted) ──
 export async function extractInvoiceFromText(
   text: string,
-  supplierName?: string | null
+  supplierName?: string | null,
+  learning = false
 ): Promise<OcrResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
+  const maxTokens      = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
+  const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message = await client.messages.create({
     model: OCR_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(supplierName),
-    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
+    max_tokens: maxTokens,
+    system: buildSystemPrompt(supplierName, learning),
+    thinking: { type: 'enabled', budget_tokens: thinkingBudget },
     messages: [{
       role: 'user',
       content: `Parse this invoice text and return JSON only.\n\n${text}`,
