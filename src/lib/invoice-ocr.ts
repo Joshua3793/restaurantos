@@ -275,7 +275,7 @@ SKIP THESE:
 
   'legends haul': `
 SUPPLIER IDENTIFIED: LEGENDS HAUL / ACECARD FOOD GROUP
-Columns: PRODUCT ID | ORDERED | SHIPPED | unit | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
+Columns: PRODUCT ID | ORDERED | SHIPPED | unit(PC/PK/CS) | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
 
 TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
   Row 1: PRODUCT ID, qty data, full description with size, weight, price, amount
@@ -285,23 +285,39 @@ TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
 
 ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand-name rows have no product ID.
 
-FIELD MAPPING — determined by the "per" column:
-  per = KG (weight-priced):
-    rate      = PRICE column ($/kg)
-    totalQty  = WEIGHT column value (actual delivered kg)
-    lineTotal = AMOUNT column
-    unitPrice = AMOUNT ÷ SHIPPED (price per case)
-    packUOM   = "kg"
-  per = CS (case-priced):
-    unitPrice = PRICE column ($/case)
-    lineTotal = AMOUNT column
-  qty = SHIPPED column (not ORDERED)
+FIELD MAPPING:
+  qty  = SHIPPED column value (the number of pieces/packages/cases actually delivered)
+  unit = the unit column adjacent to SHIPPED — PC (pieces), PK (packages), or CS (cases)
 
-Parse pack info from DESCRIPTION field:
-  "Pork Butt BL Fresh 6/cs"         → packQty:6
-  "Beef Digital AA FZ 1kg pkgs"     → packQty:1, packSize:1, packUOM:kg
-  "Eggs Dark Yolk LW Loose 180/case"→ packSize:180, packUOM:each
-  "Veal Bones (Knuckle) Fz 50lb/cs" → packSize:50, packUOM:lb
+  ⚠ UNIT COLUMN IS NOT A MULTIPLIER: "4 PC" means 4 individual pieces. If the description
+    says "Beef Brisket 4x7kg" and SHIPPED is "4 PC", that is 4 pieces — NOT 4×4=16.
+    The description's pack notation (4x7kg) describes the NOMINAL case format only.
+
+  per column determines pricing mode:
+    per = KG → weight-priced item:
+      rate      = PRICE column ($/kg)
+      totalQty  = WEIGHT column value (ACTUAL delivered kg — authoritative, always use this)
+      totalQtyUOM = "kg"
+      lineTotal = AMOUNT column
+      unitPrice = AMOUNT ÷ SHIPPED qty
+
+    per = CS → case-priced item:
+      unitPrice = PRICE column ($/case)
+      lineTotal = AMOUNT column
+
+  ⚠ DESCRIPTION SIZE IS NOMINAL ONLY: "Beef Brisket 4x7kg" means the case is nominally
+    4 pieces of ~7kg each, but actual meat weights vary. The WEIGHT column is the true
+    delivered weight — NEVER use description arithmetic (4×7=28) to derive or verify totalQty.
+    Example: description "Beef Brisket 4x7kg", WEIGHT=36.1 KG, PRICE=18.00, AMOUNT=649.80
+    → qty:4, unit:"pc", rate:18.00, totalQty:36.1, lineTotal:649.80, unitPrice:162.45
+    (NOT totalQty:28 — ignore the 4×7 math entirely)
+
+  packQty/packSize/packUOM from DESCRIPTION (nominal reference only, not for pricing):
+    "Pork Butt BL Fresh 6/cs"          → packQty:6
+    "Beef Digital AA FZ 1kg pkgs"      → packQty:1, packSize:1, packUOM:kg
+    "Eggs Dark Yolk LW Loose 180/case" → packSize:180, packUOM:each
+    "Veal Bones (Knuckle) Fz 50lb/cs"  → packSize:50, packUOM:lb
+    "Beef Brisket 4x7kg"               → packQty:4, packSize:7, packUOM:kg (nominal only)
 
 SKIP THESE:
   - Brand name rows (Row 2 of each item — no product ID, just a name like "BRITCO")
@@ -346,7 +362,7 @@ SKIP THESE:
 
   acecard: `
 SUPPLIER IDENTIFIED: LEGENDS HAUL / ACECARD FOOD GROUP
-Columns: PRODUCT ID | ORDERED | SHIPPED | unit | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
+Columns: PRODUCT ID | ORDERED | SHIPPED | unit(PC/PK/CS) | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
 
 TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
   Row 1: PRODUCT ID, qty data, full description with size, weight, price, amount
@@ -356,10 +372,14 @@ TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
 
 ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand-name rows have no product ID.
 
-FIELD MAPPING — determined by the "per" column:
-  per = KG → rate=PRICE, totalQty=WEIGHT, lineTotal=AMOUNT, unitPrice=AMOUNT÷SHIPPED
-  per = CS → unitPrice=PRICE, lineTotal=AMOUNT
-  qty = SHIPPED column
+FIELD MAPPING:
+  qty  = SHIPPED column value
+  unit = unit column (PC=pieces, PK=packages, CS=cases) — not a multiplier on description
+  per = KG → rate=PRICE($/kg), totalQty=WEIGHT(actual kg), lineTotal=AMOUNT, unitPrice=AMOUNT÷SHIPPED
+  per = CS → unitPrice=PRICE($/case), lineTotal=AMOUNT
+
+  ⚠ WEIGHT column is ALWAYS authoritative for per=KG items — never derive totalQty from description
+  ⚠ "4 PC" of "Beef Brisket 4x7kg" = 4 pieces (qty:4), NOT 16. Description size is nominal only.
 
 SKIP THESE:
   - Brand name rows (Row 2 — no product ID)
