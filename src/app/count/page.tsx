@@ -5,7 +5,7 @@ import React, {
 } from 'react'
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
-  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, Search, SkipForward, Trash2, WifiOff, X,
+  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
@@ -160,6 +160,9 @@ export default function CountPage() {
   const [isOffline,      setIsOffline]      = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
   const [offlineSyncing, setOfflineSyncing] = useState(false)
+
+  // ── Sync state ───────────────────────────────────────────────────────────
+  const [syncing, setSyncing] = useState(false)
 
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
@@ -544,6 +547,24 @@ export default function CountPage() {
   const backFromCount = () => {
     if (counted > 0 && !confirm('Leave count session? All confirmed items are saved.')) return
     setView('list'); setActive(null); setOpenId(null)
+  }
+
+  const handleSync = async () => {
+    if (!active || syncing) return
+    setSyncing(true)
+    try {
+      const res  = await fetch(`/api/count/sessions/${active.id}/sync`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.added > 0) {
+        // Merge new lines into active session
+        setActive(prev => prev ? { ...prev, lines: [...(prev.lines ?? []), ...data.lines] } : prev)
+        setToast(`${data.added} new item${data.added === 1 ? '' : 's'} added`)
+      } else {
+        setToast('Already up to date')
+      }
+    } finally {
+      setSyncing(false)
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -1375,6 +1396,15 @@ export default function CountPage() {
           <span className="shrink-0 bg-gray-100 text-gray-700 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap">
             {counted} / {total} done
           </span>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            title="Sync with inventory — adds items created after this session started"
+            className="shrink-0 flex items-center gap-1.5 border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 whitespace-nowrap disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">Sync</span>
+          </button>
           <button
             onClick={openAddItem}
             className="shrink-0 flex items-center gap-1.5 border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 whitespace-nowrap"
