@@ -14,10 +14,12 @@ async function compressImageForClaude(
   const sharp = (await import('sharp')).default
   const inputBuffer = Buffer.from(base64Data, 'base64')
 
-  // Resize once to max 2500px, auto-rotate from EXIF, convert to JPEG
+  // Resize, auto-rotate, normalize contrast, sharpen text edges
   let resized = await sharp(inputBuffer)
-    .rotate()
-    .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
+    .rotate()                                                           // fix EXIF orientation
+    .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })   // limit to 2500px
+    .normalize()                                                        // auto-contrast: stretches histogram to full [0,255]
+    .sharpen({ sigma: 1.2, m2: 0.5 })                                  // mild unsharp mask — helps text edges without artifacts
     .jpeg({ quality: 90 })
     .toBuffer()
 
@@ -40,7 +42,8 @@ async function compressImageForClaude(
   return { data: outputBuffer.toString('base64'), mediaType: 'image/jpeg' }
 }
 
-const SYSTEM_PROMPT = `You are an expert invoice parser for a restaurant supply chain system.
+// ── Base system prompt ─────────────────────────────────────────────────────────
+const BASE_PROMPT = `You are an expert invoice parser for a restaurant supply chain system.
 Extract ALL purchasable product line items and header data from the invoice image(s).
 If multiple pages are provided, treat them as one invoice and combine all line items.
 
@@ -85,7 +88,46 @@ Field definitions:
   totalQty = ACTUAL total weight/volume delivered for the whole line — look for "total weight", "shipped weight",
              "actual weight", or the weight/volume value in a weight/rate column for Format D items
 
+═══════════════════════════════════════════════════════
+ROW ALIGNMENT — CRITICAL RULE (most common parsing error):
+═══════════════════════════════════════════════════════
+Invoice tables are structured as rows. Each row is one data record.
+- READ EACH ROW HORIZONTALLY: description, qty, price, and total for ONE item are ALL on the SAME row.
+- NEVER borrow qty, price, or total values from a different row, even if a value seems missing from the current row.
+- If a field is genuinely absent from a row, set it to null — do NOT pull it from an adjacent row.
+- MULTI-ROW ITEMS: some formats place brand name or description continuation on row 2. Only the FIRST row
+  contains the financial data (qty, price, total). Treat the second row as part of the first item's
+  description — do NOT create a new line item for it and do NOT use its position to infer missing values.
+
+CROSS-CHECK BEFORE OUTPUT:
+For every extracted line item verify the math before including it:
+  qty × unitPrice ≈ lineTotal (within 5%) — if this fails, you read qty or price from the wrong row; fix it
+  For weight items: totalQty × rate ≈ lineTotal (within 5%) — if this fails, re-examine the row
+If a cross-check fails, correct the error rather than outputting bad data.
+
+═══════════════════════════════════════════════════════
+SKIP RULES — lines that are NEVER products:
+═══════════════════════════════════════════════════════
+Skip any line that matches these patterns:
+- Category section headers: lines naming a product group without a product code or price
+    Examples: DAIRY PRODUCTS, PRODUCE, FROZEN, CANNED AND DRY, DRY, COOLER, PAPER & DISP,
+              SUPP & EQUIP, BEVERAGE, GROCERY — especially when enclosed in dashes (-- DAIRY --)
+              or asterisks (** DRY **)
+- Category subtotals/totals: lines with only "Total" + an amount, or "Totals: N  Total [X] Pieces  XX"
+- Non-product charges: Fuel Surcharge, Fuel Charge, Delivery Fee, Minimum Order Fee, Recycling Fee,
+  Bottle Deposit, Freight, Environmental Fee, Service Charge
+- Tax lines: GST, HST, PST, TVQ, QST (whether standalone or inline dollar amounts on item rows)
+- Page-level aggregates: Page Total, Order Total, Subtotal, Sub Total, Invoice Total, INVOICE TOTAL
+- Table column headers: rows containing labels like "Description", "Qty", "Price", "Amount", "Extension"
+- Boilerplate text: delivery instructions, payment terms, legal notices, certifications blocks,
+  "All raw product is to be cooked for consumption", "Please ensure payment..."
+- Traceability sub-lines: LOT# lines, fishing method lines (TROLLING LINES, BEACH SEINES),
+  certification codes (MSC-C-XXXXX, ASC-C-XXXXX), habitat (WILD), grade (GREEN - BEST CHOICE)
+- Summary tables: Category Summary, Category Recap tables at end of invoice
+
+═══════════════════════════════════════════════════════
 HOW TO INTERPRET DIFFERENT INVOICE FORMATS:
+═══════════════════════════════════════════════════════
 
 Format A — Sysco (explicit columns: Qty Ord | B Unit | Pack Size | Price | Extension)
   Row: Qty:1  B Unit:4  Pack Size:5 LTR  Price:27.99  Ext:27.99
@@ -146,6 +188,208 @@ Rules:
 - Dates in YYYY-MM-DD format
 - null only for fields that are genuinely impossible to determine`
 
+// ── Supplier-specific format hints ─────────────────────────────────────────────
+// Keyed by normalized substring of supplier name. Injected into the prompt when
+// the session's supplier is already known, giving Claude exact column layouts.
+const SUPPLIER_HINTS: Record<string, string> = {
+  sysco: `
+SUPPLIER IDENTIFIED: SYSCO CANADA
+Columns (left→right): ITEM NO./ARTICLE | QTY.ORD./COMMANDE | QTY.SHPD./EXPÉDIÉ | B UNIT/UNITÉ | PACK SIZE FORMAT | BRAND/MARQUE | DESCRIPTION | WEIGHT/POIDS | PRICE/PRIX | EXTENSION/MONTANT
+
+ANCHOR: Every real product row begins with a 6-7 digit ITEM NO. Rows with no item number are NOT products.
+
+FIELD MAPPING:
+  qty       = QTY.SHPD. column (shipped quantity, not ordered)
+  unit      = "cs"
+  packQty   = B UNIT column (number of packages per case)
+  packSize + packUOM = parse from PACK SIZE FORMAT column
+    "1 KG" → packSize:1, packUOM:kg | "8 EA" → packSize:8, packUOM:each
+    "3 L"  → packSize:3, packUOM:L  | "100CT" → packSize:100, packUOM:each
+  unitPrice = PRICE column — $/case in normal rows
+  lineTotal = EXTENSION column
+
+WEIGHT-PRICED ROWS: When the WEIGHT/POIDS column has a numeric value (not blank or "TBD"):
+  rate      = PRICE column ($/kg or $/lb — same UOM as packUOM)
+  totalQty  = WEIGHT column value
+  lineTotal = EXTENSION column
+  unitPrice = EXTENSION ÷ QTY.SHPD.
+
+SKIP THESE (they are NOT products — no item number):
+  - Category headers: "-- DAIRY PRODUCTS --", "-- CANNED AND DRY --", "-- PAPER & DISP --",
+    "-- SUPP & EQUIP --", "-- PRODUCE --", "-- FROZEN --", "-- BEVERAGE --" and similar
+  - Category totals: lines like "Total  59.63" (label "Total" + amount, no item number)
+  - Last-page summary block: P.S.T./T.V.P., ORDER TOTAL/TOTAL COMMANDE, CUBE, PIECES/MORCEAUX rows`,
+
+  gordon: `
+SUPPLIER IDENTIFIED: GFS / GORDON FOOD SERVICE
+Columns: Item Code(7 digits) | Qty Ord | Qty Ship | Unit | Pack Size | Brand | Item Description | Ø | Cust Cat | Unit Price | (tax col) | Extended Price
+
+ANCHOR: Every real product row begins with a 7-digit Item Code. Rows without an item code are NOT products.
+
+FIELD MAPPING:
+  qty       = Qty Ship column
+  unit      = Unit column (CS, EA, etc.)
+  packQty + packSize + packUOM = parse from Pack Size column:
+    "1x24 UN" → packQty:1, packSize:24, packUOM:each
+    "2x5 KG"  → packQty:2, packSize:5,  packUOM:kg
+    "1x4 L"   → packQty:1, packSize:4,  packUOM:L
+  unitPrice = Unit Price column (always $/case)
+  lineTotal = Extended Price column
+  Cust Cat column (PR, DS, etc.) is a category code — NOT a field to extract as a product
+
+SKIP THESE (no item code):
+  - "Totals: N  Total [Category] Pieces  XX.XX" — category subtotal rows
+  - "Page Total: XX.XX" — page subtotal row
+  - Entire "Category Summary" / "Category Recap" table at end of invoice
+  - Non-product fee rows: "Fuel Charge", "Minimum Order Fee" (appear in Category Summary)
+  - Footer: "Product Total", "Misc", "Sub total", "PST/QST", "GST/HST", "Invoice Total"`,
+
+  'snow cap': `
+SUPPLIER IDENTIFIED: SNOW CAP ENTERPRISES
+Columns: BIN LOC. | ITEM NO. | QUAN. | DESCRIPTION | SIZE | UNIT PRICE | AMOUNT
+
+ANCHOR: Every real product row has a BIN LOC. code (format "WF-22-1", "CB-10-1", etc.) and an ITEM NO.
+
+FIELD MAPPING:
+  qty       = QUAN. column
+  unit      = "cs" (or "ea" for single units)
+  packQty + packSize + packUOM = parse from SIZE column using these rules:
+    "9/3LB"  → packQty:9,  packSize:3,   packUOM:lb
+    "4/4L"   → packQty:4,  packSize:4,   packUOM:L
+    "20KG"   → packQty:1,  packSize:20,  packUOM:kg
+    "2.5KG"  → packQty:1,  packSize:2.5, packUOM:kg
+    "100PC"  → packQty:1,  packSize:100, packUOM:each
+    "9L"     → packQty:1,  packSize:9,   packUOM:L
+    "1KG"    → packQty:1,  packSize:1,   packUOM:kg
+  unitPrice = UNIT PRICE column (always $/case — Snow Cap never uses weight pricing)
+  lineTotal = AMOUNT column = QUAN × UNIT PRICE
+
+SKIP THESE:
+  - Category section headers: "** DRY **", "** COOLER **", "** FROZEN **", "** PRODUCE **"
+    and any line enclosed in "** ... **"
+  - LOT# lines — appear below some items as "LOT#  260417"; these are traceability numbers, not products
+  - Delivery instruction text at top: "TRUCK MUST BE PARKED IN PARKING LOT..."
+  - Inline tax amounts: "GST: 1.32  PST: 1.85" may appear at the end of an item line —
+    these are taxes on that item, NOT separate line items; ignore the numbers
+  - Footer: subtotals, tax summary rows`,
+
+  'legends haul': `
+SUPPLIER IDENTIFIED: LEGENDS HAUL / ACECARD FOOD GROUP
+Columns: PRODUCT ID | ORDERED | SHIPPED | unit | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
+
+TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
+  Row 1: PRODUCT ID, qty data, full description with size, weight, price, amount
+  Row 2: Brand name ONLY (e.g. "BRITCO", "JBS/CARGIL", "WHITEVEAL", "GOLDENVALL")
+  → Do NOT create a separate line item for Row 2. It belongs to Row 1.
+  → All financial data (weight, price, amount) comes from Row 1 only.
+
+ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand-name rows have no product ID.
+
+FIELD MAPPING — determined by the "per" column:
+  per = KG (weight-priced):
+    rate      = PRICE column ($/kg)
+    totalQty  = WEIGHT column value (actual delivered kg)
+    lineTotal = AMOUNT column
+    unitPrice = AMOUNT ÷ SHIPPED (price per case)
+    packUOM   = "kg"
+  per = CS (case-priced):
+    unitPrice = PRICE column ($/case)
+    lineTotal = AMOUNT column
+  qty = SHIPPED column (not ORDERED)
+
+Parse pack info from DESCRIPTION field:
+  "Pork Butt BL Fresh 6/cs"         → packQty:6
+  "Beef Digital AA FZ 1kg pkgs"     → packQty:1, packSize:1, packUOM:kg
+  "Eggs Dark Yolk LW Loose 180/case"→ packSize:180, packUOM:each
+  "Veal Bones (Knuckle) Fz 50lb/cs" → packSize:50, packUOM:lb
+
+SKIP THESE:
+  - Brand name rows (Row 2 of each item — no product ID, just a name like "BRITCO")
+  - "Total Weight ......  XXX KG", "Sub Total", "Discount", "Fuel Surcharge",
+    "Freight", "GST", "PST", "Invoice Total", "Total Pieces: N"`,
+
+  'intercity packers': `
+SUPPLIER IDENTIFIED: INTERCITY PACKERS (meat & seafood)
+Columns: PRODUCT | DESCRIPTION | PACK | QTY ORD | U/M | QTY SHIP | U/M | PRICE | AMOUNT | TAX
+
+MULTI-ROW ITEMS — CRITICAL: Each product spans MULTIPLE rows:
+  Row 1: PRODUCT code + first line of description + pack + qty + price + amount
+  Rows 2+: Description continuation ONLY — no financial data. These include:
+    fishing method (TROLLING LINES, BEACH SEINES, LONGLINE)
+    habitat (WILD, FARMED)
+    certifications (MSC-C-50507, ASC-C-00057)
+    grade/quality (GREEN - BEST CHOICE, BLUE)
+    weight class (3LB, 40LB)
+    brand (OCEANWISE, TAJIMA, etc.)
+  → Merge relevant description rows into the product name, then skip them as separate items.
+  → All financial data (qty, price, amount) comes from Row 1 ONLY.
+
+ANCHOR: Real product rows have a numeric PRODUCT code (8 digits). Sub-description rows have no product code.
+
+ALL ITEMS ARE WEIGHT-PRICED:
+  qty         = QTY SHIP column value (actual shipped weight)
+  unit        = U/M column adjacent to QTY SHIP (LB or KG)
+  rate        = PRICE column ($/lb or $/kg)
+  totalQty    = QTY SHIP value (same as qty — all items sold by weight)
+  totalQtyUOM = U/M column (LB or KG)
+  lineTotal   = AMOUNT column = QTY SHIP × PRICE
+  unitPrice   = AMOUNT (treat as $/case since qty=shipped weight)
+  packSize + packUOM = parse from PACK column: "1/10 LB" → packQty:1, packSize:10, packUOM:lb
+
+SKIP THESE:
+  - All description continuation rows (no product code)
+  - Boilerplate: "All raw product is to be cooked for consumption",
+    "Please ensure payment including EFT is paid to Intercity Packers LTD"
+  - "INTEREST CHARGES" section, "CLAIMS" section
+  - Footer: "TOTAL WEIGHT (KG)", "TOTAL PIECES", "TERMS", "SUBTOTAL",
+    "FUEL SURCHARGE", "FREIGHT", "PST", "HST/GST", "INVOICE TOTAL"`,
+
+  acecard: `
+SUPPLIER IDENTIFIED: LEGENDS HAUL / ACECARD FOOD GROUP
+Columns: PRODUCT ID | ORDERED | SHIPPED | unit | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
+
+TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
+  Row 1: PRODUCT ID, qty data, full description with size, weight, price, amount
+  Row 2: Brand name ONLY (e.g. "BRITCO", "JBS/CARGIL", "WHITEVEAL", "GOLDENVALL")
+  → Do NOT create a separate line item for Row 2. It belongs to Row 1.
+  → All financial data (weight, price, amount) comes from Row 1 only.
+
+ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand-name rows have no product ID.
+
+FIELD MAPPING — determined by the "per" column:
+  per = KG → rate=PRICE, totalQty=WEIGHT, lineTotal=AMOUNT, unitPrice=AMOUNT÷SHIPPED
+  per = CS → unitPrice=PRICE, lineTotal=AMOUNT
+  qty = SHIPPED column
+
+SKIP THESE:
+  - Brand name rows (Row 2 — no product ID)
+  - Footer rows: "Total Weight", "Sub Total", "Discount", "Fuel Surcharge",
+    "Freight", "GST", "PST", "Invoice Total", "Total Pieces"`,
+}
+
+// Lookup supplier hints by normalizing the supplier name and checking substrings
+function getSupplierHint(supplierName: string | null | undefined): string {
+  if (!supplierName) return ''
+  const n = supplierName.toLowerCase()
+  if (n.includes('sysco'))              return SUPPLIER_HINTS['sysco']
+  if (n.includes('gordon') || n.includes('gfs')) return SUPPLIER_HINTS['gordon']
+  if (n.includes('snow cap'))           return SUPPLIER_HINTS['snow cap']
+  if (n.includes('legends haul'))       return SUPPLIER_HINTS['legends haul']
+  if (n.includes('acecard'))            return SUPPLIER_HINTS['acecard']
+  if (n.includes('intercity'))          return SUPPLIER_HINTS['intercity packers']
+  return ''
+}
+
+function buildSystemPrompt(supplierName?: string | null): string {
+  const hint = getSupplierHint(supplierName)
+  if (!hint) return BASE_PROMPT
+  return BASE_PROMPT + '\n\n' +
+    '═══════════════════════════════════════════════════════\n' +
+    'SUPPLIER-SPECIFIC RULES — these override general rules:\n' +
+    '═══════════════════════════════════════════════════════' +
+    hint
+}
+
 export interface OcrLineItem {
   description: string
   qty: number | null
@@ -195,7 +439,8 @@ function parseOcrResponse(rawText: string): OcrResult {
 
 // ── Multi-image (ALL pages in ONE API call — fastest approach for photo invoices) ──
 export async function extractInvoiceFromImages(
-  files: Array<{ base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }>
+  files: Array<{ base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }>,
+  supplierName?: string | null
 ): Promise<OcrResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
@@ -225,7 +470,7 @@ export async function extractInvoiceFromImages(
   const message = await client.messages.create({
     model: OCR_MODEL,
     max_tokens: MAX_TOKENS,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(supplierName),
     thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
     messages: [{
       role: 'user',
@@ -258,7 +503,10 @@ export async function extractInvoiceFromImage(
 }
 
 // ── PDF — send as document to Claude (handles multi-page natively) ──
-export async function extractInvoiceFromPdf(pdfBuffer: Buffer): Promise<OcrResult> {
+export async function extractInvoiceFromPdf(
+  pdfBuffer: Buffer,
+  supplierName?: string | null
+): Promise<OcrResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
@@ -269,7 +517,7 @@ export async function extractInvoiceFromPdf(pdfBuffer: Buffer): Promise<OcrResul
   const message = await client.messages.create({
     model: OCR_MODEL,
     max_tokens: MAX_TOKENS,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(supplierName),
     thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
     messages: [{
       role: 'user',
@@ -290,7 +538,10 @@ export async function extractInvoiceFromPdf(pdfBuffer: Buffer): Promise<OcrResul
 }
 
 // ── Plain text (Claude-assisted) ──
-export async function extractInvoiceFromText(text: string): Promise<OcrResult> {
+export async function extractInvoiceFromText(
+  text: string,
+  supplierName?: string | null
+): Promise<OcrResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
@@ -300,7 +551,7 @@ export async function extractInvoiceFromText(text: string): Promise<OcrResult> {
   const message = await client.messages.create({
     model: OCR_MODEL,
     max_tokens: MAX_TOKENS,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(supplierName),
     thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
     messages: [{
       role: 'user',

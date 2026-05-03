@@ -101,7 +101,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             }
           })
         )
-        const result = await extractInvoiceFromImages(imagePayloads)
+        const result = await extractInvoiceFromImages(imagePayloads, session.supplierName)
         mergeResult(result, sessionMeta)
         allOcrItems = [...allOcrItems, ...result.lineItems]
         await prisma.invoiceFile.update({
@@ -134,7 +134,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           if (ft === 'text/csv' || file.fileName.endsWith('.csv')) {
             result = await extractInvoiceFromCsv(buf.toString('utf-8'))
           } else {
-            result = await extractInvoiceFromPdf(buf)
+            result = await extractInvoiceFromPdf(buf, session.supplierName)
           }
           await prisma.invoiceFile.update({
             where: { id: file.id },
