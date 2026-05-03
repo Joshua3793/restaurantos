@@ -1690,7 +1690,10 @@ export default function CountPage() {
     const lines        = active.lines ?? []
     const countedLines = lines.filter(l => l.countedQty !== null && !l.skipped)
     const flagged      = lines.filter(l => l.variancePct !== null && Math.abs(Number(l.variancePct)) > 15)
-    const totalValue   = countedLines.reduce((s, l) => s + Number(l.countedQty) * Number(l.priceAtCount), 0)
+    const totalValue   = countedLines.reduce((s, l) => {
+      const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
+      return s + base * Number(l.priceAtCount)
+    }, 0)
     const isFinalized  = active.status === 'FINALIZED'
     const sorted       = [...countedLines].sort(
       (a, b) => Math.abs(Number(b.varianceCost ?? 0)) - Math.abs(Number(a.varianceCost ?? 0))
@@ -1768,7 +1771,7 @@ export default function CountPage() {
                   <div className="grid grid-cols-2 divide-x divide-gray-50">
                     <div className="px-3 py-2">
                       <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Expected</div>
-                      <div className="text-sm text-gray-700">{Number(l.expectedQty).toFixed(1)} {l.selectedUom}</div>
+                      <div className="text-sm text-gray-700">{convertBaseToCountUom(Number(l.expectedQty), l.selectedUom, l.inventoryItem).toFixed(1)} {l.selectedUom}</div>
                     </div>
                     <div className="px-3 py-2">
                       <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Counted</div>
@@ -1823,7 +1826,7 @@ export default function CountPage() {
                       </div>
                       <span className="text-xs text-gray-400">{l.inventoryItem.category}</span>
                     </div>
-                    <span className="text-right text-sm text-gray-600">{Number(l.expectedQty).toFixed(1)} {l.selectedUom}</span>
+                    <span className="text-right text-sm text-gray-600">{convertBaseToCountUom(Number(l.expectedQty), l.selectedUom, l.inventoryItem).toFixed(1)} {l.selectedUom}</span>
                     <span className="text-right text-sm font-medium text-gray-900">{Number(l.countedQty).toFixed(1)} {l.selectedUom}</span>
                     <span className={`text-right text-sm font-semibold ${varColor(vPct)}`}>
                       {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%
