@@ -90,22 +90,32 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (session.revenueCenterId) {
     const allocationUpdates = session.lines
       .filter(line => !line.skipped && line.countedQty !== null)
-      .map(line =>
-        prisma.stockAllocation.upsert({
+      .map(line => {
+        const item = line.inventoryItem
+        const itemDims = {
+          baseUnit:           item.baseUnit,
+          purchaseUnit:       item.purchaseUnit,
+          qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+          packSize:           Number(item.packSize),
+          packUOM:            item.packUOM,
+          countUOM:           item.countUOM,
+        }
+        const qtyBase = convertCountQtyToBase(Number(line.countedQty), line.selectedUom, itemDims)
+        return prisma.stockAllocation.upsert({
           where: {
             revenueCenterId_inventoryItemId: {
               revenueCenterId: session.revenueCenterId!,
               inventoryItemId: line.inventoryItemId,
             },
           },
-          update: { quantity: Number(line.countedQty) },
+          update: { quantity: qtyBase },
           create: {
             revenueCenterId: session.revenueCenterId!,
             inventoryItemId: line.inventoryItemId,
-            quantity: Number(line.countedQty),
+            quantity: qtyBase,
           },
         })
-      )
+      })
     await Promise.all(allocationUpdates)
   }
 

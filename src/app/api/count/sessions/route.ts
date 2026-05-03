@@ -345,7 +345,7 @@ export async function POST(req: NextRequest) {
           return {
             inventoryItemId: item.id,
             expectedQty:     expected,
-            selectedUom:     item.baseUnit,
+            selectedUom:     item.countUOM || item.baseUnit,
             priceAtCount:    item.pricePerBaseUnit,
             sortOrder:       i,
           }

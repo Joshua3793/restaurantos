@@ -86,6 +86,11 @@ function varColor(pct: number | null) {
   return 'text-red-600'
 }
 
+// Returns false when expectedQty is so small in display units that the % is meaningless
+function hasReliableVariance(expectedQty: number, selectedUom: string, item: InventoryItemRef): boolean {
+  return convertBaseToCountUom(expectedQty, selectedUom, item) >= 0.05
+}
+
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
@@ -1689,7 +1694,11 @@ export default function CountPage() {
   if (view === 'review' && active) {
     const lines        = active.lines ?? []
     const countedLines = lines.filter(l => l.countedQty !== null && !l.skipped)
-    const flagged      = lines.filter(l => l.variancePct !== null && Math.abs(Number(l.variancePct)) > 15)
+    const flagged      = lines.filter(l =>
+      l.variancePct !== null &&
+      hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem) &&
+      Math.abs(Number(l.variancePct)) > 15
+    )
     const totalValue   = countedLines.reduce((s, l) => {
       const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
       return s + base * Number(l.priceAtCount)
@@ -1754,9 +1763,10 @@ export default function CountPage() {
         {sorted.length > 0 && (
           <div className="block sm:hidden space-y-2 mb-24">
             {sorted.map(l => {
-              const vPct  = Number(l.variancePct ?? 0)
-              const vCost = Number(l.varianceCost ?? 0)
-              const large = Math.abs(vPct) > 15
+              const vPct     = Number(l.variancePct ?? 0)
+              const vCost    = Number(l.varianceCost ?? 0)
+              const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
+              const large    = reliable && Math.abs(vPct) > 15
               return (
                 <div key={l.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden flex">
                   {large && <div className="w-1 shrink-0 bg-amber-400" />}
@@ -1779,8 +1789,8 @@ export default function CountPage() {
                     </div>
                     <div className="px-3 py-2 border-t border-gray-50">
                       <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Variance</div>
-                      <div className={`text-sm font-semibold ${varColor(vPct)}`}>
-                        {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%
+                      <div className={`text-sm font-semibold ${reliable ? varColor(vPct) : 'text-gray-400'}`}>
+                        {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
                       </div>
                     </div>
                     <div className="px-3 py-2 border-t border-gray-50">
@@ -1812,9 +1822,10 @@ export default function CountPage() {
                 <span className="text-right">Cost impact</span>
               </div>
               {sorted.map(l => {
-                const vPct  = Number(l.variancePct ?? 0)
-                const vCost = Number(l.varianceCost ?? 0)
-                const large = Math.abs(vPct) > 15
+                const vPct     = Number(l.variancePct ?? 0)
+                const vCost    = Number(l.varianceCost ?? 0)
+                const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
+                const large    = reliable && Math.abs(vPct) > 15
                 return (
                   <div key={l.id}
                     className={`px-4 py-2.5 grid grid-cols-[1fr_80px_80px_70px_90px] gap-2 items-center ${large ? 'bg-amber-50' : ''}`}
@@ -1828,8 +1839,8 @@ export default function CountPage() {
                     </div>
                     <span className="text-right text-sm text-gray-600">{convertBaseToCountUom(Number(l.expectedQty), l.selectedUom, l.inventoryItem).toFixed(1)} {l.selectedUom}</span>
                     <span className="text-right text-sm font-medium text-gray-900">{Number(l.countedQty).toFixed(1)} {l.selectedUom}</span>
-                    <span className={`text-right text-sm font-semibold ${varColor(vPct)}`}>
-                      {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%
+                    <span className={`text-right text-sm font-semibold ${reliable ? varColor(vPct) : 'text-gray-400'}`}>
+                      {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
                     </span>
                     <span className={`text-right text-sm font-semibold ${vCost >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}

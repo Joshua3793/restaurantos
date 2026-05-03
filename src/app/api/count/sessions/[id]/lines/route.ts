@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       sessionId: params.id,
       inventoryItemId,
       expectedQty: Number(item.stockOnHand),
-      selectedUom: item.baseUnit,
+      selectedUom: item.countUOM || item.baseUnit,
       priceAtCount: Number(item.pricePerBaseUnit),
       sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
     },
