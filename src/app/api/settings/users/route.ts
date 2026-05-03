@@ -24,6 +24,7 @@ export async function GET() {
 // POST — invite a new user (ADMIN only)
 // Body: { email: string, role: 'ADMIN' | 'MANAGER' | 'STAFF', name?: string }
 export async function POST(req: NextRequest) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || new URL(req.url).origin
   let admin
   try { admin = await requireSession('ADMIN') }
   catch (e) {
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
   // Send invite via Supabase — creates Auth user + sends email
   const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email.trim(), {
     data: { role, isActive: true, name: name?.trim() ?? null },
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+    redirectTo: `${appUrl}/auth/callback`,
   })
 
   if (error) {

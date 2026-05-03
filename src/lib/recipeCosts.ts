@@ -5,6 +5,7 @@
  */
 import { prisma } from './prisma'
 import { convertQty } from './uom'
+import { getUnitConv } from './utils'
 
 export interface IngredientWithCost {
   id: string
@@ -231,12 +232,12 @@ export async function syncPrepToInventory(recipeId: string) {
   })
   const countUOM = current?.countUOM ?? yieldUnit
 
-  // conversionFactor = how many yieldUnits per 1 countUnit
-  // e.g. countUOM='l', yieldUnit='ml' → convertQty(1,'l','ml') = 1000
-  let conversionFactor = convertQty(1, countUOM, yieldUnit)
+  // conversionFactor = how many baseUnits per 1 countUnit
+  // Uses getUnitConv (same constants as pricing) so recipe costs stay consistent with inventory
+  let conversionFactor = getUnitConv(countUOM) / getUnitConv(yieldUnit)
   // 'batch' is a special pseudo-unit: 1 batch = full recipe yield
   if (countUOM.toLowerCase() === 'batch') conversionFactor = baseYieldQty
-  // If incompatible dimensions, convertQty returns 1 unchanged — that's our fallback
+  // Incompatible or unknown units: getUnitConv returns 1 for both → ratio = 1 (safe fallback)
 
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },

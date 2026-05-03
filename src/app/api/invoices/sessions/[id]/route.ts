@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
+import { calcPricePerBaseUnit } from '@/lib/utils'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -131,19 +132,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
 
       const prevPrice = Number(scanItem.previousPrice)
-      const qty  = Number(scanItem.matchedItem.qtyPerPurchaseUnit)
-      const ps   = Number(scanItem.matchedItem.packSize)
-      const uom  = scanItem.matchedItem.packUOM?.toLowerCase() ?? 'each'
-
-      // Recalculate pricePerBaseUnit at the previous price
-      const UNIT_CONV: Record<string, number> = {
-        ml: 1, l: 1000, liter: 1000, litre: 1000,
-        g: 1, kg: 1000, lb: 453.592, oz: 28.3495,
-        each: 1, unit: 1, pc: 1, piece: 1,
-      }
-      const conv = UNIT_CONV[uom] ?? 1
-      const divisor = qty * ps * conv
-      const pricePerBaseUnit = divisor > 0 ? prevPrice / divisor : 0
+      const pricePerBaseUnit = calcPricePerBaseUnit(
+        prevPrice,
+        Number(scanItem.matchedItem.qtyPerPurchaseUnit),
+        Number(scanItem.matchedItem.packSize),
+        scanItem.matchedItem.packUOM ?? 'each',
+      )
 
       await prisma.inventoryItem.update({
         where: { id: scanItem.matchedItemId },

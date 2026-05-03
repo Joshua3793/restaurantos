@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       where: { isActive: true },
       select: {
         id: true, itemName: true, category: true, baseUnit: true,
-        stockOnHand: true, conversionFactor: true, pricePerBaseUnit: true, purchasePrice: true,
+        stockOnHand: true, pricePerBaseUnit: true, purchasePrice: true,
         lastCountDate: true,
         supplier: { select: { name: true } },
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },
@@ -65,9 +65,9 @@ export async function GET(req: NextRequest) {
         )
       )
 
-  // Inventory value: stockOnHand (purchase units) × conversionFactor × pricePerBaseUnit
+  // Inventory value: stockOnHand (baseUnit) × pricePerBaseUnit
   const totalInventoryValue = inventory.reduce((sum, item) =>
-    sum + item.stockOnHand * Number(item.conversionFactor) * Number(item.pricePerBaseUnit), 0)
+    sum + item.stockOnHand * Number(item.pricePerBaseUnit), 0)
 
   const weeklyWastageCost  = parseFloat(String(weekWastage._sum.costImpact  ?? 0))
   const monthlyWastageCost = parseFloat(String(monthWastage._sum.costImpact ?? 0))
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
   const topByValue = [...inventory]
     .map(item => ({
       ...item,
-      inventoryValue: item.stockOnHand * Number(item.conversionFactor) * Number(item.pricePerBaseUnit),
+      inventoryValue: item.stockOnHand * Number(item.pricePerBaseUnit),
     }))
     .sort((a, b) => b.inventoryValue - a.inventoryValue)
     .slice(0, 10)
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
     .filter(item => item.stockOnHand <= 0 && item.lastCountDate !== null)
     .map(item => ({
       id: item.id, itemName: item.itemName, category: item.category,
-      lastValue: Number(item.pricePerBaseUnit) * Number(item.conversionFactor),
+      lastValue: Number(item.pricePerBaseUnit),
     }))
     .sort((a, b) => b.lastValue - a.lastValue)
     .slice(0, 5)

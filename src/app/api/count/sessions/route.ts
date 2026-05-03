@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
+import { getUnitConv } from '@/lib/utils'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -220,7 +221,9 @@ async function buildPurchaseMap(
     for (const p of purchaseRows) {
       if (!p.inventoryItem) continue
       const unitsPerCase =
-        Number(p.inventoryItem.qtyPerPurchaseUnit) * Number(p.inventoryItem.packSize)
+        Number(p.inventoryItem.qtyPerPurchaseUnit) *
+        Number(p.inventoryItem.packSize) *
+        getUnitConv(p.inventoryItem.packUOM)
       const baseUnits = Number(p.qtyPurchased) * unitsPerCase
       map.set(p.inventoryItemId!, (map.get(p.inventoryItemId!) ?? 0) + baseUnits)
     }

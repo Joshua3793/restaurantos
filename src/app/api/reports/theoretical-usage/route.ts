@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost } from '@/lib/recipeCosts'
 import { convertQty } from '@/lib/uom'
+import { convertCountQtyToBase } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
@@ -114,7 +115,12 @@ export async function GET(req: NextRequest) {
     include: {
       lines: {
         include: {
-          inventoryItem: { select: { id: true } },
+          inventoryItem: {
+            select: {
+              id: true, baseUnit: true, purchaseUnit: true,
+              qtyPerPurchaseUnit: true, packSize: true, packUOM: true, countUOM: true,
+            },
+          },
         },
       },
     },
@@ -137,10 +143,24 @@ export async function GET(req: NextRequest) {
     const openMap: Record<string, number> = {}
     const closeMap: Record<string, number> = {}
     for (const cl of openingSession.lines) {
-      openMap[cl.inventoryItem.id] = Number(cl.countedQty)
+      if (cl.countedQty === null) continue
+      const item = cl.inventoryItem
+      const dims = {
+        baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
+        qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), packSize: Number(item.packSize),
+        packUOM: item.packUOM, countUOM: item.countUOM,
+      }
+      openMap[item.id] = convertCountQtyToBase(Number(cl.countedQty), cl.selectedUom, dims)
     }
     for (const cl of closingSession.lines) {
-      closeMap[cl.inventoryItem.id] = Number(cl.countedQty)
+      if (cl.countedQty === null) continue
+      const item = cl.inventoryItem
+      const dims = {
+        baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
+        qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), packSize: Number(item.packSize),
+        packUOM: item.packUOM, countUOM: item.countUOM,
+      }
+      closeMap[item.id] = convertCountQtyToBase(Number(cl.countedQty), cl.selectedUom, dims)
     }
     // Actual usage = opening - closing (positive = used, negative = gained/purchased)
     for (const id of new Set([...Object.keys(openMap), ...Object.keys(closeMap)])) {

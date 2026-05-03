@@ -302,7 +302,7 @@ function InventoryPageInner() {
   const kpis = useMemo(() => {
     const active = items.filter(i => i.isActive)
     const totalValue = active.reduce((s, i) =>
-      s + effStock(i) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit)), 0)
+      s + effStock(i) * parseFloat(String(i.pricePerBaseUnit)), 0)
     const counted = active.filter(isCountedThisWeek).length
     return { totalValue, counted, notCounted: active.length - counted, activeCount: active.length, totalCount: items.length }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -330,7 +330,7 @@ function InventoryPageInner() {
   }
 
   const invValue = (i: InventoryItem) =>
-    effStock(i) * parseFloat(String(i.conversionFactor)) * parseFloat(String(i.pricePerBaseUnit))
+    effStock(i) * parseFloat(String(i.pricePerBaseUnit))
 
   // Sort
   const sortedItems = useMemo(() => {

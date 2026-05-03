@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { convertCountQtyToBase } from '@/lib/count-uom'
 
 // GET /api/count/sessions/:id/report
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -18,7 +19,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     .filter(l => l.countedQty !== null && !l.skipped)
     .sort((a, b) => Math.abs(Number(b.varianceCost ?? 0)) - Math.abs(Number(a.varianceCost ?? 0)))
 
-  const totalValue         = lines.reduce((s, l) => s + Number(l.countedQty) * Number(l.priceAtCount), 0)
+  const totalValue = lines.reduce((s, l) => {
+    const item = l.inventoryItem
+    const itemDims = {
+      baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
+      qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), packSize: Number(item.packSize),
+      packUOM: item.packUOM, countUOM: item.countUOM,
+    }
+    const qtyBase = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, itemDims)
+    return s + qtyBase * Number(l.priceAtCount)
+  }, 0)
   const totalVarianceCost  = lines.reduce((s, l) => s + Math.abs(Number(l.varianceCost ?? 0)), 0)
   const itemsWithLargeVariance = lines.filter(l => Math.abs(Number(l.variancePct ?? 0)) > 15).length
 

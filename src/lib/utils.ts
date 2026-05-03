@@ -3,7 +3,7 @@ export const UNIT_CONV: Record<string, number> = {
   // weight
   g: 1, mg: 0.001, kg: 1000, lb: 453.592, oz: 28.3495,
   // volume
-  ml: 1, l: 1000, lt: 1000, 'fl oz': 29.5735, tsp: 4.92892, tbsp: 14.7868, cup: 236.588, gal: 3785.41,
+  ml: 1, cl: 10, dl: 100, l: 1000, lt: 1000, 'fl oz': 29.5735, tsp: 4.92892, tbsp: 14.7868, cup: 236.588, gal: 3785.41,
   // count
   each: 1, ea: 1,
 }
