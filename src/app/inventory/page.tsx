@@ -72,7 +72,7 @@ const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
   purchaseUnit: 'case', qtyPerPurchaseUnit: '1', purchasePrice: '0',
   packSize: '1', packUOM: 'each', countUOM: 'each',
-  baseUnit: 'g', conversionFactor: '1', stockOnHand: '0',
+  baseUnit: 'g', stockOnHand: '0',
   location: '', allergens: [] as string[],
 }
 
@@ -450,17 +450,20 @@ function InventoryPageInner() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
+    const qty = parseFloat(form.qtyPerPurchaseUnit) || 1
+    const ps  = parseFloat(form.packSize) || 1
     const stockBase = convertCountQtyToBase(parseFloat(form.stockOnHand) || 0, form.countUOM, {
       baseUnit: form.baseUnit,
       purchaseUnit: form.purchaseUnit,
-      qtyPerPurchaseUnit: parseFloat(form.qtyPerPurchaseUnit) || 1,
-      packSize: parseFloat(form.packSize) || 1,
+      qtyPerPurchaseUnit: qty,
+      packSize: ps,
       packUOM: form.packUOM,
       countUOM: form.countUOM,
     })
+    const conversionFactor = calcConversionFactor(form.countUOM, qty, ps, form.packUOM)
     await fetch('/api/inventory', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, stockOnHand: stockBase }),
+      body: JSON.stringify({ ...form, stockOnHand: stockBase, conversionFactor }),
     })
     setShowAdd(false); setForm(defaultForm); fetchItems()
   }
@@ -499,7 +502,12 @@ function InventoryPageInner() {
     fetchItems()
   }
 
-  const pricePreview = parseFloat(form.purchasePrice) / (parseFloat(form.qtyPerPurchaseUnit) * parseFloat(form.conversionFactor)) || 0
+  const pricePreview = calcPricePerBaseUnit(
+    parseFloat(form.purchasePrice) || 0,
+    parseFloat(form.qtyPerPurchaseUnit) || 1,
+    parseFloat(form.packSize) || 1,
+    form.packUOM,
+  )
 
   // Row renderer
   const renderRow = (item: InventoryItem) => {
@@ -1718,10 +1726,6 @@ function InventoryPageInner() {
                   <select value={form.baseUnit} onChange={e => setForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     {BASE_UNITS.map(u => <option key={u}>{u}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Conversion Factor</label>
-                  <input type="number" required value={form.conversionFactor} onChange={e => setForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand ({form.countUOM})</label>
