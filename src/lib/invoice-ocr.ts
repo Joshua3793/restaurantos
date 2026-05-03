@@ -14,28 +14,24 @@ async function compressImageForClaude(
   const sharp = (await import('sharp')).default
   const inputBuffer = Buffer.from(base64Data, 'base64')
 
-  let quality = 90
-  // Resize to max 2500px longest edge, auto-rotate from EXIF, convert to JPEG
-  let outputBuffer = await sharp(inputBuffer)
+  // Resize once to max 2500px, auto-rotate from EXIF, convert to JPEG
+  let resized = await sharp(inputBuffer)
     .rotate()
     .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality })
+    .jpeg({ quality: 90 })
     .toBuffer()
 
-  // Reduce quality until under 4MB
-  while (outputBuffer.length > 4 * 1024 * 1024 && quality > 60) {
+  // Reduce quality on the already-resized buffer (avoids re-reading original each pass)
+  let quality = 90
+  while (resized.length > 4 * 1024 * 1024 && quality > 60) {
     quality -= 15
-    outputBuffer = await sharp(inputBuffer)
-      .rotate()
-      .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality })
-      .toBuffer()
+    resized = await sharp(resized).jpeg({ quality }).toBuffer()
   }
 
   // Last resort: shrink to 1800px
+  let outputBuffer = resized
   if (outputBuffer.length > 4 * 1024 * 1024) {
-    outputBuffer = await sharp(inputBuffer)
-      .rotate()
+    outputBuffer = await sharp(resized)
       .resize(1800, 1800, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 75 })
       .toBuffer()
@@ -65,7 +61,9 @@ Return ONLY valid JSON (no markdown, no explanation):
       "packSize": number or null,
       "packUOM": "L/ml/kg/g/lb/oz/each or null",
       "unitPrice": number or null,
-      "lineTotal": number or null
+      "lineTotal": number or null,
+      "rate": number or null,
+      "totalQty": number or null
     }
   ]
 }
@@ -79,10 +77,13 @@ Field definitions:
   qty      = how many CASEs were ordered
   unit     = case label: "cs", "ea", "box", "bag", "each", etc.
   packQty  = how many PKGs per case
-  packSize = the amount of UNIT content in each pkg — number only
+  packSize = the amount of UNIT content in each pkg — number only (NOMINAL, from label/description)
   packUOM  = unit for packSize — normalize: LTR/LITRE→L, ML/MILLILITRE→ml, KG/KILOGRAM→kg, LBS/POUNDS→lb, OZ/OUNCE→oz
   unitPrice = price per CASE (= lineTotal ÷ qty)
   lineTotal = total charged for this line (= qty × unitPrice)
+  rate     = per-UOM price shown on invoice (e.g. 9.90 for $9.90/kg) — ONLY for weight/volume priced items
+  totalQty = ACTUAL total weight/volume delivered for the whole line — look for "total weight", "shipped weight",
+             "actual weight", or the weight/volume value in a weight/rate column for Format D items
 
 HOW TO INTERPRET DIFFERENT INVOICE FORMATS:
 
@@ -101,21 +102,23 @@ Format C — Individual items (unit is EA, EACH, PC; or a single bottle/bag/unit
   "OLIVE OIL 3L  1  EA  8.99  8.99" → qty:1, packQty:1, packSize:3, packUOM:"L", unitPrice:8.99
   "VINEGAR 500ML  3  EA  2.50  7.50" → qty:3, packQty:1, packSize:500, packUOM:"ml", unitPrice:2.50
 
-Format D — Weight-sold items (produce, meat — priced by weight)
+Format D — Weight-sold items (produce, meat — priced by weight/volume)
   ⚠ CRITICAL: unitPrice MUST be the price per CASE (= lineTotal ÷ qty), NEVER the per-kg/per-lb rate.
-  When the invoice shows a weight column and a $/kg or $/lb rate column separately:
-    → Compute lineTotal = packSize × rate, then unitPrice = lineTotal ÷ qty
-    → The rate (e.g. $9.90/kg) is NEVER used as unitPrice
+  Always populate BOTH rate AND totalQty for weight-sold items.
 
   "CHICKEN BREAST  5.2 LB  @3.99  20.75"
-  → qty:1, packQty:1, packSize:5.2, packUOM:"lb", unitPrice:20.75, lineTotal:20.75
+  → qty:1, packQty:1, packSize:5.2, packUOM:"lb", rate:3.99, totalQty:5.2, unitPrice:20.75, lineTotal:20.75
 
-  "PORK BUTT  26.1 KG  $9.90/KG" (Acecard-style: weight and rate columns, no explicit total)
+  "PORK BUTT  26.1 KG  $9.90/KG" (weight and rate columns, no explicit total)
   → lineTotal = 26.1 × 9.90 = 258.39
-  → qty:1, packQty:1, packSize:26.1, packUOM:"kg", unitPrice:258.39, lineTotal:258.39
-  (CORRECT: unitPrice=258.39  WRONG: unitPrice=9.90)
+  → qty:1, packQty:1, packSize:26.1, packUOM:"kg", rate:9.90, totalQty:26.1, unitPrice:258.39, lineTotal:258.39
 
-  "TOMATOES  2 cases"  with no size info → packQty:null, packSize:null, packUOM:null
+  ⚠ KEY SCENARIO — label says N pkgs × W kg each, but actual delivered weight differs:
+  "CHICKEN  6 PKG/1KG EA  $9.90/KG  TOTAL WT: 4.8KG  Total: $47.52"
+  → packQty:6, packSize:1, packUOM:"kg", rate:9.90, totalQty:4.8, unitPrice:47.52, lineTotal:47.52
+  (packSize=1 is the NOMINAL label weight; totalQty=4.8 is the ACTUAL delivered weight — use totalQty for pricing)
+
+  "TOMATOES  2 cases"  with no size info → packQty:null, packSize:null, packUOM:null, rate:null, totalQty:null
 
 Format E — Count items (eggs, portions, pieces)
   "EGGS 6/12-ct"        → packQty:6, packSize:12, packUOM:"each"
@@ -130,7 +133,8 @@ Format F — Other suppliers (columns may be labeled differently)
 MISSING FIELD INFERENCE:
   If qty AND unitPrice known → compute lineTotal = qty × unitPrice
   If qty AND lineTotal known → compute unitPrice = lineTotal / qty
-  If packSize AND packUOM(weight/volume) AND rate/$/UOM shown but no lineTotal → lineTotal = packSize × rate; unitPrice = lineTotal ÷ qty
+  If totalQty AND rate AND packUOM(weight/volume) shown → lineTotal = totalQty × rate; unitPrice = lineTotal ÷ qty
+  If packSize AND packUOM(weight/volume) AND rate shown but no totalQty → totalQty = qty × packQty × packSize; lineTotal = totalQty × rate; unitPrice = lineTotal ÷ qty
   If size appears in description (e.g. "5L") and packQty not shown → packQty:1, packSize:5, packUOM:"L"
 
 Rules:
@@ -147,10 +151,12 @@ export interface OcrLineItem {
   qty: number | null
   unit: string | null
   packQty: number | null    // units per case (Sysco B Unit)
-  packSize: number | null   // size per unit (e.g. 5 from "5 LTR")
+  packSize: number | null   // NOMINAL size per unit from label (e.g. 5 from "5 LTR")
   packUOM: string | null    // UOM for packSize (L, ml, kg, g, lb, oz, each)
   unitPrice: number | null
   lineTotal: number | null
+  rate: number | null       // per-UOM rate shown on invoice (e.g. 9.90 for $9.90/kg)
+  totalQty: number | null   // ACTUAL total weight/volume delivered for this line
 }
 
 export interface OcrResult {
@@ -338,6 +344,8 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
       packUOM:   null,
       unitPrice: priceIdx >= 0 ? parseFloat(cols[priceIdx]) || null : null,
       lineTotal: totalIdx >= 0 ? parseFloat(cols[totalIdx]) || null : null,
+      rate:      null,
+      totalQty:  null,
     })
   }
 

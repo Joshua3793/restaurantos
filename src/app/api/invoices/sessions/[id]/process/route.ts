@@ -125,30 +125,31 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     }
 
     if (nonImgFiles.length > 0) {
-      await Promise.all(
+      // allSettled so one failing file doesn't abort the others
+      const results = await Promise.allSettled(
         nonImgFiles.map(async (file) => {
-          try {
-            const buf = await loadBuffer(file)
-            const ft  = file.fileType.toLowerCase()
-            let result: OcrResult
-            if (ft === 'text/csv' || file.fileName.endsWith('.csv')) {
-              result = await extractInvoiceFromCsv(buf.toString('utf-8'))
-            } else {
-              result = await extractInvoiceFromPdf(buf)
-            }
-            await prisma.invoiceFile.update({
-              where: { id: file.id },
-              data: { ocrStatus: 'COMPLETE', ocrRawJson: JSON.stringify(result) },
-            })
-            mergeResult(result, sessionMeta)
-            allOcrItems = [...allOcrItems, ...result.lineItems]
-          } catch (err) {
-            console.error(`[process] OCR failed for ${file.fileName}:`, err)
-            await prisma.invoiceFile.update({ where: { id: file.id }, data: { ocrStatus: 'ERROR' } })
-            throw err  // re-throw so outer catch sets session to ERROR
+          const buf = await loadBuffer(file)
+          const ft  = file.fileType.toLowerCase()
+          let result: OcrResult
+          if (ft === 'text/csv' || file.fileName.endsWith('.csv')) {
+            result = await extractInvoiceFromCsv(buf.toString('utf-8'))
+          } else {
+            result = await extractInvoiceFromPdf(buf)
           }
+          await prisma.invoiceFile.update({
+            where: { id: file.id },
+            data: { ocrStatus: 'COMPLETE', ocrRawJson: JSON.stringify(result) },
+          })
+          mergeResult(result, sessionMeta)
+          allOcrItems = [...allOcrItems, ...result.lineItems]
         })
       )
+      for (const [i, r] of results.entries()) {
+        if (r.status === 'rejected') {
+          console.error(`[process] OCR failed for ${nonImgFiles[i].fileName}:`, r.reason)
+          await prisma.invoiceFile.update({ where: { id: nonImgFiles[i].id }, data: { ocrStatus: 'ERROR' } })
+        }
+      }
     }
 
     console.log(`[process] Extracted ${allOcrItems.length} items`)
@@ -178,6 +179,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             invoicePackSize:    item.invoicePackSize ?? null,
             invoicePackUOM:     item.invoicePackUOM ?? null,
             needsFormatConfirm: item.needsFormatConfirm,
+            totalQty:           item.totalQty    ?? null,
+            totalQtyUOM:        item.totalQtyUOM ?? null,
             sortOrder:          i,
           })),
         })
@@ -237,14 +240,20 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
 // ── DELETE /api/invoices/sessions/[id]/process — cancel processing ─────────
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  await prisma.invoiceFile.updateMany({
-    where: { sessionId: params.id, ocrStatus: 'PROCESSING' },
-    data: { ocrStatus: 'PENDING' },
-  })
-  await prisma.invoiceSession.update({
-    where: { id: params.id },
-    data: { status: 'UPLOADING' },
-  })
+  try {
+    await prisma.invoiceFile.updateMany({
+      where: { sessionId: params.id, ocrStatus: 'PROCESSING' },
+      data: { ocrStatus: 'PENDING' },
+    })
+    await prisma.invoiceSession.update({
+      where: { id: params.id },
+      data: { status: 'UPLOADING' },
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // P2025 = record not found — session already deleted, treat as success
+    if (!msg.includes('P2025')) throw err
+  }
   return NextResponse.json({ ok: true })
 }
 
@@ -256,10 +265,10 @@ function isImage(fileType: string, fileName: string): boolean {
 }
 
 function mergeResult(result: OcrResult, meta: Partial<OcrResult>) {
-  if (!meta.supplierName  && result.supplierName)  meta.supplierName  = result.supplierName
-  if (!meta.invoiceDate   && result.invoiceDate)   meta.invoiceDate   = result.invoiceDate
-  if (!meta.invoiceNumber && result.invoiceNumber) meta.invoiceNumber = result.invoiceNumber
-  if (!meta.subtotal      && result.subtotal)      meta.subtotal      = result.subtotal
-  if (!meta.tax           && result.tax)           meta.tax           = result.tax
-  if (!meta.total         && result.total)         meta.total         = result.total
+  if (meta.supplierName  == null && result.supplierName  != null) meta.supplierName  = result.supplierName
+  if (meta.invoiceDate   == null && result.invoiceDate   != null) meta.invoiceDate   = result.invoiceDate
+  if (meta.invoiceNumber == null && result.invoiceNumber != null) meta.invoiceNumber = result.invoiceNumber
+  if (meta.subtotal      == null && result.subtotal      != null) meta.subtotal      = result.subtotal
+  if (meta.tax           == null && result.tax           != null) meta.tax           = result.tax
+  if (meta.total         == null && result.total         != null) meta.total         = result.total
 }

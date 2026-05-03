@@ -236,6 +236,8 @@ function ScanItemCard({
   const [localPackQty, setLocalPackQty]   = useState(String(item.invoicePackQty ?? ''))
   const [localPackSize, setLocalPackSize] = useState(String(item.invoicePackSize ?? ''))
   const [localPackUOM, setLocalPackUOM]   = useState(item.invoicePackUOM ?? '')
+  const [localTotalQty, setLocalTotalQty] = useState(String(item.totalQty ?? ''))
+  const [localTotalQtyUOM, setLocalTotalQtyUOM] = useState(item.totalQtyUOM ?? item.invoicePackUOM ?? '')
   const [localUnitPrice, setLocalUnitPrice] = useState(String(item.rawUnitPrice ?? ''))
   const [localLineTotal, setLocalLineTotal] = useState(() => {
     if (item.rawLineTotal !== null) return String(item.rawLineTotal)
@@ -349,11 +351,22 @@ function ScanItemCard({
     return cases * price  // CASE
   }
 
+  // Sync totalQty from packQty × packSize (nominal weight per case × cases ordered)
+  const syncNominalTotalQty = (pq: number, ps: number) => {
+    const cases = parseFloat(localCases) || 1
+    const nominal = cases * pq * ps
+    if (nominal > 0) setLocalTotalQty(nominal.toFixed(3).replace(/\.?0+$/, ''))
+  }
+
   const handleCasesChange = (v: string) => {
     setLocalCases(v)
     const cases = parseFloat(v), price = parseFloat(localUnitPrice)
     const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
     if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPriceType).toFixed(2))
+    if (cases > 0) {
+      const nominal = cases * pq * ps
+      if (nominal > 0) setLocalTotalQty(nominal.toFixed(3).replace(/\.?0+$/, ''))
+    }
   }
   const handleUnitPriceChange = (v: string) => {
     setLocalUnitPrice(v)
@@ -371,6 +384,17 @@ function ScanItemCard({
         : localPriceType === 'UOM' ? total / (cases * pq * ps)
         : total / cases
       setLocalUnitPrice(price.toFixed(4))
+    }
+  }
+  // When actual total weight changes, back-calculate pack size = totalQty / (cases × packQty)
+  const handleTotalQtyChange = (v: string) => {
+    setLocalTotalQty(v)
+    const total = parseFloat(v)
+    const cases = parseFloat(localCases) || 1
+    const pq    = parseFloat(localPackQty) || 1
+    if (total > 0 && cases > 0 && pq > 0) {
+      const impliedPackSize = total / (cases * pq)
+      if (impliedPackSize > 0) setLocalPackSize(impliedPackSize.toFixed(4).replace(/\.?0+$/, ''))
     }
   }
 
@@ -423,6 +447,8 @@ function ScanItemCard({
       }
     }
 
+    const tq  = parseFloat(localTotalQty)  || null
+    const tqUOM = localTotalQtyUOM || pUOM || null
     onUpdate({
       rawQty:       cases !== null ? String(cases) : null,
       rawUnit:      localUnit || null,
@@ -433,6 +459,8 @@ function ScanItemCard({
       invoicePackUOM:  pUOM,
       rawPriceType: localPriceType,
       needsFormatConfirm: false,
+      totalQty:    tq  !== null ? String(tq)  : null,
+      totalQtyUOM: tqUOM,
       newPrice:     newPrice !== null ? String(newPrice) : null,
       priceDiffPct: priceDiffPct !== null ? String(priceDiffPct) : null,
       action: Math.abs(Number(priceDiffPct ?? 0)) > 0.1 ? 'UPDATE_PRICE'
@@ -470,12 +498,19 @@ function ScanItemCard({
     return null
   })()
 
-  // Base cost = $/packUOM
+  // Base cost = $/packUOM — uses actual totalQty when provided, otherwise nominal
   const liveBaseCost = (() => {
     const price = parseFloat(localUnitPrice)
-    const pq    = parseFloat(localPackQty)
-    const ps    = parseFloat(localPackSize)
-    if (price > 0 && pq > 0 && ps > 0) {
+    if (!(price > 0)) return null
+    const tq = parseFloat(localTotalQty)
+    if (tq > 0 && localTotalQtyUOM) {
+      // When actual weight is known, base cost = unitPrice / totalQty (per packUOM unit)
+      // liveBaseCost is $/packUOM so we use totalQty directly
+      return price / tq
+    }
+    const pq = parseFloat(localPackQty)
+    const ps = parseFloat(localPackSize)
+    if (pq > 0 && ps > 0) {
       if (localPriceType === 'PKG') return price / ps
       if (localPriceType === 'UOM') return price
       return price / (pq * ps)  // CASE
@@ -597,7 +632,12 @@ function ScanItemCard({
                 <div className="flex flex-col items-center gap-0.5">
                   <span className="text-[9px] text-gray-400 uppercase tracking-wide">Qty/case</span>
                   <input type="number" step="any" min="0" value={localPackQty}
-                    onChange={e => setLocalPackQty(e.target.value)}
+                    onChange={e => {
+                      setLocalPackQty(e.target.value)
+                      const pq = parseFloat(e.target.value) || 1
+                      const ps = parseFloat(localPackSize) || 1
+                      syncNominalTotalQty(pq, ps)
+                    }}
                     className="w-14 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
                 </div>
                 <span className="text-gray-400 pb-1">×</span>
@@ -606,9 +646,14 @@ function ScanItemCard({
                   <span className="text-[9px] text-gray-400 uppercase tracking-wide">Pack size</span>
                   <div className="flex items-center gap-0.5">
                     <input type="number" step="any" min="0" value={localPackSize}
-                      onChange={e => setLocalPackSize(e.target.value)}
+                      onChange={e => {
+                        setLocalPackSize(e.target.value)
+                        const pq = parseFloat(localPackQty) || 1
+                        const ps = parseFloat(e.target.value) || 1
+                        syncNominalTotalQty(pq, ps)
+                      }}
                       className="w-14 border border-blue-300 rounded px-1 py-1 text-center bg-gold/10 focus:outline-none focus:ring-1 focus:ring-gold" />
-                    <select value={localPackUOM} onChange={e => setLocalPackUOM(e.target.value)}
+                    <select value={localPackUOM} onChange={e => { setLocalPackUOM(e.target.value); setLocalTotalQtyUOM(e.target.value) }}
                       className="border border-blue-300 rounded px-1 py-1 bg-gold/10 focus:outline-none text-xs">
                       <option value="">—</option>
                       {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
@@ -653,6 +698,24 @@ function ScanItemCard({
                     className="text-gray-400 hover:text-gray-600 px-1 text-xs">✕</button>
                 </div>
               </div>
+              {/* Actual total weight row */}
+              {isWeightVol(localPackUOM) && (
+                <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                  <span className="text-[9px] text-gray-400 uppercase tracking-wide whitespace-nowrap">Actual weight</span>
+                  <input
+                    type="number" step="any" min="0" value={localTotalQty}
+                    onChange={e => handleTotalQtyChange(e.target.value)}
+                    placeholder="e.g. 4.8"
+                    className="w-20 border border-blue-200 rounded px-1 py-0.5 text-center bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-300 text-xs"
+                  />
+                  <select value={localTotalQtyUOM} onChange={e => setLocalTotalQtyUOM(e.target.value)}
+                    className="border border-blue-200 rounded px-1 py-0.5 bg-blue-50 focus:outline-none text-xs">
+                    <option value="">—</option>
+                    {PACK_UOMS.filter(u => isWeightVol(u)).map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                  <span className="text-[9px] text-gray-400">(overrides nominal)</span>
+                </div>
+              )}
               {/* Live base cost preview */}
               {liveBaseCost !== null && localPackUOM && (
                 <div className="text-[10px] text-gray-500 ml-0.5">

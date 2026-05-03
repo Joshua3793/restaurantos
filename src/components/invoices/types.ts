@@ -46,6 +46,8 @@ export interface ScanItem {
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
   rawPriceType: 'CASE' | 'PKG' | 'UOM'
+  totalQty: string | null
+  totalQtyUOM: string | null
   revenueCenterId?: string | null
 }
 

@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
-import { calcPricePerBaseUnit } from '@/lib/utils'
+import { calcPricePerBaseUnit, getUnitConv } from '@/lib/utils'
 import { requireSession, AuthError } from '@/lib/auth'
+
+// Allow up to 60s on Vercel so fire-and-forget work completes before the process exits
+export const maxDuration = 60
 
 const WEIGHT_VOL_SET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
 const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.has(uom.toLowerCase())
@@ -11,7 +14,7 @@ const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
 ): Promise<void> {
   try {
     const itemsToProcess = session.scanItems.filter(
@@ -36,7 +39,16 @@ async function doApprove(
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
 
-        const newPricePerBase = calcPricePerBaseUnit(newPurchasePrice, packQty, packSize, packUOM)
+        // When totalQty is present (actual delivered weight), use it for the per-base calculation
+        // instead of nominal qty × packSize which may not match actual weight.
+        let newPricePerBase: number
+        if (scanItem.totalQty !== null && scanItem.totalQty !== undefined && Number(scanItem.totalQty) > 0) {
+          const tqUOM = scanItem.totalQtyUOM ?? packUOM
+          const conv  = getUnitConv(tqUOM)
+          newPricePerBase = conv > 0 ? newPurchasePrice / (Number(scanItem.totalQty) * conv) : 0
+        } else {
+          newPricePerBase = calcPricePerBaseUnit(newPurchasePrice, packQty, packSize, packUOM)
+        }
 
         await prisma.inventoryItem.update({
           where: { id: scanItem.matchedItemId },
@@ -104,21 +116,28 @@ async function doApprove(
       // ── CREATE_NEW ──────────────────────────────────────────────────────
       if (scanItem.action === 'CREATE_NEW') {
         const newData = scanItem.newItemData ? JSON.parse(scanItem.newItemData) : {}
+        const newPurchasePrice = Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0
+        const newPackQty  = Number(newData.qtyPerPurchaseUnit) || 1
+        const newPackSize = Number(newData.packSize) || 1
+        const newPackUOM  = newData.packUOM || 'each'
+        const newPricePerBase = Number(newData.pricePerBaseUnit) ||
+          calcPricePerBaseUnit(newPurchasePrice, newPackQty, newPackSize, newPackUOM)
         const created = await prisma.inventoryItem.create({
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
             category:           newData.category || 'DRY',
             purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
-            qtyPerPurchaseUnit: Number(newData.qtyPerPurchaseUnit) || 1,
-            purchasePrice:      Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0,
-            baseUnit:           newData.baseUnit || newData.packUOM || 'each',
-            packSize:           Number(newData.packSize) || 1,
-            packUOM:            newData.packUOM || 'each',
+            qtyPerPurchaseUnit: newPackQty,
+            purchasePrice:      newPurchasePrice,
+            baseUnit:           newData.baseUnit || newPackUOM,
+            packSize:           newPackSize,
+            packUOM:            newPackUOM,
             conversionFactor:   Number(newData.conversionFactor) || 1,
-            pricePerBaseUnit:   Number(newData.pricePerBaseUnit) || Number(scanItem.newPrice) || 0,
+            pricePerBaseUnit:   newPricePerBase,
             supplierId:         session.supplierId || null,
           },
         })
+        updatedItemIds.push(created.id)
         // Link scan item to the new inventory item
         await prisma.invoiceScanItem.update({
           where: { id: scanItem.id },

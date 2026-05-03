@@ -8,7 +8,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
-      files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, ocrRawJson: true } },
+      files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true } },
       scanItems: {
         include: { matchedItem: { select: { id: true, itemName: true, purchaseUnit: true, pricePerBaseUnit: true, purchasePrice: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true, baseUnit: true } } },
         orderBy: { sortOrder: 'asc' },
@@ -52,6 +52,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         invoicePackUOM:     body.invoicePackUOM !== undefined ? body.invoicePackUOM : undefined,
         rawPriceType:       body.rawPriceType !== undefined ? body.rawPriceType : undefined,
         needsFormatConfirm: body.needsFormatConfirm !== undefined ? body.needsFormatConfirm : undefined,
+        totalQty:           body.totalQty !== undefined ? body.totalQty : undefined,
+        totalQtyUOM:        body.totalQtyUOM !== undefined ? body.totalQtyUOM : undefined,
         revenueCenterId:    body.revenueCenterId !== undefined ? body.revenueCenterId : undefined,
       },
     })

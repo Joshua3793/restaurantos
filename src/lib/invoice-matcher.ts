@@ -18,6 +18,8 @@ export interface MatchResult {
   invoicePackSize: number | null
   invoicePackUOM: string | null
   needsFormatConfirm: boolean
+  totalQty: number | null
+  totalQtyUOM: string | null
 }
 
 interface InventoryItem {
@@ -30,6 +32,9 @@ interface InventoryItem {
   qtyPerPurchaseUnit: number
   packSize: number
   packUOM: string
+  // Pre-computed at load time for efficiency
+  _normName?: string[]
+  _keyName?: string[]
 }
 
 // Generic food descriptors that appear in many products and should not drive matching
@@ -57,14 +62,13 @@ function keyWords(s: string): string[] {
 }
 
 // Compute a match score (0–100) between an invoice description and an inventory item
-function scoreMatch(description: string, item: InventoryItem): number {
-  const descNorm = normalize(description)
-  const nameNorm = normalize(item.itemName)
-  const descKey  = keyWords(description)
-  const nameKey  = keyWords(item.itemName)
+// Uses pre-normalized name arrays when available (set by matchLineItems for efficiency)
+function scoreMatch(description: string, item: InventoryItem, descNorm: string[], descKey: string[]): number {
+  const nameNorm = item._normName ?? normalize(item.itemName)
+  const nameKey  = item._keyName  ?? keyWords(item.itemName)
 
   // ── Exact match ──────────────────────────────────────────────────────────
-  if (description.toLowerCase().trim() === item.itemName.toLowerCase().trim()) return 100
+  if (descNorm.join(' ') === nameNorm.join(' ')) return 100
 
   // ── Key word overlap (the core signal) ───────────────────────────────────
   if (descKey.length === 0 || nameKey.length === 0) return 0
@@ -214,6 +218,8 @@ function buildMatchResult(
     invoicePackSize,
     invoicePackUOM,
     needsFormatConfirm,
+    totalQty:    ocrItem.totalQty  ?? null,
+    totalQtyUOM: ocrItem.packUOM   ?? null,
   }
 }
 
@@ -276,11 +282,17 @@ export async function matchLineItems(
     }
   }
 
+  // Pre-normalize all inventory item names once — avoids re-computing per OCR item
+  const normalizedItems = inventoryItems.map(item => ({
+    ...item,
+    _normName: normalize(item.itemName),
+    _keyName:  keyWords(item.itemName),
+  })) as unknown as InventoryItem[]
+
   return ocrItems.map((ocrItem) => {
     // ── 1. Check learned rules first ───────────────────────────────────────
     const learned = learnedMap.get(ocrItem.description)
     if (learned?.inventoryItem) {
-      // If the learned rule has a saved format, it's confirmed (user set it previously)
       const hasLearnedFormat = !!(learned.invoicePackQty && learned.invoicePackSize)
       const learnedFormat = hasLearnedFormat ? {
         packQty: Number(learned.invoicePackQty),
@@ -294,19 +306,21 @@ export async function matchLineItems(
         'HIGH',
         100,
         learnedFormat,
-        hasLearnedFormat   // confirmed = true only if format came from the saved rule
+        hasLearnedFormat
       )
     }
 
-    // ── 2. Fuzzy score every inventory item ────────────────────────────────
+    // ── 2. Fuzzy score every inventory item (using pre-normalized names) ───
+    const descNorm = normalize(ocrItem.description)
+    const descKey  = keyWords(ocrItem.description)
     let bestScore = 0
     let bestItem: InventoryItem | null = null
 
-    for (const item of inventoryItems) {
-      const score = scoreMatch(ocrItem.description, item as unknown as InventoryItem)
+    for (const item of normalizedItems) {
+      const score = scoreMatch(ocrItem.description, item, descNorm, descKey)
       if (score > bestScore) {
         bestScore = score
-        bestItem = item as unknown as InventoryItem
+        bestItem = item
       }
     }
 
@@ -323,15 +337,15 @@ export async function matchLineItems(
         newPrice: ocrItem.unitPrice,
         priceDiffPct: null,
         formatMismatch: false,
-        // Carry OCR pack data through even for unmatched items
         invoicePackQty:  ocrItem.packQty  ?? null,
         invoicePackSize: ocrItem.packSize ?? null,
         invoicePackUOM:  ocrItem.packUOM  ?? null,
         needsFormatConfirm: false,
+        totalQty:    ocrItem.totalQty ?? null,
+        totalQtyUOM: ocrItem.packUOM  ?? null,
       }
     }
 
-    // Use OCR-extracted pack data when available (most reliable); fall back to description parsing
     const ocrHasPack = !!(ocrItem.packQty || ocrItem.packSize)
     const ocrFormat = ocrHasPack ? {
       packQty:  ocrItem.packQty  ?? 1,
@@ -339,7 +353,6 @@ export async function matchLineItems(
       packUOM:  ocrItem.packUOM  ?? 'each',
     } : null
     const format = ocrFormat ?? parseFormatFromDescription(ocrItem.description)
-    // OCR-provided pack data is treated as confirmed — no need to ask user again
     return buildMatchResult(ocrItem, bestItem, confidence, bestScore, format, ocrHasPack)
   })
 }
