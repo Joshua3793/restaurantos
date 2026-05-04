@@ -1611,7 +1611,7 @@ function InventoryPageInner() {
                 {revenueCenters.length > 1 && (
                   <RcAllocationPanel
                     itemId={selected.id}
-                    stockOnHand={parseFloat(String(selected.stockOnHand))}
+                    stockOnHand={displayStock(selected)}
                     countUOM={selected.countUOM || selected.baseUnit}
                     defaultRcId={defaultRcId}
                     onPulled={fetchItems}
