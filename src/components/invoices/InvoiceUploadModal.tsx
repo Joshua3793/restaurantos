@@ -297,11 +297,11 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                     </div>
                     <div className="text-center">
                       <p className="font-semibold text-gold">
-                        {photoPreviews.length === 0 ? 'Take Photo' : 'Add Another Page'}
+                        {photoPreviews.length === 0 ? 'Open Camera' : 'Add Another Page'}
                       </p>
-                      <p className="text-xs text-blue-500 mt-0.5">
+                      <p className="text-xs text-gray-400 mt-0.5">
                         {photoPreviews.length === 0
-                          ? 'Opens your camera — point at the invoice'
+                          ? 'Point at the invoice · tap Done when finished'
                           : `${MAX_PHOTOS - photoPreviews.length} page${MAX_PHOTOS - photoPreviews.length !== 1 ? 's' : ''} remaining`}
                       </p>
                     </div>
@@ -316,7 +316,7 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
 
                 {photoPreviews.length === 0 && (
                   <p className="text-center text-xs text-gray-400">
-                    Multi-page invoice? Take one photo per page, up to {MAX_PHOTOS} pages total.
+                    Multi-page invoice? Capture one page at a time — tap <strong className="text-gray-500">Done</strong> in the camera when finished.
                   </p>
                 )}
               </>
