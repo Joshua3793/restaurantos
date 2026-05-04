@@ -19,6 +19,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   let totalVarianceCost = 0
 
   const stockUpdates: ReturnType<typeof prisma.inventoryItem.update>[] = []
+  const lineUpdates:  ReturnType<typeof prisma.countLine.update>[] = []
   const snapshotData: {
     sessionId: string; inventoryItemId: string; snapshotDate: Date
     qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number; category: string
@@ -35,6 +36,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       countUOM:           item.countUOM,
     }
 
+    // Always use the current price from the inventory item — ensures that any
+    // invoice approvals that happened after the count was created are reflected
+    // in the snapshot value and the session's totalCountedValue.
+    const price = Number(item.pricePerBaseUnit)
+
     if (line.skipped || line.countedQty !== null) {
       // rawQty is in line.selectedUom; convert to baseUnit for stockOnHand
       const rawQty  = Number(line.skipped ? line.expectedQty : line.countedQty)
@@ -42,7 +48,6 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       const qtyBase = line.skipped
         ? rawQty
         : convertCountQtyToBase(rawQty, line.selectedUom, itemDims)
-      const price   = Number(line.priceAtCount)
       const value   = qtyBase * price
       totalCountedValue += value
 
@@ -51,6 +56,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         snapshotDate: now, qtyOnHand: qtyBase, unit: item.baseUnit,
         pricePerBaseUnit: price, totalValue: value, category: item.category,
       })
+
+      // Refresh the line's snapshotted price so the count report is accurate
+      lineUpdates.push(
+        prisma.countLine.update({
+          where: { id: line.id },
+          data: { priceAtCount: item.pricePerBaseUnit },
+        })
+      )
 
       if (line.skipped) {
         itemsSkipped++
@@ -66,8 +79,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       }
     } else {
       // Uncounted — snapshot with expected qty (already in baseUnit)
-      const qty   = Number(line.expectedQty)
-      const price = Number(line.priceAtCount)
+      const qty = Number(line.expectedQty)
       totalCountedValue += qty * price
       snapshotData.push({
         sessionId: session.id, inventoryItemId: item.id,
@@ -79,6 +91,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   await prisma.$transaction([
     ...stockUpdates,
+    ...lineUpdates,
     prisma.inventorySnapshot.createMany({ data: snapshotData }),
     prisma.countSession.update({
       where: { id: params.id },

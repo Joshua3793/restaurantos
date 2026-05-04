@@ -800,12 +800,9 @@ export default function CountPage() {
                     </span>
                     <StatusBadge status={s.status} />
                   </div>
-                  <div className="flex items-center justify-between mt-1.5 gap-2">
+                  <div className="flex items-center justify-between mt-1 gap-2">
                     <span className="text-xs text-gray-400 truncate">
-                      {fmtDate(s.sessionDate)} · {s.countedBy} ·{' '}
-                      {s.status === 'FINALIZED'
-                        ? `${counts.total} items · ${formatCurrency(Number(s.totalCountedValue))}`
-                        : `${counts.counted}/${counts.total} items`}
+                      {fmtDate(s.sessionDate)} · {s.countedBy} · {s.status === 'FINALIZED' ? `${counts.total} items` : `${counts.counted}/${counts.total} items`}
                     </span>
                     {s.status === 'IN_PROGRESS'    && <span className="text-xs font-bold text-gold shrink-0">Continue →</span>}
                     {s.status === 'PENDING_REVIEW' && <span className="text-xs font-bold text-amber-600 shrink-0">Review →</span>}
@@ -817,6 +814,14 @@ export default function CountPage() {
                       </span>
                     )}
                   </div>
+                  {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 && (
+                    <div className="mt-1">
+                      <span className="text-sm font-semibold text-gray-800">
+                        {formatCurrency(Number(s.totalCountedValue))}
+                      </span>
+                      <span className="text-xs text-gray-400 ml-1">total value</span>
+                    </div>
+                  )}
                 </div>
                 {/* ⋯ menu trigger — separate flex column so it never overlaps card text */}
                 <div className="relative flex items-center pr-2">
@@ -858,11 +863,12 @@ export default function CountPage() {
         </div>
         <div className="hidden sm:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[120px_1fr_100px_120px_160px] gap-3 px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          <div className="grid grid-cols-[120px_1fr_80px_110px_110px_160px] gap-3 px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wide">
             <span>Date</span>
             <span>Session</span>
             <span>Type</span>
             <span>Progress</span>
+            <span className="text-right">Value</span>
             <span className="text-right">Actions</span>
           </div>
           <div className="divide-y divide-gray-50">
@@ -870,7 +876,7 @@ export default function CountPage() {
             const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
             const pct = counts.total > 0 ? Math.round((counts.counted / counts.total) * 100) : 0
             return (
-              <div key={s.id} className="grid grid-cols-[120px_1fr_100px_120px_160px] gap-3 px-5 py-3.5 items-center hover:bg-gray-50/60 transition-colors">
+              <div key={s.id} className="grid grid-cols-[120px_1fr_80px_110px_110px_160px] gap-3 px-5 py-3.5 items-center hover:bg-gray-50/60 transition-colors">
                 {/* Date */}
                 <div>
                   <div className="text-sm font-medium text-gray-700">{fmtDate(s.sessionDate)}</div>
@@ -885,7 +891,7 @@ export default function CountPage() {
                     <StatusBadge status={s.status} />
                   </div>
                   {s.status === 'FINALIZED' && (
-                    <div className="text-xs text-gray-400 mt-0.5">{counts.total} items · {formatCurrency(Number(s.totalCountedValue))}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{counts.total} items counted</div>
                   )}
                 </div>
                 {/* Type */}
@@ -904,6 +910,16 @@ export default function CountPage() {
                         <div className="h-1.5 bg-green-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
                       </div>
                     </>
+                  )}
+                </div>
+                {/* Value */}
+                <div className="text-right">
+                  {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 ? (
+                    <span className="text-sm font-semibold text-gray-800">
+                      {formatCurrency(Number(s.totalCountedValue))}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-300">—</span>
                   )}
                 </div>
                 {/* Actions */}
