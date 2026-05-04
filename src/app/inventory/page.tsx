@@ -550,7 +550,7 @@ function InventoryPageInner() {
           </span>
         </td>
         <td className="px-3 py-3 text-center hidden sm:table-cell">
-          <StockStatus stock={effStock(item)} />
+          <StockStatus stock={displayStock(item)} />
         </td>
         <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-center gap-2">
@@ -1544,7 +1544,7 @@ function InventoryPageInner() {
               <div className="p-4 space-y-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CategoryBadge category={selected.category} />
-                  <StockStatus stock={effStock(selected)} />
+                  <StockStatus stock={displayStock(selected)} />
                   {selected.allergens && selected.allergens.length > 0 && selected.allergens.map(a => (
                     <span key={a} className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
                   ))}
