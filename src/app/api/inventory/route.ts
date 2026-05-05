@@ -37,7 +37,12 @@ export async function GET(req: NextRequest) {
     })
     const lc = search.toLowerCase()
     const items = allocations
-      .map(a => ({ ...a.inventoryItem, rcStock: Number(a.quantity) }))
+      .map(a => ({
+        ...a.inventoryItem,
+        rcStock:    Number(a.quantity),
+        parLevel:   a.parLevel   !== null ? Number(a.parLevel)   : null,
+        reorderQty: a.reorderQty !== null ? Number(a.reorderQty) : null,
+      }))
       .filter(i =>
         (!search      || i.itemName?.toLowerCase().includes(lc)) &&
         (!category    || i.category === category) &&
@@ -52,14 +57,24 @@ export async function GET(req: NextRequest) {
 
   // Default RC (Cafe): stockOnHand IS Cafe's pool – return as-is
   if (rcId && isDefault) {
-    const items = await prisma.inventoryItem.findMany({
-      where: itemWhere,
-      include: itemInclude,
-      orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
-    })
-    return NextResponse.json(items, {
-      headers: { 'Cache-Control': 'no-store' },
-    })
+    const [items, allocations] = await Promise.all([
+      prisma.inventoryItem.findMany({
+        where: itemWhere,
+        include: itemInclude,
+        orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
+      }),
+      prisma.stockAllocation.findMany({
+        where: { revenueCenterId: rcId },
+        select: { inventoryItemId: true, parLevel: true, reorderQty: true },
+      }),
+    ])
+    const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
+    const result = items.map(i => ({
+      ...i,
+      parLevel:   allocByItemId[i.id]?.parLevel   != null ? Number(allocByItemId[i.id].parLevel)   : null,
+      reorderQty: allocByItemId[i.id]?.reorderQty != null ? Number(allocByItemId[i.id].reorderQty) : null,
+    }))
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   }
 
   // "All Revenue Centers": total physical stock = stockOnHand (Cafe pool) + all RC allocations
