@@ -1,0 +1,176 @@
+<h2>Extended RC Allocation Panel</h2>
+<p class="subtitle">Par level + reorder qty inline — right where current stock already lives. Does this layout feel right?</p>
+
+<style>
+.drawer-sim {
+  max-width: 420px;
+  margin: 24px auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  font-family: -apple-system, sans-serif;
+}
+.drawer-section {
+  padding: 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
+  margin-bottom: 12px;
+}
+.rc-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #fafafa;
+}
+.rc-row.below-par {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+.rc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.rc-dot { width: 8px; height: 8px; border-radius: 50%; }
+.rc-name { font-size: 13px; font-weight: 600; color: #111; flex: 1; }
+.par-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+.ok-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+.rc-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.field-block { display: flex; flex-direction: column; gap: 3px; }
+.field-label { font-size: 10px; color: #9ca3af; font-weight: 500; }
+.field-value { font-size: 13px; font-weight: 600; color: #111; }
+.field-value.low { color: #d97706; }
+.field-input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #111;
+  background: #fff;
+  width: 100%;
+}
+.pull-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b59a3c;
+  background: #fffdf5;
+  border: 1px solid #b59a3c;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.order-suggestion {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.divider { height: 1px; background: #f3f4f6; margin: 16px 0; }
+.note { font-size: 11px; color: #9ca3af; font-style: italic; margin-top: 4px; }
+</style>
+
+<div class="drawer-sim">
+  <div class="drawer-section">
+    <div class="section-label">Stock by Revenue Center</div>
+
+    <!-- Cafe RC — below par -->
+    <div class="rc-row below-par">
+      <div class="rc-header">
+        <div class="rc-dot" style="background:#3b82f6"></div>
+        <span class="rc-name">Cafe</span>
+        <span class="par-badge">⚠ Below Par</span>
+      </div>
+      <div class="rc-fields">
+        <div class="field-block">
+          <span class="field-label">Current</span>
+          <span class="field-value low">3.0 kg</span>
+        </div>
+        <div class="field-block">
+          <span class="field-label">Par Level</span>
+          <input class="field-input" value="10" />
+        </div>
+        <div class="field-block">
+          <span class="field-label">Order Qty</span>
+          <input class="field-input" placeholder="auto" />
+        </div>
+      </div>
+      <div class="order-suggestion">
+        📦 Suggested order: <strong>7 kg</strong> (par − current). Add to order guide →
+      </div>
+    </div>
+
+    <!-- Catering RC — at par -->
+    <div class="rc-row">
+      <div class="rc-header">
+        <div class="rc-dot" style="background:#f59e0b"></div>
+        <span class="rc-name">Catering</span>
+        <span class="ok-badge">✓ At Par</span>
+      </div>
+      <div class="rc-fields">
+        <div class="field-block">
+          <span class="field-label">Current</span>
+          <span class="field-value">12.5 kg</span>
+        </div>
+        <div class="field-block">
+          <span class="field-label">Par Level</span>
+          <input class="field-input" value="8" />
+        </div>
+        <div class="field-block">
+          <span class="field-label">Order Qty</span>
+          <input class="field-input" placeholder="auto" />
+        </div>
+      </div>
+      <button class="pull-btn">Pull → Catering</button>
+    </div>
+
+    <p class="note">Par level and order qty are per-revenue-center. Leave Order Qty blank to auto-calculate (par − current).</p>
+  </div>
+
+  <div class="drawer-section">
+    <div class="section-label">Barcode</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input class="field-input" style="flex:1;padding:8px" placeholder="Scan or type barcode…" value="0 54900 00231 3" />
+    </div>
+    <p class="note" style="margin-top:6px">Used by camera scanner during stock counts to jump directly to this item.</p>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:8px;text-align:center">Does this layout feel right? Any changes to the fields or layout?</p>

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
+import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
@@ -172,6 +173,7 @@ export default function CountPage() {
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped'>('all')
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
   const [searchQuery,   setSearchQuery]   = useState('')
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
 
   // ── Storage areas (for partial count picker) ─────────────────────────────
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
@@ -271,7 +273,13 @@ export default function CountPage() {
   useEffect(() => {
     if (!openId || !active?.lines) return
     const line = active.lines.find(l => l.id === openId)
-    if (line) setInputQty(line.countedQty ?? Number(line.expectedQty))
+    if (line) {
+      setInputQty(
+        line.countedQty !== null
+          ? Number(line.countedQty)
+          : convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
+      )
+    }
   }, [openId, active?.lines])
 
   // ── Computed ──────────────────────────────────────────────────────────────
@@ -571,12 +579,21 @@ export default function CountPage() {
     try {
       const res  = await fetch(`/api/count/sessions/${active.id}/sync`, { method: 'POST' })
       const data = await res.json()
-      if (res.ok && data.added > 0) {
-        // Merge new lines into active session
-        setActive(prev => prev ? { ...prev, lines: [...(prev.lines ?? []), ...data.lines] } : prev)
-        setToast(`${data.added} new item${data.added === 1 ? '' : 's'} added`)
-      } else {
-        setToast('Already up to date')
+      if (res.ok) {
+        const { added = 0, removed = 0, updated = 0 } = data
+        const changed = added + removed + updated
+        if (changed > 0) {
+          // Reload the full session so lines reflect all changes
+          const refreshed = await loadSession(active.id)
+          if (refreshed) setActive(refreshed)
+          const parts: string[] = []
+          if (added   > 0) parts.push(`${added} added`)
+          if (removed > 0) parts.push(`${removed} removed`)
+          if (updated > 0) parts.push(`${updated} updated`)
+          setToast(parts.join(' · '))
+        } else {
+          setToast('Already up to date')
+        }
       }
     } finally {
       setSyncing(false)
@@ -1101,6 +1118,13 @@ export default function CountPage() {
             <SkipForward size={16} className="text-gray-400 shrink-0" />
             <span className="flex-1 text-sm text-gray-400 line-through">{line.inventoryItem.itemName}</span>
             <button
+              onClick={() => setEditingItemId(line.inventoryItemId)}
+              className="p-1.5 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100"
+              title="Edit item"
+            >
+              <Pencil size={13} />
+            </button>
+            <button
               onClick={() => unskipLine(line)}
               className="text-xs text-blue-500 font-medium hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
             >
@@ -1132,7 +1156,13 @@ export default function CountPage() {
               </div>
               <CategoryBadge category={line.inventoryItem.category} />
               {locLabel && <span className="text-xs text-gray-400 ml-1 hidden sm:block">{locLabel}</span>}
-              <span className="text-xs text-blue-500 font-medium ml-1">Edit</span>
+              <button
+                onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
+                className="p-1.5 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 ml-1"
+                title="Edit item"
+              >
+                <Pencil size={13} />
+              </button>
             </div>
           </div>
         )
@@ -1157,6 +1187,13 @@ export default function CountPage() {
             <span className="flex-1 text-sm font-medium text-gray-900">{line.inventoryItem.itemName}</span>
             <CategoryBadge category={line.inventoryItem.category} />
             {locLabel && <span className="text-xs text-gray-400 ml-1">{locLabel}</span>}
+            <button
+              onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
+              className="p-1.5 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100"
+              title="Edit item"
+            >
+              <Pencil size={13} />
+            </button>
             <ChevronDown size={16} className={`text-gray-400 ml-1 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
           </div>
 
@@ -1287,6 +1324,13 @@ export default function CountPage() {
               </div>
               {subtitle && <div className="text-xs text-gray-400 mt-0.5">{subtitle}</div>}
             </div>
+            <button
+              onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
+              className="p-1.5 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 shrink-0"
+              title="Edit item"
+            >
+              <Pencil size={13} />
+            </button>
             <div className="text-right shrink-0">
               {isSkipped ? (
                 <button
@@ -1424,6 +1468,19 @@ export default function CountPage() {
     return (
       <div>
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+
+        {editingItemId && (
+          <InventoryItemDrawer
+            itemId={editingItemId}
+            onClose={() => setEditingItemId(null)}
+            onUpdated={async () => {
+              if (active) {
+                const refreshed = await loadSession(active.id)
+                if (refreshed) setActive(refreshed)
+              }
+            }}
+          />
+        )}
 
         {/* ── Sticky top bar ─────────────────────────────────────────────────── */}
         <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">

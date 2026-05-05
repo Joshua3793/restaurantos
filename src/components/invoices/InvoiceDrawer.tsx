@@ -1583,7 +1583,16 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchSession = useCallback(async (id: string) => {
-    const data: Session = await fetch(`/api/invoices/sessions/${id}`).then(r => r.json())
+    const res = await fetch(`/api/invoices/sessions/${id}`)
+    if (!res.ok) {
+      console.error('fetchSession failed', res.status, await res.text().catch(() => ''))
+      return null
+    }
+    const data: Session = await res.json()
+    if (!data?.status) {
+      console.error('fetchSession returned unexpected data', data)
+      return null
+    }
     setSession(data)
     // Sync supplier link state from session
     setLinkedSupplierId(data.supplierId ?? null)
@@ -1640,7 +1649,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     if (session?.status === 'PROCESSING') {
       pollRef.current = setInterval(async () => {
         const s = await fetchSession(session.id)
-        if (s.status !== 'PROCESSING') {
+        if (!s || s.status !== 'PROCESSING') {
           if (pollRef.current) clearInterval(pollRef.current)
         }
       }, 2000)

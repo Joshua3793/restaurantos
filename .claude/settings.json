@@ -10,5 +10,8 @@
       "Bash(lsof -p *)",
       "Bash(ipconfig getifaddr *)"
     ]
+  },
+  "enabledPlugins": {
+    "ruflo-core@ruflo": true
   }
 }

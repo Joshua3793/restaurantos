@@ -41,6 +41,7 @@ interface InventoryItem {
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number
   allergens?: string[]
+  barcode?: string | null
   isActive: boolean
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
@@ -56,6 +57,7 @@ interface EditForm {
   stockOnHand: string
   isActive: boolean
   allergens: string[]
+  barcode: string | null
 }
 
 interface Props {
@@ -141,7 +143,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
     storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
     packSize: '1', packUOM: 'each', countUOM: 'each',
-    stockOnHand: '0', isActive: true, allergens: [],
+    stockOnHand: '0', isActive: true, allergens: [], barcode: null,
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
@@ -190,6 +192,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       stockOnHand: String(parseFloat(displayStock(item).toFixed(4))),
       isActive: item.isActive,
       allergens: item.allergens ?? [],
+      barcode: item.barcode ?? null,
     })
     setEditMode(true)
   }
@@ -221,6 +224,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
         }),
         isActive: editForm.isActive,
         allergens: editForm.allergens,
+        barcode: editForm.barcode,
       }),
     })
     const updated = await res.json()
@@ -430,6 +434,18 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                   </div>
                 </div>
 
+                {/* Barcode */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Barcode</label>
+                  <input
+                    type="text"
+                    value={editForm.barcode ?? ''}
+                    onChange={e => setEditForm(f => ({ ...f, barcode: e.target.value || null }))}
+                    placeholder="Scan or type barcode"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                  />
+                </div>
+
                 {/* Allergens */}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-2">Allergens (Health Canada Big 9)</label>
@@ -513,6 +529,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                       ['Purchase Price', formatCurrency(parseFloat(String(item.purchasePrice)))],
                       ['Pack Size',      `${parseFloat(String(item.packSize ?? 1))} ${item.packUOM ?? 'each'}`],
                       ['Count UOM',      item.countUOM ?? 'each'],
+                      ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]
                     return rows.map(([label, value]) => (
                       <div key={label} className="bg-gray-50 rounded-lg p-3">
