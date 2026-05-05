@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
-import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms } from '@/lib/count-uom'
+import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -163,6 +163,11 @@ function normalizePurchaseUnit(raw: string): string {
   return found ?? 'case'
 }
 
+function normalizeItem(item: InventoryItem): InventoryItem {
+  const dims = { baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit, qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each', innerQty: item.innerQty != null ? Number(item.innerQty) : null, packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each', countUOM: item.countUOM ?? 'each' }
+  return { ...item, countUOM: resolveCountUom(dims) }
+}
+
 function isCountedThisWeek(item: InventoryItem) {
   if (!item.lastCountDate) return false
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
@@ -270,7 +275,7 @@ function InventoryPageInner() {
     if (supplierFilter) p.set('supplierId', supplierFilter)
     if (areaFilter)     p.set('storageAreaId', areaFilter)
     if (activeRcId)     { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
-    fetch(`/api/inventory?${p}`).then(r => r.json()).then(setItems)
+    fetch(`/api/inventory?${p}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
   }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc])
 
   useEffect(() => { fetchItems() }, [fetchItems])

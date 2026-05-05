@@ -7,7 +7,7 @@ import {
   calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit,
   getUnitDimension, compatibleCountUnits,
 } from '@/lib/utils'
-import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms } from '@/lib/count-uom'
+import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -152,6 +152,11 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function normalizeItem(item: InventoryItem): InventoryItem {
+  const dims = { baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit, qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each', innerQty: item.innerQty != null ? Number(item.innerQty) : null, packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each', countUOM: item.countUOM ?? 'each' }
+  return { ...item, countUOM: resolveCountUom(dims) }
+}
+
 function displayStock(item: InventoryItem): number {
   return convertBaseToCountUom(Number(item.stockOnHand), item.countUOM ?? 'each', {
     baseUnit: item.baseUnit,
@@ -202,7 +207,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       fetch(`/api/inventory/${itemId}/price-history`).then(r => r.json()).catch(() => []),
       fetch(`/api/inventory/${itemId}/stock-movements`).then(r => r.json()).catch(() => null),
     ]).then(([fetchedItem, sups, cats, areas, ph, sm]) => {
-      setItem(fetchedItem)
+      setItem(normalizeItem(fetchedItem))
       setSuppliers(sups)
       setCategories(cats)
       setStorageAreas(areas)
@@ -272,7 +277,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       }),
     })
     const updated = await res.json()
-    setItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
+    setItem(normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea }))
     setEditMode(false)
     setSaving(false)
     onUpdated?.()

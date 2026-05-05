@@ -83,6 +83,16 @@ function calcConversionFactorForItem(item: ItemDims): number {
 }
 
 /**
+ * Returns the stored countUOM if it's still valid for this item's purchase
+ * structure, otherwise falls back to the first valid option.
+ */
+export function resolveCountUom(item: ItemDims): string {
+  const stored = item.countUOM ?? 'each'
+  const valid = getCountableUoms(item).map(u => u.label)
+  return valid.includes(stored) ? stored : (valid[0] ?? stored)
+}
+
+/**
  * Returns the UOM options a user can choose from when counting an item.
  * Derived from purchase structure — not a hardcoded list.
  */
