@@ -457,6 +457,23 @@ export default function CountPage() {
     })
   }
 
+  const handleScan = useCallback(async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    const res = await fetch(`/api/inventory/search?barcode=${encodeURIComponent(trimmed)}`)
+    const results: { id: string }[] = await res.json()
+    if (results.length === 1) {
+      const line = (active?.lines ?? []).find(l => l.inventoryItemId === results[0].id)
+      if (line) {
+        setSearchQuery('')
+        const prefix = typeof window !== 'undefined' && window.innerWidth < 640 ? 'm-' : 'd-'
+        setTimeout(() => {
+          cardRefs.current[`${prefix}${line.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 50)
+      }
+    }
+  }, [active?.lines])
+
   const openAddItem = async () => {
     const [cats, sups, areas] = await Promise.all([
       fetch('/api/categories').then(r => r.json()),
@@ -1627,6 +1644,7 @@ export default function CountPage() {
               placeholder="Search items…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleScan(searchQuery) }}
               className="w-full pl-8 pr-8 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold focus:bg-white transition-colors"
             />
             {searchQuery && (
