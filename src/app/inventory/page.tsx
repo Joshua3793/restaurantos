@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
-import { convertCountQtyToBase, convertBaseToCountUom } from '@/lib/count-uom'
+import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -1584,7 +1584,11 @@ function InventoryPageInner() {
                           <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
                             onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
                             className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                          <select value={editForm.qtyUOM} onChange={e => setEditForm(f => ({ ...f, qtyUOM: e.target.value, innerQty: e.target.value === 'pack' ? f.innerQty : '' }))}
+                          <select value={editForm.qtyUOM} onChange={e => setEditForm(f => {
+                              const newQtyUOM = e.target.value
+                              const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 1, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
+                              return { ...f, qtyUOM: newQtyUOM, innerQty: newQtyUOM === 'pack' ? f.innerQty : '', countUOM: opts.includes(f.countUOM) ? f.countUOM : opts[0] }
+                            })}
                             className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
                             {QTY_UOMS.map(u => <option key={u}>{u}</option>)}
                           </select>
@@ -1634,8 +1638,8 @@ function InventoryPageInner() {
                           <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                         </label>
                         <div className="flex">
-                          <input type="number" step="any" min="0" value={editForm.packSize === '1' ? '' : editForm.packSize}
-                            onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value || '1' }))}
+                          <input type="number" step="any" min="0" value={editForm.packSize}
+                            onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
                             placeholder="e.g. 290"
                             className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                           <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
@@ -1685,10 +1689,16 @@ function InventoryPageInner() {
                     </label>
                     <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                      {(selected?.recipe
-                        ? compatibleCountUnits(selected.baseUnit)
-                        : COUNT_UOMS
-                      ).map(u => <option key={u}>{u}</option>)}
+                      {getCountableUoms({
+                        baseUnit: deriveBaseUnit(editForm.qtyUOM, editForm.packUOM),
+                        purchaseUnit: editForm.purchaseUnit,
+                        qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
+                        qtyUOM: editForm.qtyUOM,
+                        innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
+                        packSize: parseFloat(editForm.packSize) || 1,
+                        packUOM: editForm.packUOM,
+                        countUOM: editForm.countUOM,
+                      }).map(u => <option key={u.label} value={u.label}>{u.label}{u.hint ? ` — ${u.hint}` : ''}</option>)}
                     </select>
                   </div>
                   <div>
