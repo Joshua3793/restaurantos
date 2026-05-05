@@ -519,7 +519,7 @@ export async function extractInvoiceFromImages(
   }))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await client.messages.create({
+  const message = await (client.messages.stream({
     model: OCR_MODEL,
     max_tokens: maxTokens,
     system: buildSystemPrompt(supplierName, learning),
@@ -536,11 +536,12 @@ export async function extractInvoiceFromImages(
         },
       ],
     }],
-  } as any)
+  } as any) as any).finalMessage()
 
-  const text = message.content
-    .filter(b => b.type === 'text')
-    .map(b => (b as { type: 'text'; text: string }).text)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const text = (message as any).content
+    .filter((b: any) => b.type === 'text')
+    .map((b: any) => b.text as string)
     .join('')
 
   return parseOcrResponse(text)
@@ -569,7 +570,7 @@ export async function extractInvoiceFromPdf(
   const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await client.messages.create({
+  const message = await (client.messages.stream({
     model: OCR_MODEL,
     max_tokens: maxTokens,
     system: buildSystemPrompt(supplierName, learning),
@@ -582,11 +583,12 @@ export async function extractInvoiceFromPdf(
         { type: 'text', text: 'Parse this invoice and return JSON only.' },
       ],
     }],
-  } as any)
+  } as any) as any).finalMessage()
 
-  const text = message.content
-    .filter(b => b.type === 'text')
-    .map(b => (b as { type: 'text'; text: string }).text)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const text = (message as any).content
+    .filter((b: any) => b.type === 'text')
+    .map((b: any) => b.text as string)
     .join('')
 
   return parseOcrResponse(text)
@@ -606,7 +608,7 @@ export async function extractInvoiceFromText(
   const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await client.messages.create({
+  const message = await (client.messages.stream({
     model: OCR_MODEL,
     max_tokens: maxTokens,
     system: buildSystemPrompt(supplierName, learning),
@@ -615,11 +617,12 @@ export async function extractInvoiceFromText(
       role: 'user',
       content: `Parse this invoice text and return JSON only.\n\n${text}`,
     }],
-  } as any)
+  } as any) as any).finalMessage()
 
-  const responseText = message.content
-    .filter(b => b.type === 'text')
-    .map(b => (b as { type: 'text'; text: string }).text)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const responseText = (message as any).content
+    .filter((b: any) => b.type === 'text')
+    .map((b: any) => b.text as string)
     .join('')
 
   return parseOcrResponse(responseText)
