@@ -206,6 +206,14 @@ function InventoryPageInner() {
     invoiceDate: string; invoiceNumber: string; supplierName: string;
     qtyPurchased: number; unitPrice: number; lineTotal: number
   }>>([])
+  type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
+  interface StockMovement { id: string; date: string; type: MovementType; qty: number; unit: string; description: string }
+  interface StockMovementsResponse {
+    lastCount: { qty: number; unit: string; date: string | null }
+    theoretical: { qty: number; unit: string }
+    movements: StockMovement[]
+  }
+  const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
   const [editMode,     setEditMode]     = useState(false)
   const [editForm,     setEditForm]     = useState<EditForm>({
     itemName: '', category: '', supplierId: '', supplierName: '',
@@ -250,7 +258,9 @@ function InventoryPageInner() {
 
   // Fetch price history whenever an item is selected
   useEffect(() => {
-    if (!selected) { setPriceHistory([]); return }
+    if (!selected) { setPriceHistory([]); setStockMovements(null); return }
+    fetch(`/api/inventory/${selected.id}/stock-movements`)
+      .then(r => r.json()).then(setStockMovements).catch(() => setStockMovements(null))
     fetch(`/api/inventory/${selected.id}/price-history`)
       .then(r => r.json())
       .then(setPriceHistory)
@@ -1556,15 +1566,12 @@ function InventoryPageInner() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                 {(() => {
                   const rows: [string, string][] = selected.recipe ? [
-                    ['Supplier',       selected.supplier?.name || '\u2014'],
-                    ['Storage Area',   selected.storageArea?.name || '\u2014'],
-                    ['Linked Recipe',  selected.recipe.name],
-                    ['Yield',          `${parseFloat(String(selected.packSize ?? 1)).toLocaleString()} ${selected.baseUnit}`],
-                    ['Batch Cost',     formatCurrency(parseFloat(String(selected.purchasePrice)))],
-                    ['Count UOM',      selected.countUOM ?? selected.baseUnit],
-                    ['Stock On Hand',  `${displayStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
-                    ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
-                    ['Last Count Qty', selected.lastCountQty != null ? `${convertBaseToCountUom(parseFloat(String(selected.lastCountQty)), selected.countUOM ?? selected.baseUnit, { baseUnit: selected.baseUnit, purchaseUnit: selected.purchaseUnit, qtyPerPurchaseUnit: Number(selected.qtyPerPurchaseUnit), packSize: Number(selected.packSize ?? 1), packUOM: selected.packUOM ?? 'each', countUOM: selected.countUOM ?? selected.baseUnit }).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
+                    ['Supplier',      selected.supplier?.name || '\u2014'],
+                    ['Storage Area',  selected.storageArea?.name || '\u2014'],
+                    ['Linked Recipe', selected.recipe.name],
+                    ['Yield',         `${parseFloat(String(selected.packSize ?? 1)).toLocaleString()} ${selected.baseUnit}`],
+                    ['Batch Cost',    formatCurrency(parseFloat(String(selected.purchasePrice)))],
+                    ['Count UOM',     selected.countUOM ?? selected.baseUnit],
                   ] : [
                     ['Supplier',       selected.supplier?.name || '\u2014'],
                     ['Storage Area',   selected.storageArea?.name || '\u2014'],
@@ -1573,9 +1580,6 @@ function InventoryPageInner() {
                     ['Purchase Price', formatCurrency(parseFloat(String(selected.purchasePrice)))],
                     ['Pack Size',      `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
                     ['Count UOM',      selected.countUOM ?? 'each'],
-                    ['Stock On Hand',  `${displayStock(selected).toFixed(2)} ${selected.countUOM ?? ''}`],
-                    ['Last Count',     selected.lastCountDate ? new Date(selected.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : 'Never'],
-                    ['Last Count Qty', selected.lastCountQty != null ? `${convertBaseToCountUom(parseFloat(String(selected.lastCountQty)), selected.countUOM ?? selected.baseUnit, { baseUnit: selected.baseUnit, purchaseUnit: selected.purchaseUnit, qtyPerPurchaseUnit: Number(selected.qtyPerPurchaseUnit), packSize: Number(selected.packSize ?? 1), packUOM: selected.packUOM ?? 'each', countUOM: selected.countUOM ?? selected.baseUnit }).toFixed(2)} ${selected.countUOM ?? ''}` : '\u2014'],
                   ]
                   return rows.map(([label, value]) => (
                     <div key={label} className="bg-gray-50 rounded-lg p-3">
@@ -1606,6 +1610,65 @@ function InventoryPageInner() {
                     </div>
                   </div>
                 </div>{/* end grid */}
+
+                {/* Stock Overview */}
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">Last Count</div>
+                      <div className="font-bold text-gray-900 mt-0.5">
+                        {stockMovements ? `${stockMovements.lastCount.qty.toFixed(2)} ${stockMovements.lastCount.unit}` : '—'}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {stockMovements?.lastCount.date
+                          ? new Date(stockMovements.lastCount.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+                          : 'Never counted'}
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 rounded-lg p-3">
+                      <div className="text-xs text-blue-600">Theoretical Stock</div>
+                      <div className="font-bold text-blue-800 mt-0.5">
+                        {stockMovements ? `${stockMovements.theoretical.qty.toFixed(2)} ${stockMovements.theoretical.unit}` : '—'}
+                      </div>
+                      <div className="text-xs text-blue-400 mt-0.5">Estimated current</div>
+                    </div>
+                  </div>
+                  {stockMovements && stockMovements.movements.length > 0 && (
+                    <div className="space-y-0.5 mt-1">
+                      {stockMovements.movements.slice(0, 12).map(m => {
+                        const isPositive = m.qty >= 0
+                        const typeConfig: Record<MovementType, { label: string; color: string }> = {
+                          SALE:     { label: 'Sale',         color: 'text-red-500' },
+                          WASTAGE:  { label: 'Wastage',      color: 'text-orange-500' },
+                          PREP_IN:  { label: 'Prep (used)',  color: 'text-purple-600' },
+                          PREP_OUT: { label: 'Prep (yield)', color: 'text-green-600' },
+                          PURCHASE: { label: 'Purchase',     color: 'text-blue-600' },
+                        }
+                        const cfg = typeConfig[m.type] ?? { label: m.type, color: 'text-gray-600' }
+                        return (
+                          <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50 text-xs">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`shrink-0 font-medium ${cfg.color}`}>{cfg.label}</span>
+                              <span className="text-gray-400 truncate">{m.description}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              <span className={`font-semibold ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
+                                {isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
+                              </span>
+                              <span className="text-gray-400 w-14 text-right">
+                                {new Date(m.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {stockMovements && stockMovements.movements.length === 0 && (
+                    <div className="text-xs text-gray-400 text-center py-2">No movements recorded</div>
+                  )}
+                </div>
 
                 {/* RC Allocation Panel — stock by revenue center + pull */}
                 {revenueCenters.length > 1 && (
