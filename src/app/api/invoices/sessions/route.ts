@@ -45,7 +45,7 @@ export async function DELETE(req: NextRequest) {
           where: { action: 'UPDATE_PRICE', approved: true },
           select: {
             matchedItemId: true, previousPrice: true,
-            matchedItem: { select: { id: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true } },
+            matchedItem: { select: { id: true, qtyPerPurchaseUnit: true, qtyUOM: true, innerQty: true, packSize: true, packUOM: true } },
           },
         },
       },
@@ -63,6 +63,8 @@ export async function DELETE(req: NextRequest) {
             pricePerBaseUnit: calcPricePerBaseUnit(
               prevPrice,
               Number(scanItem.matchedItem.qtyPerPurchaseUnit),
+              scanItem.matchedItem.qtyUOM ?? 'each',
+              scanItem.matchedItem.innerQty != null ? Number(scanItem.matchedItem.innerQty) : null,
               Number(scanItem.matchedItem.packSize),
               scanItem.matchedItem.packUOM ?? 'each',
             ),

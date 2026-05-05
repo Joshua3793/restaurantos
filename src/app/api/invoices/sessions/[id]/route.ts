@@ -115,6 +115,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
             select: {
               id: true,
               qtyPerPurchaseUnit: true,
+              qtyUOM: true,
+              innerQty: true,
               packSize: true,
               packUOM: true,
             },
@@ -137,6 +139,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       const pricePerBaseUnit = calcPricePerBaseUnit(
         prevPrice,
         Number(scanItem.matchedItem.qtyPerPurchaseUnit),
+        scanItem.matchedItem.qtyUOM ?? 'each',
+        scanItem.matchedItem.innerQty != null ? Number(scanItem.matchedItem.innerQty) : null,
         Number(scanItem.matchedItem.packSize),
         scanItem.matchedItem.packUOM ?? 'each',
       )
