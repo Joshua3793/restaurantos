@@ -29,6 +29,8 @@ interface InventoryItemRef {
   baseUnit: string
   purchaseUnit: string
   qtyPerPurchaseUnit: number
+  qtyUOM?: string | null
+  innerQty?: number | string | null
   packSize: number
   packUOM: string
   countUOM: string

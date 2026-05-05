@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
+import { convertBaseToCountUom } from '@/lib/count-uom'
 import { computeScale } from '@/lib/prep-utils'
 
 export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
@@ -27,7 +28,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     select: {
       id: true, baseUnit: true, countUOM: true,
       stockOnHand: true, lastCountDate: true, lastCountQty: true,
-      qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
+      purchaseUnit: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
+      qtyUOM: true, innerQty: true,
     },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -40,8 +42,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // Look back 90 days if never formally counted
   const since: Date = nonNullItem.lastCountDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
+  const itemDimsForDisplay = {
+    baseUnit:           nonNullItem.baseUnit,
+    purchaseUnit:       nonNullItem.purchaseUnit,
+    qtyPerPurchaseUnit: Number(nonNullItem.qtyPerPurchaseUnit),
+    qtyUOM:             nonNullItem.qtyUOM ?? 'each',
+    innerQty:           nonNullItem.innerQty != null ? Number(nonNullItem.innerQty) : null,
+    packSize:           Number(nonNullItem.packSize ?? 1),
+    packUOM:            nonNullItem.packUOM ?? 'each',
+    countUOM:           displayUnit,
+  }
+
   function toDisplay(qtyInBase: number): number {
-    return convertQty(qtyInBase, nonNullItem.baseUnit, displayUnit)
+    return convertBaseToCountUom(qtyInBase, displayUnit, itemDimsForDisplay)
   }
 
   const raw: Array<{ id: string; date: Date; type: MovementType; qtyBase: number; description: string }> = []

@@ -23,7 +23,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const item = l.inventoryItem
     const itemDims = {
       baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
-      qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), packSize: Number(item.packSize),
+      qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+      qtyUOM: item.qtyUOM ?? 'each',
+      innerQty: item.innerQty != null ? Number(item.innerQty) : null,
+      packSize: Number(item.packSize),
       packUOM: item.packUOM, countUOM: item.countUOM,
     }
     const qtyBase = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, itemDims)
