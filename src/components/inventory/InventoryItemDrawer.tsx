@@ -71,6 +71,30 @@ interface Props {
   onUpdated?: () => void
 }
 
+// ─── Purchase description ─────────────────────────────────────────────────────
+
+function buildPurchaseDescription(
+  purchaseUnit: string,
+  qty: number,
+  qtyUOM: string,
+  innerQty: number | null,
+  packSize: number,
+  packUOM: string,
+): string {
+  const pu = purchaseUnit || 'unit'
+  const weightVol = ['kg', 'g', 'lb', 'oz', 'l', 'ml']
+  if (weightVol.includes(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
+  const hasWeight = packSize > 0 && packSize !== 1 && packUOM && !['each', ''].includes(packUOM)
+  if (qtyUOM === 'pack' && innerQty) {
+    return hasWeight
+      ? `${pu} of ${qty} packs × ${innerQty} × ${packSize}${packUOM}`
+      : `${pu} of ${qty} packs × ${innerQty} each`
+  }
+  return hasWeight
+    ? `${pu} of ${qty} × ${packSize}${packUOM} each`
+    : `${pu} of ${qty} each`
+}
+
 // ─── Combobox (local copy — avoids coupling to inventory page) ────────────────
 
 function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
@@ -463,6 +487,21 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                         <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
                       </div>
                     )}
+
+                    {/* Generated description label */}
+                    {(() => {
+                      const desc = buildPurchaseDescription(
+                        editForm.purchaseUnit,
+                        parseFloat(editForm.qtyPerPurchaseUnit) || 0,
+                        editForm.qtyUOM,
+                        editForm.innerQty ? parseFloat(editForm.innerQty) : null,
+                        parseFloat(editForm.packSize) || 1,
+                        editForm.packUOM,
+                      )
+                      return (
+                        <p className="text-xs text-gray-400 italic">= {desc}</p>
+                      )
+                    })()}
 
                     {/* Purchase Price */}
                     <div>
