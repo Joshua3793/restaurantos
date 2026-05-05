@@ -51,7 +51,14 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
       fetch(`/api/stock-allocations?itemId=${itemId}`).then(r => r.json()),
       fetch(`/api/stock-transfers?itemId=${itemId}`).then(r => r.json()),
     ])
-    setAllocations(allocsRes)
+    setAllocations(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (allocsRes as any[]).map((a: any) => ({
+        ...a,
+        parLevel:   a.parLevel   !== null && a.parLevel   !== undefined ? Number(a.parLevel)   : null,
+        reorderQty: a.reorderQty !== null && a.reorderQty !== undefined ? Number(a.reorderQty) : null,
+      }))
+    )
     setTransfers(transferRes)
   }, [itemId])
 
@@ -86,6 +93,10 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
   }
 
   const openParEdit = (rcId: string, alloc: Allocation | undefined) => {
+    setPullRcId(null)      // close pull form
+    setPullQty('')
+    setPullNotes('')
+    setPullError('')
     setEditParRcId(rcId)
     setEditParLevel(alloc?.parLevel != null ? String(alloc.parLevel) : '')
     setEditReorderQty(alloc?.reorderQty != null ? String(alloc.reorderQty) : '')
@@ -170,6 +181,10 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                 {!isDefaultRc && (
                   <button
                     onClick={() => {
+                      setEditParRcId(null)   // close par edit form
+                      setEditParLevel('')
+                      setEditReorderQty('')
+                      setParError('')
                       setPullRcId(isPulling ? null : rc.id)
                       setPullQty('')
                       setPullNotes('')
@@ -213,7 +228,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                       <label className="text-xs text-gray-500 block mb-0.5">Order Qty (auto)</label>
                       <input
                         type="number"
-                        min="0"
+                        min="0.01"
                         step="any"
                         value={editReorderQty}
                         onChange={e => setEditReorderQty(e.target.value)}
