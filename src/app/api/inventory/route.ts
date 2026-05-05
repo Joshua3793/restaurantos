@@ -69,11 +69,14 @@ export async function GET(req: NextRequest) {
       }),
     ])
     const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
-    const result = items.map(i => ({
-      ...i,
-      parLevel:   allocByItemId[i.id]?.parLevel   != null ? Number(allocByItemId[i.id].parLevel)   : null,
-      reorderQty: allocByItemId[i.id]?.reorderQty != null ? Number(allocByItemId[i.id].reorderQty) : null,
-    }))
+    const result = items.map(i => {
+      const alloc = allocByItemId[i.id]
+      return {
+        ...i,
+        parLevel:   alloc?.parLevel !== null && alloc?.parLevel !== undefined ? Number(alloc.parLevel) : null,
+        reorderQty: alloc?.reorderQty !== null && alloc?.reorderQty !== undefined ? Number(alloc.reorderQty) : null,
+      }
+    })
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   }
 
