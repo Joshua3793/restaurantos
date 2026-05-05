@@ -73,6 +73,12 @@ interface Props {
 
 // ─── Purchase description ─────────────────────────────────────────────────────
 
+function normalizePurchaseUnit(raw: string): string {
+  if (PURCHASE_UNITS.includes(raw as typeof PURCHASE_UNITS[number])) return raw
+  const found = (PURCHASE_UNITS as readonly string[]).find(u => raw.toLowerCase().includes(u))
+  return found ?? 'case'
+}
+
 function buildPurchaseDescription(
   purchaseUnit: string,
   qty: number,
@@ -84,7 +90,7 @@ function buildPurchaseDescription(
   const pu = purchaseUnit || 'unit'
   const weightVol = ['kg', 'g', 'lb', 'oz', 'l', 'ml']
   if (weightVol.includes(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
-  const hasWeight = packSize > 0 && packSize !== 1 && packUOM && !['each', ''].includes(packUOM)
+  const hasWeight = packSize > 0 && packUOM && !['each', ''].includes(packUOM)
   if (qtyUOM === 'pack' && innerQty) {
     return hasWeight
       ? `${pu} of ${qty} packs × ${innerQty} × ${packSize}${packUOM}`
@@ -215,10 +221,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       supplierName: item.supplier?.name || '',
       storageAreaId: item.storageAreaId || '',
       storageAreaName: item.storageArea?.name || '',
-      purchaseUnit: item.purchaseUnit,
+      purchaseUnit: normalizePurchaseUnit(item.purchaseUnit),
       qtyPerPurchaseUnit: String(item.qtyPerPurchaseUnit),
       purchasePrice: String(item.purchasePrice),
-      packSize: Number(item.packSize ?? 1) === 1 ? '' : String(item.packSize),
+      packSize: (Number(item.packSize ?? 1) === 1 && ['each', ''].includes(item.packUOM ?? 'each')) ? '' : String(item.packSize ?? 1),
       packUOM: item.packUOM ?? 'each',
       countUOM: item.countUOM ?? 'each',
       qtyUOM: item.qtyUOM ?? 'each',
@@ -636,10 +642,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                     ] : [
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage Area',   item.storageArea?.name || '—'],
-                      ['Purchase Unit',  item.purchaseUnit],
-                      ['Qty per Case',   parseFloat(String(item.qtyPerPurchaseUnit)).toFixed(0)],
+                      ['Purchase',       buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, Number(item.packSize ?? 1), item.packUOM ?? 'each')],
                       ['Purchase Price', formatCurrency(parseFloat(String(item.purchasePrice)))],
-                      ['Pack Size',      `${parseFloat(String(item.packSize ?? 1))} ${item.packUOM ?? 'each'}`],
                       ['Count UOM',      item.countUOM ?? 'each'],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]

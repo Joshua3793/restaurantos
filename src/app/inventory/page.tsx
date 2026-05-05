@@ -146,7 +146,7 @@ function buildPurchaseDescription(
   const pu = purchaseUnit || 'unit'
   const weightVol = ['kg','g','lb','oz','l','ml']
   if (weightVol.includes(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
-  const hasWeight = packSize > 0 && packSize !== 1 && packUOM && !['each',''].includes(packUOM)
+  const hasWeight = packSize > 0 && packUOM && !['each',''].includes(packUOM)
   if (qtyUOM === 'pack' && innerQty) {
     return hasWeight
       ? `${pu} of ${qty} packs × ${innerQty} × ${packSize}${packUOM}`
@@ -155,6 +155,12 @@ function buildPurchaseDescription(
   return hasWeight
     ? `${pu} of ${qty} × ${packSize}${packUOM} each`
     : `${pu} of ${qty} each`
+}
+
+function normalizePurchaseUnit(raw: string): string {
+  if ((PURCHASE_UNITS as readonly string[]).includes(raw)) return raw
+  const found = (PURCHASE_UNITS as readonly string[]).find(u => raw.toLowerCase().includes(u))
+  return found ?? 'case'
 }
 
 function isCountedThisWeek(item: InventoryItem) {
@@ -1446,10 +1452,10 @@ function InventoryPageInner() {
                         supplierName: selected.supplier?.name || '',
                         storageAreaId: selected.storageAreaId || '',
                         storageAreaName: selected.storageArea?.name || '',
-                        purchaseUnit: selected.purchaseUnit,
+                        purchaseUnit: normalizePurchaseUnit(selected.purchaseUnit),
                         qtyPerPurchaseUnit: String(selected.qtyPerPurchaseUnit),
                         purchasePrice: String(selected.purchasePrice),
-                        packSize: Number(selected.packSize ?? 1) === 1 ? '' : String(selected.packSize),
+                        packSize: (Number(selected.packSize ?? 1) === 1 && ['each', ''].includes(selected.packUOM ?? 'each')) ? '' : String(selected.packSize ?? 1),
                         packUOM: selected.packUOM ?? 'each',
                         countUOM: selected.countUOM ?? 'each',
                         qtyUOM: selected.qtyUOM ?? 'each',
@@ -1788,10 +1794,8 @@ function InventoryPageInner() {
                   ] : [
                     ['Supplier',       selected.supplier?.name || '\u2014'],
                     ['Storage Area',   selected.storageArea?.name || '\u2014'],
-                    ['Purchase Unit',  selected.purchaseUnit],
-                    ['Qty per Case',   parseFloat(String(selected.qtyPerPurchaseUnit)).toFixed(0)],
+                    ['Purchase',       buildPurchaseDescription(normalizePurchaseUnit(selected.purchaseUnit), Number(selected.qtyPerPurchaseUnit), selected.qtyUOM ?? 'each', selected.innerQty != null ? Number(selected.innerQty) : null, Number(selected.packSize ?? 1), selected.packUOM ?? 'each')],
                     ['Purchase Price', formatCurrency(parseFloat(String(selected.purchasePrice)))],
-                    ['Pack Size',      `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
                     ['Count UOM',      selected.countUOM ?? 'each'],
                     ...(selected.barcode ? [['Barcode', selected.barcode] as [string, string]] : []),
                   ]
