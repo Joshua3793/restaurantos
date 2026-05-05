@@ -126,22 +126,8 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     setIsCreating(false)
     photoPreviews.forEach(url => URL.revokeObjectURL(url))
 
-    // 3. Fire process as fire-and-forget (drawer will poll)
-    fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' })
-      .then(async res => {
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          // Can't set state here — modal may be unmounted. Just patch session back.
-          if (!err.error?.includes('ANTHROPIC_API_KEY')) {
-            await fetch(`/api/invoices/sessions/${sess.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status: 'UPLOADING' }),
-            })
-          }
-        }
-      })
-      .catch(() => {})
+    // 3. Fire process as fire-and-forget (drawer will poll for status updates)
+    fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
 
     // 4. Close modal and open drawer on new session
     onComplete(sess.id)

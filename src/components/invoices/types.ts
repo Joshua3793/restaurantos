@@ -88,6 +88,7 @@ export interface Session {
   createdAt: string
   revenueCenterId?: string | null
   parentSessionId?: string | null
+  errorMessage?: string | null
 }
 
 // Summary — returned by GET /api/invoices/sessions (uses _count, not full arrays)

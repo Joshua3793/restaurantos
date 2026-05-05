@@ -1644,12 +1644,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     }
   }, [sessionId, fetchSession])
 
-  // Poll while processing
+  // Poll while uploading or processing
   useEffect(() => {
-    if (session?.status === 'PROCESSING') {
+    const shouldPoll = session?.status === 'PROCESSING' || session?.status === 'UPLOADING'
+    if (shouldPoll) {
       pollRef.current = setInterval(async () => {
-        const s = await fetchSession(session.id)
-        if (!s || s.status !== 'PROCESSING') {
+        const s = await fetchSession(session!.id)
+        if (!s || (s.status !== 'PROCESSING' && s.status !== 'UPLOADING')) {
           if (pollRef.current) clearInterval(pollRef.current)
         }
       }, 2000)
@@ -1763,13 +1764,15 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   }
 
   // Determine drawer state
-  const drawerState: 'loading' | 'processing' | 'approving' | 'review' | 'done' =
+  const drawerState: 'loading' | 'processing' | 'approving' | 'review' | 'done' | 'error' =
     approveResult ? 'done'
     : !session ? 'loading'
     : session.status === 'PROCESSING' ? 'processing'
+    : session.status === 'UPLOADING' ? 'processing'
     : session.status === 'APPROVING' ? 'approving'
     : session.status === 'REVIEW' ? 'review'
     : (session.status === 'APPROVED' || session.status === 'REJECTED') ? 'done'
+    : session.status === 'ERROR' ? 'error'
     : 'loading'
 
   const isReview = drawerState === 'review'
@@ -1835,6 +1838,45 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           <Loader2 size={14} className="animate-spin" />
           Working…
         </div>
+      </div>
+    </div>
+  )
+
+  // ── renderError ─────────────────────────────────────────────────────────────
+
+  const [isRetrying, setIsRetrying] = useState(false)
+
+  const handleRetry = async () => {
+    if (!session) return
+    setIsRetrying(true)
+    await fetch(`/api/invoices/sessions/${session.id}/process`, { method: 'POST' })
+    await fetchSession(session.id)
+    setIsRetrying(false)
+  }
+
+  const renderError = () => (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-xl mx-auto space-y-6 text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-100 mb-2">
+          <AlertCircle size={32} className="text-red-500" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900">Scan Failed</h2>
+        {session?.errorMessage && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-left">
+            {session.errorMessage}
+          </p>
+        )}
+        <p className="text-sm text-gray-500">
+          You can retry the scan or delete this session and try again.
+        </p>
+        <button
+          onClick={handleRetry}
+          disabled={isRetrying}
+          className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-gold text-white rounded-xl font-semibold text-sm hover:bg-[#a88930] disabled:opacity-50 transition-colors"
+        >
+          {isRetrying ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />}
+          {isRetrying ? 'Retrying…' : 'Retry Scan'}
+        </button>
       </div>
     </div>
   )
@@ -2685,6 +2727,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             <span className="font-semibold text-gray-900">
               {drawerState === 'processing' ? 'Scanning…'
                 : drawerState === 'approving' ? 'Applying Invoice…'
+                : drawerState === 'error' ? 'Scan Failed'
                 : drawerState === 'review' ? 'Review Invoice'
                 : drawerState === 'done' ? 'Invoice'
                 : 'Loading…'}
@@ -2711,6 +2754,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             )}
             {drawerState === 'processing' && renderProcessing()}
             {drawerState === 'approving' && renderApproving()}
+            {drawerState === 'error' && renderError()}
             {drawerState === 'review' && renderReview()}
             {drawerState === 'done' && renderDone()}
           </div>
@@ -2779,6 +2823,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             )}
             {drawerState === 'processing' && renderProcessing()}
             {drawerState === 'approving' && renderApproving()}
+            {drawerState === 'error' && renderError()}
             {drawerState === 'review' && (
               mobileTab === 'image' && session?.files?.length ? (
                 <InvoiceImageViewer files={session.files} />
