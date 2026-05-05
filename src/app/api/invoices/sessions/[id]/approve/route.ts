@@ -23,8 +23,10 @@ async function doApprove(
 
     const updatedItemIds: string[] = []
 
-    // Run all item updates in parallel
-    await Promise.all(itemsToProcess.map(async (scanItem) => {
+    // Process items sequentially so each item's writes are fully committed before
+    // the next begins — prevents concurrent approvals from interleaving updates
+    // to the same inventory item and corrupting pricing data.
+    for (const scanItem of itemsToProcess) {
       // ── UPDATE_PRICE or ADD_SUPPLIER ────────────────────────────────────
       if (
         (scanItem.action === 'UPDATE_PRICE' || scanItem.action === 'ADD_SUPPLIER') &&
@@ -50,24 +52,50 @@ async function doApprove(
           newPricePerBase = calcPricePerBaseUnit(newPurchasePrice, packQty, packSize, packUOM)
         }
 
-        await prisma.inventoryItem.update({
-          where: { id: scanItem.matchedItemId },
-          data: {
-            purchasePrice:    newPurchasePrice,
-            pricePerBaseUnit: newPricePerBase,
-            lastUpdated:      new Date(),
-            ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
-          },
-        })
+        // Wrap all writes for this item in a transaction so a mid-item failure
+        // doesn't leave inventory updated but the scan item un-approved.
+        const prevPrice = Number(scanItem.previousPrice)
+        const changePct = scanItem.priceDiffPct !== null ? Number(scanItem.priceDiffPct) : 0
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const itemOps: any[] = [
+          prisma.inventoryItem.update({
+            where: { id: scanItem.matchedItemId },
+            data: {
+              purchasePrice:    newPurchasePrice,
+              pricePerBaseUnit: newPricePerBase,
+              lastUpdated:      new Date(),
+              ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
+            },
+          }),
+          prisma.invoiceScanItem.update({
+            where: { id: scanItem.id },
+            data: { approved: true },
+          }),
+        ]
+
+        if (prevPrice > 0 && Math.abs(changePct) >= 15) {
+          itemOps.push(
+            prisma.priceAlert.create({
+              data: {
+                sessionId,
+                inventoryItemId: scanItem.matchedItemId,
+                previousPrice:   prevPrice,
+                newPrice:        newPurchasePrice,
+                changePct,
+                direction:       changePct > 0 ? 'UP' : 'DOWN',
+              },
+            })
+          )
+        }
+
+        await prisma.$transaction(itemOps)
         updatedItemIds.push(scanItem.matchedItemId)
 
-        // Upsert supplier price record
+        // Upsert supplier price record (non-critical, outside transaction)
         if (session.supplierName) {
           const existing = await prisma.inventorySupplierPrice.findFirst({
-            where: {
-              inventoryItemId: scanItem.matchedItemId,
-              supplierName: session.supplierName,
-            },
+            where: { inventoryItemId: scanItem.matchedItemId, supplierName: session.supplierName },
           })
           if (existing) {
             await prisma.inventorySupplierPrice.update({
@@ -78,39 +106,15 @@ async function doApprove(
             await prisma.inventorySupplierPrice.create({
               data: {
                 inventoryItemId: scanItem.matchedItemId,
-                supplierName: session.supplierName,
-                supplierId: session.supplierId || null,
-                lastPrice: newPurchasePrice,
+                supplierName:    session.supplierName,
+                supplierId:      session.supplierId || null,
+                lastPrice:       newPurchasePrice,
                 pricePerBaseUnit: newPricePerBase,
-                isPrimary: false,
+                isPrimary:       false,
               },
             })
           }
         }
-
-        // Create price alert if change ≥ 15%
-        const prevPrice = Number(scanItem.previousPrice)
-        if (prevPrice > 0 && scanItem.priceDiffPct !== null) {
-          const changePct = Number(scanItem.priceDiffPct)
-          if (Math.abs(changePct) >= 15) {
-            await prisma.priceAlert.create({
-              data: {
-                sessionId,
-                inventoryItemId: scanItem.matchedItemId,
-                previousPrice:   prevPrice,
-                newPrice:        newPurchasePrice,
-                changePct,
-                direction:       changePct > 0 ? 'UP' : 'DOWN',
-              },
-            })
-          }
-        }
-
-        // Mark scan item approved
-        await prisma.invoiceScanItem.update({
-          where: { id: scanItem.id },
-          data: { approved: true },
-        })
       }
 
       // ── CREATE_NEW ──────────────────────────────────────────────────────
@@ -138,14 +142,13 @@ async function doApprove(
           },
         })
         updatedItemIds.push(created.id)
-        // Link scan item to the new inventory item
         await prisma.invoiceScanItem.update({
           where: { id: scanItem.id },
           data: { matchedItemId: created.id, approved: true },
         })
       }
 
-      // ── Non-CREATE_NEW: mark scan item approved (UPDATE_PRICE / ADD_SUPPLIER already done above)
+      // ── All other actions: just mark approved ───────────────────────────
       if (scanItem.action !== 'CREATE_NEW' &&
           scanItem.action !== 'UPDATE_PRICE' &&
           scanItem.action !== 'ADD_SUPPLIER') {
@@ -154,7 +157,7 @@ async function doApprove(
           data: { approved: true },
         })
       }
-    }))
+    }
 
     // Mark session as APPROVED
     await prisma.invoiceSession.update({
