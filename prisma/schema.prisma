@@ -75,6 +75,9 @@ model InventoryItem {
   baseUnit           String                   @default("each")
   packSize           Decimal                  @default(1)
   packUOM            String                   @default("each")
+  qtyUOM             String                   @default("each") // unit of qtyPerPurchaseUnit: kg/g/ml/l/each/pack
+  innerQty           Decimal?                               // items per pack — only when qtyUOM = "pack"
+  needsReview        Boolean                  @default(false) // flagged by migration script for manual review
   countUOM           String                   @default("each")
   conversionFactor   Decimal                  @default(1)
   pricePerBaseUnit   Decimal                  @default(0)
