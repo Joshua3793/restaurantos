@@ -85,6 +85,7 @@ model InventoryItem {
   lastCountDate      DateTime?
   lastCountQty       Decimal?
   allergens          String[]                 @default([])
+  barcode            String?
   countLines         CountLine[]
   storageArea        StorageArea?             @relation(fields: [storageAreaId], references: [id])
   supplier           Supplier?                @relation(fields: [supplierId], references: [id])
@@ -474,6 +475,8 @@ model StockAllocation {
   revenueCenterId String
   inventoryItemId String
   quantity        Decimal       @default(0)
+  parLevel        Decimal?
+  reorderQty      Decimal?
   updatedAt       DateTime      @updatedAt
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   revenueCenter   RevenueCenter @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
