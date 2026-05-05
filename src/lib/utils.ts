@@ -74,12 +74,14 @@ export function calcPricePerBaseUnit(
 
 /** Derive the base unit (g / ml / each) from qtyUOM and packUOM */
 export function deriveBaseUnit(qtyUOM: string, packUOM: string): string {
+  const q = qtyUOM?.toLowerCase() ?? ''
+  const p = packUOM?.toLowerCase() ?? ''
   const weightUnits = ['g', 'mg', 'kg', 'lb', 'oz']
   const volumeUnits = ['ml', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
-  if (weightUnits.includes(qtyUOM)) return 'g'
-  if (volumeUnits.includes(qtyUOM)) return 'ml'
-  if (weightUnits.includes(packUOM)) return 'g'
-  if (volumeUnits.includes(packUOM)) return 'ml'
+  if (weightUnits.includes(q)) return 'g'
+  if (volumeUnits.includes(q)) return 'ml'
+  if (weightUnits.includes(p)) return 'g'
+  if (volumeUnits.includes(p)) return 'ml'
   return 'each'
 }
 
@@ -92,8 +94,6 @@ export function calcConversionFactor(
   packSize: number,
   packUOM: string,
 ): number {
-  if (countUOM in UNIT_CONV) return UNIT_CONV[countUOM]
-
   const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
   const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
   const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
@@ -101,12 +101,18 @@ export function calcConversionFactor(
   const itemBaseUnits = packSize * getUnitConv(packUOM)
   const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
 
+  // 'each' must be resolved before the UNIT_CONV short-circuit — weight-based
+  // items (e.g. 250 g per head) must return 250, not 1.
+  if (countUOM === 'each') return itemBaseUnits > 0 ? itemBaseUnits : 1
+
+  // Standard dimensional units (g, kg, ml, l, etc.)
+  if (countUOM in UNIT_CONV) return UNIT_CONV[countUOM]
+
   if (countUOM === 'case' || countUOM === qtyUOM) {
     if (isWeightQty) return qtyPerPurchaseUnit * getUnitConv(qtyUOM)
     return qtyPerPurchaseUnit * packBaseUnits
   }
   if (countUOM === 'pack') return packBaseUnits
-  if (countUOM === 'each') return itemBaseUnits > 0 ? itemBaseUnits : 1
   return 1
 }
 

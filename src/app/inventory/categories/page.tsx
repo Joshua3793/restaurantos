@@ -31,7 +31,7 @@ export default function CategoriesPage() {
       const prev = statsMap.get(item.category) ?? { count: 0, totalValue: 0 }
       statsMap.set(item.category, {
         count: prev.count + 1,
-        totalValue: prev.totalValue + parseFloat(item.stockOnHand) * parseFloat(item.conversionFactor ?? 1) * parseFloat(item.pricePerBaseUnit),
+        totalValue: prev.totalValue + parseFloat(item.stockOnHand) * parseFloat(item.pricePerBaseUnit),
       })
     }
     setCats(catsRes.map((c: Category) => ({

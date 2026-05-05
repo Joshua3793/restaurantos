@@ -65,9 +65,16 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       ])
     : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>()]
 
-  // RC stock allocation baseline (same as session creation)
+  // RC stock allocation baseline (same rules as session creation: non-default RC
+  // with no allocation falls back to 0, not global stockOnHand).
   const stockAllocationMap = new Map<string, number>()
+  let isDefaultRc = false
   if (session.revenueCenterId && itemIds.length > 0) {
+    const rc = await prisma.revenueCenter.findUnique({
+      where: { id: session.revenueCenterId },
+      select: { isDefault: true },
+    })
+    isDefaultRc = !!rc?.isDefault
     const allocations = await prisma.stockAllocation.findMany({
       where: { revenueCenterId: session.revenueCenterId, inventoryItemId: { in: itemIds } },
       select: { inventoryItemId: true, quantity: true },
@@ -80,7 +87,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const rcId = session.revenueCenterId
   function getExpected(itemId: string, stockOnHand: number): number {
     const baseStock = rcId
-      ? (stockAllocationMap.has(itemId) ? stockAllocationMap.get(itemId)! : stockOnHand)
+      ? (stockAllocationMap.has(itemId) ? stockAllocationMap.get(itemId)! : (isDefaultRc ? stockOnHand : 0))
       : stockOnHand
     return computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap)
   }
@@ -98,7 +105,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       ? [prisma.countLine.deleteMany({ where: { id: { in: toRemove.map(l => l.id) } } })]
       : []),
 
-    // Refresh uncounted lines with theoretical expected + current price
+    // Refresh uncounted lines with theoretical expected + current price.
+    // Preserve the user's selectedUom choice — they may have switched it.
     ...toUpdate.map(l => {
       const item = activeItemMap.get(l.inventoryItemId)!
       return prisma.countLine.update({
@@ -106,7 +114,6 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         data: {
           expectedQty:  getExpected(item.id, Number(item.stockOnHand)),
           priceAtCount: item.pricePerBaseUnit,
-          selectedUom:  item.countUOM || item.baseUnit,
         },
       })
     }),
@@ -133,10 +140,29 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     orderBy: { sortOrder: 'asc' },
   })
 
+  // Enrich with per-RC parLevel
+  const parMap3 = new Map<string, number>()
+  if (session.revenueCenterId) {
+    const allocs = await prisma.stockAllocation.findMany({
+      where: {
+        revenueCenterId: session.revenueCenterId,
+        inventoryItemId: { in: updatedLines.map(l => l.inventoryItemId) },
+      },
+      select: { inventoryItemId: true, parLevel: true },
+    })
+    for (const a of allocs) {
+      if (a.parLevel != null) parMap3.set(a.inventoryItemId, Number(a.parLevel))
+    }
+  }
+  const enriched = updatedLines.map(l => ({
+    ...l,
+    inventoryItem: { ...l.inventoryItem, parLevel: parMap3.get(l.inventoryItemId) ?? null },
+  }))
+
   return NextResponse.json({
     added:   toAdd.length,
     removed: toRemove.length,
     updated: toUpdate.length,
-    lines:   updatedLines,
+    lines:   enriched,
   })
 }

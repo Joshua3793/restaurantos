@@ -80,7 +80,7 @@ const CATEGORY_HEADER: Record<string, string> = {
 const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
   purchaseUnit: 'case', qtyPerPurchaseUnit: '1', purchasePrice: '0',
-  packSize: '', packUOM: 'each', countUOM: 'each',
+  packSize: '', packUOM: 'each', qtyUOM: 'each', countUOM: 'each',
   baseUnit: 'g', stockOnHand: '0',
   location: '', allergens: [] as string[],
 }
@@ -515,11 +515,12 @@ function InventoryPageInner() {
       baseUnit: form.baseUnit,
       purchaseUnit: form.purchaseUnit,
       qtyPerPurchaseUnit: qty,
+      qtyUOM: form.qtyUOM || 'each',
       packSize: ps,
       packUOM: form.packUOM,
       countUOM: form.countUOM,
     })
-    const conversionFactor = calcConversionFactor(form.countUOM, qty, 'each', null, ps, form.packUOM)
+    const conversionFactor = calcConversionFactor(form.countUOM, qty, form.qtyUOM || 'each', null, ps, form.packUOM)
     await fetch('/api/inventory', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...form, stockOnHand: stockBase, conversionFactor }),

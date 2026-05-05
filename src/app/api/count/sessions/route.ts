@@ -69,16 +69,21 @@ export async function POST(req: NextRequest) {
       : Promise.resolve(new Map<string, number>()),
   ])
 
-  // ── RC stock baseline: prefer StockAllocation over global stockOnHand ───────
-  // When counting for a specific RC, the starting point is the quantity that RC
-  // actually holds (from the last count/allocation), not the global warehouse total.
+  // ── RC stock baseline ──────────────────────────────────────────────────────
+  // For the default RC: baseline is global stockOnHand.
+  // For a non-default RC: baseline is StockAllocation.quantity, falling back to
+  // 0 (NOT global stockOnHand) when this RC has never been counted — otherwise
+  // the first RC count would inflate the baseline by the entire warehouse total.
   const stockAllocationMap = new Map<string, number>()
+  let isDefaultRc = false
   if (revenueCenterId && itemIds.length > 0) {
+    const rc = await prisma.revenueCenter.findUnique({
+      where: { id: revenueCenterId },
+      select: { isDefault: true },
+    })
+    isDefaultRc = !!rc?.isDefault
     const allocations = await prisma.stockAllocation.findMany({
-      where: {
-        revenueCenterId,
-        inventoryItemId: { in: itemIds },
-      },
+      where: { revenueCenterId, inventoryItemId: { in: itemIds } },
       select: { inventoryItemId: true, quantity: true },
     })
     for (const a of allocations) {
@@ -99,7 +104,7 @@ export async function POST(req: NextRequest) {
           const baseStock = revenueCenterId
             ? (stockAllocationMap.has(item.id)
                 ? stockAllocationMap.get(item.id)!
-                : Number(item.stockOnHand))
+                : (isDefaultRc ? Number(item.stockOnHand) : 0))
             : Number(item.stockOnHand)
 
           const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap)
@@ -122,8 +127,24 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  // Enrich lines with per-RC parLevel from StockAllocation for display
+  const parMap2 = new Map<string, number>()
+  if (revenueCenterId) {
+    const allocs = await prisma.stockAllocation.findMany({
+      where: { revenueCenterId, inventoryItemId: { in: itemIds } },
+      select: { inventoryItemId: true, parLevel: true },
+    })
+    for (const a of allocs) {
+      if (a.parLevel != null) parMap2.set(a.inventoryItemId, Number(a.parLevel))
+    }
+  }
+  const enrichedLines = session.lines.map(l => ({
+    ...l,
+    inventoryItem: { ...l.inventoryItem, parLevel: parMap2.get(l.inventoryItemId) ?? null },
+  }))
+
   return NextResponse.json(
-    { ...session, counts: { total: session.lines.length, counted: 0, skipped: 0 } },
+    { ...session, lines: enrichedLines, counts: { total: session.lines.length, counted: 0, skipped: 0 } },
     { status: 201 },
   )
 }

@@ -216,6 +216,7 @@ model CountLine {
   priceAtCount    Decimal
   notes           String?
   sortOrder       Int           @default(0)
+  updatedAt       DateTime      @default(now()) @updatedAt
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
   session         CountSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }

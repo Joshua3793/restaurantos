@@ -14,11 +14,35 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const total   = session.lines.length
-  const counted = session.lines.filter(l => l.countedQty !== null && !l.skipped).length
-  const skipped = session.lines.filter(l => l.skipped).length
+  // Pull StockAllocation.parLevel for this session's RC so count cards can display
+  // the per-RC par level alongside the item's own lastCountQty (which is on the item).
+  const parMap = new Map<string, number>()
+  if (session.revenueCenterId) {
+    const allocs = await prisma.stockAllocation.findMany({
+      where: {
+        revenueCenterId: session.revenueCenterId,
+        inventoryItemId: { in: session.lines.map(l => l.inventoryItemId) },
+      },
+      select: { inventoryItemId: true, parLevel: true },
+    })
+    for (const a of allocs) {
+      if (a.parLevel != null) parMap.set(a.inventoryItemId, Number(a.parLevel))
+    }
+  }
 
-  return NextResponse.json({ ...session, counts: { total, counted, skipped, pctComplete: total > 0 ? counted / total : 0 } })
+  const lines = session.lines.map(l => ({
+    ...l,
+    inventoryItem: {
+      ...l.inventoryItem,
+      parLevel: parMap.get(l.inventoryItemId) ?? null,
+    },
+  }))
+
+  const total   = lines.length
+  const counted = lines.filter(l => l.countedQty !== null && !l.skipped).length
+  const skipped = lines.filter(l => l.skipped).length
+
+  return NextResponse.json({ ...session, lines, counts: { total, counted, skipped, pctComplete: total > 0 ? counted / total : 0 } })
 }
 
 // PATCH /api/count/sessions/:id  — update label / reopen finalized session

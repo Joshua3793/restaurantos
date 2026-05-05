@@ -19,6 +19,7 @@ import {
 import {
   getCountableUoms, convertCountQtyToBase, convertBaseToCountUom,
 } from '@/lib/count-uom'
+import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ interface InventoryItemRef {
   countUOM: string
   location: string | null
   storageArea: { name: string } | null
+  parLevel?: number | null         // from StockAllocation for the session's RC
+  lastCountQty?: number | null     // last verified count, in baseUnit
 }
 
 interface Line {
@@ -52,6 +55,7 @@ interface Line {
   priceAtCount: number
   sortOrder: number
   notes: string | null
+  updatedAt?: string               // for optimistic concurrency on PATCH
 }
 
 interface Session {
@@ -276,11 +280,10 @@ export default function CountPage() {
     if (!openId || !active?.lines) return
     const line = active.lines.find(l => l.id === openId)
     if (line) {
-      setInputQty(
-        line.countedQty !== null
-          ? Number(line.countedQty)
-          : convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
-      )
+      // Blind-count: only show prior counted value when re-editing. Don't pre-fill
+      // with expected qty — that biases the user toward confirming theoretical stock
+      // rather than counting what's actually on the shelf.
+      setInputQty(line.countedQty !== null ? Number(line.countedQty) : 0)
     }
   }, [openId, active?.lines])
 
@@ -402,11 +405,17 @@ export default function CountPage() {
       setPendingCount(c => c + 1)
       return
     }
-    await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+    const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ countedQty: qty }),
+      body: JSON.stringify({ countedQty: qty, expectedUpdatedAt: line.updatedAt }),
     })
+    if (res.status === 409) {
+      // Someone else edited this line — refresh the session to pick up their changes
+      setToast('This item was just counted on another device. Refreshing…')
+      const fresh = await loadSession(active!.id)
+      if (fresh) setActive(fresh)
+    }
   }
 
   const changeUom = async (line: Line, newUom: string) => {
@@ -538,11 +547,34 @@ export default function CountPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'UPDATING' }),
     })
+    const sessionId = active.id
     // Navigate back to list right away — don't wait for heavy processing
     await loadSessions()
     setView('list'); setActive(null); setFinalizing(false)
-    // Fire finalize in background — polling will detect when it flips to FINALIZED
-    fetch(`/api/count/sessions/${active.id}/finalize`, { method: 'POST' })
+    // Fire finalize and recover from failures so a session never sits stuck in UPDATING
+    try {
+      const res = await fetch(`/api/count/sessions/${sessionId}/finalize`, { method: 'POST' })
+      if (!res.ok) {
+        // Revert status so the user can retry from the review screen
+        await fetch(`/api/count/sessions/${sessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'PENDING_REVIEW' }),
+        })
+        const data = await res.json().catch(() => null)
+        setToast(`Couldn't finalize: ${data?.error ?? `HTTP ${res.status}`}. Reopen the session to retry.`)
+        await loadSessions()
+      }
+    } catch (err) {
+      // Network error — revert so it's not stuck in UPDATING
+      await fetch(`/api/count/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'PENDING_REVIEW' }),
+      }).catch(() => {})
+      setToast(`Couldn't finalize: ${(err as Error).message}. Reopen the session to retry.`)
+      await loadSessions()
+    }
   }
 
   const handleDeleteSession = async () => {
@@ -1155,7 +1187,7 @@ export default function CountPage() {
 
       if (isCounted && !isOpen) {
         const vPct = line.variancePct !== null ? Number(line.variancePct) : null
-        const large = vPct !== null && Math.abs(vPct) > 15
+        const large = vPct !== null && Math.abs(vPct) > LARGE_VARIANCE_PCT
         return (
           <div key={line.id} id={`ln-${line.id}`}
             ref={el => { cardRefs.current[`d-${line.id}`] = el }}
@@ -1188,7 +1220,7 @@ export default function CountPage() {
       }
 
       // Uncounted / open
-      const largeOpen = liveVar !== null && Math.abs(liveVar) > 15
+      const largeOpen = liveVar !== null && Math.abs(liveVar) > LARGE_VARIANCE_PCT
       return (
         <div key={line.id} id={`ln-${line.id}`}
           ref={el => { cardRefs.current[`d-${line.id}`] = el }}
@@ -1240,7 +1272,7 @@ export default function CountPage() {
                     )}
 
                     {/* Expected + live variance */}
-                    <div className="text-xs text-gray-500 mb-3 flex items-center gap-1.5">
+                    <div className="text-xs text-gray-500 mb-1.5 flex items-center gap-1.5">
                       <span>Expected: {expectedDisplay.toFixed(2)} {line.selectedUom}</span>
                       {liveVar !== null && (
                         <span className={`font-medium ${varColor(liveVar)}`}>
@@ -1248,6 +1280,18 @@ export default function CountPage() {
                         </span>
                       )}
                     </div>
+
+                    {/* Reference: par level + last counted */}
+                    {(line.inventoryItem.parLevel != null || line.inventoryItem.lastCountQty != null) && (
+                      <div className="text-xs text-gray-400 mb-3 flex items-center gap-3">
+                        {line.inventoryItem.parLevel != null && (
+                          <span>Par: <span className="font-medium text-gray-600">{Number(line.inventoryItem.parLevel).toFixed(2)} {line.selectedUom}</span></span>
+                        )}
+                        {line.inventoryItem.lastCountQty != null && (
+                          <span>Last count: <span className="font-medium text-gray-600">{convertBaseToCountUom(Number(line.inventoryItem.lastCountQty), line.selectedUom, line.inventoryItem).toFixed(2)} {line.selectedUom}</span></span>
+                        )}
+                      </div>
+                    )}
                   </>
                 )
               })()}
@@ -1264,7 +1308,7 @@ export default function CountPage() {
                   type="number"
                   value={inputQty}
                   onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
-                  className="flex-1 h-[66px] text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:border-green-400 focus:outline-none"
+                  className="flex-1 min-w-0 h-[66px] text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:border-green-400 focus:outline-none"
                   min={0} step={0.1}
                 />
                 <button
@@ -1285,6 +1329,13 @@ export default function CountPage() {
                   className="flex-1 h-12 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Check size={16} /> Confirm count
+                </button>
+                <button
+                  onClick={() => confirmLine(line, 0)}
+                  className="px-3 h-12 border border-amber-200 bg-amber-50 text-amber-700 rounded-xl text-xs font-semibold hover:bg-amber-100 transition-colors"
+                  title="Mark out of stock"
+                >
+                  Out of stock
                 </button>
                 <button
                   onClick={() => skipLine(line)}
@@ -1314,13 +1365,13 @@ export default function CountPage() {
       const dotColor = isSkipped
         ? 'bg-gray-300'
         : isCounted
-          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > 15 ? 'bg-amber-400' : 'bg-green-500')
+          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT ? 'bg-amber-400' : 'bg-green-500')
           : 'bg-gray-300'
 
       const rowBg = isSkipped
         ? 'bg-gray-50 border-gray-100 opacity-60'
         : isCounted
-          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > 15
+          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
               ? 'bg-amber-50/60 border-amber-200'
               : 'bg-green-50/60 border-green-200')
           : isOpen
@@ -1396,7 +1447,7 @@ export default function CountPage() {
                         </select>
                       </div>
                     )}
-                    <div className="text-xs text-gray-500 mb-2 flex items-center gap-1.5">
+                    <div className="text-xs text-gray-500 mb-1.5 flex items-center gap-1.5">
                       <span>Expected: {expectedDisplay.toFixed(2)} {line.selectedUom}</span>
                       {liveVar !== null && (
                         <span className={`font-medium ${varColor(liveVar)}`}>
@@ -1404,6 +1455,16 @@ export default function CountPage() {
                         </span>
                       )}
                     </div>
+                    {(line.inventoryItem.parLevel != null || line.inventoryItem.lastCountQty != null) && (
+                      <div className="text-xs text-gray-400 mb-2 flex flex-wrap items-center gap-x-3">
+                        {line.inventoryItem.parLevel != null && (
+                          <span>Par: <span className="font-medium text-gray-600">{Number(line.inventoryItem.parLevel).toFixed(2)} {line.selectedUom}</span></span>
+                        )}
+                        {line.inventoryItem.lastCountQty != null && (
+                          <span>Last: <span className="font-medium text-gray-600">{convertBaseToCountUom(Number(line.inventoryItem.lastCountQty), line.selectedUom, line.inventoryItem).toFixed(2)} {line.selectedUom}</span></span>
+                        )}
+                      </div>
+                    )}
                   </>
                 )
               })()}
@@ -1435,6 +1496,13 @@ export default function CountPage() {
                   className="flex-1 h-11 bg-green-500 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5"
                 >
                   <Check size={15} /> Confirm
+                </button>
+                <button
+                  onClick={() => confirmLine(line, 0)}
+                  className="px-3 h-11 border border-amber-200 bg-amber-50 text-amber-700 rounded-xl text-xs font-semibold"
+                  title="Mark out of stock"
+                >
+                  Out of stock
                 </button>
                 <button
                   onClick={() => skipLine(line)}
@@ -1845,7 +1913,7 @@ export default function CountPage() {
     const flagged      = lines.filter(l =>
       l.variancePct !== null &&
       hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem) &&
-      Math.abs(Number(l.variancePct)) > 15
+      Math.abs(Number(l.variancePct)) > LARGE_VARIANCE_PCT
     )
     const totalValue   = countedLines.reduce((s, l) => {
       const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
@@ -1897,7 +1965,7 @@ export default function CountPage() {
         <div className="hidden sm:grid grid-cols-3 gap-3 mb-6">
           {[
             { val: countedLines.length.toString(), label: 'Items counted' },
-            { val: flagged.length.toString(), label: 'Flagged (>15%)', red: flagged.length > 0 },
+            { val: flagged.length.toString(), label: `Flagged (>${LARGE_VARIANCE_PCT}%)`, red: flagged.length > 0 },
             { val: formatCurrency(totalValue), label: 'Total value' },
           ].map(s => (
             <div key={s.label} className="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 text-center">
@@ -1914,7 +1982,7 @@ export default function CountPage() {
               const vPct     = Number(l.variancePct ?? 0)
               const vCost    = Number(l.varianceCost ?? 0)
               const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
-              const large    = reliable && Math.abs(vPct) > 15
+              const large    = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
               return (
                 <div key={l.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden flex">
                   {large && <div className="w-1 shrink-0 bg-amber-400" />}
@@ -1973,7 +2041,7 @@ export default function CountPage() {
                 const vPct     = Number(l.variancePct ?? 0)
                 const vCost    = Number(l.varianceCost ?? 0)
                 const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
-                const large    = reliable && Math.abs(vPct) > 15
+                const large    = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
                 return (
                   <div key={l.id}
                     className={`px-4 py-2.5 grid grid-cols-[1fr_80px_80px_70px_90px] gap-2 items-center ${large ? 'bg-amber-50' : ''}`}

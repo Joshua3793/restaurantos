@@ -8,13 +8,26 @@ export async function PATCH(
   { params }: { params: { id: string; lineId: string } }
 ) {
   const body = await req.json()
-  const { countedQty, selectedUom, skipped, notes } = body
+  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt } = body
 
   const line = await prisma.countLine.findUnique({
     where: { id: params.lineId },
     include: { inventoryItem: true },
   })
   if (!line) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Optimistic concurrency check: client sends the line's updatedAt it last saw.
+  // If the stored updatedAt differs, another device has edited this line.
+  if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== line.updatedAt.getTime()) {
+    return NextResponse.json(
+      {
+        error: 'Conflict',
+        message: 'This line was edited on another device. Refresh to see the latest count.',
+        currentLine: line,
+      },
+      { status: 409 },
+    )
+  }
 
   const item = line.inventoryItem
   const itemDims = {

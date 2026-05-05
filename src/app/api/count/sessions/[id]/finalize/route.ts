@@ -1,16 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase } from '@/lib/count-uom'
+import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
 // POST /api/count/sessions/:id/finalize
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await prisma.countSession.findUnique({
     where: { id: params.id },
-    include: { lines: { include: { inventoryItem: true } } },
+    include: {
+      lines: { include: { inventoryItem: true } },
+      revenueCenter: { select: { isDefault: true } },
+    },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   // UPDATING is the transitional state set by the client before firing this request
   if (session.status === 'FINALIZED') return NextResponse.json({ error: 'Already finalized' }, { status: 400 })
+
+  // Counts scoped to a non-default RC must NOT touch global stockOnHand —
+  // they only update the StockAllocation for that RC. Otherwise an RC-scoped
+  // count would clobber the main (default RC) pool.
+  const isRcScopedCount = !!session.revenueCenterId && !session.revenueCenter?.isDefault
 
   const now = new Date()
   let totalCountedValue = 0
@@ -72,10 +81,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       } else {
         itemsUpdated++
         totalVarianceCost += Math.abs(Number(line.varianceCost ?? 0))
+        // For RC-scoped counts only update lastCountDate/lastCountQty (stock lives in StockAllocation).
+        // For default-RC and unscoped counts also update the global stockOnHand.
         stockUpdates.push(
           prisma.inventoryItem.update({
             where: { id: item.id },
-            data: { stockOnHand: qtyBase, lastCountDate: now, lastCountQty: qtyBase },
+            data: isRcScopedCount
+              ? { lastCountDate: now, lastCountQty: qtyBase }
+              : { stockOnHand: qtyBase, lastCountDate: now, lastCountQty: qtyBase },
           })
         )
       }
@@ -137,7 +150,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
 
   const largeVariances = session.lines.filter(
-    l => l.variancePct !== null && Math.abs(Number(l.variancePct)) > 15
+    l => l.variancePct !== null && Math.abs(Number(l.variancePct)) > LARGE_VARIANCE_PCT
   )
 
   return NextResponse.json({
