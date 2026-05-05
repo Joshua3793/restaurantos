@@ -173,7 +173,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
     itemName: '', category: '', supplierId: '', supplierName: '',
     storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
-    packSize: '1', packUOM: 'each', countUOM: 'each',
+    packSize: '', packUOM: 'each', countUOM: 'each',
     qtyUOM: 'each', innerQty: '',
     stockOnHand: '0', isActive: true, allergens: [], barcode: null,
   })
@@ -218,7 +218,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       purchaseUnit: item.purchaseUnit,
       qtyPerPurchaseUnit: String(item.qtyPerPurchaseUnit),
       purchasePrice: String(item.purchasePrice),
-      packSize: String(item.packSize ?? 1),
+      packSize: Number(item.packSize ?? 1) === 1 ? '' : String(item.packSize),
       packUOM: item.packUOM ?? 'each',
       countUOM: item.countUOM ?? 'each',
       qtyUOM: item.qtyUOM ?? 'each',
@@ -452,8 +452,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                               <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                             </label>
                             <div className="flex">
-                              <input type="number" step="any" min="0" value={editForm.packSize === '1' ? '' : editForm.packSize}
-                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value || '1' }))}
+                              <input type="number" step="any" min="0" value={editForm.packSize}
+                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
                                 placeholder="e.g. 100"
                                 className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}

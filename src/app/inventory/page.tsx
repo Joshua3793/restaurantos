@@ -80,7 +80,7 @@ const CATEGORY_HEADER: Record<string, string> = {
 const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
   purchaseUnit: 'case', qtyPerPurchaseUnit: '1', purchasePrice: '0',
-  packSize: '1', packUOM: 'each', countUOM: 'each',
+  packSize: '', packUOM: 'each', countUOM: 'each',
   baseUnit: 'g', stockOnHand: '0',
   location: '', allergens: [] as string[],
 }
@@ -251,7 +251,7 @@ function InventoryPageInner() {
     itemName: '', category: '', supplierId: '', supplierName: '',
     storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
-    packSize: '1', packUOM: 'each', countUOM: 'each',
+    packSize: '', packUOM: 'each', countUOM: 'each',
     qtyUOM: 'each', innerQty: '',
     stockOnHand: '0', isActive: true, allergens: [], barcode: null,
   })
@@ -1449,7 +1449,7 @@ function InventoryPageInner() {
                         purchaseUnit: selected.purchaseUnit,
                         qtyPerPurchaseUnit: String(selected.qtyPerPurchaseUnit),
                         purchasePrice: String(selected.purchasePrice),
-                        packSize: String(selected.packSize ?? 1),
+                        packSize: Number(selected.packSize ?? 1) === 1 ? '' : String(selected.packSize),
                         packUOM: selected.packUOM ?? 'each',
                         countUOM: selected.countUOM ?? 'each',
                         qtyUOM: selected.qtyUOM ?? 'each',
@@ -1605,8 +1605,8 @@ function InventoryPageInner() {
                               <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                             </label>
                             <div className="flex">
-                              <input type="number" step="any" min="0" value={editForm.packSize === '1' ? '' : editForm.packSize}
-                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value || '1' }))}
+                              <input type="number" step="any" min="0" value={editForm.packSize}
+                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
                                 placeholder="e.g. 100"
                                 className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
