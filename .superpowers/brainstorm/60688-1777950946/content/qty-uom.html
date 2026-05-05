@@ -1,0 +1,195 @@
+<h2>Qty + Unit Together — No Ambiguity</h2>
+<p class="subtitle">The unit on the quantity field tells the system what kind of thing you're counting. Additional fields appear based on that choice.</p>
+
+<style>
+body { font-family: -apple-system, sans-serif; font-size: 13px; }
+.scenario-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.scenario-header { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.tag { font-size: 10px; font-weight: 700; border-radius: 20px; padding: 2px 8px; }
+.tag-weight { background: #dbeafe; color: #1d4ed8; }
+.tag-count { background: #dcfce7; color: #15803d; }
+.tag-pack { background: #fef3c7; color: #92400e; }
+.field-row { display: grid; gap: 8px; margin-bottom: 8px; }
+.field-row.cols-2 { grid-template-columns: 1fr 1fr; }
+.field-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.field-label { font-size: 10px; font-weight: 600; color: #6b7280; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+.field-val { background: white; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 9px; font-size: 13px; color: #111; font-weight: 500; }
+.field-val.dropdown::after { content: " ▾"; color: #9ca3af; }
+.field-val.dim { color: #9ca3af; font-weight: 400; font-style: italic; font-size: 12px; }
+.hint { font-size: 10px; color: #9ca3af; margin-top: 2px; line-height: 1.3; }
+.qty-unit-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: white; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; }
+.qty-unit-pair input-sim { padding: 6px 9px; font-size: 13px; font-weight: 600; color: #111; display: block; }
+.qty-unit-pair select-sim { padding: 6px 9px; font-size: 13px; font-weight: 500; color: #4b5563; border-left: 1px solid #e5e7eb; display: block; background: #f9fafb; }
+.qty-unit-pair select-sim::after { content: " ▾"; color: #9ca3af; }
+.inline-pair { display: grid; grid-template-columns: 2fr 1fr; gap: 0; }
+.inline-pair .num { background: white; border: 1px solid #d1d5db; border-radius: 6px 0 0 6px; padding: 6px 9px; font-size: 13px; font-weight: 600; color: #111; border-right: none; }
+.inline-pair .uom { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 0 6px 6px 0; padding: 6px 9px; font-size: 13px; font-weight: 500; color: #4b5563; }
+.inline-pair .uom::after { content: " ▾"; color: #9ca3af; }
+.calc-preview { background: #fffbf0; border: 1px solid #e5c46a; border-radius: 8px; padding: 10px 14px; margin-top: 10px; }
+.calc-label { font-size: 10px; font-weight: 700; color: #a87c1a; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.calc-line { font-size: 12px; color: #92400e; margin: 2px 0; }
+.calc-line strong { color: #78350f; }
+.indent { margin-left: 16px; border-left: 2px solid #e5e7eb; padding-left: 12px; margin-top: 8px; }
+.step-label { font-size: 10px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.step-label::after { content: ''; flex: 1; border-top: 1px dashed #e5e7eb; }
+.appears { font-size: 10px; color: #6b7280; font-style: italic; margin-bottom: 6px; }
+.count-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.chip { font-size: 11px; font-weight: 600; border-radius: 20px; padding: 2px 8px; background: #f3f4f6; color: #374151; }
+.chip.default { background: #111; color: #fff; }
+</style>
+
+<!-- Scenario 1: Weight-based — stops at first level -->
+<div class="scenario-block">
+  <div class="scenario-header">
+    Chicken Breast — bag of 20 kg
+    <span class="tag tag-weight">Weight-based</span>
+  </div>
+
+  <div class="step-label">Purchase unit</div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Purchase Unit</div>
+      <div class="field-val dropdown">bag</div>
+    </div>
+    <div>
+      <div class="field-label">Qty per Bag</div>
+      <div class="inline-pair">
+        <div class="num">20</div>
+        <div class="uom">kg</div>
+      </div>
+      <div class="hint">Unit = kg → weight-based, no further fields needed</div>
+    </div>
+  </div>
+
+  <div class="calc-preview">
+    <div class="calc-label">Derived</div>
+    <div class="calc-line">1 bag = <strong>20 kg</strong> · Base unit: <strong>g</strong></div>
+    <div class="calc-line">Count options: <strong>kg · g · lb · bag</strong></div>
+  </div>
+</div>
+
+<!-- Scenario 2: Count-based 2-level -->
+<div class="scenario-block">
+  <div class="scenario-header">
+    Baguette — case of 20 loaves, each 290 g
+    <span class="tag tag-count">Count → Weight</span>
+  </div>
+
+  <div class="step-label">Purchase unit</div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Purchase Unit</div>
+      <div class="field-val dropdown">case</div>
+    </div>
+    <div>
+      <div class="field-label">Qty per Case</div>
+      <div class="inline-pair">
+        <div class="num">20</div>
+        <div class="uom">each</div>
+      </div>
+      <div class="hint">Unit = each → shows weight-per-item field below</div>
+    </div>
+  </div>
+
+  <div class="indent">
+    <div class="appears">↳ because qty unit is "each", weight per item appears:</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Weight per Each</div>
+        <div class="inline-pair">
+          <div class="num">290</div>
+          <div class="uom">g</div>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Items per Pack</div>
+        <div class="field-val dim">— leave blank (no packs)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="calc-preview">
+    <div class="calc-label">Derived</div>
+    <div class="calc-line">1 case = 20 × 290g = <strong>5,800g</strong></div>
+    <div class="calc-line">1 each = <strong>290g</strong></div>
+    <div class="calc-line">Count options: <strong>each · case · g · kg</strong></div>
+  </div>
+</div>
+
+<!-- Scenario 3: 3-level -->
+<div class="scenario-block">
+  <div class="scenario-header">
+    GF Brioche Bun — case → 10 packs → 6 buns → 100 g
+    <span class="tag tag-pack">Count → Pack → Weight</span>
+  </div>
+
+  <div class="step-label">Purchase unit</div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Purchase Unit</div>
+      <div class="field-val dropdown">case</div>
+    </div>
+    <div>
+      <div class="field-label">Qty per Case</div>
+      <div class="inline-pair">
+        <div class="num">10</div>
+        <div class="uom">pack</div>
+      </div>
+      <div class="hint">Unit = pack → shows "items per pack" + weight fields below</div>
+    </div>
+  </div>
+
+  <div class="indent">
+    <div class="appears">↳ because qty unit is "pack", pack breakdown appears:</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Items per Pack</div>
+        <div class="inline-pair">
+          <div class="num">6</div>
+          <div class="uom">each</div>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Weight per Item</div>
+        <div class="inline-pair">
+          <div class="num">100</div>
+          <div class="uom">g</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="calc-preview">
+    <div class="calc-label">Derived</div>
+    <div class="calc-line">1 case = 10 packs × 6 each × 100g = <strong>6,000g</strong></div>
+    <div class="calc-line">1 pack = 6 × 100g = <strong>600g</strong></div>
+    <div class="calc-line">1 each = <strong>100g</strong></div>
+    <div class="calc-line">Count options: <strong>each · pack · case · g · kg</strong></div>
+  </div>
+</div>
+
+<!-- What changes -->
+<div style="background:#111;color:#fff;border-radius:12px;padding:16px 20px;margin-top:4px">
+  <h4 style="margin:0 0 10px;font-size:14px">What changes in the schema</h4>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">
+    <div>
+      <div style="color:#fde68a;font-weight:700;margin-bottom:6px">Rename / reuse</div>
+      <div style="color:#d1d5db;line-height:1.8">
+        <code style="color:#fff">qtyPerPurchaseUnit</code> stays<br>
+        <code style="color:#fff">packUOM</code> → now also holds the qty unit (kg, each, pack…)<br>
+        <code style="color:#fff">packSize</code> → item weight value<br>
+        <code style="color:#fff">countUOM</code> → becomes "default count unit" only
+      </div>
+    </div>
+    <div>
+      <div style="color:#86efac;font-weight:700;margin-bottom:6px">New field</div>
+      <div style="color:#d1d5db;line-height:1.8">
+        <code style="color:#fff">innerQty</code> (Decimal?) — items per pack<br>
+        Only populated when qty unit = "pack"<br><br>
+        That's the only schema change needed.
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="text-align:center;margin-top:14px">Does this resolve the ambiguity? The qty unit dropdown would include: <strong>each · pack · kg · g · lb · l · ml</strong></p>

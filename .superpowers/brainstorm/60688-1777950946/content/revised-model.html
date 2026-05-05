@@ -1,0 +1,211 @@
+<h2>Revised Design — Structure vs. Count</h2>
+<p class="subtitle">Product structure (fixed) tells the system the physics of the item. Count unit (flexible) is just a view on that structure.</p>
+
+<style>
+body { font-family: -apple-system, sans-serif; font-size: 13px; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
+.panel { border: 2px solid #e5e7eb; border-radius: 14px; padding: 18px; }
+.panel.green { border-color: #bbf7d0; background: #f0fdf4; }
+.panel.gold { border-color: #fde68a; background: #fffbf0; }
+.panel.blue { border-color: #bfdbfe; background: #eff6ff; }
+.panel-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+.panel.green .panel-title { color: #15803d; }
+.panel.gold .panel-title { color: #92400e; }
+.panel.blue .panel-title { color: #1d4ed8; }
+.field-row { display: grid; gap: 8px; margin-bottom: 8px; }
+.field-row.cols-2 { grid-template-columns: 1fr 1fr; }
+.field-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.field-label { font-size: 10px; font-weight: 600; color: #6b7280; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+.field-val { background: white; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 9px; font-size: 13px; color: #111; font-weight: 500; }
+.field-val.dim { color: #9ca3af; font-weight: 400; font-style: italic; }
+.field-val.dropdown::after { content: " ▾"; color: #9ca3af; }
+.hint { font-size: 10px; color: #9ca3af; margin-top: 2px; line-height: 1.3; }
+.calc-preview { background: #fffbf0; border: 1px solid #e5c46a; border-radius: 8px; padding: 10px 14px; margin-top: 10px; }
+.calc-label { font-size: 10px; font-weight: 700; color: #a87c1a; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.calc-line { font-size: 12px; color: #92400e; margin: 2px 0; }
+.calc-line strong { color: #78350f; }
+.scenario-header { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+.scenario-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+.section-sep { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.section-sep span { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #9ca3af; white-space: nowrap; }
+.section-sep::before, .section-sep::after { content: ''; flex: 1; border-top: 1px solid #e5e7eb; }
+.count-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { font-size: 11px; font-weight: 600; border-radius: 20px; padding: 3px 10px; background: #f3f4f6; color: #374151; }
+.chip.default { background: #111; color: #fff; }
+.chip.green { background: #dcfce7; color: #15803d; }
+.arrow-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; color: #374151; }
+.arrow-row .box { background: white; border: 1px solid #d1d5db; border-radius: 6px; padding: 4px 10px; font-weight: 600; }
+.arrow { color: #9ca3af; }
+.big-insight { background: #111; color: #fff; border-radius: 12px; padding: 16px 20px; margin-top: 20px; }
+.big-insight h4 { margin: 0 0 8px; font-size: 14px; }
+.big-insight p { margin: 4px 0; font-size: 12px; color: #d1d5db; }
+.big-insight strong { color: #fde68a; }
+.tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+.tab { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid #e5e7eb; background: #f9fafb; color: #6b7280; }
+.tab.active { background: #111; color: #fff; border-color: #111; }
+.new-badge { display: inline-block; font-size: 9px; font-weight: 700; background: #dcfce7; color: #15803d; border-radius: 4px; padding: 1px 5px; margin-left: 4px; vertical-align: middle; }
+</style>
+
+<!-- Concept: Structure vs Count -->
+<div class="big-insight">
+  <h4>Core principle: Structure is fixed. Count unit is a lens.</h4>
+  <p><strong>Product structure</strong> defines the physics: case → packs → items → weight. This never changes.</p>
+  <p><strong>Count unit</strong> is just how staff look at it during a session — case, pack, each, kg. All are valid lenses on the same structure.</p>
+  <p>Recipes always cost in <strong>base units (g / ml / each)</strong>, derived from structure alone, independent of how staff count.</p>
+</div>
+
+<!-- Three scenarios -->
+<h3 style="margin-top:24px;margin-bottom:4px">How the form would look — three real scenarios</h3>
+<p class="subtitle" style="margin-bottom:14px">The structure section captures physics. Count default is just a preference.</p>
+
+<!-- Scenario 1: Brioche Bun (3-level) -->
+<div class="scenario-block">
+  <div class="scenario-header">Gluten Free Brioche Bun — case → 10 packs → 6 buns → 100g</div>
+  <div class="section-sep"><span>📦 Product Structure</span></div>
+  <div class="field-row cols-3">
+    <div>
+      <div class="field-label">Purchase Unit</div>
+      <div class="field-val dropdown">case</div>
+    </div>
+    <div>
+      <div class="field-label">Packs per Case</div>
+      <div class="field-val">10</div>
+    </div>
+    <div>
+      <div class="field-label">Items per Pack <span class="new-badge">new</span></div>
+      <div class="field-val">6</div>
+      <div class="hint">Leave blank if case goes straight to items</div>
+    </div>
+  </div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Weight per Item</div>
+      <div class="field-val">100</div>
+    </div>
+    <div>
+      <div class="field-label">Weight Unit</div>
+      <div class="field-val dropdown">g</div>
+      <div class="hint">Leave blank if weight doesn't apply</div>
+    </div>
+  </div>
+  <div class="calc-preview">
+    <div class="calc-label">Derived automatically</div>
+    <div class="calc-line">1 case = 10 packs × 6 buns × 100g = <strong>6,000g</strong></div>
+    <div class="calc-line">1 pack = 6 × 100g = <strong>600g</strong></div>
+    <div class="calc-line">1 each (bun) = <strong>100g</strong></div>
+    <div class="calc-line">Price per g: $60 ÷ 6,000 = <strong>$0.01/g</strong></div>
+  </div>
+  <div class="section-sep"><span>🧮 Count Default</span></div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Default Count Unit</div>
+      <div class="field-val dropdown">each</div>
+      <div class="hint">Staff can override during any session</div>
+    </div>
+    <div>
+      <div class="field-label">Available Count Units</div>
+      <div class="count-chips">
+        <span class="chip default">each</span>
+        <span class="chip green">pack</span>
+        <span class="chip green">case</span>
+        <span class="chip green">g</span>
+        <span class="chip green">kg</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scenario 2: Baguette (2-level) -->
+<div class="scenario-block">
+  <div class="scenario-header">Baguette — case → 20 loaves → 290g each</div>
+  <div class="section-sep"><span>📦 Product Structure</span></div>
+  <div class="field-row cols-3">
+    <div>
+      <div class="field-label">Purchase Unit</div>
+      <div class="field-val dropdown">case</div>
+    </div>
+    <div>
+      <div class="field-label">Items per Case</div>
+      <div class="field-val">20</div>
+    </div>
+    <div>
+      <div class="field-label">Items per Pack <span class="new-badge">new</span></div>
+      <div class="field-val dim">— not applicable —</div>
+    </div>
+  </div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Weight per Item</div>
+      <div class="field-val">290</div>
+    </div>
+    <div>
+      <div class="field-label">Weight Unit</div>
+      <div class="field-val dropdown">g</div>
+    </div>
+  </div>
+  <div class="calc-preview">
+    <div class="calc-label">Derived automatically</div>
+    <div class="calc-line">1 case = 20 × 290g = <strong>5,800g</strong></div>
+    <div class="calc-line">1 each (loaf) = <strong>290g</strong></div>
+    <div class="calc-line">Price per g: $62.90 ÷ 5,800 = <strong>$0.0108/g</strong></div>
+  </div>
+  <div class="section-sep"><span>🧮 Count Default</span></div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Default Count Unit</div>
+      <div class="field-val dropdown">each</div>
+    </div>
+    <div>
+      <div class="field-label">Available</div>
+      <div class="count-chips">
+        <span class="chip default">each</span>
+        <span class="chip green">case</span>
+        <span class="chip green">g</span>
+        <span class="chip green">kg</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scenario 3: Chicken (weight) -->
+<div class="scenario-block">
+  <div class="scenario-header">Chicken Breast — bag of 20 kg</div>
+  <div class="section-sep"><span>📦 Product Structure</span></div>
+  <div class="field-row cols-3">
+    <div>
+      <div class="field-label">Purchase Unit</div>
+      <div class="field-val dropdown">bag</div>
+    </div>
+    <div>
+      <div class="field-label">Total Weight</div>
+      <div class="field-val">20</div>
+    </div>
+    <div>
+      <div class="field-label">Weight Unit</div>
+      <div class="field-val dropdown">kg</div>
+    </div>
+  </div>
+  <div class="calc-preview">
+    <div class="calc-label">Derived automatically</div>
+    <div class="calc-line">1 bag = <strong>20 kg = 20,000g</strong></div>
+    <div class="calc-line">No item weight — counted by weight</div>
+  </div>
+  <div class="section-sep"><span>🧮 Count Default</span></div>
+  <div class="field-row cols-2">
+    <div>
+      <div class="field-label">Default Count Unit</div>
+      <div class="field-val dropdown">kg</div>
+    </div>
+    <div>
+      <div class="field-label">Available</div>
+      <div class="count-chips">
+        <span class="chip default">kg</span>
+        <span class="chip green">g</span>
+        <span class="chip green">lb</span>
+        <span class="chip green">bag</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="text-align:center;margin-top:4px">Does this model match how you think about your inventory? Let me know in the terminal.</p>

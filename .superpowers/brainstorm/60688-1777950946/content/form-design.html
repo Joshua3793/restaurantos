@@ -1,0 +1,258 @@
+<h2>Redesigned Purchase Structure Form</h2>
+<p class="subtitle">Three dynamic layouts — the form adapts based on what qty unit you pick. No separate Pack UOM or Pack Size dropdowns cluttering the view.</p>
+
+<style>
+body { font-family: -apple-system, sans-serif; font-size: 13px; }
+.form-demo { max-width: 440px; margin: 0 auto; }
+.form-section { margin-bottom: 20px; }
+.section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #9ca3af; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.section-label::after { content: ''; flex: 1; border-top: 1px solid #f3f4f6; }
+.field-row { display: grid; gap: 8px; margin-bottom: 8px; }
+.field-row.cols-2 { grid-template-columns: 1fr 1fr; }
+.field-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.field-label { font-size: 10px; font-weight: 600; color: #6b7280; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+.field-val { background: white; border: 1px solid #d1d5db; border-radius: 6px; padding: 7px 10px; font-size: 13px; color: #111; font-weight: 500; }
+.field-val.dropdown::after { content: " ▾"; color: #9ca3af; }
+.field-val.dim { color: #9ca3af; font-weight: 400; font-style: italic; font-size: 12px; border-style: dashed; }
+.inline-pair { display: grid; grid-template-columns: 3fr 2fr; gap: 0; }
+.inline-pair .num { background: white; border: 1px solid #d1d5db; border-radius: 6px 0 0 6px; padding: 7px 10px; font-size: 13px; font-weight: 600; color: #111; border-right: none; }
+.inline-pair .uom { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 0 6px 6px 0; padding: 7px 10px; font-size: 13px; font-weight: 500; color: #374151; }
+.inline-pair .uom::after { content: " ▾"; color: #9ca3af; }
+.indent { margin-left: 12px; padding-left: 12px; border-left: 2px solid #fde68a; padding-top: 8px; }
+.appears-when { font-size: 10px; color: #92400e; font-style: italic; margin-bottom: 6px; background: #fffbf0; border-radius: 4px; padding: 3px 7px; display: inline-block; }
+.calc-preview { background: #fffbf0; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; margin-top: 10px; }
+.calc-label { font-size: 10px; font-weight: 700; color: #a87c1a; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; }
+.calc-line { font-size: 12px; color: #92400e; margin: 2px 0; }
+.calc-line strong { color: #78350f; }
+.count-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.count-label { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11px; font-weight: 600; border-radius: 20px; padding: 2px 8px; background: #f3f4f6; color: #374151; }
+.chip.default { background: #111; color: #fff; }
+.chip.available { background: #e0f2fe; color: #0369a1; }
+.scenario-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.stab { padding: 5px 14px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid #e5e7eb; background: #f9fafb; color: #6b7280; cursor: pointer; }
+.stab.active { background: #111; color: #fff; border-color: #111; }
+.badge { font-size: 9px; font-weight: 700; border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+.badge-new { background: #dcfce7; color: #15803d; }
+.purchase-price { grid-column: 1 / -1; }
+</style>
+
+<div class="form-demo">
+
+  <!-- SCENARIO A: Weight-based (Chicken 20kg bag) -->
+  <div class="scenario-tabs">
+    <div class="stab active">A — Weight-based</div>
+    <div class="stab">B — Count → Weight</div>
+    <div class="stab">C — Pack → Item → Weight</div>
+  </div>
+  <p class="subtitle" style="margin-bottom:12px"><em>Chicken Breast — bag of 20 kg</em></p>
+
+  <div class="form-section">
+    <div class="section-label">Purchase Structure</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Purchase Unit</div>
+        <div class="field-val dropdown">bag</div>
+      </div>
+      <div>
+        <div class="field-label">Qty per Bag</div>
+        <div class="inline-pair">
+          <div class="num">20</div>
+          <div class="uom">kg</div>
+        </div>
+      </div>
+    </div>
+    <!-- No further fields — qty unit is weight, done -->
+    <div class="field-row cols-2">
+      <div class="purchase-price">
+        <div class="field-label">Purchase Price ($)</div>
+        <div class="field-val">85.00</div>
+      </div>
+    </div>
+    <div class="calc-preview">
+      <div class="calc-label">Auto-calculated</div>
+      <div class="calc-line">Base unit: <strong>g</strong></div>
+      <div class="calc-line">1 bag = <strong>20,000 g</strong></div>
+      <div class="calc-line">Price per g: <strong>$0.00425 / g</strong></div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="section-label">Count Default</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Default Count Unit</div>
+        <div class="field-val dropdown">kg</div>
+      </div>
+      <div>
+        <div class="field-label">Available in Count Sessions</div>
+        <div class="chips" style="margin-top:4px">
+          <span class="chip default">kg</span>
+          <span class="chip available">g</span>
+          <span class="chip available">lb</span>
+          <span class="chip available">bag</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr style="border:none;border-top:2px dashed #f3f4f6;margin:24px 0">
+
+  <!-- SCENARIO B: Count → Weight (Baguette) -->
+  <div class="scenario-tabs">
+    <div class="stab">A — Weight-based</div>
+    <div class="stab active">B — Count → Weight</div>
+    <div class="stab">C — Pack → Item → Weight</div>
+  </div>
+  <p class="subtitle" style="margin-bottom:12px"><em>Baguette — case of 20 loaves, each 290 g</em></p>
+
+  <div class="form-section">
+    <div class="section-label">Purchase Structure</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Purchase Unit</div>
+        <div class="field-val dropdown">case</div>
+      </div>
+      <div>
+        <div class="field-label">Qty per Case</div>
+        <div class="inline-pair">
+          <div class="num">20</div>
+          <div class="uom">each</div>
+        </div>
+      </div>
+    </div>
+    <!-- qty unit = each → show weight per item -->
+    <div class="indent">
+      <div class="appears-when">↳ qty unit is "each" — weight per item appears</div>
+      <div class="field-row cols-2">
+        <div>
+          <div class="field-label">Weight per Each</div>
+          <div class="inline-pair">
+            <div class="num">290</div>
+            <div class="uom">g</div>
+          </div>
+        </div>
+        <div>
+          <div class="field-val dim" style="margin-top:17px">no inner pack</div>
+        </div>
+      </div>
+    </div>
+    <div class="field-row cols-2" style="margin-top:8px">
+      <div class="purchase-price">
+        <div class="field-label">Purchase Price ($)</div>
+        <div class="field-val">62.90</div>
+      </div>
+    </div>
+    <div class="calc-preview">
+      <div class="calc-label">Auto-calculated</div>
+      <div class="calc-line">Base unit: <strong>g</strong></div>
+      <div class="calc-line">1 case = 20 × 290 g = <strong>5,800 g</strong></div>
+      <div class="calc-line">1 each = <strong>290 g</strong></div>
+      <div class="calc-line">Price per g: <strong>$0.0108 / g</strong></div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="section-label">Count Default</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Default Count Unit</div>
+        <div class="field-val dropdown">each</div>
+      </div>
+      <div>
+        <div class="field-label">Available in Count Sessions</div>
+        <div class="chips" style="margin-top:4px">
+          <span class="chip default">each</span>
+          <span class="chip available">case</span>
+          <span class="chip available">kg</span>
+          <span class="chip available">g</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr style="border:none;border-top:2px dashed #f3f4f6;margin:24px 0">
+
+  <!-- SCENARIO C: Pack → Item → Weight (Brioche) -->
+  <div class="scenario-tabs">
+    <div class="stab">A — Weight-based</div>
+    <div class="stab">B — Count → Weight</div>
+    <div class="stab active">C — Pack → Item → Weight</div>
+  </div>
+  <p class="subtitle" style="margin-bottom:12px"><em>GF Brioche Bun — case → 10 packs → 6 buns → 100 g</em></p>
+
+  <div class="form-section">
+    <div class="section-label">Purchase Structure</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Purchase Unit</div>
+        <div class="field-val dropdown">case</div>
+      </div>
+      <div>
+        <div class="field-label">Qty per Case</div>
+        <div class="inline-pair">
+          <div class="num">10</div>
+          <div class="uom">pack</div>
+        </div>
+      </div>
+    </div>
+    <!-- qty unit = pack → show items per pack + weight per item -->
+    <div class="indent">
+      <div class="appears-when">↳ qty unit is "pack" — inner pack breakdown appears</div>
+      <div class="field-row cols-2">
+        <div>
+          <div class="field-label">Items per Pack <span class="badge badge-new">new</span></div>
+          <div class="inline-pair">
+            <div class="num">6</div>
+            <div class="uom">each</div>
+          </div>
+        </div>
+        <div>
+          <div class="field-label">Weight per Item</div>
+          <div class="inline-pair">
+            <div class="num">100</div>
+            <div class="uom">g</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="field-row cols-2" style="margin-top:8px">
+      <div class="purchase-price">
+        <div class="field-label">Purchase Price ($)</div>
+        <div class="field-val">36.00</div>
+      </div>
+    </div>
+    <div class="calc-preview">
+      <div class="calc-label">Auto-calculated</div>
+      <div class="calc-line">Base unit: <strong>g</strong></div>
+      <div class="calc-line">1 case = 10 packs × 6 × 100 g = <strong>6,000 g</strong></div>
+      <div class="calc-line">1 pack = 6 × 100 g = <strong>600 g</strong></div>
+      <div class="calc-line">1 each = <strong>100 g</strong></div>
+      <div class="calc-line">Price per g: <strong>$0.006 / g</strong></div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="section-label">Count Default</div>
+    <div class="field-row cols-2">
+      <div>
+        <div class="field-label">Default Count Unit</div>
+        <div class="field-val dropdown">each</div>
+      </div>
+      <div>
+        <div class="field-label">Available in Count Sessions</div>
+        <div class="chips" style="margin-top:4px">
+          <span class="chip default">each</span>
+          <span class="chip available">pack</span>
+          <span class="chip available">case</span>
+          <span class="chip available">kg</span>
+          <span class="chip available">g</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="text-align:center;margin-top:8px">The tabs above are static — the real form would switch dynamically as you change the qty unit. Does this layout work?</p>

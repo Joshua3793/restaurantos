@@ -1,0 +1,10 @@
+{"type":"server-started","port":60483,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:60483","screen_dir":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content","state_dir":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/state"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/waiting-start.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/waiting-start.html"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/approaches.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/approaches.html"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/revised-model.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/revised-model.html"}
+{"type":"screen-added","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/qty-uom.html"}
+{"type":"screen-updated","file":"/Users/joshua/Desktop/Fergie's OS/.superpowers/brainstorm/60688-1777950946/content/qty-uom.html"}
+{"type":"server-stopped","reason":"idle timeout"}
