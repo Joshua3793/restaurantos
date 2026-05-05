@@ -276,6 +276,12 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
         barcode: editForm.barcode,
       }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      alert(err?.error ?? `Save failed (${res.status}). Please try again.`)
+      setSaving(false)
+      return
+    }
     const updated = await res.json()
     setItem(normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea }))
     setEditMode(false)

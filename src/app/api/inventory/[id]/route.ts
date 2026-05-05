@@ -43,9 +43,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     select: { allergens: true },
   })
 
-  const pp  = parseFloat(purchasePrice)
-  const qty = parseFloat(qtyPerPurchaseUnit)
-  const ps  = parseFloat(packSize  ?? '1')
+  const pp  = parseFloat(purchasePrice)  || 0
+  const qty = parseFloat(qtyPerPurchaseUnit) || 1
+  const ps  = parseFloat(packSize)  || 1
   const pu  = packUOM  ?? 'each'
   const cu  = countUOM ?? 'each'
   const qu  = qtyUOM ?? 'each'

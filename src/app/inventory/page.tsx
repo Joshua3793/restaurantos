@@ -558,6 +558,11 @@ function InventoryPageInner() {
         barcode: editForm.barcode,
       }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      alert(err?.error ?? `Save failed (${res.status}). Please try again.`)
+      return
+    }
     const updated = await res.json()
     setSelected({ ...selected, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
     setEditMode(false)
