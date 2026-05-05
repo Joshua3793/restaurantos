@@ -468,13 +468,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                   const ps  = parseFloat(editForm.packSize) || 1
                   const pu  = editForm.packUOM
                   const cu  = editForm.countUOM
-                  const bu  = isPrep ? (item.baseUnit ?? deriveBaseUnit(pu)) : deriveBaseUnit(pu)
+                  const bu  = isPrep ? (item.baseUnit ?? deriveBaseUnit('each', pu)) : deriveBaseUnit('each', pu)
                   const ppbu = isPrep
                     ? parseFloat(String(item.pricePerBaseUnit ?? 0))
-                    : calcPricePerBaseUnit(pp, qty, ps, pu)
+                    : calcPricePerBaseUnit(pp, qty, 'each', null, ps, pu)
                   const cf = isPrep
                     ? parseFloat(String(item.conversionFactor ?? 1))
-                    : calcConversionFactor(cu, qty, ps, pu)
+                    : calcConversionFactor(cu, qty, 'each', null, ps, pu)
                   return (
                     <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-purple-50' : 'bg-gold/10'}`}>
                       <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-purple-700' : 'text-gold'}`}>
