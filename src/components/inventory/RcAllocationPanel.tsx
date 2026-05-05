@@ -1,30 +1,32 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronUp, Pencil, X, Check } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 
 interface Allocation {
   revenueCenterId: string
   quantity: number
+  parLevel:   number | null
+  reorderQty: number | null
   revenueCenter: { id: string; name: string; color: string }
 }
 
 interface Transfer {
   id: string
   fromRc: { name: string; color: string }
-  toRc: { name: string; color: string }
+  toRc:   { name: string; color: string }
   quantity: number
   notes: string | null
   createdAt: string
 }
 
 interface Props {
-  itemId: string
-  stockOnHand: number
-  countUOM: string
-  defaultRcId: string | null
-  onPulled: () => void
+  itemId:       string
+  stockOnHand:  number
+  countUOM:     string
+  defaultRcId:  string | null
+  onPulled:     () => void
 }
 
 export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, onPulled }: Props) {
@@ -37,6 +39,12 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
   const [pullNotes, setPullNotes]     = useState('')
   const [pulling, setPulling]         = useState(false)
   const [pullError, setPullError]     = useState('')
+
+  const [editParRcId,    setEditParRcId]    = useState<string | null>(null)
+  const [editParLevel,   setEditParLevel]   = useState('')
+  const [editReorderQty, setEditReorderQty] = useState('')
+  const [savingPar,      setSavingPar]      = useState(false)
+  const [parError,       setParError]       = useState('')
 
   const loadData = useCallback(async () => {
     const [allocsRes, transferRes] = await Promise.all([
@@ -77,6 +85,39 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
     onPulled()
   }
 
+  const openParEdit = (rcId: string, alloc: Allocation | undefined) => {
+    setEditParRcId(rcId)
+    setEditParLevel(alloc?.parLevel != null ? String(alloc.parLevel) : '')
+    setEditReorderQty(alloc?.reorderQty != null ? String(alloc.reorderQty) : '')
+    setParError('')
+  }
+
+  const handleSavePar = async (rcId: string) => {
+    setSavingPar(true)
+    setParError('')
+    const res = await fetch('/api/stock-allocations', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        inventoryItemId: itemId,
+        rcId,
+        parLevel:   editParLevel   === '' ? null : Number(editParLevel),
+        reorderQty: editReorderQty === '' ? null : Number(editReorderQty),
+      }),
+    })
+    setSavingPar(false)
+    if (!res.ok) {
+      const d = await res.json()
+      setParError(d.error || 'Save failed')
+      return
+    }
+    setEditParRcId(null)
+    setEditParLevel('')
+    setEditReorderQty('')
+    setParError('')
+    loadData()
+  }
+
   return (
     <div className="border border-gray-100 rounded-xl overflow-hidden">
       <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
@@ -85,15 +126,21 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
 
       <div className="divide-y divide-gray-50">
         {revenueCenters.map(rc => {
-          const isDefaultRc = rc.id === defaultRcId
-          const alloc = allocations.find(a => a.revenueCenterId === rc.id)
-          const qty = isDefaultRc
-            ? stockOnHand
-            : alloc ? Number(alloc.quantity) : 0
-          const isPulling = pullRcId === rc.id
+          const isDefaultRc  = rc.id === defaultRcId
+          const alloc        = allocations.find(a => a.revenueCenterId === rc.id)
+          const qty          = isDefaultRc ? stockOnHand : (alloc ? Number(alloc.quantity) : 0)
+          const parLevel     = alloc?.parLevel ?? null
+          const isBelowPar   = parLevel !== null && qty < parLevel
+          const isEditingPar = editParRcId === rc.id
+          const isPulling    = pullRcId === rc.id
+          const suggested    = isBelowPar && parLevel !== null ? parLevel - qty : null
 
           return (
-            <div key={rc.id} className="px-4 py-3">
+            <div
+              key={rc.id}
+              className={`px-4 py-3 border-l-2 transition-colors ${isBelowPar ? 'border-amber-400 bg-amber-50/40' : 'border-transparent'}`}
+            >
+              {/* RC header row */}
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
                 <span className={`flex-1 text-sm ${isDefaultRc ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
@@ -102,7 +149,24 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                 </span>
                 <span className="text-sm font-medium text-gray-700">
                   {qty.toFixed(2)} <span className="text-xs text-gray-400">{countUOM}</span>
+                  {parLevel !== null && (
+                    <span className={`ml-1 text-xs ${isBelowPar ? 'text-amber-600' : 'text-gray-400'}`}>
+                      / par {parLevel}
+                    </span>
+                  )}
                 </span>
+                {isBelowPar && (
+                  <span className="text-xs font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 shrink-0">
+                    ⚠ Below Par
+                  </span>
+                )}
+                <button
+                  onClick={() => isEditingPar ? setEditParRcId(null) : openParEdit(rc.id, alloc)}
+                  className="text-xs text-gray-400 hover:text-gray-600 shrink-0 p-1"
+                  title={isEditingPar ? 'Cancel' : 'Edit par level'}
+                >
+                  {isEditingPar ? <X size={12} /> : <Pencil size={12} />}
+                </button>
                 {!isDefaultRc && (
                   <button
                     onClick={() => {
@@ -122,6 +186,62 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                 )}
               </div>
 
+              {/* Below-par suggestion */}
+              {isBelowPar && suggested !== null && !isEditingPar && (
+                <div className="mt-1.5 ml-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                  📦 Suggested order: <strong>{suggested.toFixed(2)} {countUOM}</strong> (par − current)
+                </div>
+              )}
+
+              {/* Par edit form */}
+              {isEditingPar && (
+                <div className="mt-2 ml-4 space-y-2">
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-500 block mb-0.5">Par Level ({countUOM})</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={editParLevel}
+                        onChange={e => setEditParLevel(e.target.value)}
+                        placeholder="e.g. 10"
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-500 block mb-0.5">Order Qty (auto)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={editReorderQty}
+                        onChange={e => setEditReorderQty(e.target.value)}
+                        placeholder="auto"
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                  </div>
+                  {parError && <p className="text-xs text-red-500">{parError}</p>}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleSavePar(rc.id)}
+                      disabled={savingPar}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-gold text-white rounded-lg text-xs font-medium hover:bg-[#a88930] disabled:opacity-50"
+                    >
+                      <Check size={11} /> {savingPar ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setEditParRcId(null)}
+                      className="px-3 py-1.5 text-gray-500 border border-gray-200 rounded-lg text-xs hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Pull form */}
               {isPulling && (
                 <div className="mt-3 pl-4 space-y-2">
                   <div className="text-xs text-gray-500">
