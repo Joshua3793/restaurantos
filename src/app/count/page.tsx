@@ -472,7 +472,7 @@ export default function CountPage() {
         }, 50)
       }
     }
-  }, [active?.lines])
+  }, [active?.lines, setSearchQuery])
 
   const openAddItem = async () => {
     const [cats, sups, areas] = await Promise.all([
