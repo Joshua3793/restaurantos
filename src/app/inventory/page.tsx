@@ -28,6 +28,9 @@ interface InventoryItem {
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number
   rcStock?: number        // set when viewing a non-default RC (from StockAllocation)
+  parLevel?:   number | null  // in countUOM; null = no par set
+  reorderQty?: number | null  // in purchaseUnit; null = auto-calculate
+  barcode?:    string | null
   allergens?: string[]
   isActive: boolean
   lastCountDate?: string | null; lastCountQty?: number | null
@@ -37,7 +40,7 @@ interface InventoryItem {
 type SortMode  = 'category' | 'all'
 type ColKey    = 'item' | 'category' | 'supplier' | 'price' | 'stock' | 'value'
 type ColDir    = 'asc' | 'desc'
-type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'active' | 'inactive'
+type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'lowStock' | 'active' | 'inactive'
 
 interface EditForm {
   itemName: string; category: string
@@ -49,6 +52,7 @@ interface EditForm {
   stockOnHand: string
   isActive: boolean
   allergens: string[]
+  barcode: string | null
 }
 
 // First-click direction per column: text cols go A→Z, numeric cols go high→low
@@ -199,6 +203,7 @@ function InventoryPageInner() {
   const [syncingPrepd,  setSyncingPrepd]  = useState(false)
   const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
   const [showOrderList, setShowOrderList] = useState(false)
+  const [orderTab, setOrderTab] = useState<'all' | 'belowPar' | 'outOfStock'>('all')
   const [orderQtys,    setOrderQtys]    = useState<Record<string, string>>({})
   const [showMobileSortSheet,   setShowMobileSortSheet]   = useState(false)
   const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false)
@@ -220,7 +225,7 @@ function InventoryPageInner() {
     storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
     packSize: '1', packUOM: 'each', countUOM: 'each',
-    stockOnHand: '0', isActive: true, allergens: [],
+    stockOnHand: '0', isActive: true, allergens: [], barcode: null,
   })
 
   const fetchItems = useCallback(() => {
@@ -325,6 +330,7 @@ function InventoryPageInner() {
       case 'notCounted': return items.filter(i => !isCountedThisWeek(i))
       case 'highValue':  return items.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01)
       case 'outOfStock': return items.filter(i => effStock(i) <= 0)
+      case 'lowStock':   return items.filter(i => i.parLevel != null && displayStock(i) > 0 && displayStock(i) < i.parLevel)
       case 'active':     return items.filter(i => i.isActive)
       case 'inactive':   return items.filter(i => !i.isActive)
       default:           return items
@@ -504,6 +510,7 @@ function InventoryPageInner() {
         }),
         isActive: editForm.isActive,
         allergens: editForm.allergens,
+        barcode: editForm.barcode,
       }),
     })
     const updated = await res.json()
@@ -560,7 +567,7 @@ function InventoryPageInner() {
           </span>
         </td>
         <td className="px-3 py-3 text-center hidden sm:table-cell">
-          <StockStatus stock={displayStock(item)} />
+          <StockStatus stock={displayStock(item)} parLevel={item.parLevel ?? null} />
         </td>
         <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-center gap-2">
@@ -658,6 +665,7 @@ function InventoryPageInner() {
     { key: 'notCounted', label: 'Not Counted' },
     { key: 'highValue',  label: 'High Value' },
     { key: 'outOfStock', label: 'Out of Stock' },
+    { key: 'lowStock', label: 'Low Stock' },
   ]
 
   return (
@@ -669,7 +677,7 @@ function InventoryPageInner() {
           <p className="text-xs text-gray-400">{items.length} items</p>
         </div>
         <button
-          onClick={() => { setShowOrderList(true); setOrderQtys({}) }}
+          onClick={() => { setShowOrderList(true); setOrderQtys({}); setOrderTab('all') }}
           className="flex items-center justify-center w-9 h-9 bg-green-50 border border-green-200 text-green-700 rounded-xl"
         >
           <ShoppingCart size={16} />
@@ -698,7 +706,7 @@ function InventoryPageInner() {
             {syncingPrepd ? '⟳ Syncing…' : '⟳ Sync PREPD'}
           </button>
           <button
-            onClick={() => { setShowOrderList(true); setOrderQtys({}) }}
+            onClick={() => { setShowOrderList(true); setOrderQtys({}); setOrderTab('all') }}
             className="flex items-center gap-2 border border-green-200 bg-green-50 text-green-700 px-3 py-2 rounded-lg text-sm hover:bg-green-100 transition-colors"
           >
             <ShoppingCart size={15} /> Order List
@@ -1079,25 +1087,46 @@ function InventoryPageInner() {
       {/* Order List Modal */}
       {showOrderList && (() => {
         const activeItems = items.filter(i => i.isActive && i.category !== 'PREPD')
-        const outOfStock  = activeItems.filter(i => effStock(i) <= 0)
-        const bySupplier  = new Map<string, { supplierName: string; items: InventoryItem[] }>()
-        for (const item of outOfStock) {
+        const orderItems  = activeItems.filter(i =>
+          displayStock(i) <= 0 ||
+          (i.parLevel != null && displayStock(i) < i.parLevel)
+        )
+        const belowPar   = orderItems.filter(i => i.parLevel != null && displayStock(i) > 0 && displayStock(i) < i.parLevel)
+        const outOfStock = orderItems.filter(i => displayStock(i) <= 0)
+
+        const suggestedQty = (item: InventoryItem): string => {
+          if (item.reorderQty != null) return String(item.reorderQty)
+          if (item.parLevel != null && item.parLevel > displayStock(item)) {
+            const needed = item.parLevel - displayStock(item)
+            return String(Math.ceil(needed / Number(item.qtyPerPurchaseUnit)))
+          }
+          return ''
+        }
+
+        type OrderTab = 'all' | 'belowPar' | 'outOfStock'
+        const tabItems = orderTab === 'belowPar' ? belowPar
+          : orderTab === 'outOfStock' ? outOfStock
+          : orderItems
+
+        const bySupplier = new Map<string, { supplierName: string; items: InventoryItem[] }>()
+        for (const item of tabItems) {
           const key  = item.supplierId ?? '__none__'
           const name = item.supplier?.name ?? 'No Supplier'
           if (!bySupplier.has(key)) bySupplier.set(key, { supplierName: name, items: [] })
           bySupplier.get(key)!.items.push(item)
         }
         const copyText = Array.from(bySupplier.values()).map(({ supplierName, items: grp }) =>
-          `${supplierName}:\n` + grp.map(i => `  - ${i.itemName}  ${orderQtys[i.id] ?? ''}  ${i.purchaseUnit}  @${formatCurrency(parseFloat(String(i.purchasePrice)))}`).join('\n')
+          `${supplierName}:\n` + grp.map(i => `  - ${i.itemName}  ${orderQtys[i.id] ?? suggestedQty(i)}  ${i.purchaseUnit}  @${formatCurrency(parseFloat(String(i.purchasePrice)))}`).join('\n')
         ).join('\n\n')
+
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
             <div className="bg-white w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
               <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100 shrink-0">
                 <div className="flex items-center gap-2">
                   <ShoppingCart size={18} className="text-green-600" />
-                  <h2 className="font-semibold text-gray-900">Order List</h2>
-                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{outOfStock.length} items</span>
+                  <h2 className="font-semibold text-gray-900">Order Guide</h2>
+                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{orderItems.length} items</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => { navigator.clipboard.writeText(copyText) }}
@@ -1107,30 +1136,68 @@ function InventoryPageInner() {
                   <button onClick={() => setShowOrderList(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
                 </div>
               </div>
+
+              {/* Filter tabs */}
+              <div className="flex gap-1.5 px-4 py-2 border-b border-gray-100 bg-gray-50 shrink-0">
+                {([
+                  { key: 'all' as OrderTab,        label: `All (${orderItems.length})` },
+                  { key: 'belowPar' as OrderTab,   label: `⚠ Below Par (${belowPar.length})` },
+                  { key: 'outOfStock' as OrderTab, label: `Out of Stock (${outOfStock.length})` },
+                ]).map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setOrderTab(t.key)}
+                    className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
+                      orderTab === t.key
+                        ? 'bg-gray-900 text-white'
+                        : t.key === 'belowPar'
+                          ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                          : 'text-gray-500 hover:bg-gray-100'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
               <div className="overflow-y-auto flex-1 p-4 space-y-4">
-                {outOfStock.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400 text-sm">All active items are in stock</div>
+                {tabItems.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400 text-sm">No items in this category</div>
                 ) : (
                   Array.from(bySupplier.values()).map(({ supplierName, items: grp }) => (
                     <div key={supplierName}>
                       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{supplierName}</div>
                       <div className="space-y-1">
-                        {grp.map(item => (
-                          <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-gray-800 truncate">{item.itemName}</div>
-                              <div className="text-xs text-gray-400">{formatCurrency(parseFloat(String(item.purchasePrice)))} / {item.purchaseUnit}</div>
+                        {grp.map(item => {
+                          const isOut = displayStock(item) <= 0
+                          return (
+                            <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="text-sm font-medium text-gray-800 truncate">{item.itemName}</div>
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                                    isOut ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                                  }`}>
+                                    {isOut ? 'Out' : 'Low'}
+                                  </span>
+                                </div>
+                                {item.parLevel != null && (
+                                  <div className="text-xs text-gray-400">
+                                    Par {item.parLevel} {item.countUOM} · Have {displayStock(item).toFixed(1)}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <input type="number" min="1" step="1"
+                                  value={orderQtys[item.id] ?? suggestedQty(item)}
+                                  onChange={e => setOrderQtys(q => ({ ...q, [item.id]: e.target.value }))}
+                                  placeholder="qty"
+                                  className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                <span className="text-xs text-gray-500">{item.purchaseUnit}</span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <input type="number" min="1" step="1"
-                                value={orderQtys[item.id] ?? ''}
-                                onChange={e => setOrderQtys(q => ({ ...q, [item.id]: e.target.value }))}
-                                placeholder="qty"
-                                className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-400" />
-                              <span className="text-xs text-gray-500">{item.purchaseUnit}</span>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   ))
@@ -1338,6 +1405,7 @@ function InventoryPageInner() {
                         }).toFixed(4))),
                         isActive: selected.isActive,
                         allergens: selected.allergens ?? [],
+                        barcode: selected.barcode ?? null,
                       })
                       setEditMode(true)
                     }}
@@ -1512,6 +1580,18 @@ function InventoryPageInner() {
                   />
                 </div>
 
+                {/* Barcode */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Barcode</label>
+                  <input
+                    type="text"
+                    value={editForm.barcode ?? ''}
+                    onChange={e => setEditForm(f => ({ ...f, barcode: e.target.value || null }))}
+                    placeholder="Scan or type barcode…"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  />
+                </div>
+
                 {/* Auto-calculated preview */}
                 {(() => {
                   const isPrep = !!selected?.recipe
@@ -1554,7 +1634,7 @@ function InventoryPageInner() {
               <div className="p-4 space-y-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CategoryBadge category={selected.category} />
-                  <StockStatus stock={displayStock(selected)} />
+                  <StockStatus stock={displayStock(selected)} parLevel={selected.parLevel ?? null} />
                   {selected.allergens && selected.allergens.length > 0 && selected.allergens.map(a => (
                     <span key={a} className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
                   ))}
@@ -1580,6 +1660,7 @@ function InventoryPageInner() {
                     ['Purchase Price', formatCurrency(parseFloat(String(selected.purchasePrice)))],
                     ['Pack Size',      `${parseFloat(String(selected.packSize ?? 1))} ${selected.packUOM ?? 'each'}`],
                     ['Count UOM',      selected.countUOM ?? 'each'],
+                    ...(selected.barcode ? [['Barcode', selected.barcode] as [string, string]] : []),
                   ]
                   return rows.map(([label, value]) => (
                     <div key={label} className="bg-gray-50 rounded-lg p-3">
