@@ -11,9 +11,11 @@ export const UNIT_CONV: Record<string, number> = {
 export const PACK_UOMS = ['each', 'g', 'kg', 'lb', 'oz', 'ml', 'l'] as const
 
 export const PURCHASE_UNITS = [
-  'case', 'bag', 'box', 'pack', 'dozen', 'pallet', 'tray', 'sleeve',
-  'each', 'kg', 'g', 'lb', 'oz', 'l', 'ml',
+  'case', 'bag', 'box', 'bottle', 'pack', 'tray',
+  'sleeve', 'dozen', 'pallet', 'jug', 'each',
 ] as const
+
+export const QTY_UOMS = ['each', 'pack', 'kg', 'g', 'lb', 'oz', 'l', 'ml'] as const
 
 // Grouped count UOMs by dimension
 export const WEIGHT_COUNT_UOMS = ['g', 'kg', 'lb', 'oz'] as const
@@ -49,36 +51,62 @@ export function getUnitConv(uom: string): number {
 /** Price per base unit (g, ml, or each) based on purchase structure */
 export function calcPricePerBaseUnit(
   purchasePrice: number,
-  qtyPerCase: number,
+  qtyPerPurchaseUnit: number,
+  qtyUOM: string,
+  innerQty: number | null,
   packSize: number,
   packUOM: string,
 ): number {
-  const divisor = qtyPerCase * packSize * getUnitConv(packUOM)
+  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
+  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
+  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+
+  let divisor: number
+  if (isWeightQty) {
+    divisor = qtyPerPurchaseUnit * getUnitConv(qtyUOM)
+  } else if (qtyUOM === 'pack' && innerQty != null) {
+    divisor = qtyPerPurchaseUnit * innerQty * packSize * getUnitConv(packUOM)
+  } else {
+    divisor = qtyPerPurchaseUnit * packSize * getUnitConv(packUOM)
+  }
   return divisor > 0 ? purchasePrice / divisor : 0
 }
 
-/** Derive the base unit (g / ml / each) from the pack UOM */
-export function deriveBaseUnit(packUOM: string): string {
-  const w = ['g', 'mg', 'kg', 'lb', 'oz']
-  const v = ['ml', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
-  const lower = packUOM?.toLowerCase() ?? 'each'
-  if (w.includes(lower)) return 'g'
-  if (v.includes(lower)) return 'ml'
+/** Derive the base unit (g / ml / each) from qtyUOM and packUOM */
+export function deriveBaseUnit(qtyUOM: string, packUOM: string): string {
+  const weightUnits = ['g', 'mg', 'kg', 'lb', 'oz']
+  const volumeUnits = ['ml', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
+  if (weightUnits.includes(qtyUOM)) return 'g'
+  if (volumeUnits.includes(qtyUOM)) return 'ml'
+  if (weightUnits.includes(packUOM)) return 'g'
+  if (volumeUnits.includes(packUOM)) return 'ml'
   return 'each'
 }
 
-/** Conversion factor: how many base units equal 1 counting unit (BU × Count UOM) */
+/** Conversion factor: how many base units equal 1 counting unit */
 export function calcConversionFactor(
   countUOM: string,
-  qtyPerCase: number,
+  qtyPerPurchaseUnit: number,
+  qtyUOM: string,
+  innerQty: number | null,
   packSize: number,
   packUOM: string,
 ): number {
-  const packBaseUnits = packSize * getUnitConv(packUOM)
-  const lower = countUOM?.toLowerCase() ?? 'each'
-  if (lower in UNIT_CONV) return UNIT_CONV[lower]  // kg→1000, lb→453.592, etc.
-  if (lower === 'case') return qtyPerCase * packBaseUnits
-  if (lower === 'pkg')  return packBaseUnits
+  if (countUOM in UNIT_CONV) return UNIT_CONV[countUOM]
+
+  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
+  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
+  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+
+  const itemBaseUnits = packSize * getUnitConv(packUOM)
+  const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
+
+  if (countUOM === 'case' || countUOM === qtyUOM) {
+    if (isWeightQty) return qtyPerPurchaseUnit * getUnitConv(qtyUOM)
+    return qtyPerPurchaseUnit * packBaseUnits
+  }
+  if (countUOM === 'pack') return packBaseUnits
+  if (countUOM === 'each') return itemBaseUnits > 0 ? itemBaseUnits : 1
   return 1
 }
 
