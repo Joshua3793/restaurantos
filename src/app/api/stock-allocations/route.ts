@@ -74,27 +74,37 @@ export async function PATCH(req: NextRequest) {
   if (!inventoryItemId || !rcId) {
     return NextResponse.json({ error: 'inventoryItemId and rcId are required' }, { status: 400 })
   }
-  if (parLevel !== null && parLevel !== undefined && Number(parLevel) < 0) {
-    return NextResponse.json({ error: 'parLevel must be >= 0' }, { status: 400 })
+  if (parLevel !== null && parLevel !== undefined) {
+    const p = Number(parLevel)
+    if (isNaN(p) || p < 0) {
+      return NextResponse.json({ error: 'parLevel must be a number >= 0' }, { status: 400 })
+    }
   }
-  if (reorderQty !== null && reorderQty !== undefined && Number(reorderQty) <= 0) {
-    return NextResponse.json({ error: 'reorderQty must be > 0' }, { status: 400 })
+  if (reorderQty !== null && reorderQty !== undefined) {
+    const r = Number(reorderQty)
+    if (isNaN(r) || r <= 0) {
+      return NextResponse.json({ error: 'reorderQty must be a number > 0' }, { status: 400 })
+    }
   }
 
-  const allocation = await prisma.stockAllocation.upsert({
-    where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId } },
-    update: {
-      ...(parLevel !== undefined  ? { parLevel:  parLevel  === null ? null : Number(parLevel)  } : {}),
-      ...(reorderQty !== undefined ? { reorderQty: reorderQty === null ? null : Number(reorderQty) } : {}),
-    },
-    create: {
-      revenueCenterId: rcId,
-      inventoryItemId,
-      quantity: 0,
-      parLevel:  parLevel  ?? null,
-      reorderQty: reorderQty ?? null,
-    },
-  })
-
-  return NextResponse.json(allocation)
+  try {
+    const allocation = await prisma.stockAllocation.upsert({
+      where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId } },
+      update: {
+        ...(parLevel !== undefined ? { parLevel: parLevel === null ? null : Number(parLevel) } : {}),
+        ...(reorderQty !== undefined ? { reorderQty: reorderQty === null ? null : Number(reorderQty) } : {}),
+      },
+      create: {
+        revenueCenterId: rcId,
+        inventoryItemId,
+        quantity: 0,
+        parLevel: parLevel ?? null,
+        reorderQty: reorderQty ?? null,
+      },
+    })
+    return NextResponse.json(allocation)
+  } catch (err) {
+    console.error('PATCH /api/stock-allocations', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
