@@ -533,8 +533,8 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
   const isPrep  = !!item?.recipe
   const ppbu = isPrep
     ? (item ? item.pricePerBaseUnit : 0)
-    : calcPricePerBaseUnit(pp, qty, ps, pu)
-  const bu   = isPrep ? (item?.baseUnit ?? 'each') : deriveBaseUnit(pu)
+    : calcPricePerBaseUnit(pp, qty, 'each', null, ps, pu)
+  const bu   = isPrep ? (item?.baseUnit ?? 'each') : deriveBaseUnit('each', pu)
 
   const inputCls = 'w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold'
   const selectCls = inputCls + ' bg-white'

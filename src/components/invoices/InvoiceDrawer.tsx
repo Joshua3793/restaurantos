@@ -962,9 +962,9 @@ function ItemDetailPanel({
   const pp   = parseFloat(form.purchasePrice) || 0
   const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
   const ps   = parseFloat(form.packSize) || 1
-  const ppbu = calcPricePerBaseUnit(pp, qty, ps, form.packUOM)
-  const cf   = calcConversionFactor(form.countUOM, qty, ps, form.packUOM)
-  const bu   = deriveBaseUnit(form.packUOM)
+  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM)
+  const cf   = calcConversionFactor(form.countUOM, qty, 'each', null, ps, form.packUOM)
+  const bu   = deriveBaseUnit('each', form.packUOM)
 
   const isNew = item.action === 'CREATE_NEW'
 
@@ -1265,8 +1265,8 @@ function InventoryEditModal({
   const pp   = parseFloat(form.purchasePrice) || 0
   const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
   const ps   = parseFloat(form.packSize) || 1
-  const bu   = deriveBaseUnit(form.packUOM)
-  const ppbu = calcPricePerBaseUnit(pp, qty, ps, form.packUOM)
+  const bu   = deriveBaseUnit('each', form.packUOM)
+  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM)
 
   const handleSave = async () => {
     setSaving(true)
@@ -1288,7 +1288,7 @@ function InventoryEditModal({
           location:           form.location || null,
           pricePerBaseUnit:   ppbu,
           baseUnit:           bu,
-          conversionFactor:   calcConversionFactor(form.countUOM, qty, ps, form.packUOM),
+          conversionFactor:   calcConversionFactor(form.countUOM, qty, 'each', null, ps, form.packUOM),
         }),
       })
     } catch {
