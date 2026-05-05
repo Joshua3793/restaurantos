@@ -22,11 +22,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json()
   const {
     purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM,
+    qtyUOM, innerQty, needsReview,
     supplierId, storageAreaId,
     // strip relation objects — never written directly
     supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
     ...rest
   } = body
+
+  const validQtyUoms = ['each', 'pack', 'kg', 'g', 'lb', 'oz', 'l', 'ml']
+  if (qtyUOM && !validQtyUoms.includes(qtyUOM)) {
+    return NextResponse.json({ error: `Invalid qtyUOM: ${qtyUOM}` }, { status: 400 })
+  }
+  if (innerQty !== null && innerQty !== undefined && Number(innerQty) <= 0) {
+    return NextResponse.json({ error: 'innerQty must be > 0' }, { status: 400 })
+  }
 
   // Capture previous allergens before update to detect changes
   const before = await prisma.inventoryItem.findUnique({
@@ -39,11 +48,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const ps  = parseFloat(packSize  ?? '1')
   const pu  = packUOM  ?? 'each'
   const cu  = countUOM ?? 'each'
+  const qu  = qtyUOM ?? 'each'
+  const iq  = innerQty != null ? Number(innerQty) : null
 
   // Save using standard purchase formula first
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, ps, pu)
-  const conversionFactor = calcConversionFactor(cu, qty, ps, pu)
-  const baseUnit         = deriveBaseUnit(pu)
+  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu)
+  const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
+  const baseUnit         = deriveBaseUnit(qu, pu)
 
   await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -54,6 +65,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       packSize: ps,
       packUOM: pu,
       countUOM: cu,
+      qtyUOM: qu,
+      innerQty: iq,
+      needsReview: false,
       conversionFactor,
       pricePerBaseUnit,
       baseUnit,

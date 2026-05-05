@@ -21,6 +21,8 @@ export async function POST() {
       qtyPerPurchaseUnit: true,
       packSize: true,
       packUOM: true,
+      qtyUOM: true,
+      innerQty: true,
       pricePerBaseUnit: true,
     },
   })
@@ -33,6 +35,8 @@ export async function POST() {
     const correct = calcPricePerBaseUnit(
       Number(item.purchasePrice),
       Number(item.qtyPerPurchaseUnit),
+      item.qtyUOM ?? 'each',
+      item.innerQty != null ? Number(item.innerQty) : null,
       Number(item.packSize),
       item.packUOM,
     )

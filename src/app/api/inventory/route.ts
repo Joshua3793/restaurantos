@@ -97,15 +97,17 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM, supplierId, storageAreaId, ...rest } = body
+  const { purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM, qtyUOM, innerQty, supplierId, storageAreaId, ...rest } = body
   const pp  = parseFloat(purchasePrice)
   const qty = parseFloat(qtyPerPurchaseUnit)
   const ps  = parseFloat(packSize  ?? '1')
   const pu  = packUOM  ?? 'each'
   const cu  = countUOM ?? 'each'
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, ps, pu)
-  const conversionFactor = calcConversionFactor(cu, qty, ps, pu)
-  const baseUnit         = deriveBaseUnit(pu)
+  const qu  = qtyUOM ?? 'each'
+  const iq  = innerQty != null ? Number(innerQty) : null
+  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu)
+  const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
+  const baseUnit         = deriveBaseUnit(qu, pu)
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,
@@ -114,6 +116,8 @@ export async function POST(req: NextRequest) {
       packSize: ps,
       packUOM: pu,
       countUOM: cu,
+      qtyUOM: qu,
+      innerQty: iq,
       conversionFactor,
       pricePerBaseUnit,
       baseUnit,
