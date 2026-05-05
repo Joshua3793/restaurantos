@@ -7,7 +7,8 @@
  * These functions handle converting back to baseUnit for persistence.
  */
 
-import { UOM_GROUPS, convertQty, getUnitGroup } from './uom'
+import { convertQty } from './uom'
+import { deriveBaseUnit, getUnitConv } from './utils'
 
 export interface CountableUom {
   label: string
@@ -20,8 +21,10 @@ export interface CountableUom {
 interface ItemDims {
   baseUnit: string
   purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  packSize: number
+  qtyPerPurchaseUnit: number | { toString(): string }
+  qtyUOM?: string | null
+  innerQty?: { toString(): string } | number | null
+  packSize: number | { toString(): string }
   packUOM: string
   countUOM: string
 }
@@ -32,87 +35,101 @@ function fmtNum(n: number): string {
   return n.toFixed(1)
 }
 
+function buildCaseHint(item: ItemDims): string {
+  const qty = Number(item.qtyPerPurchaseUnit)
+  const qtyUOM = item.qtyUOM ?? 'each'
+  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
+  const ps = Number(item.packSize ?? 0)
+  const pu = item.packUOM ?? 'each'
+
+  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
+  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
+
+  if (weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)) {
+    const total = qty * getUnitConv(qtyUOM)
+    return total >= 1000 && weightUnits.includes(qtyUOM)
+      ? `${total / 1000} kg`
+      : `${qty} ${qtyUOM}`
+  }
+  if (qtyUOM === 'pack' && innerQty != null) {
+    if (ps > 0 && pu !== 'each') {
+      return `${qty} packs × ${innerQty} × ${ps}${pu}`
+    }
+    return `${qty} packs × ${innerQty} each`
+  }
+  if (ps > 0 && pu !== 'each') {
+    return `${qty} × ${ps}${pu}`
+  }
+  return `${qty} each`
+}
+
+/** Helper: total base units per 1 purchase unit */
+function calcConversionFactorForItem(item: ItemDims): number {
+  const qtyUOM = item.qtyUOM ?? 'each'
+  const qty = Number(item.qtyPerPurchaseUnit)
+  const ps  = Number(item.packSize ?? 0)
+  const pu  = item.packUOM ?? 'each'
+  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
+
+  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
+  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
+  if (weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)) {
+    return qty * getUnitConv(qtyUOM)
+  }
+  if (qtyUOM === 'pack' && innerQty != null) {
+    return qty * innerQty * ps * getUnitConv(pu)
+  }
+  return qty * ps * getUnitConv(pu)
+}
+
 /**
  * Returns the UOM options a user can choose from when counting an item.
- * Order: purchaseUnit first (most common counting unit), then baseUnit, then
- * a compatible weight/volume partner if applicable.
+ * Derived from purchase structure — not a hardcoded list.
  */
 export function getCountableUoms(item: ItemDims): CountableUom[] {
-  const seen = new Set<string>()
-  const result: CountableUom[] = []
+  const uoms: CountableUom[] = []
+  const qtyUOM = item.qtyUOM ?? 'each'
+  const base = deriveBaseUnit(qtyUOM, item.packUOM ?? 'each')
+  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
+  const hasInnerQty = innerQty != null && innerQty > 0
+  const ps = Number(item.packSize ?? 0)
+  const pu = item.packUOM ?? 'each'
+  const hasWeight = base === 'g' || base === 'ml'
+  const hasItemWeight = hasWeight && ps > 0
 
-  const add = (label: string, toBase: number, hint?: string) => {
-    const key = label.toLowerCase()
-    if (seen.has(key)) return
-    seen.add(key)
-    result.push({ label, toBase, hint })
+  // Purchase unit (case / bag / etc.)
+  uoms.push({ label: item.purchaseUnit, toBase: calcConversionFactorForItem(item), hint: buildCaseHint(item) })
+
+  // Pack level (only when qtyUOM = "pack")
+  if (qtyUOM === 'pack' && hasInnerQty) {
+    const packBaseUnits = innerQty! * ps * getUnitConv(pu)
+    const hint = packBaseUnits > 0 ? `${fmtNum(packBaseUnits)} ${base}` : `${innerQty} each`
+    uoms.push({ label: 'pack', toBase: packBaseUnits > 0 ? packBaseUnits : innerQty!, hint })
   }
 
-  // 1. Purchase unit (e.g. "bag", "case") — listed first.
-  //    toBase must account for packUOM → baseUnit conversion (e.g. kg → g).
-  //    hint shows the quantity in the most human-readable unit:
-  //      - standard packUOM (kg, l…): "20 kg"
-  //      - custom packUOM (pkg, each…): "72 each" (collapsed to baseUnit)
-  if (item.purchaseUnit && item.purchaseUnit.toLowerCase() !== item.baseUnit.toLowerCase()) {
-    const packConv = convertQty(Number(item.packSize), item.packUOM, item.baseUnit)
-    const unitsPerPurchase = Number(item.qtyPerPurchaseUnit) * packConv
-    if (unitsPerPurchase > 0) {
-      const rawQty = Number(item.qtyPerPurchaseUnit) * Number(item.packSize)
-      const isStandardPack = getUnitGroup(item.packUOM) !== null
-      const hint = isStandardPack
-        ? `${fmtNum(rawQty)} ${item.packUOM}`
-        : `${fmtNum(unitsPerPurchase)} ${item.baseUnit}`
-      add(item.purchaseUnit, unitsPerPurchase, hint)
-    }
+  // Each (individual item)
+  if (hasItemWeight) {
+    uoms.push({ label: 'each', toBase: ps * getUnitConv(pu), hint: `${ps} ${pu}` })
+  } else if (qtyUOM === 'each' || qtyUOM === 'pack') {
+    uoms.push({ label: 'each', toBase: 1 })
   }
 
-  // 1.5. Intermediate counting unit (e.g. "pkg" in case×pkg×each).
-  //      Uses countUOM — the field explicitly set on the item for how staff count it.
-  //      packUOM defaults to "each" for count items so it can't be used here.
-  //      Also catches custom packUOM values (e.g. "pkg") as a fallback.
-  const intermediateUnit =
-    item.countUOM && item.countUOM.toLowerCase() !== item.baseUnit.toLowerCase()
-      ? item.countUOM
-      : item.packUOM && item.packUOM.toLowerCase() !== item.baseUnit.toLowerCase()
-        ? item.packUOM
-        : null
-  if (
-    intermediateUnit &&
-    intermediateUnit.toLowerCase() !== item.purchaseUnit.toLowerCase() &&
-    getUnitGroup(intermediateUnit) === null
-  ) {
-    const unitsPerPack = Number(item.packSize)
-    if (unitsPerPack > 0) {
-      add(intermediateUnit, unitsPerPack, `${fmtNum(unitsPerPack)} ${item.baseUnit}`)
-    }
+  // Weight/volume options
+  if (base === 'g') {
+    uoms.push(
+      { label: 'kg', toBase: 1000, hint: '1,000 g' },
+      { label: 'g',  toBase: 1 },
+      { label: 'lb', toBase: 453.592, hint: '454 g' },
+    )
+  }
+  if (base === 'ml') {
+    uoms.push(
+      { label: 'l',  toBase: 1000, hint: '1,000 ml' },
+      { label: 'ml', toBase: 1 },
+    )
   }
 
-  // 2. Base unit — always available (1:1 with stockOnHand). No hint needed.
-  add(item.baseUnit, 1)
-
-  // 3. All practical units from the same weight/volume group.
-  //    No hint: kg, lb, g, oz are self-explanatory to the user.
-  const PRACTICAL_WEIGHT = ['kg', 'lb', 'g', 'oz']
-  const PRACTICAL_VOLUME = ['l', 'ml', 'fl oz', 'cup', 'qt']
-
-  for (const group of UOM_GROUPS) {
-    const baseDef = group.units.find(u => u.label.toLowerCase() === item.baseUnit.toLowerCase())
-    if (!baseDef) continue
-
-    const practical =
-      group.label === 'Weight' ? PRACTICAL_WEIGHT :
-      group.label === 'Volume' ? PRACTICAL_VOLUME :
-      [] // Count items: no extra unit conversions beyond purchaseUnit
-
-    for (const unitLabel of practical) {
-      const unitDef = group.units.find(u => u.label === unitLabel)
-      if (!unitDef) continue
-      add(unitDef.label, unitDef.toBase / baseDef.toBase)
-    }
-    break
-  }
-
-  return result
+  return uoms
 }
 
 /**
@@ -126,32 +143,44 @@ export function convertCountQtyToBase(
 ): number {
   const sel = selectedUom.toLowerCase()
   const base = item.baseUnit.toLowerCase()
-
   if (sel === base) return qty
 
-  // Purchase unit — apply packUOM→baseUnit conversion factor
+  const qtyUOM = (item.qtyUOM ?? 'each').toLowerCase()
+  const ps = Number(item.packSize ?? 0)
+  const pu = item.packUOM ?? 'each'
+  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
+
+  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
+  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
+  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+
+  const itemBaseUnits = ps * getUnitConv(pu)
+  const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
+
+  // Purchase unit
   if (sel === item.purchaseUnit.toLowerCase()) {
-    const packConv = convertQty(Number(item.packSize), item.packUOM, item.baseUnit)
-    const unitsPerPurchase = Number(item.qtyPerPurchaseUnit) * packConv
-    if (unitsPerPurchase > 0) return qty * unitsPerPurchase
+    const qtyNum = Number(item.qtyPerPurchaseUnit)
+    if (isWeightQty) return qty * qtyNum * getUnitConv(qtyUOM)
+    if (qtyUOM === 'pack' && innerQty != null) return qty * qtyNum * packBaseUnits
+    return qty * qtyNum * (itemBaseUnits > 0 ? itemBaseUnits : 1)
   }
 
-  // Intermediate counting unit (countUOM takes priority; custom packUOM as fallback)
-  const inter =
-    item.countUOM && item.countUOM.toLowerCase() !== item.baseUnit.toLowerCase() ? item.countUOM :
-    item.packUOM  && item.packUOM.toLowerCase()  !== item.baseUnit.toLowerCase() ? item.packUOM  : null
-  if (inter && sel === inter.toLowerCase() && sel !== item.purchaseUnit.toLowerCase() && getUnitGroup(inter) === null) {
-    const unitsPerPack = Number(item.packSize)
-    if (unitsPerPack > 0) return qty * unitsPerPack
+  // Pack level
+  if (sel === 'pack' && qtyUOM === 'pack' && innerQty != null) {
+    return qty * packBaseUnits
   }
 
-  // Standard weight/volume conversion
+  // Each
+  if (sel === 'each') {
+    return itemBaseUnits > 0 ? qty * itemBaseUnits : qty
+  }
+
+  // Standard weight/volume conversion (kg, g, lb, ml, l, etc.)
   return convertQty(qty, selectedUom, item.baseUnit)
 }
 
 /**
- * Convert a baseUnit quantity to the selectedUom — used for displaying the
- * expected quantity in whatever unit the user has chosen.
+ * Convert a baseUnit quantity to the selectedUom — for displaying expected quantities.
  */
 export function convertBaseToCountUom(
   baseQty: number,
@@ -160,22 +189,45 @@ export function convertBaseToCountUom(
 ): number {
   const sel = selectedUom.toLowerCase()
   const base = item.baseUnit.toLowerCase()
-
   if (sel === base) return baseQty
 
+  const qtyUOM = (item.qtyUOM ?? 'each').toLowerCase()
+  const ps = Number(item.packSize ?? 0)
+  const pu = item.packUOM ?? 'each'
+  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
+
+  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
+  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
+  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+
+  const itemBaseUnits = ps * getUnitConv(pu)
+  const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
+
+  // Purchase unit
   if (sel === item.purchaseUnit.toLowerCase()) {
-    const packConv = convertQty(Number(item.packSize), item.packUOM, item.baseUnit)
-    const unitsPerPurchase = Number(item.qtyPerPurchaseUnit) * packConv
-    if (unitsPerPurchase > 0) return baseQty / unitsPerPurchase
+    const qtyNum = Number(item.qtyPerPurchaseUnit)
+    if (isWeightQty) {
+      const purchaseBaseUnits = qtyNum * getUnitConv(qtyUOM)
+      return purchaseBaseUnits > 0 ? baseQty / purchaseBaseUnits : 0
+    }
+    if (qtyUOM === 'pack' && innerQty != null) {
+      const purchaseBaseUnits = qtyNum * packBaseUnits
+      return purchaseBaseUnits > 0 ? baseQty / purchaseBaseUnits : 0
+    }
+    const purchaseBaseUnits = qtyNum * (itemBaseUnits > 0 ? itemBaseUnits : 1)
+    return purchaseBaseUnits > 0 ? baseQty / purchaseBaseUnits : 0
   }
 
-  const inter2 =
-    item.countUOM && item.countUOM.toLowerCase() !== item.baseUnit.toLowerCase() ? item.countUOM :
-    item.packUOM  && item.packUOM.toLowerCase()  !== item.baseUnit.toLowerCase() ? item.packUOM  : null
-  if (inter2 && sel === inter2.toLowerCase() && sel !== item.purchaseUnit.toLowerCase() && getUnitGroup(inter2) === null) {
-    const unitsPerPack = Number(item.packSize)
-    if (unitsPerPack > 0) return baseQty / unitsPerPack
+  // Pack level
+  if (sel === 'pack' && qtyUOM === 'pack' && innerQty != null) {
+    return packBaseUnits > 0 ? baseQty / packBaseUnits : 0
   }
 
+  // Each
+  if (sel === 'each') {
+    return itemBaseUnits > 0 ? baseQty / itemBaseUnits : baseQty
+  }
+
+  // Standard weight/volume
   return convertQty(baseQty, item.baseUnit, selectedUom)
 }
