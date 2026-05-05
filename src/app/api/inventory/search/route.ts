@@ -18,9 +18,32 @@ function fuzzyScore(query: string, target: string): number {
 }
 
 // GET /api/inventory/search?q=flour&limit=10
+// GET /api/inventory/search?barcode=123456&limit=10
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get('q')?.trim() ?? ''
-  const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') ?? '10'), 50)
+  const q       = req.nextUrl.searchParams.get('q')?.trim() ?? ''
+  const barcode = req.nextUrl.searchParams.get('barcode')?.trim() ?? ''
+  const limit   = Math.min(parseInt(req.nextUrl.searchParams.get('limit') ?? '10'), 50)
+
+  // Barcode exact match — used by count-page scanner
+  if (barcode) {
+    const item = await prisma.inventoryItem.findFirst({
+      where: { barcode, isActive: true },
+      select: {
+        id: true,
+        itemName: true,
+        purchaseUnit: true,
+        purchasePrice: true,
+        pricePerBaseUnit: true,
+        baseUnit: true,
+        category: true,
+        qtyPerPurchaseUnit: true,
+        packSize: true,
+        packUOM: true,
+        barcode: true,
+      },
+    })
+    return NextResponse.json(item ? [item] : [])
+  }
 
   const words = q.split(/\s+/).filter(w => w.length > 1)
 
@@ -29,8 +52,7 @@ export async function GET(req: NextRequest) {
       isActive: true,
       OR: q
         ? [
-            { itemName:     { contains: q, mode: 'insensitive' as const } },
-            // Match any individual word too
+            { itemName: { contains: q, mode: 'insensitive' as const } },
             ...words.map(word => ({ itemName: { contains: word, mode: 'insensitive' as const } })),
           ]
         : undefined,
@@ -48,7 +70,7 @@ export async function GET(req: NextRequest) {
       packUOM: true,
     },
     orderBy: { itemName: 'asc' },
-    take: Math.min(limit * 5, 100), // fetch extra for re-ranking
+    take: Math.min(limit * 5, 100),
   })
 
   if (!q) return NextResponse.json(items.slice(0, limit))
