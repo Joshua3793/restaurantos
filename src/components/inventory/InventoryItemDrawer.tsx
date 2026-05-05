@@ -560,7 +560,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                       <div className={`text-xs ${isPrep ? 'text-purple-500' : 'text-blue-500'}`}>
                         {isPrep
                           ? `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
-                          : `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                          : ['kg','g','lb','oz','l','ml'].includes(qu)
+                            ? `$${pp.toFixed(2)} ÷ (${qty} ${qu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                            : qu === 'pack' && iq != null
+                            ? `$${pp.toFixed(2)} ÷ (${qty} × ${iq} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                            : `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
                         }
                       </div>
                     </div>

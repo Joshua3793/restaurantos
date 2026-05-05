@@ -315,6 +315,8 @@ function InventoryPageInner() {
     baseUnit: i.baseUnit,
     purchaseUnit: i.purchaseUnit,
     qtyPerPurchaseUnit: Number(i.qtyPerPurchaseUnit),
+    qtyUOM: i.qtyUOM ?? 'each',
+    innerQty: i.innerQty != null ? Number(i.innerQty) : null,
     packSize: Number(i.packSize ?? 1),
     packUOM: i.packUOM ?? 'each',
     countUOM: i.countUOM || i.baseUnit,
@@ -1713,7 +1715,11 @@ function InventoryPageInner() {
                       <div className={`text-xs ${isPrep ? 'text-purple-500' : 'text-blue-500'}`}>
                         {isPrep
                           ? `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
-                          : `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                          : ['kg','g','lb','oz','l','ml'].includes(qu)
+                            ? `$${pp.toFixed(2)} ÷ (${qty} ${qu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                            : qu === 'pack' && iq != null
+                            ? `$${pp.toFixed(2)} ÷ (${qty} × ${iq} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                            : `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
                         }
                       </div>
                     </div>
