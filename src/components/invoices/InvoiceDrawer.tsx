@@ -1548,6 +1548,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null)
   const [isApproving, setIsApproving] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
   const [approvedBy, setApprovedBy] = useState(() =>
     typeof window !== 'undefined' ? localStorage.getItem('approvedBy') ?? '' : ''
   )
@@ -1843,8 +1844,6 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   )
 
   // ── renderError ─────────────────────────────────────────────────────────────
-
-  const [isRetrying, setIsRetrying] = useState(false)
 
   const handleRetry = async () => {
     if (!session) return
