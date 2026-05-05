@@ -21,6 +21,8 @@ export async function PATCH(
     baseUnit:           item.baseUnit,
     purchaseUnit:       item.purchaseUnit,
     qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+    qtyUOM:             item.qtyUOM ?? 'each',
+    innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
     packSize:           Number(item.packSize),
     packUOM:            item.packUOM,
     countUOM:           item.countUOM,
