@@ -1098,7 +1098,7 @@ function InventoryPageInner() {
           if (item.reorderQty != null) return String(item.reorderQty)
           if (item.parLevel != null && item.parLevel > displayStock(item)) {
             const needed = item.parLevel - displayStock(item)
-            return String(Math.ceil(needed / Number(item.qtyPerPurchaseUnit)))
+            return String(Math.ceil(needed / (Number(item.qtyPerPurchaseUnit) || 1)))
           }
           return ''
         }
@@ -1181,9 +1181,13 @@ function InventoryPageInner() {
                                     {isOut ? 'Out' : 'Low'}
                                   </span>
                                 </div>
-                                {item.parLevel != null && (
+                                {item.parLevel != null ? (
                                   <div className="text-xs text-gray-400">
                                     Par {item.parLevel} {item.countUOM} · Have {displayStock(item).toFixed(1)}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-gray-400">
+                                    {formatCurrency(parseFloat(String(item.purchasePrice)))} / {item.purchaseUnit}
                                   </div>
                                 )}
                               </div>
