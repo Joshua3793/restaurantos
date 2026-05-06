@@ -42,6 +42,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     where: { id: params.id },
     select: { allergens: true, priceType: true },
   })
+  if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const pp  = parseFloat(purchasePrice)  || 0
   const qty = parseFloat(qtyPerPurchaseUnit) || 1
