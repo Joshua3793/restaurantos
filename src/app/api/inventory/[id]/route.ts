@@ -37,10 +37,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'innerQty must be > 0' }, { status: 400 })
   }
 
-  // Capture previous allergens before update to detect changes
+  // Capture previous allergens and priceType before update to detect changes
   const before = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
-    select: { allergens: true },
+    select: { allergens: true, priceType: true },
   })
 
   const pp  = parseFloat(purchasePrice)  || 0
@@ -50,7 +50,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const cu  = countUOM ?? 'each'
   const qu  = qtyUOM ?? 'each'
   const iq  = innerQty != null ? Number(innerQty) : null
-  const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
+  const existingPriceType = (before?.priceType === 'UOM' ? 'UOM' : 'CASE') as 'CASE' | 'UOM'
+  const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : priceType === 'CASE' ? 'CASE' : existingPriceType
 
   // Save using standard purchase formula first
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
