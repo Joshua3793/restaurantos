@@ -63,6 +63,7 @@ interface EditForm {
   isActive: boolean
   allergens: string[]
   barcode: string | null
+  priceType: 'CASE' | 'UOM'
 }
 
 interface Props {
@@ -187,6 +188,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
     packSize: '', packUOM: 'each', countUOM: 'each',
     qtyUOM: 'each', innerQty: '',
     stockOnHand: '0', isActive: true, allergens: [], barcode: null,
+    priceType: 'CASE',
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
@@ -238,6 +240,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       isActive: item.isActive,
       allergens: item.allergens ?? [],
       barcode: item.barcode ?? null,
+      priceType: (item as any).priceType ?? 'CASE',
     })
     setEditMode(true)
   }
@@ -274,6 +277,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
         isActive: editForm.isActive,
         allergens: editForm.allergens,
         barcode: editForm.barcode,
+        priceType: editForm.priceType,
       }),
     })
     if (!res.ok) {
@@ -427,55 +431,98 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                 {/* Purchase structure */}
                 {!item.recipe && (
                   <div className="space-y-3">
-                    {/* Row 1: Purchase Unit + Qty/Unit pair */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                        <select value={editForm.purchaseUnit} onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                          {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Qty per {editForm.purchaseUnit}</label>
-                        <div className="flex">
-                          <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
-                            onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                            className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                          <select value={editForm.qtyUOM} onChange={e => setEditForm(f => {
-                              const newQtyUOM = e.target.value
-                              const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 1, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
-                              return { ...f, qtyUOM: newQtyUOM, innerQty: newQtyUOM === 'pack' ? f.innerQty : '', countUOM: opts.includes(f.countUOM) ? f.countUOM : opts[0] }
-                            })}
-                            className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
-                            {QTY_UOMS.map(u => <option key={u}>{u}</option>)}
-                          </select>
-                        </div>
-                      </div>
+                    {/* Per Case / Per UOM toggle */}
+                    <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                      {(['CASE', 'UOM'] as const).map(pt => (
+                        <button
+                          key={pt}
+                          type="button"
+                          onClick={() => setEditForm(f => ({ ...f, priceType: pt }))}
+                          className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                            editForm.priceType === pt
+                              ? 'bg-white text-gray-900 shadow-sm'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          {pt === 'CASE' ? 'Per Case' : 'Per UOM'}
+                        </button>
+                      ))}
                     </div>
 
-                    {/* Conditional: pack breakdown when qtyUOM = pack */}
-                    {editForm.qtyUOM === 'pack' && (
-                      <div className="ml-3 pl-3 border-l-2 border-amber-300 space-y-2">
+                    {editForm.priceType === 'CASE' && (
+                      <>
+                        {/* Row 1: Purchase Unit + Qty/Unit pair */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Items per Pack</label>
-                            <div className="flex">
-                              <input type="number" step="any" min="1" value={editForm.innerQty}
-                                onChange={e => setEditForm(f => ({ ...f, innerQty: e.target.value }))}
-                                className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                              <span className="border border-gray-200 rounded-r-lg px-3 py-2 text-sm text-gray-500 bg-gray-50">each</span>
-                            </div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
+                            <select value={editForm.purchaseUnit} onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
+                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                              {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
+                            </select>
                           </div>
                           <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Qty per {editForm.purchaseUnit}</label>
+                            <div className="flex">
+                              <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
+                                onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
+                                className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                              <select value={editForm.qtyUOM} onChange={e => setEditForm(f => {
+                                  const newQtyUOM = e.target.value
+                                  const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 1, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
+                                  return { ...f, qtyUOM: newQtyUOM, innerQty: newQtyUOM === 'pack' ? f.innerQty : '', countUOM: opts.includes(f.countUOM) ? f.countUOM : opts[0] }
+                                })}
+                                className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
+                                {QTY_UOMS.map(u => <option key={u}>{u}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Conditional: pack breakdown when qtyUOM = pack */}
+                        {editForm.qtyUOM === 'pack' && (
+                          <div className="ml-3 pl-3 border-l-2 border-amber-300 space-y-2">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Items per Pack</label>
+                                <div className="flex">
+                                  <input type="number" step="any" min="1" value={editForm.innerQty}
+                                    onChange={e => setEditForm(f => ({ ...f, innerQty: e.target.value }))}
+                                    className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                                  <span className="border border-gray-200 rounded-r-lg px-3 py-2 text-sm text-gray-500 bg-gray-50">each</span>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  Weight per Item
+                                  <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
+                                </label>
+                                <div className="flex">
+                                  <input type="number" step="any" min="0" value={editForm.packSize}
+                                    onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
+                                    placeholder="e.g. 100"
+                                    className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                                  <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
+                                    className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
+                                    {(['g', 'kg', 'ml', 'l', 'lb', 'oz']).map(u => <option key={u}>{u}</option>)}
+                                  </select>
+                                </div>
+                                <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Conditional: weight per item when qtyUOM = each */}
+                        {editForm.qtyUOM === 'each' && (
+                          <div className="ml-3 pl-3 border-l-2 border-amber-300">
                             <label className="block text-xs font-medium text-gray-600 mb-1">
-                              Weight per Item
+                              Weight per Each
                               <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                             </label>
                             <div className="flex">
-                              <input type="number" step="any" min="0" value={editForm.packSize}
-                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
-                                placeholder="e.g. 100"
+                              <input type="number" step="any" min="0" value={editForm.packSize === '1' ? '' : editForm.packSize}
+                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value || '1' }))}
+                                placeholder="e.g. 290"
                                 className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
                                 className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
@@ -484,49 +531,41 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                             </div>
                             <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
                           </div>
-                        </div>
-                      </div>
+                        )}
+
+                        {/* Generated description label */}
+                        {(() => {
+                          const desc = buildPurchaseDescription(
+                            editForm.purchaseUnit,
+                            parseFloat(editForm.qtyPerPurchaseUnit) || 0,
+                            editForm.qtyUOM,
+                            editForm.innerQty ? parseFloat(editForm.innerQty) : null,
+                            parseFloat(editForm.packSize) || 1,
+                            editForm.packUOM,
+                          )
+                          return (
+                            <p className="text-xs text-gray-400 italic">= {desc}</p>
+                          )
+                        })()}
+                      </>
                     )}
 
-                    {/* Conditional: weight per item when qtyUOM = each */}
-                    {editForm.qtyUOM === 'each' && (
-                      <div className="ml-3 pl-3 border-l-2 border-amber-300">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Weight per Each
-                          <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
-                        </label>
-                        <div className="flex">
-                          <input type="number" step="any" min="0" value={editForm.packSize === '1' ? '' : editForm.packSize}
-                            onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value || '1' }))}
-                            placeholder="e.g. 290"
-                            className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                          <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                            className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
-                            {(['g', 'kg', 'ml', 'l', 'lb', 'oz']).map(u => <option key={u}>{u}</option>)}
-                          </select>
-                        </div>
-                        <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
+                    {editForm.priceType === 'UOM' && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Price Unit</label>
+                        <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                          {(['kg', 'g', 'lb', 'oz', 'l', 'ml']).map(u => <option key={u}>{u}</option>)}
+                        </select>
+                        <p className="text-[10px] text-blue-600 bg-blue-50 rounded px-2 py-1 mt-1">Price is entered as cost per {editForm.packUOM} — ideal for produce and bulk items.</p>
                       </div>
                     )}
-
-                    {/* Generated description label */}
-                    {(() => {
-                      const desc = buildPurchaseDescription(
-                        editForm.purchaseUnit,
-                        parseFloat(editForm.qtyPerPurchaseUnit) || 0,
-                        editForm.qtyUOM,
-                        editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-                        parseFloat(editForm.packSize) || 1,
-                        editForm.packUOM,
-                      )
-                      return (
-                        <p className="text-xs text-gray-400 italic">= {desc}</p>
-                      )
-                    })()}
 
                     {/* Purchase Price */}
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        {editForm.priceType === 'UOM' ? `Price / ${editForm.packUOM} ($)` : 'Purchase Price ($)'}
+                      </label>
                       <input type="number" step="any" value={editForm.purchasePrice}
                         onChange={e => setEditForm(f => ({ ...f, purchasePrice: e.target.value }))}
                         className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
@@ -606,7 +645,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                   const bu  = isPrep ? (item.baseUnit ?? deriveBaseUnit(qu, pu)) : deriveBaseUnit(qu, pu)
                   const ppbu = isPrep
                     ? parseFloat(String(item.pricePerBaseUnit ?? 0))
-                    : calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu)
+                    : calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, editForm.priceType === 'UOM' ? 'UOM' : 'CASE')
                   const cf = isPrep
                     ? parseFloat(String(item.conversionFactor ?? 1))
                     : calcConversionFactor(cu, qty, qu, iq, ps, pu)
