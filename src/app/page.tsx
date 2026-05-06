@@ -57,7 +57,7 @@ export default function Dashboard() {
   useEffect(() => {
     const p = new URLSearchParams()
     if (activeRcId) { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
-    fetch(`/api/reports/dashboard?${p}`).then(r => r.json()).then(setData)
+    fetch(`/api/reports/dashboard?${p}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setData(d) })
     fetch('/api/recipes?type=MENU&isActive=true').then(r => r.json()).then((recipes: Array<{ id: string; name: string; menuPrice: number | null; totalCost: number; foodCostPct: number | null }>) => {
       if (!Array.isArray(recipes)) return
       const high = recipes
