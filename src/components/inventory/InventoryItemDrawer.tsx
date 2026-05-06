@@ -5,7 +5,7 @@ import {
   formatCurrency, formatUnitPrice,
   PACK_UOMS, COUNT_UOMS, PURCHASE_UNITS, QTY_UOMS,
   calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit,
-  getUnitDimension, compatibleCountUnits,
+  getUnitDimension, compatibleCountUnits, getUnitConv,
 } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -48,6 +48,7 @@ interface InventoryItem {
   needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
+  priceType?: 'CASE' | 'UOM' | null
 }
 
 interface EditForm {
@@ -240,7 +241,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
       isActive: item.isActive,
       allergens: item.allergens ?? [],
       barcode: item.barcode ?? null,
-      priceType: (item as any).priceType ?? 'CASE',
+      priceType: item.priceType ?? 'CASE',
     })
     setEditMode(true)
   }
@@ -257,13 +258,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
         supplierId: editForm.supplierId || null,
         storageAreaId: editForm.storageAreaId || null,
         purchaseUnit: editForm.purchaseUnit,
-        qtyPerPurchaseUnit: editForm.qtyPerPurchaseUnit,
+        qtyPerPurchaseUnit: editForm.priceType === 'UOM' ? '1' : editForm.qtyPerPurchaseUnit,
         purchasePrice: editForm.purchasePrice,
-        packSize: editForm.packSize,
+        packSize: editForm.priceType === 'UOM' ? '1' : editForm.packSize,
         packUOM: editForm.packUOM,
         countUOM: editForm.countUOM,
-        qtyUOM: editForm.qtyUOM,
-        innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
+        qtyUOM: editForm.priceType === 'UOM' ? 'each' : editForm.qtyUOM,
+        innerQty: editForm.priceType === 'UOM' ? null : (editForm.innerQty ? parseFloat(editForm.innerQty) : null),
         stockOnHand: convertCountQtyToBase(parseFloat(editForm.stockOnHand) || 0, editForm.countUOM, {
           baseUnit: item.baseUnit,
           purchaseUnit: editForm.purchaseUnit,
@@ -437,7 +438,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                         <button
                           key={pt}
                           type="button"
-                          onClick={() => setEditForm(f => ({ ...f, priceType: pt }))}
+                          onClick={() => setEditForm(f => ({
+                            ...f,
+                            priceType: pt,
+                            ...(pt === 'UOM' && !['kg','g','lb','oz','l','ml'].includes(f.packUOM) ? { packUOM: 'kg' } : {}),
+                          }))}
                           className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                             editForm.priceType === pt
                               ? 'bg-white text-gray-900 shadow-sm'
@@ -663,14 +668,17 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                         <span className={`font-semibold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>{cf.toFixed(4)} {bu}</span>
                       </div>
                       <div className={`text-xs ${isPrep ? 'text-purple-500' : 'text-blue-500'}`}>
-                        {isPrep
-                          ? `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
-                          : ['kg','g','lb','oz','l','ml'].includes(qu)
-                            ? `$${pp.toFixed(2)} ÷ (${qty} ${qu}) = ${formatUnitPrice(ppbu)}/${bu}`
-                            : qu === 'pack' && iq != null
-                            ? `$${pp.toFixed(2)} ÷ (${qty} × ${iq} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
-                            : `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
-                        }
+                        {(() => {
+                          if (isPrep) return `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
+                          if (editForm.priceType === 'UOM') {
+                            const conv = getUnitConv(pu)
+                            const base = conv > 0 ? pp / conv : 0
+                            return `$${pp.toFixed(2)} ÷ conv(${pu}) = $${base.toFixed(4)}/base unit`
+                          }
+                          if (['kg','g','lb','oz','l','ml'].includes(qu)) return `$${pp.toFixed(2)} ÷ (${qty} ${qu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                          if (qu === 'pack' && iq != null) return `$${pp.toFixed(2)} ÷ (${qty} × ${iq} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                          return `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
+                        })()}
                       </div>
                     </div>
                   )
