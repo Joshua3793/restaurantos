@@ -20,6 +20,9 @@ export interface InventoryMatch {
   packSize: string
   packUOM: string
   baseUnit: string
+  priceType: string
+  qtyUOM: string
+  innerQty: string | null
 }
 
 export interface ScanItem {

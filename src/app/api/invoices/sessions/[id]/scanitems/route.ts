@@ -40,6 +40,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           id: true, itemName: true, purchaseUnit: true,
           pricePerBaseUnit: true, purchasePrice: true,
           qtyPerPurchaseUnit: true, packSize: true, packUOM: true, baseUnit: true,
+          priceType: true, qtyUOM: true, innerQty: true,
         },
       },
     },
