@@ -14,7 +14,7 @@ const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rawPriceType: string | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
 ): Promise<void> {
   try {
     const itemsToProcess = session.scanItems.filter(
@@ -41,23 +41,42 @@ async function doApprove(
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
 
-        // When totalQty is present (actual delivered weight), use it for the per-base calculation
-        // instead of nominal qty × packSize which may not match actual weight.
+        const rawPriceType = scanItem.rawPriceType ?? 'CASE'
+
         let newPricePerBase: number
-        if (scanItem.totalQty !== null && scanItem.totalQty !== undefined && Number(scanItem.totalQty) > 0) {
-          const tqUOM = scanItem.totalQtyUOM ?? packUOM
-          const conv  = getUnitConv(tqUOM)
-          newPricePerBase = conv > 0 ? newPurchasePrice / (Number(scanItem.totalQty) * conv) : 0
-        } else {
+        if (rawPriceType === 'UOM') {
+          // purchasePrice is a rate (e.g. $9.90/kg)
+          const uomConv = getUnitConv(packUOM)
+          newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
+        } else if (rawPriceType === 'PKG') {
+          // price is per individual pack — convert to per-case equivalent
+          const perCasePrice = newPurchasePrice * (packSize > 0 ? packSize : 1)
           const iqNum = item.innerQty != null ? Number(item.innerQty) : null
           newPricePerBase = calcPricePerBaseUnit(
-            newPurchasePrice,
+            perCasePrice,
             packQty,
             useInvoicePack ? 'each' : (item.qtyUOM ?? 'each'),
             useInvoicePack ? null : iqNum,
             packSize,
             packUOM,
           )
+        } else {
+          // CASE (default): existing totalQty / calcPricePerBaseUnit logic
+          if (scanItem.totalQty !== null && scanItem.totalQty !== undefined && Number(scanItem.totalQty) > 0) {
+            const tqUOM = scanItem.totalQtyUOM ?? packUOM
+            const conv  = getUnitConv(tqUOM)
+            newPricePerBase = conv > 0 ? newPurchasePrice / (Number(scanItem.totalQty) * conv) : 0
+          } else {
+            const iqNum = item.innerQty != null ? Number(item.innerQty) : null
+            newPricePerBase = calcPricePerBaseUnit(
+              newPurchasePrice,
+              packQty,
+              useInvoicePack ? 'each' : (item.qtyUOM ?? 'each'),
+              useInvoicePack ? null : iqNum,
+              packSize,
+              packUOM,
+            )
+          }
         }
 
         // Wrap all writes for this item in a transaction so a mid-item failure
@@ -72,6 +91,7 @@ async function doApprove(
             data: {
               purchasePrice:    newPurchasePrice,
               pricePerBaseUnit: newPricePerBase,
+              priceType:        rawPriceType === 'UOM' ? 'UOM' : 'CASE',
               lastUpdated:      new Date(),
               ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
             },
@@ -132,8 +152,9 @@ async function doApprove(
         const newPackQty  = Number(newData.qtyPerPurchaseUnit) || 1
         const newPackSize = Number(newData.packSize) || 1
         const newPackUOM  = newData.packUOM || 'each'
+        const newPriceType: 'CASE' | 'UOM' = newData.priceType === 'UOM' ? 'UOM' : 'CASE'
         const newPricePerBase = Number(newData.pricePerBaseUnit) ||
-          calcPricePerBaseUnit(newPurchasePrice, newPackQty, 'each', null, newPackSize, newPackUOM)
+          calcPricePerBaseUnit(newPurchasePrice, newPackQty, 'each', null, newPackSize, newPackUOM, newPriceType)
         const created = await prisma.inventoryItem.create({
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
@@ -146,6 +167,7 @@ async function doApprove(
             packUOM:            newPackUOM,
             conversionFactor:   Number(newData.conversionFactor) || 1,
             pricePerBaseUnit:   newPricePerBase,
+            priceType:          newPriceType,
             supplierId:         session.supplierId || null,
           },
         })
