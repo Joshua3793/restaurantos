@@ -22,7 +22,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json()
   const {
     purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM,
-    qtyUOM, innerQty, needsReview,
+    qtyUOM, innerQty, needsReview, priceType,
     supplierId, storageAreaId,
     // strip relation objects — never written directly
     supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
@@ -50,9 +50,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const cu  = countUOM ?? 'each'
   const qu  = qtyUOM ?? 'each'
   const iq  = innerQty != null ? Number(innerQty) : null
+  const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
 
   // Save using standard purchase formula first
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu)
+  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu)
 
@@ -67,6 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       countUOM: cu,
       qtyUOM: qu,
       innerQty: iq,
+      priceType: pt,
       needsReview: false,
       conversionFactor,
       pricePerBaseUnit,
