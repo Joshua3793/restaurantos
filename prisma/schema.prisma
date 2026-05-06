@@ -258,6 +258,8 @@ model SalesEntry {
   foodSalesPct    Decimal        @default(0.7)
   covers          Int?
   notes           String?
+  periodType      String         @default("day")
+  endDate         DateTime?
   createdAt       DateTime       @default(now())
   revenueCenterId String?
   lineItems       SaleLineItem[]
