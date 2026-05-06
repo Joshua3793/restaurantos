@@ -963,8 +963,8 @@ function ItemDetailPanel({
   const pp   = parseFloat(form.purchasePrice) || 0
   const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
   const ps   = parseFloat(form.packSize) || 1
-  const pt   = form.priceType === 'UOM' ? 'UOM' : 'CASE' as const
-  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM, pt)
+  const priceTypePt = form.priceType === 'UOM' ? 'UOM' : 'CASE' as const
+  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM, priceTypePt)
   const cf   = calcConversionFactor(form.countUOM, qty, 'each', null, ps, form.packUOM)
   const bu   = deriveBaseUnit('each', form.packUOM)
 
