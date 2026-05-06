@@ -56,7 +56,12 @@ export function calcPricePerBaseUnit(
   innerQty: number | null,
   packSize: number,
   packUOM: string,
+  priceType: 'CASE' | 'UOM' = 'CASE',
 ): number {
+  if (priceType === 'UOM') {
+    const conv = getUnitConv(packUOM)
+    return conv > 0 ? purchasePrice / conv : 0
+  }
   const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
   const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
   const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
