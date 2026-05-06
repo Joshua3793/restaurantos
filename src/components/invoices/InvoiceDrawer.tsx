@@ -87,6 +87,7 @@ interface InventoryFullItem {
   conversionFactor: number
   stockOnHand: number
   isActive: boolean
+  priceType: string | null
 }
 
 // ── AddItemModal ───────────────────────────────────────────────────────────────
@@ -1316,6 +1317,7 @@ function InventoryEditModal({
     purchasePrice: '',
     abbreviation: '',
     location: '',
+    priceType: 'CASE',
   })
 
   // Load the current inventory item
@@ -1334,6 +1336,7 @@ function InventoryEditModal({
           purchasePrice:      String(data.purchasePrice ?? ''),
           abbreviation:       data.abbreviation ?? '',
           location:           data.location ?? '',
+          priceType:          data.priceType ?? 'CASE',
         })
         setLoading(false)
       })
@@ -1347,7 +1350,7 @@ function InventoryEditModal({
   const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
   const ps   = parseFloat(form.packSize) || 1
   const bu   = deriveBaseUnit('each', form.packUOM)
-  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM)
+  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM, (form.priceType ?? 'CASE') as 'CASE' | 'UOM')
 
   const handleSave = async () => {
     setSaving(true)
@@ -1369,6 +1372,7 @@ function InventoryEditModal({
           location:           form.location || null,
           pricePerBaseUnit:   ppbu,
           baseUnit:           bu,
+          priceType:          form.priceType,
           conversionFactor:   calcConversionFactor(form.countUOM, qty, 'each', null, ps, form.packUOM),
         }),
       })

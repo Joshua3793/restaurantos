@@ -119,6 +119,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
               innerQty: true,
               packSize: true,
               packUOM: true,
+              priceType: true,
             },
           },
         },
@@ -143,6 +144,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
         scanItem.matchedItem.innerQty != null ? Number(scanItem.matchedItem.innerQty) : null,
         Number(scanItem.matchedItem.packSize),
         scanItem.matchedItem.packUOM ?? 'each',
+        (scanItem.matchedItem.priceType ?? 'CASE') as 'CASE' | 'UOM',
       )
 
       await prisma.inventoryItem.update({

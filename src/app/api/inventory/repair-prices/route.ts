@@ -24,6 +24,7 @@ export async function POST() {
       qtyUOM: true,
       innerQty: true,
       pricePerBaseUnit: true,
+      priceType: true,
     },
   })
 
@@ -39,6 +40,7 @@ export async function POST() {
       item.innerQty != null ? Number(item.innerQty) : null,
       Number(item.packSize),
       item.packUOM,
+      (item.priceType ?? 'CASE') as 'CASE' | 'UOM',
     )
 
     const current = Number(item.pricePerBaseUnit)
