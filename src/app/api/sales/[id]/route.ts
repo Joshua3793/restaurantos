@@ -36,6 +36,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       foodSalesPct: parseFloat(rest.foodSalesPct) || 0.7,
       covers:       rest.covers ? parseInt(rest.covers) : null,
       notes:        rest.notes || null,
+      periodType:   rest.periodType ?? 'day',
+      endDate:      rest.endDate ? new Date(rest.endDate) : null,
       revenueCenterId: revenueCenterId ?? null,
       lineItems: {
         create: (lineItems as { recipeId: string; qtySold: number }[])

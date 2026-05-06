@@ -13,7 +13,9 @@ export interface ImportedItem {
 }
 
 export interface ImportParseResult {
-  date: string          // YYYY-MM-DD, best-guess from file
+  date: string           // YYYY-MM-DD start date
+  endDate: string | null // null for single-day; ISO date for period files
+  periodType: string     // 'day' | 'week' | 'month' | 'custom'
   totalSales: number
   foodSales: number
   items: ImportedItem[]
@@ -70,24 +72,44 @@ function matchRecipe(
   return null
 }
 
-// ─── Extract date from summary sheet ─────────────────────────────────────────
+// ─── Extract dates from summary sheet ────────────────────────────────────────
 
-function extractDate(wb: XLSX.WorkBook, filename: string): string {
-  // Try Summary sheet → row 0, col 0 = "ProductMix_YYYY-MM-DD_YYYY-MM-DD"
+function extractDates(wb: XLSX.WorkBook, filename: string): {
+  startDate: string
+  endDate: string | null
+  periodType: string
+} {
+  // Try Summary sheet → row 0, col 0
   const summarySheet = wb.Sheets['Summary'] ?? wb.Sheets['summary']
+  let title = ''
   if (summarySheet) {
     const rows = XLSX.utils.sheet_to_json<string[]>(summarySheet, { header: 1, defval: '' }) as string[][]
-    const cell = rows[0]?.[0] ?? ''
-    const m = String(cell).match(/(\d{4}-\d{2}-\d{2})/)
-    if (m) return m[1]
+    title = String(rows[0]?.[0] ?? '')
+  }
+  if (!title) title = filename
+
+  // Two-date pattern: ProductMix_2026-04-01_2026-04-30
+  const rangeMatch = title.match(/(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})/)
+  if (rangeMatch) {
+    const startDate = rangeMatch[1]
+    const endDate   = rangeMatch[2]
+    const diffDays  = Math.round(
+      (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000
+    )
+    const periodType =
+      diffDays >= 6  && diffDays <= 7  ? 'week'   :
+      diffDays >= 28 && diffDays <= 31 ? 'month'  :
+      'custom'
+    return { startDate, endDate, periodType }
   }
 
-  // Fallback: try to parse from filename
-  const fm = filename.match(/(\d{4}-\d{2}-\d{2})/)
-  if (fm) return fm[1]
+  // Single-date pattern
+  const singleMatch = title.match(/(\d{4}-\d{2}-\d{2})/)
+  if (singleMatch) return { startDate: singleMatch[1], endDate: null, periodType: 'day' }
 
-  // Last resort: today
-  return new Date().toISOString().slice(0, 10)
+  // Fallback
+  const fallback = new Date().toISOString().slice(0, 10)
+  return { startDate: fallback, endDate: null, periodType: 'day' }
 }
 
 // ─── Parse All levels sheet ───────────────────────────────────────────────────
@@ -179,7 +201,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer())
     const wb = XLSX.read(buffer, { type: 'buffer' })
 
-    const date = extractDate(wb, file.name)
+    const { startDate, endDate, periodType } = extractDates(wb, file.name)
     const { totalSales, foodSales, brunchItems } = parseAllLevels(wb)
 
     // Load all MENU recipes for matching
@@ -200,7 +222,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    const result: ImportParseResult = { date, totalSales, foodSales, items }
+    const result: ImportParseResult = { date: startDate, endDate, periodType, totalSales, foodSales, items }
     return NextResponse.json(result)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to parse file'
