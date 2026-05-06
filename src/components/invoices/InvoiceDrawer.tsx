@@ -957,12 +957,14 @@ function ItemDetailPanel({
     packUOM:            String(existing?.packUOM ?? hints.packUOM),
     purchasePrice:      String(existing?.purchasePrice ?? (item.newPrice !== null ? Number(item.newPrice) : '')),
     countUOM:           String(existing?.countUOM ?? hints.packUOM),
+    priceType:          String(existing?.priceType ?? 'CASE'),
   })
 
   const pp   = parseFloat(form.purchasePrice) || 0
   const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
   const ps   = parseFloat(form.packSize) || 1
-  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM)
+  const pt   = form.priceType === 'UOM' ? 'UOM' : 'CASE' as const
+  const ppbu = calcPricePerBaseUnit(pp, qty, 'each', null, ps, form.packUOM, pt)
   const cf   = calcConversionFactor(form.countUOM, qty, 'each', null, ps, form.packUOM)
   const bu   = deriveBaseUnit('each', form.packUOM)
 
@@ -1023,74 +1025,140 @@ function ItemDetailPanel({
             {/* Purchase structure */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-2">Purchase Structure</label>
-              <p className="text-[11px] text-gray-400 mb-2">
-                Example: Meadow Milk 4/4L → Purchase Unit = <em>case</em>, Qty per case = <em>4</em>, Pack size = <em>4</em>, Pack UOM = <em>L</em>
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Purchase Unit</label>
-                  <input
-                    value={form.purchaseUnit}
-                    onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                    placeholder="case, bag, box…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Qty per case</label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={form.qtyPerPurchaseUnit}
-                    onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Pack Size</label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={form.packSize}
-                    onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))}
-                    placeholder="4, 500, 1…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Pack UOM</label>
-                  <select
-                    value={form.packUOM}
-                    onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+
+              {/* Per Case / Per UOM toggle */}
+              <div className="flex gap-2 p-1 bg-gray-100 rounded-xl mb-3">
+                {(['CASE', 'UOM'] as const).map(pt => (
+                  <button
+                    key={pt}
+                    type="button"
+                    onClick={() => setForm(f => ({
+                      ...f,
+                      priceType: pt,
+                      ...(pt === 'UOM' && !['kg','g','lb','oz','l','ml'].includes(f.packUOM) ? { packUOM: 'kg' } : {}),
+                    }))}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                      form.priceType === pt
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
                   >
-                    {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Purchase Price ($)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={form.purchasePrice}
-                    onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
-                  <select
-                    value={form.countUOM}
-                    onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
-                  >
-                    {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
-                  </select>
-                </div>
+                    {pt === 'CASE' ? 'Per Case' : 'Per UOM'}
+                  </button>
+                ))}
               </div>
+
+              {form.priceType === 'CASE' && (
+                <div className="space-y-3">
+                  <p className="text-[11px] text-gray-400">
+                    Example: Meadow Milk 4/4L → Purchase Unit = <em>case</em>, Qty per case = <em>4</em>, Pack size = <em>4</em>, Pack UOM = <em>L</em>
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Purchase Unit</label>
+                      <input
+                        value={form.purchaseUnit}
+                        onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))}
+                        placeholder="case, bag, box…"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Qty per case</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={form.qtyPerPurchaseUnit}
+                        onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Pack Size</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={form.packSize}
+                        onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))}
+                        placeholder="4, 500, 1…"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Pack UOM</label>
+                      <select
+                        value={form.packUOM}
+                        onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                      >
+                        {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Purchase Price ($)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={form.purchasePrice}
+                        onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
+                      <select
+                        value={form.countUOM}
+                        onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                      >
+                        {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {form.priceType === 'UOM' && (
+                <div className="space-y-3 mt-3">
+                  <p className="text-[11px] text-gray-400">
+                    Priced by rate (e.g. $/kg). Enter the unit the supplier quotes per.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Price Unit</label>
+                      <select
+                        value={form.packUOM}
+                        onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                      >
+                        {(['kg', 'g', 'lb', 'oz', 'l', 'ml']).map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Price / {form.packUOM} ($)</label>
+                      <input
+                        type="number" step="any"
+                        value={form.purchasePrice}
+                        onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
+                      <select
+                        value={form.countUOM}
+                        onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                      >
+                        {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Auto-calculated preview */}
@@ -1134,7 +1202,19 @@ function ItemDetailPanel({
                       <p className="font-medium text-gray-900">{item.matchedItem.purchaseUnit}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Current Price</p>
+                      <p className="text-xs text-gray-400">Price Type</p>
+                      <p className="font-medium text-gray-900">
+                        {item.matchedItem.priceType === 'UOM'
+                          ? `Per ${item.matchedItem.packUOM}`
+                          : 'Per Case'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">
+                        {item.matchedItem.priceType === 'UOM'
+                          ? `Current Price / ${item.matchedItem.packUOM}`
+                          : 'Current Price'}
+                      </p>
                       <p className="font-medium text-gray-900">{formatCurrency(Number(item.matchedItem.purchasePrice))}</p>
                     </div>
                     <div>
@@ -1189,6 +1269,7 @@ function ItemDetailPanel({
                     baseUnit:           bu,
                     pricePerBaseUnit:   ppbu,
                     conversionFactor:   cf,
+                    priceType:          form.priceType,
                   },
                 })
               }}
