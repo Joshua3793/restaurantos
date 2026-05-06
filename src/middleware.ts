@@ -50,8 +50,10 @@ export async function middleware(request: NextRequest) {
 
   // Not authenticated → redirect to login
   if (!user) {
+    console.log('[middleware] no user | path:', pathname, '| url:', process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 50))
     return NextResponse.redirect(new URL('/login', request.url))
   }
+  console.log('[middleware] authenticated | user:', user.id, '| path:', pathname)
 
   // Deactivated users → redirect to login
   // Use !== true (not === false) so a missing isActive key is also treated as
