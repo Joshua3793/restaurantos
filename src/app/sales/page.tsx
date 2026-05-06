@@ -40,11 +40,29 @@ interface Sale {
   revenueCenterId: string | null
   revenueCenter: { id: string; name: string; color: string } | null
   lineItems: SaleLineItem[]
+  periodType: string
+  endDate: string | null
 }
 
 type RangeMode = 'week' | 'month' | 'lastMonth' | 'custom'
 type SortCol = 'date' | 'revenue' | 'covers' | 'items'
 type SortDir = 'asc' | 'desc'
+
+type Granularity = 'day' | 'week' | 'month'
+
+interface PeriodRow {
+  key: string
+  label: string
+  startDate: string
+  endDate: string
+  totalRevenue: number
+  foodSalesPct: number
+  covers: number | null
+  badge: 'weekly-import' | 'monthly-import' | 'complete' | 'partial' | 'not-available'
+  badgeText: string
+  directSale: Sale | null
+  dailySales: Sale[]
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,7 +108,165 @@ function getRange(mode: RangeMode, customStart: string, customEnd: string): [str
   return [customStart || toISO(now), customEnd || toISO(now)]
 }
 
+function isoWeekStart(d: Date): Date {
+  const r = new Date(d)
+  r.setHours(0, 0, 0, 0)
+  const day = r.getDay()
+  r.setDate(r.getDate() - ((day + 6) % 7))
+  return r
+}
+
+function buildWeekRows(sales: Sale[], rangeStart: string, rangeEnd: string): PeriodRow[] {
+  const rows: PeriodRow[] = []
+  let cursor = isoWeekStart(new Date(rangeStart))
+  const rangeEndDate = new Date(rangeEnd + 'T23:59:59')
+
+  while (cursor <= rangeEndDate) {
+    const weekEnd = new Date(cursor)
+    weekEnd.setDate(cursor.getDate() + 6)
+    const weekStartISO = toISO(cursor)
+    const weekEndISO   = toISO(weekEnd)
+
+    const directImport = sales.find(
+      s => s.periodType === 'week' &&
+        toISO(isoWeekStart(new Date(s.date))) === weekStartISO
+    )
+    const dailies = sales.filter(
+      s => s.periodType === 'day' &&
+        s.date.slice(0, 10) >= weekStartISO &&
+        s.date.slice(0, 10) <= weekEndISO
+    )
+
+    let badge: PeriodRow['badge']
+    let badgeText: string
+    let totalRevenue: number
+    let foodSalesPct: number
+    let covers: number | null
+
+    if (directImport) {
+      badge = 'weekly-import'; badgeText = 'Weekly import'
+      totalRevenue = Number(directImport.totalRevenue)
+      foodSalesPct = Number(directImport.foodSalesPct)
+      covers = directImport.covers
+    } else if (dailies.length === 0) {
+      badge = 'not-available'; badgeText = 'Not available'
+      totalRevenue = 0; foodSalesPct = 0.7; covers = null
+    } else {
+      const totalRev       = dailies.reduce((s, d) => s + Number(d.totalRevenue), 0)
+      const totalFoodSales = dailies.reduce((s, d) => s + Number(d.totalRevenue) * Number(d.foodSalesPct), 0)
+      badge     = dailies.length >= 7 ? 'complete' : 'partial'
+      badgeText = `${dailies.length}/7 days`
+      totalRevenue = totalRev
+      foodSalesPct = totalRev > 0 ? totalFoodSales / totalRev : 0.7
+      covers       = dailies.reduce((s, d) => s + (d.covers ?? 0), 0) || null
+    }
+
+    const lStart = cursor.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+    const lEnd   = weekEnd.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+
+    rows.push({
+      key: `w-${weekStartISO}`,
+      label: `${lStart} – ${lEnd}`,
+      startDate: weekStartISO,
+      endDate: weekEndISO,
+      totalRevenue,
+      foodSalesPct,
+      covers,
+      badge,
+      badgeText,
+      directSale: directImport ?? null,
+      dailySales: dailies,
+    })
+
+    cursor = new Date(cursor)
+    cursor.setDate(cursor.getDate() + 7)
+  }
+
+  return rows.reverse()
+}
+
+function buildMonthRows(sales: Sale[], rangeStart: string, rangeEnd: string): PeriodRow[] {
+  const rows: PeriodRow[] = []
+  const rangeStartDate = new Date(rangeStart)
+  const rangeEndDate   = new Date(rangeEnd + 'T23:59:59')
+
+  let cursor = new Date(rangeStartDate.getFullYear(), rangeStartDate.getMonth(), 1)
+  while (cursor <= rangeEndDate) {
+    const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+    const monthStartISO = toISO(cursor)
+    const monthEndISO   = toISO(monthEnd)
+
+    const directImport = sales.find(
+      s => s.periodType === 'month' &&
+        new Date(s.date).getFullYear() === cursor.getFullYear() &&
+        new Date(s.date).getMonth()    === cursor.getMonth()
+    )
+
+    const contributing = sales.filter(
+      s => s.periodType !== 'month' &&
+        s.date.slice(0, 10) >= monthStartISO &&
+        s.date.slice(0, 10) <= monthEndISO
+    )
+    const dailies = contributing.filter(s => s.periodType === 'day')
+
+    let badge: PeriodRow['badge']
+    let badgeText: string
+    let totalRevenue: number
+    let foodSalesPct: number
+    let covers: number | null
+
+    if (directImport) {
+      badge = 'monthly-import'; badgeText = 'Monthly import'
+      totalRevenue = Number(directImport.totalRevenue)
+      foodSalesPct = Number(directImport.foodSalesPct)
+      covers = directImport.covers
+    } else if (contributing.length === 0) {
+      badge = 'not-available'; badgeText = 'Not available'
+      totalRevenue = 0; foodSalesPct = 0.7; covers = null
+    } else {
+      const totalRev       = contributing.reduce((s, e) => s + Number(e.totalRevenue), 0)
+      const totalFoodSales = contributing.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
+      const coveredDays    = new Set(dailies.map(d => d.date.slice(0, 10)))
+      const daysInMonth    = monthEnd.getDate()
+      badge     = coveredDays.size >= daysInMonth ? 'complete' : 'partial'
+      badgeText = `${coveredDays.size}/${daysInMonth} days`
+      totalRevenue = totalRev
+      foodSalesPct = totalRev > 0 ? totalFoodSales / totalRev : 0.7
+      covers       = contributing.reduce((s, e) => s + (e.covers ?? 0), 0) || null
+    }
+
+    rows.push({
+      key: `m-${monthStartISO}`,
+      label: cursor.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' }),
+      startDate: monthStartISO,
+      endDate: monthEndISO,
+      totalRevenue,
+      foodSalesPct,
+      covers,
+      badge,
+      badgeText,
+      directSale: directImport ?? null,
+      dailySales: dailies,
+    })
+
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+  }
+
+  return rows.reverse()
+}
+
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
+
+function PeriodBadge({ badge, text }: { badge: PeriodRow['badge']; text: string }) {
+  const cls = {
+    'weekly-import':  'bg-blue-100 text-blue-700',
+    'monthly-import': 'bg-purple-100 text-purple-700',
+    'complete':       'bg-green-100 text-green-700',
+    'partial':        'bg-amber-100 text-amber-700',
+    'not-available':  'bg-gray-100 text-gray-400',
+  }[badge]
+  return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cls}`}>{text}</span>
+}
 
 function KpiCard({ label, value, sub, accent = 'text-gray-900' }: {
   label: string; value: string; sub?: string; accent?: string
@@ -290,99 +466,6 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  )
-}
-
-// ─── Day Detail Panel ─────────────────────────────────────────────────────────
-
-function DayDetail({ sale, onEdit, onClose }: { sale: Sale; onEdit: () => void; onClose: () => void }) {
-  const foodSales = Number(sale.totalRevenue) * Number(sale.foodSalesPct)
-  const totalSold = sale.lineItems.reduce((s, li) => s + li.qtySold, 0)
-  const revenue = Number(sale.totalRevenue)
-  const avgPerCover = sale.covers && sale.covers > 0 ? revenue / sale.covers : null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
-      <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="text-base font-semibold text-gray-900">{fmtDate(sale.date)}</div>
-              {sale.revenueCenter && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
-                  {sale.revenueCenter.name}
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-gray-400">{fmtDay(sale.date)}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
-              <Pencil size={12} /> Edit
-            </button>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
-          </div>
-        </div>
-
-        <div className="px-5 py-4 overflow-y-auto flex-1 space-y-4">
-          {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-lg font-bold text-gray-900">{formatCurrency(revenue)}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Revenue</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-lg font-bold text-gray-900">{sale.covers ?? '—'}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Covers</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-lg font-bold text-gray-900">{avgPerCover ? formatCurrency(avgPerCover) : '—'}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Avg/Cover</div>
-            </div>
-          </div>
-
-          <div className="flex gap-3 text-xs text-gray-500">
-            <span>Food sales: <span className="font-medium text-gray-700">{formatCurrency(foodSales)}</span></span>
-            <span>({Math.round(Number(sale.foodSalesPct) * 100)}%)</span>
-            <span>·</span>
-            <span>{totalSold} portions sold</span>
-          </div>
-
-          {sale.notes && (
-            <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-sm text-amber-800">{sale.notes}</div>
-          )}
-
-          {/* Line items */}
-          {sale.lineItems.length > 0 ? (
-            <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Items sold</div>
-              <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
-                {sale.lineItems.map(li => {
-                  const lineRevenue = li.recipe.menuPrice ? Number(li.recipe.menuPrice) * li.qtySold : null
-                  return (
-                    <div key={li.id} className="flex items-center gap-3 px-3 py-2.5">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-800 truncate">{li.recipe.name}</div>
-                        {li.recipe.category && (
-                          <div className="text-xs text-gray-400">{li.recipe.category.name}</div>
-                        )}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-sm font-semibold text-gray-800">×{li.qtySold}</div>
-                        {lineRevenue && <div className="text-xs text-gray-400">{formatCurrency(lineRevenue)}</div>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-6 text-sm text-gray-400">No menu items recorded for this day</div>
-          )}
-        </div>
       </div>
     </div>
   )
@@ -722,7 +805,9 @@ export default function SalesPage() {
   const [search,        setSearch]        = useState('')
   const [showAdd,       setShowAdd]       = useState(false)
   const [editSale,      setEditSale]      = useState<Sale | null>(null)
-  const [viewSale,      setViewSale]      = useState<Sale | null>(null)
+  const [selectedSale,  setSelectedSale]  = useState<Sale | null>(null)
+  const [selectedPeriodKey, setSelectedPeriodKey] = useState<string | null>(null)
+  const [granularity,       setGranularity]       = useState<Granularity>('day')
   const [showImport,    setShowImport]    = useState(false)
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
@@ -779,6 +864,13 @@ export default function SalesPage() {
     return Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 15)
   }, [sales])
 
+  // ── Period rows (week/month aggregation) ──
+  const periodRows = useMemo((): PeriodRow[] => {
+    if (granularity === 'week')  return buildWeekRows(sales, startDate, endDate)
+    if (granularity === 'month') return buildMonthRows(sales, startDate, endDate)
+    return []
+  }, [sales, granularity, startDate, endDate])
+
   // ── Sorted + filtered list ──
   const displayed = useMemo(() => {
     let list = [...sales]
@@ -821,7 +913,7 @@ export default function SalesPage() {
   const handleDelete = async (id: string) => {
     await fetch(`/api/sales/${id}`, { method: 'DELETE' })
     setDeleteId(null)
-    if (viewSale?.id === id) setViewSale(null)
+    if (selectedSale?.id === id) setSelectedSale(null)
     fetchSales()
   }
 
@@ -830,8 +922,6 @@ export default function SalesPage() {
     setShowImport(false)
     fetchSales()
   }
-
-  const maxRevenue = Math.max(...displayed.map(s => Number(s.totalRevenue)), 1)
 
   return (
     <div className="space-y-4 pb-6">
@@ -919,102 +1009,317 @@ export default function SalesPage() {
       {/* Sales Log Tab */}
       {activeTab === 'list' && (
         <>
-          <div className="relative max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search days…"
-              className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+          {/* Granularity toggle + search */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+              {(['day', 'week', 'month'] as Granularity[]).map(g => (
+                <button key={g}
+                  onClick={() => { setGranularity(g); setSelectedSale(null); setSelectedPeriodKey(null) }}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors capitalize ${
+                    granularity === g ? 'bg-gold text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}>
+                  {g}
+                </button>
+              ))}
+            </div>
+            {granularity === 'day' && (
+              <div className="relative max-w-xs">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search days…"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              </div>
+            )}
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 cursor-pointer" onClick={() => toggleSort('date')}>
-                    Date <SortIcon col="date" />
-                  </th>
-                  <th className="px-3 py-3 text-right font-medium text-gray-500 cursor-pointer" onClick={() => toggleSort('revenue')}>
-                    Revenue <SortIcon col="revenue" />
-                  </th>
-                  <th className="px-3 py-3 text-right font-medium text-gray-500 hidden sm:table-cell cursor-pointer" onClick={() => toggleSort('covers')}>
-                    Covers <SortIcon col="covers" />
-                  </th>
-                  <th className="px-3 py-3 text-right font-medium text-gray-500 hidden md:table-cell cursor-pointer" onClick={() => toggleSort('items')}>
-                    Portions <SortIcon col="items" />
-                  </th>
-                  <th className="px-3 py-3 text-left font-medium text-gray-500 hidden lg:table-cell">Bar</th>
-                  <th className="px-3 py-3 w-16" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {loading && (
-                  <tr><td colSpan={6} className="text-center py-12 text-gray-400">Loading…</td></tr>
-                )}
-                {!loading && displayed.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="text-center py-12">
-                      <div className="text-gray-400 mb-3">No sales recorded for this period</div>
-                      <button onClick={() => setShowAdd(true)}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-gold text-white rounded-lg text-sm hover:bg-[#a88930]">
-                        <Plus size={14} /> Add Sales Day
-                      </button>
-                    </td>
-                  </tr>
-                )}
-                {displayed.map(sale => {
-                  const rev = Number(sale.totalRevenue)
-                  const portions = sale.lineItems.reduce((s, l) => s + l.qtySold, 0)
-                  const pct = (rev / maxRevenue) * 100
-                  return (
-                    <tr key={sale.id}
-                      onClick={() => setViewSale(sale)}
-                      className="hover:bg-gray-50 cursor-pointer">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-800">{fmtDate(sale.date)}</span>
-                          {sale.revenueCenter && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
-                              {sale.revenueCenter.name}
-                            </span>
+          {/* Split panel */}
+          <div className="flex gap-4 items-start">
+
+            {/* Left panel */}
+            <div className={`${(selectedSale || selectedPeriodKey) ? 'w-[360px] shrink-0' : 'w-full'}`}>
+
+              {/* Day mode table */}
+              {granularity === 'day' && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium text-gray-500 cursor-pointer" onClick={() => toggleSort('date')}>
+                          Date <SortIcon col="date" />
+                        </th>
+                        <th className="px-3 py-3 text-right font-medium text-gray-500 cursor-pointer" onClick={() => toggleSort('revenue')}>
+                          Revenue <SortIcon col="revenue" />
+                        </th>
+                        <th className="px-3 py-3 text-right font-medium text-gray-500 hidden sm:table-cell cursor-pointer" onClick={() => toggleSort('covers')}>
+                          Covers <SortIcon col="covers" />
+                        </th>
+                        <th className="px-3 py-3 text-right font-medium text-gray-500 hidden md:table-cell cursor-pointer" onClick={() => toggleSort('items')}>
+                          Portions <SortIcon col="items" />
+                        </th>
+                        <th className="px-3 py-3 w-16" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {loading && (
+                        <tr><td colSpan={5} className="text-center py-12 text-gray-400">Loading…</td></tr>
+                      )}
+                      {!loading && displayed.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-12">
+                            <div className="text-gray-400 mb-3">No sales recorded for this period</div>
+                            <button onClick={() => setShowAdd(true)}
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-gold text-white rounded-lg text-sm hover:bg-[#a88930]">
+                              <Plus size={14} /> Add Sales Day
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                      {displayed.map(sale => {
+                        const rev      = Number(sale.totalRevenue)
+                        const portions = sale.lineItems.reduce((s, l) => s + l.qtySold, 0)
+                        const isSelected = selectedSale?.id === sale.id
+                        return (
+                          <tr key={sale.id}
+                            onClick={() => setSelectedSale(isSelected ? null : sale)}
+                            className={`cursor-pointer transition-colors ${isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-800">{fmtDate(sale.date)}</span>
+                                {sale.revenueCenter && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
+                                    {sale.revenueCenter.name}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-400">{fmtDay(sale.date)}{sale.notes ? ` · ${sale.notes}` : ''}</div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className="font-semibold text-gray-900">{formatCurrency(rev)}</div>
+                              <div className="text-xs text-gray-400">{Math.round(Number(sale.foodSalesPct) * 100)}% food</div>
+                            </td>
+                            <td className="px-3 py-3 text-right hidden sm:table-cell">
+                              <div className="font-medium text-gray-700">{sale.covers ?? '—'}</div>
+                            </td>
+                            <td className="px-3 py-3 text-right hidden md:table-cell">
+                              <div className="font-medium text-gray-700">{portions > 0 ? portions : '—'}</div>
+                            </td>
+                            <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center gap-1 justify-end">
+                                <button onClick={() => setEditSale(sale)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gold">
+                                  <Pencil size={13} />
+                                </button>
+                                <button onClick={() => setDeleteId(sale.id)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500">
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Week / Month mode list */}
+              {granularity !== 'day' && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                  {loading && <div className="py-12 text-center text-gray-400">Loading…</div>}
+                  {!loading && periodRows.length === 0 && (
+                    <div className="py-12 text-center text-gray-400">No sales data for this period</div>
+                  )}
+                  {periodRows.map(period => {
+                    const isSelected = selectedPeriodKey === period.key
+                    return (
+                      <div key={period.key}
+                        onClick={() => setSelectedPeriodKey(isSelected ? null : period.key)}
+                        className={`flex items-center gap-3 px-4 py-3.5 border-b border-gray-50 last:border-0 cursor-pointer transition-colors ${isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-sm font-medium text-gray-800">{period.label}</span>
+                            <PeriodBadge badge={period.badge} text={period.badgeText} />
+                          </div>
+                          {period.totalRevenue > 0 && (
+                            <div className="text-xs text-gray-400">
+                              {formatCurrency(period.totalRevenue)} · {Math.round(period.foodSalesPct * 100)}% food
+                            </div>
                           )}
                         </div>
-                        <div className="text-xs text-gray-400">{fmtDay(sale.date)}{sale.notes ? ` · ${sale.notes}` : ''}</div>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <div className="font-semibold text-gray-900">{formatCurrency(rev)}</div>
-                        <div className="text-xs text-gray-400">{Math.round(Number(sale.foodSalesPct) * 100)}% food</div>
-                      </td>
-                      <td className="px-3 py-3 text-right hidden sm:table-cell">
-                        <div className="font-medium text-gray-700">{sale.covers ?? '—'}</div>
-                        {sale.covers && rev > 0 && (
-                          <div className="text-xs text-gray-400">{formatCurrency(rev / sale.covers)}/cover</div>
+                        {period.covers != null && period.covers > 0 && (
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-semibold text-gray-700">{period.covers}</div>
+                            <div className="text-[10px] text-gray-400">covers</div>
+                          </div>
                         )}
-                      </td>
-                      <td className="px-3 py-3 text-right hidden md:table-cell">
-                        <div className="font-medium text-gray-700">{portions > 0 ? portions : '—'}</div>
-                        {portions > 0 && <div className="text-xs text-gray-400">{sale.lineItems.length} items</div>}
-                      </td>
-                      <td className="px-3 py-3 hidden lg:table-cell">
-                        <div className="h-2 bg-gray-100 rounded-full w-32">
-                          <div className="h-full bg-blue-400 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Right panel */}
+            {(selectedSale || selectedPeriodKey) && (
+              <div className="flex-1 min-w-0">
+
+                {/* Day detail */}
+                {selectedSale && (() => {
+                  const sale = selectedSale
+                  const revenue     = Number(sale.totalRevenue)
+                  const foodSalesAmt = revenue * Number(sale.foodSalesPct)
+                  const totalSold   = sale.lineItems.reduce((s, li) => s + li.qtySold, 0)
+                  const avgPerCover = sale.covers && sale.covers > 0 ? revenue / sale.covers : null
+                  return (
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+                      <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-gray-100">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-gray-900">{fmtDate(sale.date)}</span>
+                            {sale.revenueCenter && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700">
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
+                                {sale.revenueCenter.name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400">{fmtDay(sale.date)}</div>
                         </div>
-                      </td>
-                      <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1 justify-end">
-                          <button onClick={() => setEditSale(sale)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gold">
-                            <Pencil size={13} />
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => { setEditSale(sale); setSelectedSale(null) }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
+                            <Pencil size={11} /> Edit
                           </button>
-                          <button onClick={() => setDeleteId(sale.id)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500">
-                            <Trash2 size={13} />
-                          </button>
+                          <button onClick={() => setSelectedSale(null)}
+                            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+                      <div className="px-4 py-4 space-y-4">
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-gray-50 rounded-xl p-3 text-center">
+                            <div className="text-lg font-bold text-gray-900">{formatCurrency(revenue)}</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Revenue</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl p-3 text-center">
+                            <div className="text-lg font-bold text-gray-900">{sale.covers ?? '—'}</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Covers</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl p-3 text-center">
+                            <div className="text-lg font-bold text-gray-900">{avgPerCover ? formatCurrency(avgPerCover) : '—'}</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Avg/Cover</div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Food sales: <span className="font-medium text-gray-700">{formatCurrency(foodSalesAmt)}</span>
+                          <span className="mx-1">·</span>{Math.round(Number(sale.foodSalesPct) * 100)}%
+                          <span className="mx-1">·</span>{totalSold} portions
+                        </div>
+                        {sale.notes && (
+                          <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-sm text-amber-800">{sale.notes}</div>
+                        )}
+                        {sale.lineItems.length > 0 ? (
+                          <div>
+                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Items sold</div>
+                            <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+                              {sale.lineItems.map(li => {
+                                const lineRevenue = li.recipe.menuPrice ? Number(li.recipe.menuPrice) * li.qtySold : null
+                                return (
+                                  <div key={li.id} className="flex items-center gap-3 px-3 py-2.5">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-medium text-gray-800 truncate">{li.recipe.name}</div>
+                                      {li.recipe.category && <div className="text-xs text-gray-400">{li.recipe.category.name}</div>}
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <div className="text-sm font-semibold text-gray-800">×{li.qtySold}</div>
+                                      {lineRevenue && <div className="text-xs text-gray-400">{formatCurrency(lineRevenue)}</div>}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-sm text-gray-400">No menu items recorded</div>
+                        )}
+                      </div>
+                    </div>
                   )
-                })}
-              </tbody>
-            </table>
+                })()}
+
+                {/* Period detail */}
+                {selectedPeriodKey && (() => {
+                  const period = periodRows.find(p => p.key === selectedPeriodKey)
+                  if (!period) return null
+                  const foodSalesAmt = period.totalRevenue * period.foodSalesPct
+                  return (
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+                      <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-gray-100">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">{period.label}</div>
+                          <div className="mt-0.5">
+                            <PeriodBadge badge={period.badge} text={period.badgeText} />
+                          </div>
+                        </div>
+                        <button onClick={() => setSelectedPeriodKey(null)}
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+                      </div>
+                      <div className="px-4 py-4 space-y-4">
+                        {period.totalRevenue > 0 && (
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-gray-50 rounded-xl p-3 text-center">
+                              <div className="text-lg font-bold text-gray-900">{formatCurrency(period.totalRevenue)}</div>
+                              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Revenue</div>
+                            </div>
+                            <div className="bg-gray-50 rounded-xl p-3 text-center">
+                              <div className="text-lg font-bold text-gray-900">{formatCurrency(foodSalesAmt)}</div>
+                              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Food Sales</div>
+                            </div>
+                            <div className="bg-gray-50 rounded-xl p-3 text-center">
+                              <div className="text-lg font-bold text-gray-900">{period.covers ?? '—'}</div>
+                              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Covers</div>
+                            </div>
+                          </div>
+                        )}
+                        {period.badge === 'not-available' && (
+                          <div className="text-center py-4 text-sm text-gray-400">No sales data for this period</div>
+                        )}
+                        {(period.badge === 'weekly-import' || period.badge === 'monthly-import') && (
+                          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700">
+                            Imported as {period.badge === 'weekly-import' ? 'Weekly' : 'Monthly'} — no per-day breakdown available.
+                          </div>
+                        )}
+                        {period.badge !== 'weekly-import' && period.badge !== 'monthly-import' && period.dailySales.length > 0 && (
+                          <div>
+                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Day breakdown</div>
+                            <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
+                              {(() => {
+                                const days: string[] = []
+                                const cur = new Date(period.startDate)
+                                const pEnd = new Date(period.endDate)
+                                while (cur <= pEnd) { days.push(toISO(cur)); cur.setDate(cur.getDate() + 1) }
+                                return days.map(day => {
+                                  const daySale = period.dailySales.find(s => s.date.slice(0, 10) === day)
+                                  return (
+                                    <div key={day} className="flex items-center justify-between px-3 py-2">
+                                      <span className="text-sm text-gray-700">{fmtDate(day)}</span>
+                                      {daySale
+                                        ? <span className="text-sm font-medium text-gray-900">{formatCurrency(Number(daySale.totalRevenue))}</span>
+                                        : <span className="text-sm text-gray-300">—</span>
+                                      }
+                                    </div>
+                                  )
+                                })
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1068,14 +1373,6 @@ export default function SalesPage() {
           defaultRcId={activeRcId}
           onSave={handleSave}
           onCancel={() => { setShowAdd(false); setEditSale(null) }}
-        />
-      )}
-
-      {viewSale && (
-        <DayDetail
-          sale={viewSale}
-          onEdit={() => { setEditSale(viewSale); setViewSale(null) }}
-          onClose={() => setViewSale(null)}
         />
       )}
 
