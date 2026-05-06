@@ -400,6 +400,8 @@ interface ParsedItem {
 
 interface ParseResult {
   date: string
+  endDate: string | null
+  periodType: string
   totalSales: number
   foodSales: number
   items: ParsedItem[]
@@ -413,7 +415,7 @@ function ConfidenceBadge({ c }: { c: ParsedItem['matchConfidence'] }) {
 
 function ImportModal({ menuRecipes, onImport, onClose }: {
   menuRecipes: RecipeSummary[]
-  onImport: (row: { date: string; totalRevenue: string; covers: string; foodSalesPct: string; notes: string; lineItems: { recipeId: string; qtySold: number }[] }) => Promise<void>
+  onImport: (row: { date: string; endDate: string | null; periodType: string; totalRevenue: string; covers: string; foodSalesPct: string; notes: string; lineItems: { recipeId: string; qtySold: number }[] }) => Promise<void>
   onClose: () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -423,6 +425,8 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
   const [parseErr, setParseErr] = useState('')
   const [parsed,   setParsed]   = useState<ParseResult | null>(null)
   const [saving,   setSaving]   = useState(false)
+  const [endDate,    setEndDate]    = useState('')
+  const [periodType, setPeriodType] = useState<'day' | 'week' | 'month' | 'custom'>('day')
 
   // Editable review fields
   const [date,       setDate]       = useState('')
@@ -445,6 +449,8 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
       const result = data as ParseResult
       setParsed(result)
       setDate(result.date)
+      setEndDate(result.endDate ?? '')
+      setPeriodType((result.periodType ?? 'day') as 'day' | 'week' | 'month' | 'custom')
       setTotalSales(String(result.totalSales))
       setFoodSales(String(result.foodSales))
       // Initialise qtys from parsed items (keyed by rawName, then recipeId when confirmed)
@@ -478,7 +484,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
       if (qty > 0) lineItems.push({ recipeId, qtySold: qty })
     }
 
-    await onImport({ date, totalRevenue: totalSales, covers: '', foodSalesPct, notes: '', lineItems })
+    await onImport({ date, endDate: endDate || null, periodType, totalRevenue: totalSales, covers: '', foodSalesPct, notes: '', lineItems })
     setSaving(false)
   }
 
@@ -546,31 +552,79 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
             <div className="px-5 py-4 overflow-y-auto flex-1 space-y-5">
 
               {/* Date + Totals */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
-                  <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
-                    <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              {parsed.endDate ? (
+                /* Period import */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">From</label>
+                      <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">To</label>
+                      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Period Type</label>
+                      <select value={periodType} onChange={e => setPeriodType(e.target.value as 'week' | 'month' | 'custom')}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                        <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
+                          className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">
+                        Food Sales <span className="text-gray-400 font-normal">({foodPct}%)</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                        <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
+                          className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">
-                    Food Sales <span className="text-gray-400 font-normal">({foodPct}%)</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
-                    <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              ) : (
+                /* Single-day import — existing layout */
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
+                    <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                      <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">
+                      Food Sales <span className="text-gray-400 font-normal">({foodPct}%)</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                      <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Matched items */}
               <div>
@@ -639,7 +693,12 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
               </button>
               <button onClick={handleSave} disabled={saving}
                 className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-white text-sm font-medium hover:bg-[#a88930] disabled:opacity-60">
-                {saving ? 'Saving…' : `Save sales for ${date}`}
+                {saving ? 'Saving…' :
+                  periodType === 'week'   ? 'Save weekly sales' :
+                  periodType === 'month'  ? 'Save monthly sales' :
+                  periodType === 'custom' ? 'Save period sales' :
+                  `Save sales for ${date}`
+                }
               </button>
             </div>
           </>
