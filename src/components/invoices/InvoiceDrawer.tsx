@@ -297,6 +297,17 @@ function ScanItemCard({
   const [localPriceType, setLocalPriceType] = useState<'CASE' | 'PKG' | 'UOM'>(
     item.rawPriceType ?? 'CASE'
   )
+
+  // ── Reactive recomputation control ──
+  // priceDriver tracks which of unitPrice/lineTotal is the user's latest input;
+  // the other is auto-derived. Flipping this lets the user edit either field
+  // and have the other update live.
+  const [priceDriver, setPriceDriver] = useState<'unit' | 'total'>('unit')
+  // totalQtyMode tracks whether totalQty is auto-computed (cases × pq × ps)
+  // or user-overridden (e.g. "actual weight delivered = 4.8 kg per bottle").
+  const [totalQtyMode, setTotalQtyMode] = useState<'nominal' | 'override'>(
+    item.totalQty !== null && item.totalQty !== undefined ? 'override' : 'nominal'
+  )
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -386,57 +397,70 @@ function ScanItemCard({
   }
 
   // ── Linked calculators ────────────────────────────────────────────────────
+  // Pure formula helpers — kept side-effect-free.
   const calcTotal = (cases: number, price: number, pq: number, ps: number, pt: 'CASE' | 'PKG' | 'UOM') => {
     if (pt === 'PKG') return cases * pq * price
     if (pt === 'UOM') return cases * pq * ps * price
     return cases * price  // CASE
   }
+  const calcUnitPrice = (cases: number, total: number, pq: number, ps: number, pt: 'CASE' | 'PKG' | 'UOM') => {
+    if (pt === 'PKG') return total / (cases * pq)
+    if (pt === 'UOM') return total / (cases * pq * ps)
+    return total / cases  // CASE
+  }
+  const trimZeros = (s: string) => s.replace(/\.?0+$/, '')
 
-  // Sync totalQty from packQty × packSize (nominal weight per case × cases ordered)
-  const syncNominalTotalQty = (pq: number, ps: number) => {
-    const cases = parseFloat(localCases) || 1
-    const nominal = cases * pq * ps
-    if (nominal > 0) setLocalTotalQty(nominal.toFixed(3).replace(/\.?0+$/, ''))
-  }
+  // Single source of truth for derived fields.
+  // Whenever any primary input changes, the non-driver price field and
+  // the nominal totalQty are recomputed in lock-step. This guarantees the
+  // visible math is always self-consistent without fragile per-handler chains.
+  const recomputingRef = useRef(false)
+  useEffect(() => {
+    if (!editingPurchase) return
+    if (recomputingRef.current) return
+    recomputingRef.current = true
+    try {
+      const cases = parseFloat(localCases)
+      const pq    = parseFloat(localPackQty)  || 1
+      const ps    = parseFloat(localPackSize) || 1
 
-  const handleCasesChange = (v: string) => {
-    setLocalCases(v)
-    const cases = parseFloat(v), price = parseFloat(localUnitPrice)
-    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPriceType).toFixed(2))
-    if (cases > 0) {
-      const nominal = cases * pq * ps
-      if (nominal > 0) setLocalTotalQty(nominal.toFixed(3).replace(/\.?0+$/, ''))
+      // ── Recompute the non-driver of (unitPrice, lineTotal) ──
+      if (priceDriver === 'unit') {
+        const price = parseFloat(localUnitPrice)
+        if (cases > 0 && price > 0) {
+          const next = calcTotal(cases, price, pq, ps, localPriceType).toFixed(2)
+          if (next !== localLineTotal) setLocalLineTotal(next)
+        }
+      } else {
+        const total = parseFloat(localLineTotal)
+        if (cases > 0 && total > 0) {
+          const next = calcUnitPrice(cases, total, pq, ps, localPriceType).toFixed(4)
+          if (next !== localUnitPrice) setLocalUnitPrice(next)
+        }
+      }
+
+      // ── Recompute nominal totalQty (only if not user-overridden) ──
+      if (totalQtyMode === 'nominal' && cases > 0 && pq > 0 && ps > 0) {
+        const next = trimZeros((cases * pq * ps).toFixed(3))
+        if (next !== localTotalQty) setLocalTotalQty(next)
+      }
+    } finally {
+      recomputingRef.current = false
     }
-  }
-  const handleUnitPriceChange = (v: string) => {
-    setLocalUnitPrice(v)
-    const cases = parseFloat(localCases), price = parseFloat(v)
-    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-    if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, localPriceType).toFixed(2))
-  }
-  const handleLineTotalChange = (v: string) => {
-    setLocalLineTotal(v)
-    const cases = parseFloat(localCases), total = parseFloat(v)
-    const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-    if (cases > 0 && total > 0) {
-      const price =
-        localPriceType === 'PKG' ? total / (cases * pq)
-        : localPriceType === 'UOM' ? total / (cases * pq * ps)
-        : total / cases
-      setLocalUnitPrice(price.toFixed(4))
-    }
-  }
-  // When actual total weight changes, back-calculate pack size = totalQty / (cases × packQty)
-  const handleTotalQtyChange = (v: string) => {
+  }, [
+    localCases, localPackQty, localPackSize, localPriceType,
+    localUnitPrice, localLineTotal, priceDriver, totalQtyMode,
+    editingPurchase,
+  ])
+
+  // ── Input handlers ────────────────────────────────────────────────────────
+  // Keep state writes minimal — the useEffect above handles all ripple updates.
+  const onUnitPriceChange = (v: string) => { setLocalUnitPrice(v); setPriceDriver('unit') }
+  const onLineTotalChange = (v: string) => { setLocalLineTotal(v); setPriceDriver('total') }
+  // User-typed totalQty enters override mode; clearing it returns to nominal.
+  const onTotalQtyChange = (v: string) => {
     setLocalTotalQty(v)
-    const total = parseFloat(v)
-    const cases = parseFloat(localCases) || 1
-    const pq    = parseFloat(localPackQty) || 1
-    if (total > 0 && cases > 0 && pq > 0) {
-      const impliedPackSize = total / (cases * pq)
-      if (impliedPackSize > 0) setLocalPackSize(impliedPackSize.toFixed(4).replace(/\.?0+$/, ''))
-    }
+    setTotalQtyMode(v.trim() === '' ? 'nominal' : 'override')
   }
 
   // ── Unified save (purchases + format + price diff all at once) ────────────
@@ -594,9 +618,15 @@ function ScanItemCard({
           Hidden in compact-OK mode unless the user opens edit mode. */}
       {item.action !== 'SKIP' && (status.kind !== 'OK' || !compactOk || editingPurchase) && (
         <div className="mt-1">
-          {/* VIEW MODE — compact summary */}
+          {/* VIEW MODE — compact summary. Tap anywhere to enter edit mode. */}
           {!editingPurchase && (
-            <div className="flex items-center gap-1.5 text-xs flex-wrap">
+            <div
+              className="flex items-center gap-1.5 text-xs flex-wrap cursor-pointer rounded-md -mx-1 px-1 py-0.5 hover:bg-gray-50 transition-colors"
+              onClick={() => setEditingPurchase(true)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditingPurchase(true) } }}
+            >
               {/* cases */}
               {item.rawQty !== null && (
                 <span className="font-semibold text-gray-700">{item.rawQty} {item.rawUnit || 'cs'}</span>
@@ -670,7 +700,7 @@ function ScanItemCard({
                   <span className="w-28 text-gray-500 shrink-0">Qty ordered</span>
                   <div className="flex items-center gap-1">
                     <input type="number" step="any" min="0" value={localCases}
-                      onChange={e => handleCasesChange(e.target.value)}
+                      onChange={e => setLocalCases(e.target.value)}
                       className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
                     <input value={localUnit} onChange={e => setLocalUnit(e.target.value)}
                       placeholder="cs"
@@ -682,12 +712,7 @@ function ScanItemCard({
                 <div className="flex items-center gap-2">
                   <span className="w-28 text-gray-500 shrink-0">Units per {localUnit || 'case'}</span>
                   <input type="number" step="any" min="0" value={localPackQty}
-                    onChange={e => {
-                      setLocalPackQty(e.target.value)
-                      const pq = parseFloat(e.target.value) || 1
-                      const ps = parseFloat(localPackSize) || 1
-                      syncNominalTotalQty(pq, ps)
-                    }}
+                    onChange={e => setLocalPackQty(e.target.value)}
                     className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
 
@@ -696,14 +721,14 @@ function ScanItemCard({
                   <span className="w-28 text-gray-500 shrink-0">Each unit is</span>
                   <div className="flex items-center gap-1">
                     <input type="number" step="any" min="0" value={localPackSize}
-                      onChange={e => {
-                        setLocalPackSize(e.target.value)
-                        const pq = parseFloat(localPackQty) || 1
-                        const ps = parseFloat(e.target.value) || 1
-                        syncNominalTotalQty(pq, ps)
-                      }}
+                      onChange={e => setLocalPackSize(e.target.value)}
                       className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                    <select value={localPackUOM} onChange={e => { setLocalPackUOM(e.target.value); setLocalTotalQtyUOM(e.target.value) }}
+                    <select value={localPackUOM}
+                      onChange={e => {
+                        setLocalPackUOM(e.target.value)
+                        // Mirror packUOM into totalQtyUOM unless the user has chosen a different UOM
+                        if (!localTotalQtyUOM || localTotalQtyUOM === localPackUOM) setLocalTotalQtyUOM(e.target.value)
+                      }}
                       className="border border-blue-200 rounded-lg px-2 py-1 bg-white focus:outline-none">
                       <option value="">—</option>
                       {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
@@ -726,12 +751,7 @@ function ScanItemCard({
                       <label key={pt} className="flex items-center gap-1 cursor-pointer">
                         <input type="radio" name={`priceType-${item.id}`} value={pt}
                           checked={localPriceType === pt}
-                          onChange={() => {
-                            setLocalPriceType(pt)
-                            const cases = parseFloat(localCases), price = parseFloat(localUnitPrice)
-                            const pq = parseFloat(localPackQty) || 1, ps = parseFloat(localPackSize) || 1
-                            if (cases > 0 && price > 0) setLocalLineTotal(calcTotal(cases, price, pq, ps, pt).toFixed(2))
-                          }}
+                          onChange={() => setLocalPriceType(pt)}
                           className="accent-blue-500" />
                         <span className="text-gray-600">
                           {pt === 'CASE' ? (localUnit || 'case') : pt === 'PKG' ? 'pkg' : (localPackUOM || 'unit')}
@@ -747,7 +767,7 @@ function ScanItemCard({
                   <div className="flex items-center gap-1">
                     <span className="text-gray-400">$</span>
                     <input type="number" step="any" min="0" value={localUnitPrice}
-                      onChange={e => handleUnitPriceChange(e.target.value)}
+                      onChange={e => onUnitPriceChange(e.target.value)}
                       className="w-20 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
                   </div>
                 </div>
@@ -758,7 +778,7 @@ function ScanItemCard({
                   <div className="flex items-center gap-1">
                     <span className="text-gray-400">$</span>
                     <input type="number" step="any" min="0" value={localLineTotal}
-                      onChange={e => handleLineTotalChange(e.target.value)}
+                      onChange={e => onLineTotalChange(e.target.value)}
                       className="w-20 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 font-semibold" />
                   </div>
                 </div>
@@ -774,14 +794,27 @@ function ScanItemCard({
                       <span className="w-28 text-gray-500 shrink-0">Measured total</span>
                       <div className="flex items-center gap-1">
                         <input type="number" step="any" min="0" value={localTotalQty}
-                          onChange={e => handleTotalQtyChange(e.target.value)}
-                          placeholder="e.g. 4.8"
-                          className="w-20 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                          onChange={e => onTotalQtyChange(e.target.value)}
+                          placeholder={(() => {
+                            const c = parseFloat(localCases), pq = parseFloat(localPackQty), ps = parseFloat(localPackSize)
+                            return c > 0 && pq > 0 && ps > 0 ? `nominal: ${trimZeros((c * pq * ps).toFixed(3))}` : 'e.g. 4.8'
+                          })()}
+                          className={`w-24 border rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-blue-400 ${
+                            totalQtyMode === 'override' ? 'border-amber-300 bg-amber-50' : 'border-blue-200 bg-white'
+                          }`} />
                         <select value={localTotalQtyUOM} onChange={e => setLocalTotalQtyUOM(e.target.value)}
                           className="border border-blue-200 rounded-lg px-2 py-1 bg-white focus:outline-none">
                           <option value="">—</option>
                           {PACK_UOMS.filter(u => isWeightVol(u)).map(u => <option key={u} value={u}>{u}</option>)}
                         </select>
+                        {totalQtyMode === 'override' && (
+                          <button
+                            type="button"
+                            onClick={() => onTotalQtyChange('')}
+                            className="text-[10px] text-amber-600 hover:text-amber-800 underline"
+                            title="Reset to nominal"
+                          >reset</button>
+                        )}
                       </div>
                       <span className="text-[9px] text-gray-400">overrides nominal</span>
                     </div>
@@ -793,38 +826,53 @@ function ScanItemCard({
               {liveBaseCost !== null && localPackUOM && (
                 <>
                   <div className="border-t border-blue-100" />
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Result for inventory</p>
-                    <div className="text-[11px] text-gray-600">
-                      {(() => {
-                        if (item.matchedItem) {
-                          const _livePkgTotal = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
-                          const _livePPU = _livePkgTotal > 0 ? Number(item.matchedItem.purchasePrice) / _livePkgTotal : 0
-                          const norm = comparePricesNormalized(liveBaseCost, localPackUOM, _livePPU, item.matchedItem.packUOM)
-                          if (norm) return (
-                            <div className="space-y-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="w-28 text-gray-400 shrink-0">New base cost</span>
-                                <span className="font-semibold text-gray-800">{formatCurrency(norm.invoicePPB)}/{norm.baseUnit}</span>
+                    {(() => {
+                      if (item.matchedItem) {
+                        const _livePkgTotal = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
+                        const _livePPU = _livePkgTotal > 0 ? Number(item.matchedItem.purchasePrice) / _livePkgTotal : 0
+                        const norm = comparePricesNormalized(liveBaseCost, localPackUOM, _livePPU, item.matchedItem.packUOM)
+                        if (norm) {
+                          const delta = norm.invoicePPB - norm.inventoryPPB
+                          const isUp = norm.pctDiff > 0.1
+                          const isDown = norm.pctDiff < -0.1
+                          const badgeBg = isUp ? 'bg-red-100 text-red-700 border-red-200'
+                            : isDown ? 'bg-green-100 text-green-700 border-green-200'
+                            : 'bg-gray-100 text-gray-600 border-gray-200'
+                          return (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="w-24 text-gray-400 shrink-0">New cost</span>
+                                <span className="font-bold text-gray-900 text-sm">{formatCurrency(norm.invoicePPB)}</span>
+                                <span className="text-gray-400">/{norm.baseUnit}</span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className="w-28 text-gray-400 shrink-0">Currently</span>
-                                <span className="text-gray-600">{formatCurrency(norm.inventoryPPB)}/{norm.baseUnit}</span>
-                                <span className={`font-semibold text-[10px] ${norm.pctDiff > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="w-24 text-gray-400 shrink-0">Was</span>
+                                <span className="text-gray-500">{formatCurrency(norm.inventoryPPB)}/{norm.baseUnit}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] pt-0.5">
+                                <span className="w-24 text-gray-400 shrink-0">Change</span>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-[11px] border ${badgeBg}`}>
+                                  {isUp ? <TrendingUp size={10} /> : isDown ? <TrendingDown size={10} /> : null}
                                   {norm.pctDiff > 0 ? '+' : ''}{norm.pctDiff.toFixed(1)}%
+                                </span>
+                                <span className={`text-[10px] ${isUp ? 'text-red-500' : isDown ? 'text-green-600' : 'text-gray-400'}`}>
+                                  {delta > 0 ? '+' : ''}{formatCurrency(delta)}/{norm.baseUnit}
                                 </span>
                               </div>
                             </div>
                           )
                         }
-                        return (
-                          <div className="flex items-center gap-2">
-                            <span className="w-28 text-gray-400 shrink-0">New base cost</span>
-                            <span className="font-semibold text-gray-800">{formatCurrency(liveBaseCost)}/{localPackUOM}</span>
-                          </div>
-                        )
-                      })()}
-                    </div>
+                      }
+                      return (
+                        <div className="flex items-center gap-2 text-[11px]">
+                          <span className="w-24 text-gray-400 shrink-0">New cost</span>
+                          <span className="font-bold text-gray-900 text-sm">{formatCurrency(liveBaseCost)}</span>
+                          <span className="text-gray-400">/{localPackUOM}</span>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </>
               )}
