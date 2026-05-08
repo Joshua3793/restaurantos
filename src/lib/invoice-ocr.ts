@@ -657,6 +657,79 @@ export async function extractInvoiceFromText(
   return parseOcrResponse(responseText)
 }
 
+// ── Quick metadata peek ────────────────────────────────────────────────────────
+// Reads only supplier name, date, and invoice number from the first page.
+// Uses Haiku (fast, cheap, no extended thinking) so the session list becomes
+// identifiable within ~2 seconds while the full OCR is still running.
+
+const QUICK_MODEL = 'claude-3-5-haiku-20241022'
+
+export interface QuickMeta {
+  supplierName:  string | null
+  invoiceDate:   string | null
+  invoiceNumber: string | null
+}
+
+export async function quickExtractMeta(
+  buf:      Buffer,
+  fileType: string,
+  fileName: string,
+): Promise<QuickMeta> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
+
+  const client = new Anthropic({ apiKey })
+  const question =
+    'Look at this invoice. Return ONLY valid JSON (no markdown, no explanation):\n' +
+    '{"supplierName":"string or null","invoiceDate":"YYYY-MM-DD or null","invoiceNumber":"string or null"}'
+
+  const ft = fileType.toLowerCase()
+  let content: Anthropic.MessageParam['content']
+
+  if (ft.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(fileName)) {
+    // Compress to ≤1 MB for the quick call — we only need to read a header, not every detail
+    const compressed = await compressImageForClaude(buf.toString('base64'), false)
+    content = [
+      { type: 'image', source: { type: 'base64', media_type: compressed.mediaType, data: compressed.data } },
+      { type: 'text', text: question },
+    ]
+  } else if (ft === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    content = [
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } } as any,
+      { type: 'text', text: question },
+    ]
+  } else {
+    // CSV / plain text — just send the first 1500 chars
+    content = [{ type: 'text', text: `${buf.toString('utf-8').slice(0, 1500)}\n\n${question}` }]
+  }
+
+  const message = await client.messages.create({
+    model:      QUICK_MODEL,
+    max_tokens: 256,
+    messages:   [{ role: 'user', content }],
+  })
+
+  const text = message.content
+    .filter(b => b.type === 'text')
+    .map(b => (b as Anthropic.TextBlock).text)
+    .join('')
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/gi, '')
+    .trim()
+
+  try {
+    const j = JSON.parse(text) as Record<string, unknown>
+    return {
+      supplierName:  typeof j.supplierName  === 'string' ? j.supplierName  : null,
+      invoiceDate:   typeof j.invoiceDate   === 'string' ? j.invoiceDate   : null,
+      invoiceNumber: typeof j.invoiceNumber === 'string' ? j.invoiceNumber : null,
+    }
+  } catch {
+    return { supplierName: null, invoiceDate: null, invoiceNumber: null }
+  }
+}
+
 // ── CSV — local parse, no API call needed ──
 export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult> {
   const lines = csvText.split('\n').map(l => l.trim()).filter(Boolean)

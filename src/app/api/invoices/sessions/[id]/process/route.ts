@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv } from '@/lib/invoice-ocr'
+import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv, quickExtractMeta } from '@/lib/invoice-ocr'
 import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
 import type { OcrResult } from '@/lib/invoice-ocr'
@@ -42,6 +42,28 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'No pending files to process' }, { status: 400 })
   }
 
+  // ── Quick peek: extract supplier / date from the first file using Haiku (~2s) ──
+  // This runs before the full OCR so the session list shows identifiable info
+  // (e.g. "Metro Foods · 08/05/2026") while Claude is still scanning line items.
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      const firstFile = filesToProcess[0]
+      const buf = await loadBuffer(firstFile)
+      const quick = await quickExtractMeta(buf, firstFile.fileType, firstFile.fileName)
+      const patch: Record<string, string> = {}
+      if (quick.supplierName  && !session.supplierName)  patch.supplierName  = quick.supplierName
+      if (quick.invoiceDate   && !session.invoiceDate)   patch.invoiceDate   = quick.invoiceDate
+      if (quick.invoiceNumber && !session.invoiceNumber) patch.invoiceNumber = quick.invoiceNumber
+      if (Object.keys(patch).length) {
+        await prisma.invoiceSession.update({ where: { id: params.id }, data: patch })
+        console.log(`[process] Quick peek: supplier=${quick.supplierName}, date=${quick.invoiceDate}`)
+      }
+    } catch (err) {
+      // Non-fatal — full OCR will fill in the blanks
+      console.warn('[process] Quick peek failed (non-fatal):', err instanceof Error ? err.message : err)
+    }
+  }
+
   // Learning mode: supplier unknown or fewer than 3 approved invoices from this supplier.
   // Uses higher image quality and larger thinking budget for better first-time format detection.
   const approvedCount = session.supplierName
@@ -73,15 +95,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const sessionMeta: Partial<OcrResult> = {}
     let allOcrItems: OcrResult['lineItems'] = []
 
-    async function loadBuffer(file: typeof filesToProcess[0]): Promise<Buffer> {
-      if (file.fileUrl.startsWith('data:')) {
-        const comma = file.fileUrl.indexOf(',')
-        return Buffer.from(file.fileUrl.slice(comma + 1), 'base64')
-      }
-      const res = await fetch(file.fileUrl)
-      if (!res.ok) throw new Error(`Failed to fetch ${file.fileName}: ${res.status}`)
-      return Buffer.from(await res.arrayBuffer())
-    }
+    // loadBuffer defined at module scope — see bottom of file
 
     const imageFiles  = filesToProcess.filter(f => !f.ocrRawJson && isImage(f.fileType, f.fileName))
     const nonImgFiles = filesToProcess.filter(f => !f.ocrRawJson && !isImage(f.fileType, f.fileName))
@@ -272,6 +286,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+async function loadBuffer(file: { fileUrl: string; fileName: string }): Promise<Buffer> {
+  if (file.fileUrl.startsWith('data:')) {
+    const comma = file.fileUrl.indexOf(',')
+    return Buffer.from(file.fileUrl.slice(comma + 1), 'base64')
+  }
+  const res = await fetch(file.fileUrl)
+  if (!res.ok) throw new Error(`Failed to fetch ${file.fileName}: ${res.status}`)
+  return Buffer.from(await res.arrayBuffer())
+}
 
 function isImage(fileType: string, fileName: string): boolean {
   const ft = fileType.toLowerCase()

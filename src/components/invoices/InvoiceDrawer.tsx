@@ -2392,6 +2392,21 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           <ScanLine size={32} className="text-gold" />
         </div>
         <h2 className="text-xl font-bold text-gray-900">Scanning Invoice…</h2>
+        {(session?.supplierName || session?.invoiceDate || session?.invoiceNumber) && (
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-1">
+            {session.supplierName && (
+              <span className="text-sm font-semibold text-gray-700">{session.supplierName}</span>
+            )}
+            {session.invoiceDate && (
+              <span className="text-sm text-gray-500">
+                {new Date(session.invoiceDate + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+              </span>
+            )}
+            {session.invoiceNumber && (
+              <span className="text-xs text-gray-400">#{session.invoiceNumber}</span>
+            )}
+          </div>
+        )}
         <p className="text-sm text-gray-500">
           {session?.files && session.files.length > 1
             ? `Sending all ${session.files.length} pages to Claude at once — usually 15–30 seconds.`
