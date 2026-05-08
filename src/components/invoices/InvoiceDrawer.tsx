@@ -5,7 +5,7 @@ import {
   FileText, Image, FileSpreadsheet, TrendingUp, TrendingDown,
   Plus, Bell, Package, ClipboardList, ChevronRight, Pencil,
   AlertCircle, Hash, CalendarDays, ArrowRight, Trash2,
-  Building2, ChevronDown, RotateCcw,
+  Building2, ChevronDown, RotateCcw, RotateCw, Minus, Maximize2,
 } from 'lucide-react'
 import { formatCurrency, PACK_UOMS, COUNT_UOMS, calcPricePerBaseUnit, deriveBaseUnit, calcConversionFactor } from '@/lib/utils'
 import { comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
@@ -207,6 +207,44 @@ function AddItemModal({
 
 // ── ScanItemCard ───────────────────────────────────────────────────────────────
 
+// ── Item status taxonomy ──────────────────────────────────────────────────
+// Single source of truth for: card border colour, status pill, and filter
+// counts. Order is preserved (invoice order); status only changes appearance.
+
+type ItemStatus = 'OK' | 'PRICE_SMALL' | 'PRICE_BIG' | 'NEW' | 'UNMATCHED' | 'SKIPPED'
+
+interface StatusInfo {
+  kind: ItemStatus
+  borderClass: string
+  pillClass: string
+  label: string
+  short: string  // short label for filter chips
+}
+
+const PRICE_SMALL_THRESHOLD = 5    // |Δ%| ≤ 5  → quiet
+const PRICE_BIG_THRESHOLD   = 15   // |Δ%| > 15 → loud
+
+function getItemStatus(item: ScanItem): StatusInfo {
+  if (item.action === 'SKIP') {
+    return { kind: 'SKIPPED', borderClass: 'border-l-gray-200', pillClass: 'bg-gray-100 text-gray-500', label: 'Skipped', short: 'Skipped' }
+  }
+  if (item.action === 'CREATE_NEW') {
+    return { kind: 'NEW', borderClass: 'border-l-purple-400', pillClass: 'bg-purple-50 text-purple-700 border border-purple-200', label: 'New item', short: 'New' }
+  }
+  if (!item.matchedItemId) {
+    return { kind: 'UNMATCHED', borderClass: 'border-l-gray-300', pillClass: 'bg-gray-50 text-gray-600 border border-gray-200', label: 'No match', short: 'Unmatched' }
+  }
+  const diff = item.priceDiffPct !== null && item.priceDiffPct !== undefined ? Math.abs(Number(item.priceDiffPct)) : 0
+  if (item.formatMismatch || diff > PRICE_BIG_THRESHOLD) {
+    return { kind: 'PRICE_BIG', borderClass: 'border-l-red-400', pillClass: 'bg-red-50 text-red-700 border border-red-200', label: item.formatMismatch ? 'Format mismatch' : `${diff > 0 ? '+' : ''}${(item.priceDiffPct ? Number(item.priceDiffPct) : 0).toFixed(1)}%`, short: 'Price ↑↑' }
+  }
+  if (diff > PRICE_SMALL_THRESHOLD) {
+    const sign = item.priceDiffPct && Number(item.priceDiffPct) > 0 ? '+' : ''
+    return { kind: 'PRICE_SMALL', borderClass: 'border-l-amber-400', pillClass: 'bg-amber-50 text-amber-700 border border-amber-200', label: `${sign}${(item.priceDiffPct ? Number(item.priceDiffPct) : 0).toFixed(1)}%`, short: 'Price changed' }
+  }
+  return { kind: 'OK', borderClass: 'border-l-emerald-400', pillClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: 'Match', short: 'Unchanged' }
+}
+
 function ScanItemCard({
   item,
   onUpdate,
@@ -215,6 +253,7 @@ function ScanItemCard({
   revenueCenters,
   sessionRcId,
   onRcChange,
+  compactOk = false,
 }: {
   item: ScanItem
   onUpdate: (updates: Partial<Omit<ScanItem, 'newItemData'> & { newItemData?: Record<string, unknown> | string | null }>) => void
@@ -223,6 +262,7 @@ function ScanItemCard({
   revenueCenters: Array<{ id: string; name: string; color: string }>
   sessionRcId: string | null
   onRcChange: (rcId: string) => void
+  compactOk?: boolean
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<InventorySearchResult[]>([])
@@ -470,16 +510,8 @@ function ScanItemCard({
     setEditingPurchase(false)
   }
 
-  const accentClass =
-    item.action === 'SKIP'           ? 'border-l-gray-200 opacity-50' :
-    item.action === 'CREATE_NEW'     ? 'border-l-purple-400' :
-    editingPurchase                  ? 'border-l-amber-400' :
-    item.action === 'UPDATE_PRICE'   ? 'border-l-blue-400' :
-    item.action === 'ADD_SUPPLIER'   ? 'border-l-green-400' :
-    item.matchConfidence === 'HIGH'  ? 'border-l-green-300' :
-    item.matchConfidence === 'MEDIUM'? 'border-l-yellow-300' :
-    item.matchConfidence === 'LOW'   ? 'border-l-orange-300' :
-                                       'border-l-gray-200'
+  const status = getItemStatus(item)
+  const accentClass = `${status.borderClass}${item.action === 'SKIP' ? ' opacity-50' : ''}`
 
   const priceDiff     = item.priceDiffPct ? Number(item.priceDiffPct) : null
   const newItemFilled = item.action === 'CREATE_NEW' && item.newItemData
@@ -532,22 +564,35 @@ function ScanItemCard({
   return (
     <div className={`bg-white rounded-xl border border-gray-100 border-l-4 ${accentClass} px-3 py-2.5 transition-all`}>
 
-      {/* ── Row 1: Description + skip ── */}
+      {/* ── Row 1: Description + status pill + skip ── */}
       <div className="flex items-start justify-between gap-2">
-        <span className={`font-medium text-sm leading-snug flex-1 min-w-0 ${item.action === 'SKIP' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-          {item.rawDescription}
-        </span>
-        <button
-          onClick={() => onUpdate({ action: item.action === 'SKIP' ? (item.matchedItemId ? 'UPDATE_PRICE' : 'CREATE_NEW') : 'SKIP' })}
-          className={`shrink-0 p-0.5 rounded transition-colors ${item.action === 'SKIP' ? 'text-gray-500 bg-gray-100' : 'text-gray-200 hover:text-red-400'}`}
-          title={item.action === 'SKIP' ? 'Restore' : 'Skip'}
-        >
-          <X size={13} />
-        </button>
+        <div className="flex-1 min-w-0">
+          <span className={`font-medium text-sm leading-snug ${item.action === 'SKIP' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+            {item.rawDescription}
+          </span>
+          {/* In compact-OK mode, show matched inventory name inline so users
+              still know what it resolved to without expanding rows 2/3 */}
+          {compactOk && status.kind === 'OK' && displayName && (
+            <span className="text-xs text-gray-400 ml-1.5">→ {displayName}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${status.pillClass}`}>
+            {status.label}
+          </span>
+          <button
+            onClick={() => onUpdate({ action: item.action === 'SKIP' ? (item.matchedItemId ? 'UPDATE_PRICE' : 'CREATE_NEW') : 'SKIP' })}
+            className={`p-0.5 rounded transition-colors ${item.action === 'SKIP' ? 'text-gray-500 bg-gray-100' : 'text-gray-200 hover:text-red-400'}`}
+            title={item.action === 'SKIP' ? 'Restore' : 'Skip'}
+          >
+            <X size={13} />
+          </button>
+        </div>
       </div>
 
-      {/* ── Row 2: Purchase details (view or edit) ── */}
-      {item.action !== 'SKIP' && (
+      {/* ── Row 2: Purchase details (view or edit) ──
+          Hidden in compact-OK mode unless the user opens edit mode. */}
+      {item.action !== 'SKIP' && (status.kind !== 'OK' || !compactOk || editingPurchase) && (
         <div className="mt-1">
           {/* VIEW MODE — compact summary */}
           {!editingPurchase && (
@@ -745,8 +790,9 @@ function ScanItemCard({
         </div>
       )}
 
-      {/* ── Row 3: Inventory match + price diff ── */}
-      {item.action !== 'SKIP' && (
+      {/* ── Row 3: Inventory match + price diff ──
+          Also hidden in compact-OK mode (matched item name shown in pill area). */}
+      {item.action !== 'SKIP' && (status.kind !== 'OK' || !compactOk) && (
         <div className="flex items-center gap-2 mt-1.5">
           {item.action === 'CREATE_NEW'
             ? <Plus size={11} className="text-purple-400 shrink-0" />
@@ -1563,6 +1609,68 @@ function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileName: st
   const isPdf = file?.fileType === 'application/pdf' || file?.fileName?.endsWith('.pdf')
   const isImage = file?.fileType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file?.fileName ?? '')
 
+  // Per-file viewer state (resets when switching pages)
+  const [zoom, setZoom] = useState(1)
+  const [rotation, setRotation] = useState(0)   // 0 / 90 / 180 / 270
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Reset transforms when switching files
+  useEffect(() => {
+    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 })
+  }, [activeIdx])
+
+  const ZOOM_STEP = 0.25
+  const ZOOM_MIN = 0.25
+  const ZOOM_MAX = 5
+  const zoomIn  = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
+  const zoomOut = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
+  const rotateRight = () => setRotation(r => (r + 90) % 360)
+  const rotateLeft  = () => setRotation(r => (r + 270) % 360)
+  const reset = () => { setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }) }
+
+  const fitWidth = () => {
+    const el = containerRef.current
+    if (!el) return
+    // Image natural size unknown without onLoad; just zoom to 1 and let max-w-full handle it
+    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 })
+  }
+
+  // Mouse wheel zoom (Ctrl/Cmd + scroll for safety, plain scroll passes through)
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    if (e.deltaY < 0) zoomIn(); else zoomOut()
+  }
+
+  // Drag-to-pan when zoomed
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom <= 1) return
+    setIsDragging(true)
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
+  }
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !dragStart.current) return
+    setPan({
+      x: dragStart.current.panX + (e.clientX - dragStart.current.x),
+      y: dragStart.current.panY + (e.clientY - dragStart.current.y),
+    })
+  }
+  const stopDrag = () => { setIsDragging(false); dragStart.current = null }
+
+  const Btn = ({ onClick, children, title, disabled }: { onClick: () => void; children: React.ReactNode; title: string; disabled?: boolean }) => (
+    <button
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+    >
+      {children}
+    </button>
+  )
+
   return (
     <div className="flex flex-col bg-gray-50 shrink-0" style={{ width: '460px' }}>
       {/* File tabs (only if multiple files) */}
@@ -1582,14 +1690,49 @@ function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileName: st
         </div>
       )}
 
+      {/* Toolbar — only for images (PDFs use browser-native controls inside iframe) */}
+      {isImage && file?.fileUrl && (
+        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-white shrink-0">
+          <Btn onClick={zoomOut} title="Zoom out (Cmd/Ctrl + scroll)" disabled={zoom <= ZOOM_MIN}><Minus size={14} /></Btn>
+          <span className="text-xs font-mono text-gray-500 w-12 text-center select-none">{Math.round(zoom * 100)}%</span>
+          <Btn onClick={zoomIn} title="Zoom in" disabled={zoom >= ZOOM_MAX}><Plus size={14} /></Btn>
+          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <Btn onClick={rotateLeft} title="Rotate left"><RotateCcw size={14} /></Btn>
+          <Btn onClick={rotateRight} title="Rotate right"><RotateCw size={14} /></Btn>
+          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <Btn onClick={fitWidth} title="Fit to width"><Maximize2 size={14} /></Btn>
+          <button
+            onClick={reset}
+            className="px-2 py-1 ml-auto rounded-md text-[11px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+            title="Reset view"
+          >
+            Reset
+          </button>
+        </div>
+      )}
+
       {/* Image/PDF display */}
-      <div className="flex-1 overflow-auto flex items-start justify-center p-4">
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-hidden flex items-start justify-center p-4 select-none relative"
+        style={{ cursor: isImage && zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={stopDrag}
+        onMouseLeave={stopDrag}
+      >
         {isImage && file?.fileUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={file.fileUrl}
             alt={file.fileName}
-            className="max-w-full rounded-lg shadow-sm border border-gray-200 object-contain"
+            draggable={false}
+            className="max-w-full rounded-lg shadow-sm border border-gray-200 object-contain transition-transform duration-100"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
+              transformOrigin: 'center center',
+            }}
           />
         ) : isPdf && file?.fileUrl ? (
           <iframe
@@ -1642,6 +1785,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const [isAddingItem, setIsAddingItem] = useState(false)
   const [open, setOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<'review' | 'image'>('review')
+  const [statusFilter, setStatusFilter] = useState<ItemStatus | 'ALL'>('ALL')
+  const [compactOk, setCompactOk] = useState(true)
 
   // Editable header fields
   const [editingHeader, setEditingHeader]   = useState(false)
@@ -1977,6 +2122,17 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     const totalItems = session.scanItems.length
     const skipCount = actionCounts['SKIP'] || 0
     const activeItems = totalItems - skipCount
+
+    // Status taxonomy counts (for filter chips). Uses the same getItemStatus()
+    // helper as the cards so badges and chips always agree.
+    const statusOf = session.scanItems.map(i => ({ id: i.id, kind: getItemStatus(i).kind }))
+    const statusCounts: Record<ItemStatus, number> = {
+      OK: 0, PRICE_SMALL: 0, PRICE_BIG: 0, NEW: 0, UNMATCHED: 0, SKIPPED: 0,
+    }
+    for (const s of statusOf) statusCounts[s.kind]++
+    const filteredItems = statusFilter === 'ALL'
+      ? session.scanItems
+      : session.scanItems.filter(i => getItemStatus(i).kind === statusFilter)
 
     // Invoice total validation
     const WVSET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
@@ -2348,9 +2504,50 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               )
             })()}
 
-            {/* Line items */}
+            {/* Filter chips — keep invoice order, just narrow what's shown */}
+            {session.scanItems.length > 0 && (() => {
+              const Chip = ({ value, label, count, dot }: { value: ItemStatus | 'ALL'; label: string; count: number; dot?: string }) => (
+                count === 0 && value !== 'ALL' ? null : (
+                  <button
+                    onClick={() => setStatusFilter(value)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+                      statusFilter === value
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
+                    {label} <span className={statusFilter === value ? 'text-gray-300' : 'text-gray-400'}>{count}</span>
+                  </button>
+                )
+              )
+              return (
+                <div className="px-3 py-2 flex items-center gap-1.5 flex-wrap border-t border-gray-100 bg-gray-50/50">
+                  <Chip value="ALL"          label="All"        count={totalItems} />
+                  <Chip value="OK"           label="Unchanged"  count={statusCounts.OK}          dot="bg-emerald-400" />
+                  <Chip value="PRICE_SMALL"  label="Price Δ"    count={statusCounts.PRICE_SMALL} dot="bg-amber-400" />
+                  <Chip value="PRICE_BIG"    label="Price ↑↑"   count={statusCounts.PRICE_BIG}   dot="bg-red-400" />
+                  <Chip value="NEW"          label="New"        count={statusCounts.NEW}         dot="bg-purple-400" />
+                  <Chip value="UNMATCHED"    label="Unmatched"  count={statusCounts.UNMATCHED}   dot="bg-gray-300" />
+                  <Chip value="SKIPPED"      label="Skipped"    count={statusCounts.SKIPPED}     dot="bg-gray-300" />
+                  {statusCounts.OK > 0 && (
+                    <label className="ml-auto flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={compactOk}
+                        onChange={e => setCompactOk(e.target.checked)}
+                        className="w-3 h-3 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gold"
+                      />
+                      Compact unchanged
+                    </label>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* Line items — invoice order preserved */}
             <div className="divide-y divide-gray-50">
-              {session.scanItems.map(item => (
+              {filteredItems.map(item => (
                 <div key={item.id} className="px-3 py-0.5">
                   <ScanItemCard
                     item={item}
@@ -2360,9 +2557,15 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                     revenueCenters={revenueCenters}
                     sessionRcId={sessionRcId}
                     onRcChange={(rcId) => updateScanItem(item.id, { revenueCenterId: rcId })}
+                    compactOk={compactOk}
                   />
                 </div>
               ))}
+              {filteredItems.length === 0 && session.scanItems.length > 0 && (
+                <div className="py-8 text-center text-sm text-gray-400">
+                  No items in this filter. <button onClick={() => setStatusFilter('ALL')} className="text-blue-500 hover:underline">Show all</button>
+                </div>
+              )}
               {session.scanItems.length === 0 && (
                 <div className="py-8 text-center text-sm text-gray-400">
                   {session.files?.some(f => f.ocrStatus === 'ERROR')
