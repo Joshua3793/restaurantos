@@ -27,15 +27,15 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
   const [isCreating, setIsCreating] = useState(false)
   const [noApiKey, setNoApiKey] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [uploadStep, setUploadStep] = useState<string | null>(null)
   const [uploadMode, setUploadMode] = useState<'file' | 'camera'>('file')
   const [showCamera, setShowCamera] = useState(false)
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-
   const utErrorRef = useRef<string | null>(null)
 
-  const { startUpload, isUploading } = useUploadThing('invoiceUploader', {
+  const { startUpload } = useUploadThing('invoiceUploader', {
     onUploadError: (err) => {
       utErrorRef.current = err.message ?? 'Upload service error'
     },
@@ -82,26 +82,32 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     if (files.length === 0) return
     setIsCreating(true)
     setScanError(null)
+    setUploadStep(null)
     setNoApiKey(false)
 
     try {
-      // 1. Create session — tag with the active RC so it's attributable from upload
+      // 1. Create session
+      setUploadStep('Creating session…')
       const sessRes = await fetch('/api/invoices/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ revenueCenterId: activeRcId }),
       })
       if (!sessRes.ok) {
-        setScanError('Could not create invoice session. Please try again.')
+        setScanError(`Session error (${sessRes.status}). Please try again.`)
         return
       }
       const sess = await sessRes.json()
 
-      // 2a. Try UploadThing CDN first
+      // 2a. Try UploadThing CDN (with 30s timeout so it can't hang forever)
       let uploadOk = false
       utErrorRef.current = null
+      setUploadStep('Uploading to cloud…')
       try {
-        const uploaded = await startUpload(files)
+        const uploaded = await Promise.race([
+          startUpload(files),
+          new Promise<null>((_, rej) => setTimeout(() => rej(new Error('UploadThing timeout')), 30_000)),
+        ])
         if (uploaded?.length) {
           const regRes = await fetch(`/api/invoices/sessions/${sess.id}/upload`, {
             method: 'POST',
@@ -112,21 +118,23 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           })
           if (regRes.ok) uploadOk = true
         }
-      } catch { /* fall through to local */ }
+      } catch (utErr) {
+        utErrorRef.current = utErr instanceof Error ? utErr.message : 'Upload service error'
+        // fall through to local
+      }
 
-      // 2b. Local fallback — used when UPLOADTHING_TOKEN is missing or upload failed
+      // 2b. Local fallback — stores file as base64; works for files under ~3.5 MB
       if (!uploadOk) {
         const totalBytes = files.reduce((s, f) => s + f.size, 0)
-        if (totalBytes > 4 * 1024 * 1024) {
-          // File too large for the server-side fallback route (Vercel 4.5 MB limit).
-          // The fix is to add UPLOADTHING_TOKEN to your Vercel environment variables.
+        if (totalBytes > 3.5 * 1024 * 1024) {
           setScanError(
-            `File too large for direct upload (${(totalBytes / 1024 / 1024).toFixed(1)} MB). ` +
-            `Add UPLOADTHING_TOKEN to your Vercel environment variables to enable cloud uploads.` +
-            (utErrorRef.current ? ` Upload service error: ${utErrorRef.current}` : '')
+            `File too large for upload (${(totalBytes / 1024 / 1024).toFixed(1)} MB).` +
+            (utErrorRef.current ? ` Cloud upload error: ${utErrorRef.current}.` : '') +
+            ` Try a smaller file or compress the image.`
           )
           return
         }
+        setUploadStep('Uploading…')
         const fd = new FormData()
         files.forEach(f => fd.append('files', f))
         const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
@@ -137,7 +145,10 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           uploadOk = true
         } else {
           const errBody = await localRes.json().catch(() => ({}))
-          setScanError(errBody.error ?? `File upload failed (${localRes.status}). Please try again.`)
+          setScanError(
+            errBody.error ??
+            `Upload failed (${localRes.status}).${utErrorRef.current ? ` Cloud error: ${utErrorRef.current}.` : ''} Please try again.`
+          )
           return
         }
       }
@@ -150,9 +161,10 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
       // 4. Close modal and open drawer on new session
       onComplete(sess.id)
     } catch (err) {
-      setScanError('Unexpected error. Please try again.')
+      setScanError(`Unexpected error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setIsCreating(false)
+      setUploadStep(null)
     }
   }
 
@@ -336,11 +348,11 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           <div className="px-5 py-4 border-t border-gray-100 shrink-0">
             <button
               onClick={handleStartScan}
-              disabled={files.length === 0 || isCreating || isUploading}
+              disabled={files.length === 0 || isCreating}
               className="w-full bg-gold text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-[#a88930] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {(isCreating || isUploading) ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
-              {isUploading ? 'Uploading…' : isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} ${files.length > 1 ? 'pages' : 'file'}` : 'Invoice'}`}
+              {isCreating ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
+              {uploadStep ?? (isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} ${files.length > 1 ? 'pages' : 'file'}` : 'Invoice'}`)}
             </button>
           </div>
         </div>
