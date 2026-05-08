@@ -245,6 +245,45 @@ function getItemStatus(item: ScanItem): StatusInfo {
   return { kind: 'OK', borderClass: 'border-l-emerald-400', pillClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: 'Match', short: 'Unchanged' }
 }
 
+// ── PriceHistorySparkline ─────────────────────────────────────────────────────
+// Compact inline SVG showing the last several unit prices for a matched item.
+// Renders nothing if there are fewer than 2 points.
+type PricePoint = { date: string | null; supplierName: string | null; unitPrice: number }
+function PriceHistorySparkline({ points }: { points: PricePoint[] }) {
+  if (!points || points.length < 2) return null
+
+  // Points come newest-first from the API; reverse to chronological for the line.
+  const chrono = [...points].reverse()
+  const W = 60, H = 16, PAD = 2
+  const prices = chrono.map(p => p.unitPrice)
+  const min = Math.min(...prices), max = Math.max(...prices)
+  const range = max - min || 1
+  const step = chrono.length > 1 ? (W - PAD * 2) / (chrono.length - 1) : 0
+
+  const x = (i: number) => PAD + i * step
+  const y = (v: number) => H - PAD - ((v - min) / range) * (H - PAD * 2)
+  const path = chrono.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(p.unitPrice).toFixed(1)}`).join(' ')
+
+  // Trend color from first→last
+  const trend = chrono[chrono.length - 1].unitPrice - chrono[0].unitPrice
+  const stroke = Math.abs(trend) < 0.01 * chrono[0].unitPrice ? '#9ca3af' : trend > 0 ? '#ef4444' : '#10b981'
+
+  const tooltip = chrono.map(p =>
+    `${p.date ? p.date.slice(0, 10) : '?'}: $${p.unitPrice.toFixed(2)}${p.supplierName ? ` · ${p.supplierName}` : ''}`
+  ).join('\n')
+
+  return (
+    <span title={tooltip} className="inline-flex items-center shrink-0" aria-label={`Price trend: ${chrono.length} points`}>
+      <svg width={W} height={H} className="opacity-80">
+        <path d={path} stroke={stroke} strokeWidth={1.25} fill="none" strokeLinejoin="round" strokeLinecap="round" />
+        {chrono.map((p, i) => (
+          <circle key={i} cx={x(i)} cy={y(p.unitPrice)} r={1.2} fill={stroke} />
+        ))}
+      </svg>
+    </span>
+  )
+}
+
 function ScanItemCard({
   item,
   onUpdate,
@@ -257,6 +296,7 @@ function ScanItemCard({
   editRequestId = null,
   editRequestTick = 0,
   onRequestNextAttention,
+  priceHistory,
 }: {
   item: ScanItem
   onUpdate: (updates: Partial<Omit<ScanItem, 'newItemData'> & { newItemData?: Record<string, unknown> | string | null }>) => void
@@ -269,6 +309,7 @@ function ScanItemCard({
   editRequestId?: string | null
   editRequestTick?: number
   onRequestNextAttention?: (currentId: string) => void
+  priceHistory?: PricePoint[]
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<InventorySearchResult[]>([])
@@ -1046,6 +1087,9 @@ function ScanItemCard({
                   </span>
                   <span className="text-[10px] text-gray-300 group-hover:text-blue-400 shrink-0 transition-colors">change</span>
                 </button>
+                {priceHistory && priceHistory.length >= 2 && (
+                  <PriceHistorySparkline points={priceHistory} />
+                )}
               </div>
 
               {/* Price diff */}
@@ -2029,6 +2073,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const [isApproving, setIsApproving] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
+  // Map of inventoryItemId → recent price points, used for inline sparklines
+  const [priceHistoryMap, setPriceHistoryMap] = useState<Record<string, PricePoint[]>>({})
   const [approvedBy, setApprovedBy] = useState(() =>
     typeof window !== 'undefined' ? localStorage.getItem('approvedBy') ?? '' : ''
   )
@@ -2120,14 +2166,40 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     if (sessionId) {
       setOpen(true)
       setApproveResult(null)
+      setPriceHistoryMap({})
       fetchSession(sessionId)
     } else {
       setOpen(false)
       // Give animation time to complete before clearing session
-      const t = setTimeout(() => setSession(null), 200)
+      const t = setTimeout(() => { setSession(null); setPriceHistoryMap({}) }, 200)
       return () => clearTimeout(t)
     }
   }, [sessionId, fetchSession])
+
+  // Batch-fetch price history once we have matched item IDs.
+  // Re-fetches when the matched-item set changes (e.g. user changes a match).
+  useEffect(() => {
+    if (!session) return
+    const ids = Array.from(new Set(
+      session.scanItems.map(i => i.matchedItemId).filter((x): x is string => !!x)
+    ))
+    if (ids.length === 0) return
+    // Skip ids already loaded
+    const missing = ids.filter(id => !(id in priceHistoryMap))
+    if (missing.length === 0) return
+    let cancelled = false
+    fetch(`/api/inventory/price-history?ids=${encodeURIComponent(missing.join(','))}`)
+      .then(r => r.ok ? r.json() : {})
+      .then((data: Record<string, PricePoint[]>) => {
+        if (cancelled) return
+        setPriceHistoryMap(prev => ({ ...prev, ...data }))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+    // We intentionally only depend on the set of matched ids, not priceHistoryMap,
+    // to avoid re-fetching every time the map updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.scanItems.map(i => i.matchedItemId).filter(Boolean).sort().join(',')])
 
   // Poll while uploading or processing
   useEffect(() => {
@@ -2918,6 +2990,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                     sessionRcId={sessionRcId}
                     onRcChange={(rcId) => updateScanItem(item.id, { revenueCenterId: rcId })}
                     compactOk={compactOk}
+                    priceHistory={item.matchedItemId ? priceHistoryMap[item.matchedItemId] : undefined}
                     editRequestId={editRequest.id}
                     editRequestTick={editRequest.tick}
                     onRequestNextAttention={(currentId) => {
