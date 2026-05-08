@@ -2,7 +2,34 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// ──────────────────────────────────────────────────────────────────────────
+// SAFETY GUARD — refuse to run against any non-local database.
+// This script issues `deleteMany()` against every major table; running it
+// against Supabase or any other shared/production DB would wipe live data.
+// To run intentionally against a local sqlite or postgres, set:
+//   ALLOW_DESTRUCTIVE_SEED=1
+// ──────────────────────────────────────────────────────────────────────────
+function assertSafeToSeed() {
+  const url = process.env.DATABASE_URL ?? ''
+  const allow = process.env.ALLOW_DESTRUCTIVE_SEED === '1'
+
+  const isLocal =
+    url.startsWith('file:') ||
+    url.includes('localhost') ||
+    url.includes('127.0.0.1')
+
+  if (!allow && !isLocal) {
+    console.error('\n🛑 REFUSING TO SEED — DATABASE_URL does not look local.')
+    console.error('   This script wipes every major table before reseeding.')
+    console.error('   DATABASE_URL =', url.replace(/:[^:@/]+@/, ':***@'))
+    console.error('   To override, set ALLOW_DESTRUCTIVE_SEED=1 (DO NOT do this against production).\n')
+    process.exit(1)
+  }
+}
+
 async function main() {
+  assertSafeToSeed()
+
   // Clean up
   await prisma.wastageLog.deleteMany()
   await prisma.recipeIngredient.deleteMany()
