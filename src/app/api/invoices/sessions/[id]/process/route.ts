@@ -193,6 +193,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             needsFormatConfirm: item.needsFormatConfirm,
             totalQty:           item.totalQty    ?? null,
             totalQtyUOM:        item.totalQtyUOM ?? null,
+            ocrConfidence:      item.confidence       ?? null,
+            ocrNotes:           item.confidenceNotes  ?? null,
             sortOrder:          i,
           })),
         })

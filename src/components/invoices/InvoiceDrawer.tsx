@@ -732,6 +732,15 @@ function ScanItemCard({
           <span className={`font-medium text-sm leading-snug ${item.action === 'SKIP' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
             {item.rawDescription}
           </span>
+          {/* OCR low-confidence indicator — surfaces Claude's own uncertainty */}
+          {item.ocrConfidence === 'low' && (
+            <span
+              className="inline-flex items-center align-middle ml-1.5 text-amber-500"
+              title={item.ocrNotes ? `OCR uncertain: ${item.ocrNotes}` : 'OCR uncertain — double-check the values below'}
+            >
+              <AlertCircle size={12} />
+            </span>
+          )}
           {/* In compact-OK mode, show matched inventory name inline so users
               still know what it resolved to without expanding rows 2/3 */}
           {compactOk && status.kind === 'OK' && displayName && (

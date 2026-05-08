@@ -90,7 +90,9 @@ Return ONLY valid JSON (no markdown, no explanation):
       "unitPrice": number or null,
       "lineTotal": number or null,
       "rate": number or null,
-      "totalQty": number or null
+      "totalQty": number or null,
+      "confidence": "low" | "medium" | "high",
+      "confidenceNotes": "string or null"
     }
   ]
 }
@@ -128,6 +130,28 @@ For every extracted line item verify the math before including it:
   qty × unitPrice ≈ lineTotal (within 5%) — if this fails, you read qty or price from the wrong row; fix it
   For weight items: totalQty × rate ≈ lineTotal (within 5%) — if this fails, re-examine the row
 If a cross-check fails, correct the error rather than outputting bad data.
+
+═══════════════════════════════════════════════════════
+CONFIDENCE — score each line so the user can spot OCR uncertainty:
+═══════════════════════════════════════════════════════
+Set "confidence" to one of:
+  "high"   — all fields are clearly legible AND the cross-check (qty × unitPrice ≈ lineTotal)
+             passes within 1%. This is the default for typical clean invoices.
+  "medium" — one or more values were partially obscured / handwritten / faded but you
+             could still extract them with reasonable certainty, OR the cross-check
+             passes only within 5%.
+  "low"    — at least one numeric field (qty, packSize, unitPrice, lineTotal) is
+             genuinely hard to read (smudged, cut off, ambiguous digits like 0/8 or 1/7),
+             OR the cross-check fails by more than 5%, OR the line is a borderline
+             skip-vs-product judgment call.
+
+When confidence is "low", also fill "confidenceNotes" with a short reason
+(under 50 chars) like "smudged unit price", "ambiguous 5 vs 6 in qty",
+"line total cut off", or "handwritten — values uncertain". Otherwise set
+confidenceNotes to null.
+
+Do NOT mark a line "low" just because a field was null — only flag uncertainty
+when an extracted value might be wrong.
 
 ═══════════════════════════════════════════════════════
 SKIP RULES — lines that are NEVER products:
@@ -450,6 +474,11 @@ export interface OcrLineItem {
   lineTotal: number | null
   rate: number | null       // per-UOM rate shown on invoice (e.g. 9.90 for $9.90/kg)
   totalQty: number | null   // ACTUAL total weight/volume delivered for this line
+  // Self-reported confidence in this line's extracted values. Used to flag
+  // uncertain rows in the review UI.
+  confidence?: 'low' | 'medium' | 'high'
+  // Short reason if confidence is 'low' (e.g. "blurry total column", "OCR'd qty hard to read")
+  confidenceNotes?: string | null
 }
 
 export interface OcrResult {

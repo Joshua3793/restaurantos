@@ -53,6 +53,8 @@ export interface ScanItem {
   totalQtyUOM: string | null
   revenueCenterId?: string | null
   sortOrder: number
+  ocrConfidence?: 'low' | 'medium' | 'high' | null
+  ocrNotes?: string | null
 }
 
 // Full session — returned by GET /api/invoices/sessions/[id]
