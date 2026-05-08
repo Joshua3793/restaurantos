@@ -2210,13 +2210,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(session?.scanItems ?? []).map(i => i.matchedItemId).filter(Boolean).sort().join(',')])
 
-  // Poll while uploading or processing
+  // Poll while uploading, processing, or approving
   useEffect(() => {
-    const shouldPoll = session?.status === 'PROCESSING' || session?.status === 'UPLOADING'
+    const shouldPoll = session?.status === 'PROCESSING' || session?.status === 'UPLOADING' || session?.status === 'APPROVING'
     if (shouldPoll) {
       pollRef.current = setInterval(async () => {
         const s = await fetchSession(session!.id)
-        if (!s || (s.status !== 'PROCESSING' && s.status !== 'UPLOADING')) {
+        if (!s || (s.status !== 'PROCESSING' && s.status !== 'UPLOADING' && s.status !== 'APPROVING')) {
           if (pollRef.current) clearInterval(pollRef.current)
         }
       }, 2000)
@@ -2268,19 +2268,28 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     }
 
     setIsApproving(true)
-    const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    const result = await res.json()
-    setIsApproving(false)
-    if (result.queued) {
-      // Background approval started — close drawer so user can review other invoices
-      onApproveOrReject()
-      onClose()
-    } else {
-      setApproveResult(result)
-      onApproveOrReject()
+    try {
+      const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        alert(`Approval failed: ${result.error ?? res.statusText}`)
+        return
+      }
+      if (result.queued) {
+        // Background approval started — close drawer so user can review other invoices
+        onApproveOrReject()
+        onClose()
+      } else {
+        setApproveResult(result)
+        onApproveOrReject()
+      }
+    } catch (err) {
+      alert('Network error — please try again.')
+    } finally {
+      setIsApproving(false)
     }
   }
 
@@ -2419,6 +2428,16 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
   // ── renderApproving ─────────────────────────────────────────────────────────
 
+  const handleResetApproving = async () => {
+    if (!session) return
+    await fetch(`/api/invoices/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'REVIEW' }),
+    })
+    await fetchSession(session.id)
+  }
+
   const renderApproving = () => (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-xl mx-auto space-y-6 text-center">
@@ -2433,6 +2452,12 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           <Loader2 size={14} className="animate-spin" />
           Working…
         </div>
+        <button
+          onClick={handleResetApproving}
+          className="text-xs text-gray-400 underline hover:text-gray-600 mt-4"
+        >
+          Stuck? Reset to review
+        </button>
       </div>
     </div>
   )
