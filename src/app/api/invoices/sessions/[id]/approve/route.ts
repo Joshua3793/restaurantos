@@ -11,11 +11,20 @@ export const maxDuration = 60
 const WEIGHT_VOL_SET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
 const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.has(uom.toLowerCase())
 
+interface ApproveResult {
+  itemsUpdated: number
+  newItemsCreated: number
+  priceAlerts: number
+  recipeAlerts: number
+}
+
 async function doApprove(
   sessionId: string,
   approvedBy: string,
   session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
-): Promise<void> {
+): Promise<ApproveResult> {
+  let priceAlertsCreated = 0
+  let newItemsCreated = 0
   try {
     const itemsToProcess = session.scanItems.filter(
       item => item.action !== 'SKIP' && item.action !== 'PENDING'
@@ -104,6 +113,7 @@ async function doApprove(
               },
             })
           )
+          priceAlertsCreated++
         }
 
         await prisma.$transaction(itemOps)
@@ -161,6 +171,7 @@ async function doApprove(
           },
         })
         updatedItemIds.push(created.id)
+        newItemsCreated++
         await prisma.invoiceScanItem.update({
           where: { id: scanItem.id },
           data: { matchedItemId: created.id, approved: true },
@@ -252,14 +263,24 @@ async function doApprove(
     )
 
     // ── Recalculate recipe costs for changed items ──────────────────────
+    let recipeAlertsCreated = 0
     if (updatedItemIds.length > 0) {
-      await recalculateRecipeCosts(updatedItemIds, sessionId)
+      const alerts = await recalculateRecipeCosts(updatedItemIds, sessionId)
+      recipeAlertsCreated = alerts.length
+    }
+
+    return {
+      itemsUpdated:    updatedItemIds.length - newItemsCreated,
+      newItemsCreated,
+      priceAlerts:     priceAlertsCreated,
+      recipeAlerts:    recipeAlertsCreated,
     }
   } catch (err) {
     await prisma.invoiceSession.update({
       where: { id: sessionId },
       data: { status: 'REVIEW', errorMessage: String(err).slice(0, 500) },
     })
+    throw err
   }
 }
 
@@ -289,17 +310,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Session is not in REVIEW state' }, { status: 400 })
   }
 
-  // Set APPROVING synchronously so the client knows work has started
-  await prisma.invoiceSession.update({
-    where: { id: params.id },
-    data: { status: 'APPROVING' },
-  })
-
-  // NOTE: fire-and-forget in serverless. On Vercel, the Node process is kept
-  // alive until microtasks drain after the response is sent — background work
-  // completes for normal invoice sizes. Long invoices should use a queue.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  doApprove(params.id, approvedBy, session as any).catch(() => {})
+  const result = await doApprove(params.id, approvedBy, session as any)
 
-  return NextResponse.json({ ok: true, queued: true })
+  return NextResponse.json({ ok: true, ...result })
 }
