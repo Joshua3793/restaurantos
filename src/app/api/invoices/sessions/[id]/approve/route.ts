@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { calcPricePerBaseUnit, getUnitConv } from '@/lib/utils'
 import { requireSession, AuthError } from '@/lib/auth'
 
-// Allow up to 60s on Vercel so fire-and-forget work completes before the process exits
+// Give background work up to 60s after the response is sent
 export const maxDuration = 60
 
 const WEIGHT_VOL_SET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
@@ -310,8 +311,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Session is not in REVIEW state' }, { status: 400 })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await doApprove(params.id, approvedBy, session as any)
+  // Set APPROVING synchronously so the client can show a "processing" state
+  await prisma.invoiceSession.update({
+    where: { id: params.id },
+    data: { status: 'APPROVING' },
+  })
 
-  return NextResponse.json({ ok: true, ...result })
+  // waitUntil keeps the Vercel function alive until doApprove finishes,
+  // even after the response has been sent to the client.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  waitUntil(doApprove(params.id, approvedBy, session as any).catch(() => {}))
+
+  return NextResponse.json({ ok: true, queued: true })
 }

@@ -2008,8 +2008,14 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     })
     const result = await res.json()
     setIsApproving(false)
-    setApproveResult(result)
-    onApproveOrReject()
+    if (result.queued) {
+      // Background approval started — close drawer so user can review other invoices
+      onApproveOrReject()
+      onClose()
+    } else {
+      setApproveResult(result)
+      onApproveOrReject()
+    }
   }
 
   const handleReject = async () => {
