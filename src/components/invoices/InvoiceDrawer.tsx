@@ -845,42 +845,123 @@ function ScanItemCard({
         </div>
       )}
 
-      {/* ── Row 3: Inventory match + price diff ──
-          Also hidden in compact-OK mode (matched item name shown in pill area). */}
+      {/* ── Row 3: Inventory match ──
+          Three visual states: matched, unmatched/searching, create-new.
+          Hidden in compact-OK mode (matched name already shown inline in row 1). */}
       {item.action !== 'SKIP' && (status.kind !== 'OK' || !compactOk) && (
-        <div className="flex items-center gap-2 mt-1.5">
-          {item.action === 'CREATE_NEW'
-            ? <Plus size={11} className="text-purple-400 shrink-0" />
-            : <ArrowRight size={11} className="text-gray-300 shrink-0" />
-          }
+        <div ref={searchRef} className="relative mt-2">
 
-          {/* Search combobox */}
-          <div ref={searchRef} className="relative flex-1 min-w-0">
-            <div
-              className="flex items-center gap-1.5 cursor-pointer group"
-              onClick={() => { if (!showDropdown) handleSearchFocus() }}
-            >
-              <input
-                className={`flex-1 text-xs font-medium outline-none bg-transparent min-w-0 truncate ${
-                  item.action === 'CREATE_NEW' ? 'text-purple-700 placeholder-purple-300' :
-                  item.matchedItemId ? 'text-gray-800' : 'text-gray-400'
-                } ${showDropdown ? 'cursor-text' : 'cursor-pointer'}`}
-                placeholder={item.action === 'CREATE_NEW' ? 'Create new item…' : 'Search inventory…'}
-                value={showDropdown ? searchQuery : (displayName ?? (item.action === 'CREATE_NEW' ? 'Create new inventory item' : 'No match — tap to search'))}
-                onChange={e => handleSearchInput(e.target.value)}
-                onFocus={handleSearchFocus}
-              />
-              {isSearching
-                ? <Loader2 size={10} className="animate-spin text-gray-300 shrink-0" />
-                : <ChevronRight size={10} className={`text-gray-200 group-hover:text-gray-400 shrink-0 transition-transform ${showDropdown ? 'rotate-90' : ''}`} />
-              }
+          {/* ── CREATE NEW state ── */}
+          {item.action === 'CREATE_NEW' && !showDropdown && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-purple-50 border border-purple-100">
+                <Plus size={12} className="text-purple-400 shrink-0" />
+                <span className="text-xs font-medium text-purple-700 truncate">Will create new inventory item</span>
+              </div>
+              <button
+                onClick={onOpenDetail}
+                className={`shrink-0 text-[11px] px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${
+                  newItemFilled
+                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                }`}
+              >
+                {newItemFilled ? 'Edit details' : 'Fill in ⚠'}
+              </button>
+              <button
+                onClick={() => handleSearchFocus()}
+                className="shrink-0 text-[11px] px-2.5 py-1.5 rounded-lg font-medium text-gray-500 hover:bg-gray-100 border border-gray-200 transition-colors"
+                title="Search inventory instead"
+              >
+                Link instead
+              </button>
             </div>
+          )}
 
-            {/* Dropdown */}
-            {showDropdown && (
+          {/* ── MATCHED state ── */}
+          {item.matchedItemId && item.action !== 'CREATE_NEW' && !showDropdown && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <ArrowRight size={11} className="text-gray-300 shrink-0" />
+                <button
+                  onClick={() => handleSearchFocus()}
+                  className="flex items-center gap-1.5 min-w-0 group"
+                >
+                  <span className="text-xs font-semibold text-gray-800 truncate group-hover:text-blue-600 transition-colors">
+                    {displayName}
+                  </span>
+                  <span className="text-[10px] text-gray-300 group-hover:text-blue-400 shrink-0 transition-colors">change</span>
+                </button>
+              </div>
+
+              {/* Price diff */}
+              {item.action === 'UPDATE_PRICE' && priceDiff !== null && item.previousPrice !== null && item.newPrice !== null && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-[11px] text-gray-400 line-through">{formatCurrency(Number(item.previousPrice))}</span>
+                  <ArrowRight size={9} className="text-gray-300" />
+                  <span className={`text-[11px] font-bold ${priceDiff > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {formatCurrency(Number(item.newPrice))}
+                  </span>
+                  <span className={`text-[10px] font-semibold flex items-center ${priceDiff > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                    {priceDiff > 0 ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
+                    {Math.abs(priceDiff).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+
+              {/* Edit inventory item button */}
+              {(item.action === 'UPDATE_PRICE' || item.action === 'ADD_SUPPLIER') && (
+                <button
+                  onClick={() => onEditInventory(item.matchedItemId!, item)}
+                  className="shrink-0 text-gray-300 hover:text-blue-500 transition-colors"
+                  title="Edit inventory item"
+                >
+                  <Pencil size={11} />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ── UNMATCHED state (no match, not create-new, not searching) ── */}
+          {!item.matchedItemId && item.action !== 'CREATE_NEW' && !showDropdown && (
+            <button
+              onClick={() => handleSearchFocus()}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-gray-400 hover:text-blue-600 transition-colors group"
+            >
+              <ArrowRight size={12} className="shrink-0" />
+              <span className="flex-1 text-left text-xs font-medium">Link to inventory item…</span>
+              <ChevronRight size={12} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          )}
+
+          {/* ── SEARCH state (dropdown open) ── */}
+          {showDropdown && (
+            <>
+              <div className="flex items-center gap-1.5 border border-blue-300 rounded-lg bg-white px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-blue-200">
+                {isSearching
+                  ? <Loader2 size={12} className="animate-spin text-blue-400 shrink-0" />
+                  : <ArrowRight size={12} className="text-blue-400 shrink-0" />
+                }
+                <input
+                  autoFocus
+                  className="flex-1 text-xs font-medium outline-none bg-transparent min-w-0"
+                  placeholder="Search inventory…"
+                  value={searchQuery}
+                  onChange={e => handleSearchInput(e.target.value)}
+                  onFocus={handleSearchFocus}
+                />
+                <button
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => setShowDropdown(false)}
+                  className="text-gray-300 hover:text-gray-500 shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+
               <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-56 overflow-y-auto">
                 {searchResults.length === 0 && !isSearching && (
-                  <p className="text-xs text-gray-400 px-3 py-2">No items found</p>
+                  <p className="text-xs text-gray-400 px-3 py-2.5">No items found</p>
                 )}
                 {searchResults.map(inv => (
                   <button
@@ -890,7 +971,7 @@ function ScanItemCard({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-gray-900 truncate">{inv.itemName}</p>
+                        <p className="text-xs font-semibold text-gray-900 truncate">{inv.itemName}</p>
                         <p className="text-[10px] text-gray-400">{inv.purchaseUnit} · {inv.category}</p>
                       </div>
                       <span className="text-xs text-gray-500 shrink-0">{formatCurrency(Number(inv.purchasePrice))}</span>
@@ -899,52 +980,14 @@ function ScanItemCard({
                 ))}
                 <button
                   onMouseDown={e => { e.preventDefault(); handleSelectCreateNew() }}
-                  className="w-full text-left px-3 py-2 hover:bg-purple-50 transition-colors flex items-center gap-2"
+                  className="w-full text-left px-3 py-2.5 hover:bg-purple-50 transition-colors flex items-center gap-2 border-t border-gray-100"
                 >
-                  <Plus size={12} className="text-purple-500" />
-                  <span className="text-xs font-medium text-purple-700">Create new inventory item</span>
+                  <Plus size={12} className="text-purple-500 shrink-0" />
+                  <span className="text-xs font-semibold text-purple-700">Create new inventory item</span>
                 </button>
               </div>
-            )}
-          </div>
-
-          {/* Price diff: old → new + % */}
-          {item.action === 'UPDATE_PRICE' && priceDiff !== null && item.previousPrice !== null && item.newPrice !== null && (
-            <div className="flex items-center gap-1 shrink-0 text-xs">
-              <span className="text-gray-400">{formatCurrency(Number(item.previousPrice))}</span>
-              <ArrowRight size={9} className="text-gray-300" />
-              <span className={`font-semibold ${priceDiff > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {formatCurrency(Number(item.newPrice))}
-              </span>
-              <span className={`flex items-center font-bold text-[10px] ${priceDiff > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                {priceDiff > 0 ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
-                {Math.abs(priceDiff).toFixed(1)}%
-              </span>
-            </div>
+            </>
           )}
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-1 shrink-0">
-            {item.action === 'CREATE_NEW' && (
-              <button
-                onClick={onOpenDetail}
-                className={`text-[10px] px-2 py-0.5 rounded-lg font-medium transition-colors ${
-                  newItemFilled ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                }`}
-              >
-                {newItemFilled ? 'Edit' : 'Fill in'}
-              </button>
-            )}
-            {(item.action === 'UPDATE_PRICE' || item.action === 'ADD_SUPPLIER') && item.matchedItemId && (
-              <button
-                onClick={() => onEditInventory(item.matchedItemId!, item)}
-                className="text-gray-200 hover:text-blue-500 transition-colors"
-                title="Edit inventory item"
-              >
-                <Pencil size={11} />
-              </button>
-            )}
-          </div>
         </div>
       )}
 
