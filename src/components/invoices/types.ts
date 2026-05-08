@@ -52,6 +52,7 @@ export interface ScanItem {
   totalQty: string | null
   totalQtyUOM: string | null
   revenueCenterId?: string | null
+  sortOrder: number
 }
 
 // Full session — returned by GET /api/invoices/sessions/[id]

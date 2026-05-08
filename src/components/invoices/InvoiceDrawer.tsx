@@ -254,6 +254,9 @@ function ScanItemCard({
   sessionRcId,
   onRcChange,
   compactOk = false,
+  editRequestId = null,
+  editRequestTick = 0,
+  onRequestNextAttention,
 }: {
   item: ScanItem
   onUpdate: (updates: Partial<Omit<ScanItem, 'newItemData'> & { newItemData?: Record<string, unknown> | string | null }>) => void
@@ -263,6 +266,9 @@ function ScanItemCard({
   sessionRcId: string | null
   onRcChange: (rcId: string) => void
   compactOk?: boolean
+  editRequestId?: string | null
+  editRequestTick?: number
+  onRequestNextAttention?: (currentId: string) => void
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<InventorySearchResult[]>([])
@@ -463,13 +469,15 @@ function ScanItemCard({
     setTotalQtyMode(v.trim() === '' ? 'nominal' : 'override')
   }
 
-  // ── Unified save (purchases + format + price diff all at once) ────────────
-  const handlePurchaseSave = () => {
+  // ── Auto-save infrastructure ──────────────────────────────────────────────
+  // Pure: builds the persistable updates from current local state.
+  type SaveUpdates = Parameters<typeof onUpdate>[0]
+  const buildUpdates = useCallback((): SaveUpdates => {
     const cases     = parseFloat(localCases)     || null
     const unitPrice = parseFloat(localUnitPrice) || null
     const manualTotal = parseFloat(localLineTotal) || null
-    const pq  = parseFloat(localPackQty)  || null
-    const ps  = parseFloat(localPackSize) || null
+    const pq   = parseFloat(localPackQty)  || null
+    const ps   = parseFloat(localPackSize) || null
     const pUOM = localPackUOM || null
     const lineTotal = manualTotal ?? (
       cases !== null && unitPrice !== null
@@ -487,17 +495,12 @@ function ScanItemCard({
     if (unitPrice !== null && item.matchedItem) {
       if (pq && ps && Number(ps) > 0 && pUOM) {
         const invoicePPU =
-          pUOM && ps > 0
-            ? (localPriceType === 'PKG' ? unitPrice / ps
-               : localPriceType === 'UOM' ? unitPrice
-               : unitPrice / (pq * ps))  // CASE
-            : unitPrice
+          localPriceType === 'PKG' ? unitPrice / ps
+          : localPriceType === 'UOM' ? unitPrice
+          : unitPrice / (pq * ps)  // CASE
         const invPackTotal2 = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
         const invPPU2 = invPackTotal2 > 0 ? Number(item.matchedItem.purchasePrice) / invPackTotal2 : 0
-        const normalized = comparePricesNormalized(
-          invoicePPU, pUOM,
-          invPPU2, item.matchedItem.packUOM
-        )
+        const normalized = comparePricesNormalized(invoicePPU, pUOM, invPPU2, item.matchedItem.packUOM)
         if (normalized) {
           priceDiffPct = normalized.pctDiff
           const calcPrice = calcNewPurchasePrice(invoicePPU, pUOM, Number(item.matchedItem.qtyPerPurchaseUnit), Number(item.matchedItem.packSize), item.matchedItem.packUOM)
@@ -512,9 +515,9 @@ function ScanItemCard({
       }
     }
 
-    const tq  = parseFloat(localTotalQty)  || null
+    const tq    = parseFloat(localTotalQty) || null
     const tqUOM = localTotalQtyUOM || pUOM || null
-    onUpdate({
+    return {
       rawQty:       cases !== null ? String(cases) : null,
       rawUnit:      localUnit || null,
       rawUnitPrice: unitPrice !== null ? String(unitPrice) : null,
@@ -530,8 +533,95 @@ function ScanItemCard({
       priceDiffPct: priceDiffPct !== null ? String(priceDiffPct) : null,
       action: Math.abs(Number(priceDiffPct ?? 0)) > 0.1 ? 'UPDATE_PRICE'
             : (item.matchedItemId ? 'ADD_SUPPLIER' : item.action),
-    })
+    }
+  }, [localCases, localUnit, localPackQty, localPackSize, localPackUOM,
+      localUnitPrice, localLineTotal, localPriceType, localTotalQty,
+      localTotalQtyUOM, item, onUpdate])
+
+  // Save-status tracking for the auto-save indicator.
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'pending' | 'saving' | 'saved'>('idle')
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initialSnapshotRef = useRef<string | null>(null)
+
+  const savePurchase = useCallback(async () => {
+    setSaveStatus('saving')
+    try {
+      await Promise.resolve(onUpdate(buildUpdates()))
+      setSaveStatus('saved')
+      if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current)
+      savedFlashTimerRef.current = setTimeout(() => setSaveStatus('idle'), 1500)
+    } catch {
+      // onUpdate has its own error handling; if it throws we just stay 'saving'
+      setSaveStatus('idle')
+    }
+  }, [buildUpdates, onUpdate])
+
+  // Watch local state while editing; debounce-save on changes.
+  // Take an initial snapshot when entering edit mode so we don't auto-save
+  // immediately just because the inputs were rendered.
+  useEffect(() => {
+    if (!editingPurchase) {
+      initialSnapshotRef.current = null
+      return
+    }
+    const signature = JSON.stringify([
+      localCases, localUnit, localPackQty, localPackSize, localPackUOM,
+      localUnitPrice, localLineTotal, localPriceType, localTotalQty, localTotalQtyUOM,
+    ])
+    if (initialSnapshotRef.current === null) {
+      initialSnapshotRef.current = signature
+      return
+    }
+    if (initialSnapshotRef.current === signature) return
+    initialSnapshotRef.current = signature
+
+    setSaveStatus('pending')
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => { savePurchase() }, 1200)
+  }, [localCases, localUnit, localPackQty, localPackSize, localPackUOM,
+      localUnitPrice, localLineTotal, localPriceType, localTotalQty,
+      localTotalQtyUOM, editingPurchase, savePurchase])
+
+  // Cleanup timers on unmount.
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current)
+  }, [])
+
+  // Done = flush any pending save immediately, then close edit mode.
+  const handleDone = async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      await savePurchase()
+    }
     setEditingPurchase(false)
+  }
+
+  // Parent can request this card to enter edit mode (used by "save & next").
+  const lastEditTickRef = useRef(0)
+  useEffect(() => {
+    if (editRequestId === item.id && editRequestTick !== lastEditTickRef.current && editRequestTick > 0) {
+      lastEditTickRef.current = editRequestTick
+      setEditingPurchase(true)
+    }
+  }, [editRequestId, editRequestTick, item.id])
+
+  // Keyboard nav inside edit mode: Esc closes, Cmd/Ctrl+Enter saves & jumps.
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      handleDone()
+      return
+    }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      ;(async () => {
+        await handleDone()
+        onRequestNextAttention?.(item.id)
+      })()
+    }
   }
 
   const status = getItemStatus(item)
@@ -555,38 +645,45 @@ function ScanItemCard({
     return null
   })()
 
-  // Base cost = $/packUOM — uses actual totalQty when provided, otherwise nominal
+  // ── Base cost ($/packUOM) — single universal formula ──────────────────────
+  // baseCost = totalInvoiceAmount / totalVolume
+  // where totalInvoiceAmount = cases × factor × unitPrice
+  // and   totalVolume       = totalQty (override) OR cases × pq × ps (nominal)
+  // factor depends on priceType: CASE=1, PKG=pq, UOM=pq*ps
+  const computeBaseCost = (
+    cases: number, price: number, pq: number, ps: number,
+    priceType: 'CASE' | 'PKG' | 'UOM',
+    overrideTotalQty: number | null,
+  ): number | null => {
+    if (!(price > 0) || !(cases > 0) || !(pq > 0) || !(ps > 0)) return null
+    const factor = priceType === 'CASE' ? 1 : priceType === 'PKG' ? pq : pq * ps
+    const totalAmount = cases * factor * price
+    const totalVolume = overrideTotalQty && overrideTotalQty > 0 ? overrideTotalQty : cases * pq * ps
+    return totalVolume > 0 ? totalAmount / totalVolume : null
+  }
+
   const liveBaseCost = (() => {
+    const cases = parseFloat(localCases) || 1
     const price = parseFloat(localUnitPrice)
-    if (!(price > 0)) return null
-    const tq = parseFloat(localTotalQty)
-    if (tq > 0 && localTotalQtyUOM) {
-      // When actual weight is known, base cost = unitPrice / totalQty (per packUOM unit)
-      // liveBaseCost is $/packUOM so we use totalQty directly
-      return price / tq
-    }
-    const pq = parseFloat(localPackQty)
-    const ps = parseFloat(localPackSize)
-    if (pq > 0 && ps > 0) {
-      if (localPriceType === 'PKG') return price / ps
-      if (localPriceType === 'UOM') return price
-      return price / (pq * ps)  // CASE
-    }
-    return null
+    const pq    = parseFloat(localPackQty)  || 1
+    const ps    = parseFloat(localPackSize) || 1
+    const tqOverride = totalQtyMode === 'override' ? (parseFloat(localTotalQty) || null) : null
+    return computeBaseCost(cases, price, pq, ps, localPriceType, tqOverride)
   })()
 
   const savedBaseCost = (() => {
     if (!item.rawUnitPrice || !item.invoicePackQty || !item.invoicePackSize) return null
-    const pq = Number(item.invoicePackQty), ps = Number(item.invoicePackSize)
-    if (pq <= 0 || ps <= 0) return null
-    const pt = item.rawPriceType ?? 'CASE'
-    if (pt === 'PKG') return Number(item.rawUnitPrice) / ps
-    if (pt === 'UOM') return Number(item.rawUnitPrice)
-    return Number(item.rawUnitPrice) / (pq * ps)  // CASE
+    const cases = Number(item.rawQty) || 1
+    const pq    = Number(item.invoicePackQty)
+    const ps    = Number(item.invoicePackSize)
+    const price = Number(item.rawUnitPrice)
+    const pt    = item.rawPriceType ?? 'CASE'
+    const tqOverride = item.totalQty ? Number(item.totalQty) : null
+    return computeBaseCost(cases, price, pq, ps, pt, tqOverride)
   })()
 
   return (
-    <div className={`bg-white rounded-xl border border-gray-100 border-l-4 ${accentClass} px-3 py-2.5 transition-all`}>
+    <div id={`scanitem-${item.id}`} className={`bg-white rounded-xl border border-gray-100 border-l-4 ${accentClass} px-3 py-2.5 transition-all`}>
 
       {/* ── Row 1: Description + status pill + skip ── */}
       <div className="flex items-start justify-between gap-2">
@@ -689,7 +786,10 @@ function ScanItemCard({
 
           {/* EDIT MODE — vertical labeled form */}
           {editingPurchase && (
-            <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-3 text-xs">
+            <div
+              className="mt-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-3 text-xs"
+              onKeyDown={handleEditKeyDown}
+            >
 
               {/* ── Section: How they sold it ── */}
               <div className="space-y-2">
@@ -877,15 +977,21 @@ function ScanItemCard({
                 </>
               )}
 
-              {/* Save / Cancel */}
+              {/* Done + auto-save status */}
               <div className="flex items-center gap-2 pt-1">
-                <button onClick={handlePurchaseSave}
-                  className="flex-1 bg-gold text-white py-1.5 rounded-lg text-xs hover:bg-[#a88930] transition-colors font-semibold">
-                  Save changes
-                </button>
-                <button onClick={() => setEditingPurchase(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-100 transition-colors border border-gray-200">
-                  Cancel
+                <span className="flex-1 flex items-center gap-1.5 text-[10px] text-gray-400">
+                  {saveStatus === 'pending' && <><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> unsaved…</>}
+                  {saveStatus === 'saving'  && <><Loader2 size={10} className="animate-spin text-blue-400" /> saving</>}
+                  {saveStatus === 'saved'   && <><CheckCircle2 size={10} className="text-green-500" /> saved</>}
+                  {saveStatus === 'idle'    && <span className="text-gray-300">auto-saves as you type</span>}
+                </span>
+                <span className="hidden sm:inline text-[10px] text-gray-300">
+                  <kbd className="px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-mono text-[9px]">⌘↵</kbd> next ·{' '}
+                  <kbd className="px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-mono text-[9px]">Esc</kbd> close
+                </span>
+                <button onClick={handleDone}
+                  className="px-4 py-1.5 rounded-lg text-xs bg-gold text-white hover:bg-[#a88930] transition-colors font-semibold">
+                  Done
                 </button>
               </div>
             </div>
@@ -1933,6 +2039,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const [mobileTab, setMobileTab] = useState<'review' | 'image'>('review')
   const [statusFilter, setStatusFilter] = useState<ItemStatus | 'ALL'>('ALL')
   const [compactOk, setCompactOk] = useState(true)
+  const [sortMode, setSortMode] = useState<'invoice' | 'alerts'>('invoice')
+  const [editRequest, setEditRequest] = useState<{ id: string | null; tick: number }>({ id: null, tick: 0 })
 
   // Editable header fields
   const [editingHeader, setEditingHeader]   = useState(false)
@@ -2049,6 +2157,35 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
   const handleApproveAll = async () => {
     if (!session) return
+
+    // Block approval if scanned items don't match the invoice's stated subtotal
+    // / total by more than $5 — usually means a missing line item, OCR'd
+    // qty / price wrong, or the wrong invoice was uploaded.
+    const WV = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
+    const scannedTotal = session.scanItems
+      .filter(i => i.action !== 'SKIP')
+      .reduce((sum, i) => {
+        if (i.rawLineTotal !== null) return sum + Number(i.rawLineTotal)
+        if (i.rawQty !== null && i.rawUnitPrice !== null) {
+          const wv = !!i.invoicePackUOM && WV.has(i.invoicePackUOM.toLowerCase())
+          const lt = wv && i.invoicePackQty && i.invoicePackSize
+            ? Number(i.rawQty) * Number(i.invoicePackQty) * Number(i.invoicePackSize) * Number(i.rawUnitPrice)
+            : Number(i.rawQty) * Number(i.rawUnitPrice)
+          return sum + lt
+        }
+        return sum
+      }, 0)
+    const sub  = session.subtotal ? Number(session.subtotal) : null
+    const tot  = session.total    ? Number(session.total)    : null
+    const target = sub ?? tot
+    if (target !== null && Math.abs(target - scannedTotal) > 5) {
+      const fmt = (n: number) => `$${n.toFixed(2)}`
+      const ok = window.confirm(
+        `Heads up: scanned items add up to ${fmt(scannedTotal)} but the invoice ${sub ? 'subtotal' : 'total'} on file is ${fmt(target)} — a difference of ${fmt(Math.abs(target - scannedTotal))}.\n\nThis usually means a line item is missing, an OCR price is wrong, or the wrong invoice was uploaded.\n\nApprove anyway?`
+      )
+      if (!ok) return
+    }
+
     setIsApproving(true)
     const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
       method: 'POST',
@@ -2276,9 +2413,22 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
       OK: 0, PRICE_SMALL: 0, PRICE_BIG: 0, NEW: 0, UNMATCHED: 0, SKIPPED: 0,
     }
     for (const s of statusOf) statusCounts[s.kind]++
-    const filteredItems = statusFilter === 'ALL'
-      ? session.scanItems
-      : session.scanItems.filter(i => getItemStatus(i).kind === statusFilter)
+    const filteredItems = (() => {
+      const base = statusFilter === 'ALL'
+        ? session.scanItems
+        : session.scanItems.filter(i => getItemStatus(i).kind === statusFilter)
+      if (sortMode === 'invoice') return base
+      // 'alerts' sort: most-attention-needed first, ties broken by invoice order.
+      const priority: Record<ItemStatus, number> = {
+        PRICE_BIG: 0, UNMATCHED: 1, NEW: 2, PRICE_SMALL: 3, OK: 4, SKIPPED: 5,
+      }
+      return [...base].sort((a, b) => {
+        const pa = priority[getItemStatus(a).kind]
+        const pb = priority[getItemStatus(b).kind]
+        if (pa !== pb) return pa - pb
+        return a.sortOrder - b.sortOrder
+      })
+    })()
 
     // Invoice total validation
     const WVSET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
@@ -2650,7 +2800,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               )
             })()}
 
-            {/* Filter chips — keep invoice order, just narrow what's shown */}
+            {/* Filter chips + sort toggle + view options */}
             {session.scanItems.length > 0 && (() => {
               const Chip = ({ value, label, count, dot }: { value: ItemStatus | 'ALL'; label: string; count: number; dot?: string }) => (
                 count === 0 && value !== 'ALL' ? null : (
@@ -2676,16 +2826,80 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   <Chip value="NEW"          label="New"        count={statusCounts.NEW}         dot="bg-purple-400" />
                   <Chip value="UNMATCHED"    label="Unmatched"  count={statusCounts.UNMATCHED}   dot="bg-gray-300" />
                   <Chip value="SKIPPED"      label="Skipped"    count={statusCounts.SKIPPED}     dot="bg-gray-300" />
-                  {statusCounts.OK > 0 && (
-                    <label className="ml-auto flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={compactOk}
-                        onChange={e => setCompactOk(e.target.checked)}
-                        className="w-3 h-3 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gold"
-                      />
-                      Compact unchanged
-                    </label>
+
+                  <div className="ml-auto flex items-center gap-2.5">
+                    {/* Sort toggle */}
+                    <button
+                      onClick={() => setSortMode(sortMode === 'invoice' ? 'alerts' : 'invoice')}
+                      className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+                      title={sortMode === 'invoice' ? 'Showing in invoice order' : 'Showing alerts first'}
+                    >
+                      {sortMode === 'invoice' ? '⇣ Invoice order' : '⚠ Alerts first'}
+                    </button>
+
+                    {statusCounts.OK > 0 && (
+                      <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={compactOk}
+                          onChange={e => setCompactOk(e.target.checked)}
+                          className="w-3 h-3 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gold"
+                        />
+                        Compact unchanged
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Contextual bulk action bar — appears when filter is active */}
+            {statusFilter !== 'ALL' && filteredItems.length > 0 && (() => {
+              const filterLabel = ({
+                OK: 'unchanged', PRICE_SMALL: 'with small price changes',
+                PRICE_BIG: 'with big price changes', NEW: 'new', UNMATCHED: 'unmatched',
+                SKIPPED: 'skipped',
+              } as Record<ItemStatus, string>)[statusFilter as ItemStatus]
+              const isSkipped = statusFilter === 'SKIPPED'
+              const handleBulkSkip = async () => {
+                const visibleIds = filteredItems.map(i => i.id)
+                await Promise.all(visibleIds.map(id =>
+                  fetch(`/api/invoices/sessions/${session.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scanItemId: id, action: 'SKIP' }),
+                  })
+                ))
+                await fetchSession(session.id)
+              }
+              const handleBulkRestore = async () => {
+                const visibleIds = filteredItems.map(i => i.id)
+                await Promise.all(visibleIds.map(id => {
+                  const it = filteredItems.find(x => x.id === id)
+                  const restoreAction: LineItemAction = it?.matchedItemId ? 'UPDATE_PRICE' : 'CREATE_NEW'
+                  return fetch(`/api/invoices/sessions/${session.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scanItemId: id, action: restoreAction }),
+                  })
+                }))
+                await fetchSession(session.id)
+              }
+              return (
+                <div className="px-3 py-2 flex items-center gap-2 border-t border-amber-100 bg-amber-50/40 text-[11px]">
+                  <span className="text-gray-600">
+                    Showing <span className="font-semibold text-gray-800">{filteredItems.length}</span> {filterLabel} item{filteredItems.length !== 1 ? 's' : ''}.
+                  </span>
+                  {isSkipped ? (
+                    <button onClick={handleBulkRestore}
+                      className="ml-auto px-2.5 py-1 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-[11px] font-medium">
+                      Restore all
+                    </button>
+                  ) : (
+                    <button onClick={handleBulkSkip}
+                      className="ml-auto px-2.5 py-1 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-medium">
+                      Skip all {filterLabel}
+                    </button>
                   )}
                 </div>
               )
@@ -2704,6 +2918,20 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                     sessionRcId={sessionRcId}
                     onRcChange={(rcId) => updateScanItem(item.id, { revenueCenterId: rcId })}
                     compactOk={compactOk}
+                    editRequestId={editRequest.id}
+                    editRequestTick={editRequest.tick}
+                    onRequestNextAttention={(currentId) => {
+                      const ATTENTION = new Set<ItemStatus>(['PRICE_BIG', 'UNMATCHED', 'NEW', 'PRICE_SMALL'])
+                      const idx = filteredItems.findIndex(i => i.id === currentId)
+                      const search = [...filteredItems.slice(idx + 1), ...filteredItems.slice(0, idx)]
+                      const next = search.find(i => ATTENTION.has(getItemStatus(i).kind))
+                      if (next) {
+                        setEditRequest({ id: next.id, tick: Date.now() })
+                        setTimeout(() => {
+                          document.getElementById(`scanitem-${next.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        }, 50)
+                      }
+                    }}
                   />
                 </div>
               ))}
