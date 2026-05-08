@@ -83,54 +83,69 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     setScanError(null)
     setNoApiKey(false)
 
-    // 1. Create session — tag with the active RC so it's attributable from upload
-    const sess = await fetch('/api/invoices/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revenueCenterId: activeRcId }),
-    }).then(r => r.json())
-
-    // 2a. Try UploadThing CDN first
-    let uploadOk = false
     try {
-      const uploaded = await startUpload(files)
-      if (uploaded?.length) {
-        await fetch(`/api/invoices/sessions/${sess.id}/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            files: uploaded.map(f => ({ url: f.ufsUrl, fileName: f.name, fileType: f.type })),
-          }),
-        })
-        uploadOk = true
-      }
-    } catch { /* fall through */ }
-
-    // 2b. Local fallback
-    if (!uploadOk) {
-      const fd = new FormData()
-      files.forEach(f => fd.append('files', f))
-      const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
+      // 1. Create session — tag with the active RC so it's attributable from upload
+      const sessRes = await fetch('/api/invoices/sessions', {
         method: 'POST',
-        body: fd,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revenueCenterId: activeRcId }),
       })
-      if (localRes.ok) {
-        uploadOk = true
-      } else {
-        setScanError('File upload failed. Please try again.')
-        setIsCreating(false)
+      if (!sessRes.ok) {
+        setScanError('Could not create invoice session. Please try again.')
         return
       }
+      const sess = await sessRes.json()
+
+      // 2a. Try UploadThing CDN first
+      let uploadOk = false
+      try {
+        const uploaded = await startUpload(files)
+        if (uploaded?.length) {
+          const regRes = await fetch(`/api/invoices/sessions/${sess.id}/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              files: uploaded.map(f => ({ url: f.ufsUrl, fileName: f.name, fileType: f.type })),
+            }),
+          })
+          if (regRes.ok) uploadOk = true
+        }
+      } catch { /* fall through to local */ }
+
+      // 2b. Local fallback (stores as base64 data URI — works without UPLOADTHING_TOKEN)
+      if (!uploadOk) {
+        const fd = new FormData()
+        files.forEach(f => fd.append('files', f))
+        const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
+          method: 'POST',
+          body: fd,
+        })
+        if (localRes.ok) {
+          uploadOk = true
+        } else {
+          const errBody = await localRes.json().catch(() => ({}))
+          setScanError(errBody.error ?? 'File upload failed. Please try again.')
+          return
+        }
+      }
+
+      if (!uploadOk) {
+        setScanError('File upload failed. Please try again.')
+        return
+      }
+
+      photoPreviews.forEach(url => URL.revokeObjectURL(url))
+
+      // 3. Fire process as fire-and-forget (drawer will poll for status updates)
+      fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
+
+      // 4. Close modal and open drawer on new session
+      onComplete(sess.id)
+    } catch (err) {
+      setScanError('Unexpected error. Please try again.')
+    } finally {
+      setIsCreating(false)
     }
-
-    setIsCreating(false)
-    photoPreviews.forEach(url => URL.revokeObjectURL(url))
-
-    // 3. Fire process as fire-and-forget (drawer will poll for status updates)
-    fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
-
-    // 4. Close modal and open drawer on new session
-    onComplete(sess.id)
   }
 
   return (
