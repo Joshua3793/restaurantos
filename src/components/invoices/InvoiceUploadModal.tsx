@@ -78,6 +78,41 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     })
   }
 
+  // Compress an image file to ≤1 MB at ≤2000 px using Canvas.
+  // Non-image files (PDF, CSV) are returned as-is.
+  const compressImageFile = (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/') || file.size <= 1 * 1024 * 1024) return Promise.resolve(file)
+    return new Promise((resolve) => {
+      const img = new window.Image()
+      const objectUrl = URL.createObjectURL(file)
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl)
+        const MAX_DIM = 2000
+        let { width, height } = img
+        if (width > MAX_DIM || height > MAX_DIM) {
+          const scale = MAX_DIM / Math.max(width, height)
+          width  = Math.round(width  * scale)
+          height = Math.round(height * scale)
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width  = width
+        canvas.height = height
+        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { resolve(file); return }
+            const name = file.name.replace(/\.[^.]+$/, '.jpg')
+            resolve(new File([blob], name, { type: 'image/jpeg' }))
+          },
+          'image/jpeg',
+          0.82,
+        )
+      }
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file) }
+      img.src = objectUrl
+    })
+  }
+
   const handleStartScan = async () => {
     if (files.length === 0) return
     setIsCreating(true)
@@ -86,6 +121,11 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     setNoApiKey(false)
 
     try {
+      // 0. Compress images client-side so camera photos (3-8 MB) become ~0.5-1 MB.
+      //    PDFs and CSVs are passed through unchanged.
+      setUploadStep('Preparing files…')
+      const compressedFiles = await Promise.all(files.map(compressImageFile))
+
       // 1. Create session
       setUploadStep('Creating session…')
       const sessRes = await fetch('/api/invoices/sessions', {
@@ -99,21 +139,21 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
       }
       const sess = await sessRes.json()
 
-      // 2a. Try UploadThing CDN (with 30s timeout so it can't hang forever)
+      // 2a. Try UploadThing CDN (8s timeout — fail fast so local fallback kicks in)
       let uploadOk = false
       utErrorRef.current = null
       setUploadStep('Uploading to cloud…')
       try {
         const uploaded = await Promise.race([
-          startUpload(files),
-          new Promise<null>((_, rej) => setTimeout(() => rej(new Error('UploadThing timeout')), 30_000)),
+          startUpload(compressedFiles),
+          new Promise<null>((_, rej) => setTimeout(() => rej(new Error('Cloud upload timed out')), 8_000)),
         ])
         if (uploaded?.length) {
           const regRes = await fetch(`/api/invoices/sessions/${sess.id}/upload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              files: uploaded.map(f => ({ url: f.ufsUrl, fileName: f.name, fileType: f.type })),
+              files: uploaded.map(f => ({ url: f.ufsUrl ?? f.url, fileName: f.name, fileType: f.type })),
             }),
           })
           if (regRes.ok) uploadOk = true
@@ -123,20 +163,22 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
         // fall through to local
       }
 
-      // 2b. Local fallback — stores file as base64; works for files under ~3.5 MB
+      // 2b. Local fallback — stores compressed files as base64 in DB.
+      //    Compressed images are typically <1 MB, well inside Vercel's 4.5 MB body limit.
       if (!uploadOk) {
-        const totalBytes = files.reduce((s, f) => s + f.size, 0)
-        if (totalBytes > 3.5 * 1024 * 1024) {
+        const totalBytes = compressedFiles.reduce((s, f) => s + f.size, 0)
+        const limitBytes = 4 * 1024 * 1024
+        if (totalBytes > limitBytes) {
           setScanError(
-            `File too large for upload (${(totalBytes / 1024 / 1024).toFixed(1)} MB).` +
-            (utErrorRef.current ? ` Cloud upload error: ${utErrorRef.current}.` : '') +
-            ` Try a smaller file or compress the image.`
+            `Files are too large to upload (${(totalBytes / 1024 / 1024).toFixed(1)} MB total after compression). ` +
+            `Try using fewer pages, or upload a smaller PDF. ` +
+            (utErrorRef.current ? `Cloud error: ${utErrorRef.current}. ` : '')
           )
           return
         }
         setUploadStep('Uploading…')
         const fd = new FormData()
-        files.forEach(f => fd.append('files', f))
+        compressedFiles.forEach(f => fd.append('files', f))
         const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
           method: 'POST',
           body: fd,
@@ -147,7 +189,9 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           const errBody = await localRes.json().catch(() => ({}))
           setScanError(
             errBody.error ??
-            `Upload failed (${localRes.status}).${utErrorRef.current ? ` Cloud error: ${utErrorRef.current}.` : ''} Please try again.`
+            `Upload failed (${localRes.status}). ` +
+            (utErrorRef.current ? `Cloud error: ${utErrorRef.current}. ` : '') +
+            `Please try again.`
           )
           return
         }
