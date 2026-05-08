@@ -2208,7 +2208,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     // We intentionally only depend on the set of matched ids, not priceHistoryMap,
     // to avoid re-fetching every time the map updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.scanItems.map(i => i.matchedItemId).filter(Boolean).sort().join(',')])
+  }, [(session?.scanItems ?? []).map(i => i.matchedItemId).filter(Boolean).sort().join(',')])
 
   // Poll while uploading or processing
   useEffect(() => {
