@@ -33,10 +33,11 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const utErrorRef = useRef<string | null>(null)
+
   const { startUpload, isUploading } = useUploadThing('invoiceUploader', {
     onUploadError: (err) => {
-      console.error('UploadThing error:', err)
-      setNoApiKey(false)
+      utErrorRef.current = err.message ?? 'Upload service error'
     },
   })
 
@@ -98,6 +99,7 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
 
       // 2a. Try UploadThing CDN first
       let uploadOk = false
+      utErrorRef.current = null
       try {
         const uploaded = await startUpload(files)
         if (uploaded?.length) {
@@ -112,8 +114,19 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
         }
       } catch { /* fall through to local */ }
 
-      // 2b. Local fallback (stores as base64 data URI — works without UPLOADTHING_TOKEN)
+      // 2b. Local fallback — used when UPLOADTHING_TOKEN is missing or upload failed
       if (!uploadOk) {
+        const totalBytes = files.reduce((s, f) => s + f.size, 0)
+        if (totalBytes > 4 * 1024 * 1024) {
+          // File too large for the server-side fallback route (Vercel 4.5 MB limit).
+          // The fix is to add UPLOADTHING_TOKEN to your Vercel environment variables.
+          setScanError(
+            `File too large for direct upload (${(totalBytes / 1024 / 1024).toFixed(1)} MB). ` +
+            `Add UPLOADTHING_TOKEN to your Vercel environment variables to enable cloud uploads.` +
+            (utErrorRef.current ? ` Upload service error: ${utErrorRef.current}` : '')
+          )
+          return
+        }
         const fd = new FormData()
         files.forEach(f => fd.append('files', f))
         const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
@@ -124,14 +137,9 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           uploadOk = true
         } else {
           const errBody = await localRes.json().catch(() => ({}))
-          setScanError(errBody.error ?? 'File upload failed. Please try again.')
+          setScanError(errBody.error ?? `File upload failed (${localRes.status}). Please try again.`)
           return
         }
-      }
-
-      if (!uploadOk) {
-        setScanError('File upload failed. Please try again.')
-        return
       }
 
       photoPreviews.forEach(url => URL.revokeObjectURL(url))
