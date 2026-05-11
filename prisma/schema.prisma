@@ -282,8 +282,17 @@ model InvoiceSession {
   supplierId      String?
   invoiceDate     String?
   invoiceNumber   String?
+  poNumber        String?
   subtotal        Decimal?
-  tax             Decimal?
+  tax             Decimal?          // legacy aggregate — equals gst+hst+pst when those are populated
+  discount        Decimal?
+  fuelSurcharge   Decimal?
+  freight         Decimal?
+  minimumOrderFee Decimal?
+  gst             Decimal?
+  hst             Decimal?
+  pst             Decimal?
+  otherCharges    Json?             // Array<{ label: string; amount: number }>
   total           Decimal?
   errorMessage    String?
   approvedBy      String?
@@ -343,6 +352,19 @@ model InvoiceScanItem {
   revenueCenterId    String?
   ocrConfidence      String?        // 'low' | 'medium' | 'high' — Claude's self-rated confidence in this line
   ocrNotes           String?        // Optional reason Claude flagged a line as low-confidence
+  // ── Mode-aware OCR fields (from the mode-first OCR schema) ─────────────────
+  pricingMode        String?        // 'per_case' | 'per_weight' | 'unknown'
+  pricingModeSignal  String?        // 'explicit_per_column' | 'price_uom_is_weight' | 'weight_column_present' | 'math_inference' | 'default_case' | 'indeterminate'
+  qtyOrdered         Decimal?
+  qtyOrderedUOM      String?
+  rate               Decimal?       // $/uom for per_weight lines
+  rateUOM            String?
+  isCatchweight      Boolean        @default(false)
+  nominalWeight      Decimal?       // packQty × packSize when packUOM is weight/volume and differs from totalQty
+  lineCategory       String?        // section header ("DAIRY") or column code ("PR", "DS")
+  supplierItemCode   String?        // per-line product code from invoice
+  taxFlag            String?        // row-level tax code ("B", "G", "GP")
+  lineTaxAmount      Decimal?       // inline tax shown on row (Snow Cap style)
   matchedItem        InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
   revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
   session            InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)

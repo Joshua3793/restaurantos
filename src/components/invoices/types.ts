@@ -25,6 +25,15 @@ export interface InventoryMatch {
   innerQty: string | null
 }
 
+export type PricingMode = 'per_case' | 'per_weight' | 'unknown'
+export type PricingModeSignal =
+  | 'explicit_per_column'
+  | 'price_uom_is_weight'
+  | 'weight_column_present'
+  | 'math_inference'
+  | 'default_case'
+  | 'indeterminate'
+
 export interface ScanItem {
   id: string
   rawDescription: string
@@ -55,6 +64,19 @@ export interface ScanItem {
   sortOrder: number
   ocrConfidence?: 'low' | 'medium' | 'high' | null
   ocrNotes?: string | null
+  // ── Mode-aware OCR fields (from mode-first OCR schema) ─────────────────────
+  pricingMode?: PricingMode | null
+  pricingModeSignal?: PricingModeSignal | null
+  qtyOrdered?: string | null
+  qtyOrderedUOM?: string | null
+  rate?: string | null
+  rateUOM?: string | null
+  isCatchweight?: boolean
+  nominalWeight?: string | null
+  lineCategory?: string | null
+  supplierItemCode?: string | null
+  taxFlag?: string | null
+  lineTaxAmount?: string | null
 }
 
 // Full session — returned by GET /api/invoices/sessions/[id]
@@ -65,8 +87,17 @@ export interface Session {
   supplierName: string | null
   invoiceDate: string | null
   invoiceNumber: string | null
+  poNumber?: string | null
   subtotal: string | null
   tax: string | null
+  discount?: string | null
+  fuelSurcharge?: string | null
+  freight?: string | null
+  minimumOrderFee?: string | null
+  gst?: string | null
+  hst?: string | null
+  pst?: string | null
+  otherCharges?: Array<{ label: string; amount: number }> | null
   total: string | null
   files: ScanFile[]
   scanItems: ScanItem[]
