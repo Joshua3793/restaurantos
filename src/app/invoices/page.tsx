@@ -1,6 +1,5 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
 import { InvoiceList } from '@/components/invoices/InvoiceList'
@@ -30,8 +29,16 @@ export default function InvoicesPage() {
   const { activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
-  const searchParams = useSearchParams()
-  const useV2 = searchParams?.get('v') === '2'
+  // V2 opt-in via ?v=2. Read from window.location directly to avoid the
+  // Next 14 Suspense-boundary requirement that comes with useSearchParams.
+  const [useV2, setUseV2] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const apply = () => setUseV2(new URLSearchParams(window.location.search).get('v') === '2')
+    apply()
+    window.addEventListener('popstate', apply)
+    return () => window.removeEventListener('popstate', apply)
+  }, [])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
