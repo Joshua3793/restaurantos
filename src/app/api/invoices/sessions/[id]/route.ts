@@ -55,6 +55,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         totalQty:           body.totalQty !== undefined ? body.totalQty : undefined,
         totalQtyUOM:        body.totalQtyUOM !== undefined ? body.totalQtyUOM : undefined,
         revenueCenterId:    body.revenueCenterId !== undefined ? body.revenueCenterId : undefined,
+        // Mode-aware fields (editable from v2 drawer)
+        pricingMode:        body.pricingMode       !== undefined ? body.pricingMode       : undefined,
+        pricingModeSignal:  body.pricingModeSignal !== undefined ? body.pricingModeSignal : undefined,
+        qtyOrdered:         body.qtyOrdered        !== undefined ? body.qtyOrdered        : undefined,
+        qtyOrderedUOM:      body.qtyOrderedUOM     !== undefined ? body.qtyOrderedUOM     : undefined,
+        rate:               body.rate              !== undefined ? body.rate              : undefined,
+        rateUOM:            body.rateUOM           !== undefined ? body.rateUOM           : undefined,
+        isCatchweight:      body.isCatchweight     !== undefined ? body.isCatchweight     : undefined,
+        nominalWeight:      body.nominalWeight     !== undefined ? body.nominalWeight     : undefined,
+        lineCategory:       body.lineCategory      !== undefined ? body.lineCategory      : undefined,
+        supplierItemCode:   body.supplierItemCode  !== undefined ? body.supplierItemCode  : undefined,
       },
     })
     return NextResponse.json(item)

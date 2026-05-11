@@ -1,5 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
 import { InvoiceList } from '@/components/invoices/InvoiceList'
@@ -13,6 +14,13 @@ const InvoiceDrawer = dynamic(
   { ssr: false, loading: () => null }
 )
 
+// V2 drawer — opt in via ?v=2 on /invoices. Substitute v1 by changing the
+// default branch once it's been validated against real invoices.
+const InvoiceDrawerV2 = dynamic(
+  () => import('@/components/invoices/v2/InvoiceDrawerV2').then(m => ({ default: m.InvoiceDrawerV2 })),
+  { ssr: false, loading: () => null }
+)
+
 const InvoiceUploadModal = dynamic(
   () => import('@/components/invoices/InvoiceUploadModal').then(m => ({ default: m.InvoiceUploadModal })),
   { ssr: false, loading: () => null }
@@ -22,6 +30,8 @@ export default function InvoicesPage() {
   const { activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
+  const searchParams = useSearchParams()
+  const useV2 = searchParams?.get('v') === '2'
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -140,12 +150,21 @@ export default function InvoicesPage() {
         onBulkDelete={handleBulkDelete}
         onRetry={handleRetry}
       />
-      <InvoiceDrawer
-        sessionId={selectedSessionId}
-        onClose={() => setSelectedSessionId(null)}
-        onApproveOrReject={handleApproveOrReject}
-        allSessions={sessions}
-      />
+      {useV2 ? (
+        <InvoiceDrawerV2
+          sessionId={selectedSessionId}
+          onClose={() => setSelectedSessionId(null)}
+          onApproveOrReject={handleApproveOrReject}
+          allSessions={sessions}
+        />
+      ) : (
+        <InvoiceDrawer
+          sessionId={selectedSessionId}
+          onClose={() => setSelectedSessionId(null)}
+          onApproveOrReject={handleApproveOrReject}
+          allSessions={sessions}
+        />
+      )}
       {showUpload && (
         <InvoiceUploadModal
           activeRcId={activeRcId}

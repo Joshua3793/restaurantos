@@ -1908,7 +1908,7 @@ function InventoryEditModal({
 
 // ── InvoiceImageViewer ────────────────────────────────────────────────────────
 
-function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileName: string; fileType: string; fileUrl: string }> }) {
+export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileName: string; fileType: string; fileUrl: string }> }) {
   const [activeIdx, setActiveIdx] = useState(0)
   const file = files[activeIdx]
   const isPdf = file?.fileType === 'application/pdf' || file?.fileName?.endsWith('.pdf')
