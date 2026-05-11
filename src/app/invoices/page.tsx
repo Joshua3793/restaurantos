@@ -29,12 +29,22 @@ export default function InvoicesPage() {
   const { activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
-  // V2 opt-in via ?v=2. Read from window.location directly to avoid the
-  // Next 14 Suspense-boundary requirement that comes with useSearchParams.
+  // V2 opt-in. Sticky once enabled — survives nav within the app.
+  // Toggle on   with /invoices?v=2
+  // Toggle off  with /invoices?v=1
+  // Status visible via the badge in the page header so we can confirm at a glance.
   const [useV2, setUseV2] = useState(false)
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const apply = () => setUseV2(new URLSearchParams(window.location.search).get('v') === '2')
+    const apply = () => {
+      const q = new URLSearchParams(window.location.search).get('v')
+      let next: boolean
+      if (q === '2') { localStorage.setItem('drawerV2', '1'); next = true }
+      else if (q === '1') { localStorage.removeItem('drawerV2'); next = false }
+      else next = localStorage.getItem('drawerV2') === '1'
+      setUseV2(next)
+      console.log('[invoices] drawer:', next ? 'v2' : 'v1', '(query v=' + q + ')')
+    }
     apply()
     window.addEventListener('popstate', apply)
     return () => window.removeEventListener('popstate', apply)
@@ -141,8 +151,13 @@ export default function InvoicesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
-      <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0">
+      <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0 flex items-center gap-2">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Invoices</h1>
+        {useV2 && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">
+            V2 BETA
+          </span>
+        )}
       </div>
       <InvoiceKpiStrip
         refreshKey={kpiRefreshKey}
