@@ -36,12 +36,9 @@ async function compressImageForClaude(
     .toBuffer()
 
   if (learning) {
-    // Learning mode: one quality pass only if over the hard API limit.
-    // We accept up to 4.8MB to preserve as much detail as possible.
     if (resized.length > 4.8 * 1024 * 1024) {
       resized = await sharp(resized).jpeg({ quality: 85 }).toBuffer()
     }
-    // If still over the hard limit, fall back to a tighter resize.
     if (resized.length > API_IMAGE_LIMIT) {
       resized = await sharp(resized)
         .resize(2500, 2500, { fit: 'inside', withoutEnlargement: true })
@@ -49,7 +46,6 @@ async function compressImageForClaude(
         .toBuffer()
     }
   } else {
-    // Normal mode: reduce quality in steps, then shrink if still too large.
     let q = quality
     while (resized.length > 4 * 1024 * 1024 && q > 60) {
       q -= 15
@@ -67,384 +63,494 @@ async function compressImageForClaude(
 }
 
 // ── Base system prompt ─────────────────────────────────────────────────────────
+// Format examples are intentionally kept out of BASE — they live in the per-supplier
+// hints so they're only paid for once the supplier is known. Keeps token cost flat.
 const BASE_PROMPT = `You are an expert invoice parser for a restaurant supply chain system.
-Extract ALL purchasable product line items and header data from the invoice image(s).
+Extract every product line item and all header data from the invoice image(s).
 If multiple pages are provided, treat them as one invoice and combine all line items.
+Return ONLY valid JSON matching the schema below. No markdown, no commentary.
 
-Return ONLY valid JSON (no markdown, no explanation):
+═══════════════════════════════════════════════════════
+OUTPUT SCHEMA
+═══════════════════════════════════════════════════════
 {
-  "supplierName": "string or null",
-  "invoiceNumber": "string or null",
-  "invoiceDate": "YYYY-MM-DD or null",
-  "subtotal": number or null,
-  "tax": number or null,
-  "total": number or null,
-  "lineItems": [
-    {
-      "description": "exact product name from invoice",
-      "qty": number or null,
-      "unit": "cs/ea/box/bag/etc or null",
-      "packQty": number or null,
-      "packSize": number or null,
-      "packUOM": "L/ml/kg/g/lb/oz/each or null",
-      "unitPrice": number or null,
-      "lineTotal": number or null,
-      "rate": number or null,
-      "totalQty": number or null,
-      "confidence": "low" | "medium" | "high",
-      "confidenceNotes": "string or null"
-    }
-  ]
+  "supplierName":    string | null,
+  "invoiceNumber":   string | null,
+  "invoiceDate":     "YYYY-MM-DD" | null,
+  "poNumber":        string | null,
+  "subtotal":        number | null,
+  "discount":        number | null,
+  "fuelSurcharge":   number | null,
+  "freight":         number | null,
+  "minimumOrderFee": number | null,
+  "gst":             number | null,
+  "hst":             number | null,
+  "pst":             number | null,
+  "otherCharges":    [ { "label": string, "amount": number } ],
+  "total":           number | null,
+  "lineItems": [ {
+    "description":       string,
+    "supplierItemCode":  string | null,
+    "lineCategory":      string | null,
+    "pricingMode":       "per_case" | "per_weight" | "unknown",
+    "pricingModeSignal": "explicit_per_column" | "price_uom_is_weight"
+                       | "weight_column_present" | "math_inference"
+                       | "default_case" | "indeterminate",
+    "qtyOrdered":    number | null,
+    "qtyOrderedUOM": string | null,
+    "qtyShipped":    number | null,
+    "qtyShippedUOM": string | null,
+    "packQty":  number | null,
+    "packSize": number | null,
+    "packUOM":  string | null,
+    "unitPrice":   number | null,
+    "rate":        number | null,
+    "rateUOM":     string | null,
+    "totalQty":    number | null,
+    "totalQtyUOM": string | null,
+    "isCatchweight": boolean,
+    "nominalWeight": number | null,
+    "lineTotal":     number | null,
+    "taxFlag":       string | null,
+    "lineTaxAmount": number | null,
+    "confidence":      "low" | "medium" | "high",
+    "confidenceNotes": string | null
+  } ]
 }
 
-UNIVERSAL PURCHASE STRUCTURE — every line item follows this 3-level hierarchy:
-  CASE  = the outer unit being ordered (case, box, bag, crate, ea, etc.)
-  PKG   = individual packages inside each case
-  UNIT  = what each package contains (volume, weight, or count)
+═══════════════════════════════════════════════════════
+UNIVERSAL PURCHASE STRUCTURE
+═══════════════════════════════════════════════════════
+Every line follows a 3-level hierarchy:
+  CASE = outer unit shipped (case, box, bag, ea)
+  PKG  = packages inside each case
+  UNIT = what each pkg contains (volume, weight, or count)
 
-Field definitions:
-  qty      = how many CASEs were ordered
-  unit     = case label: "cs", "ea", "box", "bag", "each", etc.
-  packQty  = how many PKGs per case
-  packSize = the amount of UNIT content in each pkg — number only (NOMINAL, from label/description)
-  packUOM  = unit for packSize — normalize: LTR/LITRE→L, ML/MILLILITRE→ml, KG/KILOGRAM→kg, LBS/POUNDS→lb, OZ/OUNCE→oz
-  unitPrice = price per CASE (= lineTotal ÷ qty)
-  lineTotal = total charged for this line (= qty × unitPrice)
-  rate     = per-UOM price shown on invoice (e.g. 9.90 for $9.90/kg) — ONLY for weight/volume priced items
-  totalQty = ACTUAL total weight/volume delivered for the whole line — look for "total weight", "shipped weight",
-             "actual weight", or the weight/volume value in a weight/rate column for Format D items
+Pricing is ONE of two modes:
+  per_case   — invoice states $/case; lineTotal = qtyShipped × unitPrice
+  per_weight — invoice states $/uom;  lineTotal = totalQty   × rate
 
 ═══════════════════════════════════════════════════════
-ROW ALIGNMENT — CRITICAL RULE (most common parsing error):
+EXTRACTION ALGORITHM — apply per row in order
 ═══════════════════════════════════════════════════════
-Invoice tables are structured as rows. Each row is one data record.
-- READ EACH ROW HORIZONTALLY: description, qty, price, and total for ONE item are ALL on the SAME row.
-- NEVER borrow qty, price, or total values from a different row, even if a value seems missing from the current row.
-- If a field is genuinely absent from a row, set it to null — do NOT pull it from an adjacent row.
-- MULTI-ROW ITEMS: some formats place brand name or description continuation on row 2. Only the FIRST row
-  contains the financial data (qty, price, total). Treat the second row as part of the first item's
-  description — do NOT create a new line item for it and do NOT use its position to infer missing values.
+STEP 1 — Is this a real product line?
+Skip rows matching ANY of:
+  • Category headers (DAIRY, PRODUCE, FROZEN, COOLER, DRY, PAPER, BEVERAGE, GROCERY...)
+    — especially when wrapped in dashes (-- DAIRY --) or asterisks (** DRY **)
+  • Category subtotals: "Total NN.NN" rows with no item code
+  • Non-product charges: fuel surcharge, freight, delivery fee, minimum order,
+    recycling / bottle / environmental fees → capture into HEADER fields, not line items
+  • Tax lines: GST, HST, PST, QST, TVQ (standalone or summary)
+  • Page aggregates: page total, order total, subtotal, invoice total
+  • Column header rows, boilerplate/legal/payment terms
+  • Traceability sub-lines: LOT#, MSC-C-XXXXX, ASC-C-XXXXX, fishing method,
+    habitat (WILD), grade lines
+  • Brand-name-only continuation rows
+  • End-of-invoice category summary tables
 
-CROSS-CHECK BEFORE OUTPUT:
-For every extracted line item verify the math before including it:
-  qty × unitPrice ≈ lineTotal (within 5%) — if this fails, you read qty or price from the wrong row; fix it
-  For weight items: totalQty × rate ≈ lineTotal (within 5%) — if this fails, re-examine the row
-If a cross-check fails, correct the error rather than outputting bad data.
+STEP 2 — Detect pricing mode. Walk rules in order; first match wins.
+Record which fired in pricingModeSignal.
+  (a) explicit_per_column:
+      Row has "per" / "U/M" column adjacent to unit price.
+      → per_weight if UOM is kg, lb, g, oz
+      → per_case   if UOM is cs, pk, ea, pc, ct, bx, bg
+  (b) price_uom_is_weight:
+      Unit price label is $/kg, $/lb, /KG, /LB, $/oz, etc.
+      → per_weight
+  (c) weight_column_present:
+      Weight column populated AND (weight × unitPrice ≈ lineTotal) within 2%.
+      → per_weight
+  (d) math_inference:
+      Try (qtyShipped × unitPrice ≈ lineTotal) and (weight × unitPrice ≈ lineTotal).
+      Whichever passes within 2% wins.
+  (e) default_case:
+      No weight signals → per_case.
+
+If none of (a)–(e) resolves confidently:
+  pricingMode = "unknown", signal = "indeterminate", confidence = "low".
+
+STEP 3 — Extract fields per mode.
+
+Universal (always extract):
+  description       — exact product text. Merge multi-row descriptions; drop
+                      brand-only continuation rows.
+  supplierItemCode  — per-line product code
+  qtyOrdered, qtyOrderedUOM, qtyShipped, qtyShippedUOM
+    UOM is the column label as shown (CS, PC, PK, EA, LB, KG).
+    Normalize: LITRE→L, MILLILITRE→ml, KILOGRAM→kg, POUNDS→lb,
+               OUNCE→oz, EACH→each
+  packQty, packSize, packUOM — nominal pack composition from PACK column
+                               or description ("4/4L", "6x500ml")
+  lineTotal         — total charged for this row
+  taxFlag           — row-level tax code (B, G, GP) or null
+  lineTaxAmount     — inline tax on row (Snow Cap style)
+  lineCategory      — category label/code shown on the row (Sysco section
+                      header above, Gordon "Cust Cat" code)
+
+Mode-specific:
+  per_case:
+    unitPrice = $/case shown on row
+    rate, rateUOM, totalQty, totalQtyUOM = null
+  per_weight:
+    rate        = $/uom shown on row
+    rateUOM     = UOM of rate (kg, lb, g, oz)
+    totalQty    = ACTUAL weight/volume delivered for the line
+                  (from total weight, shipped weight, weight column)
+    totalQtyUOM = matching UOM
+    unitPrice   = lineTotal ÷ qtyShipped  (the price for one qtyShipped unit
+                  on this shipment — when qtyShipped is a weight, this equals
+                  rate; when qtyShipped is cases, this is the as-shipped case cost)
+
+⚠ unitPrice is ALWAYS populated whenever qtyShipped > 0 and lineTotal is known.
+  Downstream price-change detection depends on a consistent unitPrice field.
+
+STEP 4 — Cross-check math.
+  per_case:   qtyShipped × unitPrice ≈ lineTotal
+  per_weight: totalQty   × rate      ≈ lineTotal
+Bands:
+  within 1% → confidence = "high"
+  1–5%      → confidence = "medium"
+  > 5%      → confidence = "low" (re-examine row first — likely you read a
+              value from the wrong row)
+
+STEP 5 — Catchweight (per_weight rows only)
+Set isCatchweight = true if EITHER:
+  (a) qtyOrderedUOM is a weight UOM AND qtyOrdered ≠ qtyShipped, OR
+  (b) packUOM is a weight/volume UOM AND
+      (packQty × packSize) differs from totalQty by > 2%.
+If (b), set nominalWeight = packQty × packSize. Otherwise null.
+For per_case rows, isCatchweight = false and nominalWeight = null.
 
 ═══════════════════════════════════════════════════════
-CONFIDENCE — score each line so the user can spot OCR uncertainty:
+ROW ALIGNMENT — READ HORIZONTALLY, NEVER BORROW
 ═══════════════════════════════════════════════════════
-Set "confidence" to one of:
-  "high"   — all fields are clearly legible AND the cross-check (qty × unitPrice ≈ lineTotal)
-             passes within 1%. This is the default for typical clean invoices.
-  "medium" — one or more values were partially obscured / handwritten / faded but you
-             could still extract them with reasonable certainty, OR the cross-check
-             passes only within 5%.
-  "low"    — at least one numeric field (qty, packSize, unitPrice, lineTotal) is
-             genuinely hard to read (smudged, cut off, ambiguous digits like 0/8 or 1/7),
-             OR the cross-check fails by more than 5%, OR the line is a borderline
-             skip-vs-product judgment call.
+Invoice tables are row-structured. For each line:
+  • Read all fields from the SAME row.
+  • Never pull qty/price/total from an adjacent row.
+  • Multi-row items: rows 2+ may continue the description (brand,
+    certifications, fishing method). Merge their text into description;
+    they hold NO financial data.
+  • Two-row items (Legends Haul / Acecard): row 1 has everything; row 2 is
+    brand only — skip row 2 entirely, do not create a new line item.
 
-When confidence is "low", also fill "confidenceNotes" with a short reason
-(under 50 chars) like "smudged unit price", "ambiguous 5 vs 6 in qty",
-"line total cut off", or "handwritten — values uncertain". Otherwise set
-confidenceNotes to null.
-
-Do NOT mark a line "low" just because a field was null — only flag uncertainty
-when an extracted value might be wrong.
+If a field is genuinely absent, use null. Never invent values.
 
 ═══════════════════════════════════════════════════════
-SKIP RULES — lines that are NEVER products:
+HEADER FIELDS
 ═══════════════════════════════════════════════════════
-Skip any line that matches these patterns:
-- Category section headers: lines naming a product group without a product code or price
-    Examples: DAIRY PRODUCTS, PRODUCE, FROZEN, CANNED AND DRY, DRY, COOLER, PAPER & DISP,
-              SUPP & EQUIP, BEVERAGE, GROCERY — especially when enclosed in dashes (-- DAIRY --)
-              or asterisks (** DRY **)
-- Category subtotals/totals: lines with only "Total" + an amount, or "Totals: N  Total [X] Pieces  XX"
-- Non-product charges: Fuel Surcharge, Fuel Charge, Delivery Fee, Minimum Order Fee, Recycling Fee,
-  Bottle Deposit, Freight, Environmental Fee, Service Charge
-- Tax lines: GST, HST, PST, TVQ, QST (whether standalone or inline dollar amounts on item rows)
-- Page-level aggregates: Page Total, Order Total, Subtotal, Sub Total, Invoice Total, INVOICE TOTAL
-- Table column headers: rows containing labels like "Description", "Qty", "Price", "Amount", "Extension"
-- Boilerplate text: delivery instructions, payment terms, legal notices, certifications blocks,
-  "All raw product is to be cooked for consumption", "Please ensure payment..."
-- Traceability sub-lines: LOT# lines, fishing method lines (TROLLING LINES, BEACH SEINES),
-  certification codes (MSC-C-XXXXX, ASC-C-XXXXX), habitat (WILD), grade (GREEN - BEST CHOICE)
-- Summary tables: Category Summary, Category Recap tables at end of invoice
+Capture every fee/charge/tax from the summary block (or non-product lines
+skipped in STEP 1):
+  subtotal        — pre-tax, pre-fee product total
+  discount        — line or order-level discount
+  fuelSurcharge   — "fuel charge", "fuel surcharge", "fuel"
+  freight         — "freight", "delivery charge"
+  minimumOrderFee — "min order fee", "minimum order"
+  gst, hst, pst   — Canadian taxes (federal / harmonized / provincial)
+  otherCharges    — anything else: [{label, amount}, ...]
+  total           — grand total
+
+Single combined "Tax" without a split → put in gst.
+"GST/HST" combined → put in hst.
 
 ═══════════════════════════════════════════════════════
-HOW TO INTERPRET DIFFERENT INVOICE FORMATS:
+CONFIDENCE
 ═══════════════════════════════════════════════════════
+high   — all fields clearly legible AND cross-check within 1%.
+medium — partially obscured/handwritten but extracted with reasonable
+         certainty, OR cross-check within 1–5%.
+low    — at least one numeric field genuinely hard to read OR cross-check
+         > 5% OR borderline skip-vs-product judgment.
 
-Format A — Sysco (explicit columns: Qty Ord | B Unit | Pack Size | Price | Extension)
-  Row: Qty:1  B Unit:4  Pack Size:5 LTR  Price:27.99  Ext:27.99
-  → qty:1, unit:"cs", packQty:4, packSize:5, packUOM:"L", unitPrice:27.99, lineTotal:27.99
+For "low", fill confidenceNotes (< 50 chars): "smudged unit price",
+"ambiguous 5 vs 6 in qty", "line total cut off", "handwritten — uncertain".
+For "medium"/"high", confidenceNotes = null.
 
-Format B — Size in description ("4/4L", "6x500ml", "4/500ML", "2/2KG")
-  "CREAM 4/4L"    → packQty:4, packSize:4, packUOM:"L"
-  "JUICE 6x500ml" → packQty:6, packSize:500, packUOM:"ml"
-  "BUTTER 2/2KG"  → packQty:2, packSize:2, packUOM:"kg"
-  Extract packQty/packSize/packUOM from description even if no explicit column exists.
+Do NOT mark "low" just because a field was null. Flag only when an
+extracted value could be wrong.
 
-Format C — Individual items (unit is EA, EACH, PC; or a single bottle/bag/unit)
-  Treat as: 1 case = 1 pkg, so packQty:1. Extract packSize/packUOM from size column or description.
-  "OLIVE OIL 3L  1  EA  8.99  8.99" → qty:1, packQty:1, packSize:3, packUOM:"L", unitPrice:8.99
-  "VINEGAR 500ML  3  EA  2.50  7.50" → qty:3, packQty:1, packSize:500, packUOM:"ml", unitPrice:2.50
-
-Format D — Weight-sold items (produce, meat — priced by weight/volume)
-  ⚠ CRITICAL: unitPrice MUST be the price per CASE (= lineTotal ÷ qty), NEVER the per-kg/per-lb rate.
-  Always populate BOTH rate AND totalQty for weight-sold items.
-
-  "CHICKEN BREAST  5.2 LB  @3.99  20.75"
-  → qty:1, packQty:1, packSize:5.2, packUOM:"lb", rate:3.99, totalQty:5.2, unitPrice:20.75, lineTotal:20.75
-
-  "PORK BUTT  26.1 KG  $9.90/KG" (weight and rate columns, no explicit total)
-  → lineTotal = 26.1 × 9.90 = 258.39
-  → qty:1, packQty:1, packSize:26.1, packUOM:"kg", rate:9.90, totalQty:26.1, unitPrice:258.39, lineTotal:258.39
-
-  ⚠ KEY SCENARIO — label says N pkgs × W kg each, but actual delivered weight differs:
-  "CHICKEN  6 PKG/1KG EA  $9.90/KG  TOTAL WT: 4.8KG  Total: $47.52"
-  → packQty:6, packSize:1, packUOM:"kg", rate:9.90, totalQty:4.8, unitPrice:47.52, lineTotal:47.52
-  (packSize=1 is the NOMINAL label weight; totalQty=4.8 is the ACTUAL delivered weight — use totalQty for pricing)
-
-  "TOMATOES  2 cases"  with no size info → packQty:null, packSize:null, packUOM:null, rate:null, totalQty:null
-
-Format E — Count items (eggs, portions, pieces)
-  "EGGS 6/12-ct"        → packQty:6, packSize:12, packUOM:"each"
-  "EGGS DOZEN  2  CS"   → packQty:1, packSize:12, packUOM:"each"
-  "BREAD ROLLS 24 CT"   → packQty:1, packSize:24, packUOM:"each"
-  "MUFFINS 6x4"         → packQty:6, packSize:4, packUOM:"each"
-
-Format F — Other suppliers (columns may be labeled differently)
-  Look for: Quantity/Qty/Q, Unit/UOM/U/M, Size/Pack/Format, Price/Unit Price/Cost, Total/Amount/Ext/Extension
-  Apply the same 3-level logic to fill as many fields as possible.
-
-MISSING FIELD INFERENCE:
-  If qty AND unitPrice known → compute lineTotal = qty × unitPrice
-  If qty AND lineTotal known → compute unitPrice = lineTotal / qty
-  If totalQty AND rate AND packUOM(weight/volume) shown → lineTotal = totalQty × rate; unitPrice = lineTotal ÷ qty
-  If packSize AND packUOM(weight/volume) AND rate shown but no totalQty → totalQty = qty × packQty × packSize; lineTotal = totalQty × rate; unitPrice = lineTotal ÷ qty
-  If size appears in description (e.g. "5L") and packQty not shown → packQty:1, packSize:5, packUOM:"L"
-
-Rules:
-- Extract EVERY real product line item (food, beverages, supplies with an item number or product code)
-- Preserve exact product descriptions as written on the invoice
-- Numbers only, no currency symbols (12.50 not "$12.50")
-- SKIP non-product lines: Fuel Surcharge, Recycling Fee, Bottle Deposit, GST/HST, PST, Tax Summary, Warehouse Recap, Deposit Recap, category subtotal headers (e.g. "DAIRY PRODUCTS", "PRODUCE", "Total")
-- For Sysco invoices: each product row has an ITEM NO. (6-7 digit number) — only extract those rows
-- Dates in YYYY-MM-DD format
-- null only for fields that are genuinely impossible to determine`
+═══════════════════════════════════════════════════════
+NUMERIC FORMATTING
+═══════════════════════════════════════════════════════
+  • Numbers only — no currency symbols, no thousand separators (12.50 not "$12,500")
+  • Dates in YYYY-MM-DD
+  • null only when a field is genuinely impossible to determine
+  • isCatchweight is always boolean — never null
+  • otherCharges is always an array — [] if none
+  • lineItems is always an array — [] if no products
+  • Preserve product descriptions exactly as written`
 
 // ── Supplier-specific format hints ─────────────────────────────────────────────
 // Keyed by normalized substring of supplier name. Injected into the prompt when
-// the session's supplier is already known, giving Claude exact column layouts.
+// the session's supplier is already known, giving Claude exact column layouts
+// and worked examples (which BASE_PROMPT deliberately omits to keep tokens low).
 const SUPPLIER_HINTS: Record<string, string> = {
   sysco: `
 SUPPLIER IDENTIFIED: SYSCO CANADA
-Columns (left→right): ITEM NO./ARTICLE | QTY.ORD./COMMANDE | QTY.SHPD./EXPÉDIÉ | B UNIT/UNITÉ | PACK SIZE FORMAT | BRAND/MARQUE | DESCRIPTION | WEIGHT/POIDS | PRICE/PRIX | EXTENSION/MONTANT
+Columns (L→R): ITEM NO. | QTY.ORD | QTY.SHPD | B UNIT | PACK SIZE FORMAT
+             | BRAND | DESCRIPTION | WEIGHT | PRICE | EXTENSION
 
-ANCHOR: Every real product row begins with a 6-7 digit ITEM NO. Rows with no item number are NOT products.
+ANCHOR: Every product row starts with a 6-7 digit ITEM NO. Skip rows without one.
 
-FIELD MAPPING:
-  qty       = QTY.SHPD. column (shipped quantity, not ordered)
-  unit      = "cs"
-  packQty   = B UNIT column (number of packages per case)
-  packSize + packUOM = parse from PACK SIZE FORMAT column
-    "1 KG" → packSize:1, packUOM:kg | "8 EA" → packSize:8, packUOM:each
-    "3 L"  → packSize:3, packUOM:L  | "100CT" → packSize:100, packUOM:each
-  unitPrice = PRICE column — $/case in normal rows
-  lineTotal = EXTENSION column
+MODE DETECTION:
+  WEIGHT column populated AND PRICE label shows $/lb or $/kg
+    → per_weight, signal: price_uom_is_weight
+  Otherwise
+    → per_case,   signal: default_case
 
-WEIGHT-PRICED ROWS: When the WEIGHT/POIDS column has a numeric value (not blank or "TBD"):
-  rate      = PRICE column ($/kg or $/lb — same UOM as packUOM)
-  totalQty  = WEIGHT column value
-  lineTotal = EXTENSION column
-  unitPrice = EXTENSION ÷ QTY.SHPD.
+FIELD MAPPING (per_case):
+  qtyOrdered = QTY.ORD,  qtyOrderedUOM = "cs"
+  qtyShipped = QTY.SHPD, qtyShippedUOM = "cs"
+  packQty    = B UNIT
+  packSize, packUOM = parse PACK SIZE FORMAT
+    "1 KG" → 1,"kg"  |  "3 L" → 3,"L"  |  "8 EA" → 8,"each"  |  "100CT" → 100,"each"
+  unitPrice  = PRICE ($/case)
+  lineTotal  = EXTENSION
+  rate, rateUOM, totalQty, totalQtyUOM = null
 
-SKIP THESE (they are NOT products — no item number):
-  - Category headers: "-- DAIRY PRODUCTS --", "-- CANNED AND DRY --", "-- PAPER & DISP --",
-    "-- SUPP & EQUIP --", "-- PRODUCE --", "-- FROZEN --", "-- BEVERAGE --" and similar
-  - Category totals: lines like "Total  59.63" (label "Total" + amount, no item number)
-  - Last-page summary block: P.S.T./T.V.P., ORDER TOTAL/TOTAL COMMANDE, CUBE, PIECES/MORCEAUX rows`,
+FIELD MAPPING (per_weight):
+  qtyOrdered, qtyShipped, qtyShippedUOM as above ("cs")
+  packQty/packSize/packUOM as above (nominal)
+  rate        = PRICE ($/lb or $/kg)
+  rateUOM     = UOM from price label (lb or kg)
+  totalQty    = WEIGHT column
+  totalQtyUOM = same UOM as rateUOM
+  unitPrice   = EXTENSION ÷ QTY.SHPD   (case cost as shipped)
+  lineTotal   = EXTENSION
+
+CATCHWEIGHT: Sysco rarely shows ordered-vs-shipped weight separately. Generally false.
+Set true only if a nominal weight in description differs from WEIGHT column.
+
+EXAMPLES:
+  ITEM 7296313  ORD 1 / SHPD 1  B-UNIT 4  PACK "3 L"  PRICE 55.13  EXT 55.13
+    → per_case, signal: default_case
+       qtyShipped: 1, qtyShippedUOM: "cs", packQty: 4, packSize: 3, packUOM: "L"
+       unitPrice: 55.13, lineTotal: 55.13
+
+  ITEM 2697985  ORD 1 / SHPD 1  PACK "25 LB"  WEIGHT 26.4  PRICE 2.28  EXT 60.24
+    (price column labeled $/LB)
+    → per_weight, signal: price_uom_is_weight
+       qtyShipped: 1, qtyShippedUOM: "cs", packQty: 1, packSize: 25, packUOM: "lb"
+       rate: 2.28, rateUOM: "lb", totalQty: 26.4, totalQtyUOM: "lb"
+       unitPrice: 60.24, lineTotal: 60.24
+
+SKIP (no item number):
+  • Category headers: "-- DAIRY PRODUCTS --", "-- CANNED AND DRY --", etc.
+  • "Total NN.NN" subtotal rows
+  • Final summary: P.S.T./T.V.P., ORDER TOTAL, CUBE, PIECES`,
 
   gordon: `
 SUPPLIER IDENTIFIED: GFS / GORDON FOOD SERVICE
-Columns: Item Code(7 digits) | Qty Ord | Qty Ship | Unit | Pack Size | Brand | Item Description | Ø | Cust Cat | Unit Price | (tax col) | Extended Price
+Columns: Item Code(7d) | Qty Ord | Qty Ship | Unit | Pack Size | Brand
+       | Item Description | Ø | Cust Cat | Unit Price | (tax) | Extended Price
 
-ANCHOR: Every real product row begins with a 7-digit Item Code. Rows without an item code are NOT products.
+ANCHOR: Every product row starts with a 7-digit Item Code. Skip rows without one.
 
-FIELD MAPPING:
-  qty       = Qty Ship column
-  unit      = Unit column (CS, EA, etc.)
-  packQty + packSize + packUOM = parse from Pack Size column:
-    "1x24 UN" → packQty:1, packSize:24, packUOM:each
-    "2x5 KG"  → packQty:2, packSize:5,  packUOM:kg
-    "1x4 L"   → packQty:1, packSize:4,  packUOM:L
-  unitPrice = Unit Price column (always $/case)
-  lineTotal = Extended Price column
-  Cust Cat column (PR, DS, etc.) is a category code — NOT a field to extract as a product
+MODE DETECTION: mostly per_case (signal: default_case).
+Gordon rarely sells by weight; treat as per_case unless the Unit Price column
+clearly shows $/kg or $/lb (then per_weight, price_uom_is_weight).
 
-SKIP THESE (no item code):
-  - "Totals: N  Total [Category] Pieces  XX.XX" — category subtotal rows
-  - "Page Total: XX.XX" — page subtotal row
-  - Entire "Category Summary" / "Category Recap" table at end of invoice
-  - Non-product fee rows: "Fuel Charge", "Minimum Order Fee" (appear in Category Summary)
-  - Footer: "Product Total", "Misc", "Sub total", "PST/QST", "GST/HST", "Invoice Total"`,
+FIELD MAPPING (per_case):
+  qtyOrdered = Qty Ord,   qtyOrderedUOM = Unit column value (CS, EA)
+  qtyShipped = Qty Ship,  qtyShippedUOM = Unit column value
+  packQty, packSize, packUOM = parse Pack Size column
+    "1x24 UN" → packQty:1, packSize:24, packUOM:"each"
+    "2x5 KG"  → packQty:2, packSize:5,  packUOM:"kg"
+    "1x4 L"   → packQty:1, packSize:4,  packUOM:"L"
+  lineCategory = Cust Cat value (PR, DS, GR, etc.) — capture as the row's category code
+  unitPrice   = Unit Price ($/case)
+  lineTotal   = Extended Price
+
+CATCHWEIGHT: Gordon does not show ordered-vs-shipped weight. Always false.
+
+EXAMPLE:
+  ITEM 1453800  Qty 1 CS  Pack "1x24 UN"  Brand Markon
+  Desc "LETTUCE LEAF BUTTER PREM"  Cat PR  Unit $47.76  Ext $47.76
+    → per_case, signal: default_case
+       qtyShipped: 1, qtyShippedUOM: "cs", packQty: 1, packSize: 24, packUOM: "each"
+       lineCategory: "PR", unitPrice: 47.76, lineTotal: 47.76
+
+SKIP (no item code):
+  • "Totals: N  Total [Category] Pieces XX.XX" — category subtotal rows
+  • "Page Total: XX.XX"
+  • End-of-invoice Category Summary / Category Recap table
+  • Footer: Product Total, Misc, Sub total, PST/QST, GST/HST, Invoice Total
+  • Non-product fees in Category Summary: "Fuel Charge", "Minimum Order Fee"
+    → capture these into HEADER fields (fuelSurcharge, minimumOrderFee)`,
 
   'snow cap': `
 SUPPLIER IDENTIFIED: SNOW CAP ENTERPRISES
 Columns: BIN LOC. | ITEM NO. | QUAN. | DESCRIPTION | SIZE | UNIT PRICE | AMOUNT
 
-ANCHOR: Every real product row has a BIN LOC. code (format "WF-22-1", "CB-10-1", etc.) and an ITEM NO.
+ANCHOR: Every product row has a BIN LOC. code ("WF-22-1", "CB-10-1", etc.) AND an ITEM NO.
+
+MODE DETECTION: ALWAYS per_case (signal: default_case).
+Snow Cap never prices by weight.
 
 FIELD MAPPING:
-  qty       = QUAN. column
-  unit      = "cs" (or "ea" for single units)
-  packQty + packSize + packUOM = parse from SIZE column using these rules:
-    "9/3LB"  → packQty:9,  packSize:3,   packUOM:lb
-    "4/4L"   → packQty:4,  packSize:4,   packUOM:L
-    "20KG"   → packQty:1,  packSize:20,  packUOM:kg
-    "2.5KG"  → packQty:1,  packSize:2.5, packUOM:kg
-    "100PC"  → packQty:1,  packSize:100, packUOM:each
-    "9L"     → packQty:1,  packSize:9,   packUOM:L
-    "1KG"    → packQty:1,  packSize:1,   packUOM:kg
-  unitPrice = UNIT PRICE column (always $/case — Snow Cap never uses weight pricing)
-  lineTotal = AMOUNT column = QUAN × UNIT PRICE
+  qtyOrdered = QUAN., qtyOrderedUOM = "cs"  (use "ea" only when SIZE makes it obvious)
+  qtyShipped = QUAN., qtyShippedUOM = same as qtyOrderedUOM
+  packQty, packSize, packUOM = parse SIZE column:
+    "9/3LB"  → packQty:9,  packSize:3,   packUOM:"lb"
+    "4/4L"   → packQty:4,  packSize:4,   packUOM:"L"
+    "20KG"   → packQty:1,  packSize:20,  packUOM:"kg"
+    "2.5KG"  → packQty:1,  packSize:2.5, packUOM:"kg"
+    "100PC"  → packQty:1,  packSize:100, packUOM:"each"
+    "9L"     → packQty:1,  packSize:9,   packUOM:"L"
+    "1KG"    → packQty:1,  packSize:1,   packUOM:"kg"
+  unitPrice = UNIT PRICE ($/case)
+  lineTotal = AMOUNT = QUAN × UNIT PRICE
+  rate, rateUOM, totalQty, totalQtyUOM = null
+  isCatchweight = false
 
-SKIP THESE:
-  - Category section headers: "** DRY **", "** COOLER **", "** FROZEN **", "** PRODUCE **"
-    and any line enclosed in "** ... **"
-  - LOT# lines — appear below some items as "LOT#  260417"; these are traceability numbers, not products
-  - Delivery instruction text at top: "TRUCK MUST BE PARKED IN PARKING LOT..."
-  - Inline tax amounts: "GST: 1.32  PST: 1.85" may appear at the end of an item line —
-    these are taxes on that item, NOT separate line items; ignore the numbers
-  - Footer: subtotals, tax summary rows`,
+INLINE TAX: Snow Cap sometimes prints "GST: 1.32  PST: 1.85" at the end of an
+item row. These are taxes on that line — capture the larger one in
+lineTaxAmount and put the code in taxFlag ("G" for GST, "P" for PST).
+Do NOT subtract them from lineTotal.
+
+EXAMPLE:
+  BIN WF-22-1  ITEM S1095  QUAN 1  DESC "Salt Diamond Crystal Kosher"
+  SIZE "9/3LB"  UNIT PRICE 111.87  AMOUNT 111.87
+    → per_case, signal: default_case
+       qtyShipped: 1, qtyShippedUOM: "cs", packQty: 9, packSize: 3, packUOM: "lb"
+       unitPrice: 111.87, lineTotal: 111.87
+
+SKIP:
+  • Category headers in "** ... **": "** DRY **", "** COOLER **", "** FROZEN **",
+    "** PRODUCE **"
+  • LOT# lines beneath items (traceability, not a product)
+  • Delivery instruction header text
+  • Footer: subtotals, tax summary rows`,
 
   'legends haul': `
 SUPPLIER IDENTIFIED: LEGENDS HAUL / ACECARD FOOD GROUP
-Columns: PRODUCT ID | ORDERED | SHIPPED | unit(PC/PK/CS) | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
+(Acecard Food Group LTD is the legal entity that trades as Legends Haul — same supplier.)
+Columns: PRODUCT ID | ORDERED | SHIPPED | unit(PC/PK/CS) | DESCRIPTION/SIZE/BRAND
+       | TAX | WEIGHT | PRICE | per | AMOUNT
 
 TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
-  Row 1: PRODUCT ID, qty data, full description with size, weight, price, amount
-  Row 2: Brand name ONLY (e.g. "BRITCO", "JBS/CARGIL", "WHITEVEAL", "GOLDENVALL")
-  → Do NOT create a separate line item for Row 2. It belongs to Row 1.
-  → All financial data (weight, price, amount) comes from Row 1 only.
+  Row 1: PRODUCT ID + all financial data
+  Row 2: Brand name only ("BRITCO", "JBS/CARGIL", "WHITEVEAL", "GOLDENVALL")
+  → Do NOT create a line item for Row 2. Merge brand into Row 1's description.
 
-ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand-name rows have no product ID.
+ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand rows have none.
 
-FIELD MAPPING:
-  qty  = SHIPPED column value (the number of pieces/packages/cases actually delivered)
-  unit = the unit column adjacent to SHIPPED — PC (pieces), PK (packages), or CS (cases)
+MODE DETECTION: per column drives mode (signal: explicit_per_column)
+  per = KG → per_weight
+  per = CS → per_case
 
-  ⚠ UNIT COLUMN IS NOT A MULTIPLIER: "4 PC" means 4 individual pieces. If the description
-    says "Beef Brisket 4x7kg" and SHIPPED is "4 PC", that is 4 pieces — NOT 4×4=16.
-    The description's pack notation (4x7kg) describes the NOMINAL case format only.
+FIELD MAPPING (per_weight, per=KG):
+  qtyOrdered  = ORDERED, qtyOrderedUOM = unit column (CS/PC/PK)
+  qtyShipped  = SHIPPED, qtyShippedUOM = unit column
+  packQty/packSize/packUOM from DESCRIPTION (nominal reference only)
+  rate        = PRICE ($/kg)
+  rateUOM     = "kg"
+  totalQty    = WEIGHT column (AUTHORITATIVE — actual delivered kg)
+  totalQtyUOM = "kg"
+  unitPrice   = AMOUNT ÷ SHIPPED
+  lineTotal   = AMOUNT
+  isCatchweight: true if (packQty × packSize) differs from totalQty by > 2%
+                 (e.g. "Beef Brisket 4x7kg" nominal 28kg vs WEIGHT 36.1 KG)
+  nominalWeight: packQty × packSize when isCatchweight is true
 
-  per column determines pricing mode:
-    per = KG → weight-priced item:
-      rate      = PRICE column ($/kg)
-      totalQty  = WEIGHT column value (ACTUAL delivered kg — authoritative, always use this)
-      totalQtyUOM = "kg"
-      lineTotal = AMOUNT column
-      unitPrice = AMOUNT ÷ SHIPPED qty
+FIELD MAPPING (per_case, per=CS):
+  qtyOrdered, qtyShipped, qtyShippedUOM from ORDERED/SHIPPED/unit columns
+  packQty/packSize/packUOM from DESCRIPTION
+  unitPrice = PRICE ($/case)
+  lineTotal = AMOUNT
+  rate, rateUOM, totalQty, totalQtyUOM = null
+  isCatchweight = false
+  (WEIGHT column may still show a kg value — informational only, ignore for pricing)
 
-    per = CS → case-priced item:
-      unitPrice = PRICE column ($/case)
-      lineTotal = AMOUNT column
+⚠ UNIT COLUMN IS NOT A MULTIPLIER: "4 PC" of "Beef Brisket 4x7kg" means 4 pieces
+(qtyShipped: 4), NOT 16. Description's pack notation is nominal case format only.
 
-  ⚠ DESCRIPTION SIZE IS NOMINAL ONLY: "Beef Brisket 4x7kg" means the case is nominally
-    4 pieces of ~7kg each, but actual meat weights vary. The WEIGHT column is the true
-    delivered weight — NEVER use description arithmetic (4×7=28) to derive or verify totalQty.
-    Example: description "Beef Brisket 4x7kg", WEIGHT=36.1 KG, PRICE=18.00, AMOUNT=649.80
-    → qty:4, unit:"pc", rate:18.00, totalQty:36.1, lineTotal:649.80, unitPrice:162.45
-    (NOT totalQty:28 — ignore the 4×7 math entirely)
+⚠ DESCRIPTION SIZE IS NOMINAL: NEVER derive totalQty from description arithmetic.
+WEIGHT column is always authoritative for per_weight rows.
 
-  packQty/packSize/packUOM from DESCRIPTION (nominal reference only, not for pricing):
-    "Pork Butt BL Fresh 6/cs"          → packQty:6
-    "Beef Digital AA FZ 1kg pkgs"      → packQty:1, packSize:1, packUOM:kg
-    "Eggs Dark Yolk LW Loose 180/case" → packSize:180, packUOM:each
-    "Veal Bones (Knuckle) Fz 50lb/cs"  → packSize:50, packUOM:lb
-    "Beef Brisket 4x7kg"               → packQty:4, packSize:7, packUOM:kg (nominal only)
+EXAMPLES:
+  PRODUCT 10126  SHIPPED 1 CS  "Pork Butt BL Fresh 6/cs / BRITCO"
+  WEIGHT 29.500 KG  PRICE 9.90  per KG  AMOUNT 292.05
+    → per_weight, signal: explicit_per_column
+       qtyShipped: 1, qtyShippedUOM: "cs", packQty: 6, packSize: null, packUOM: null
+       rate: 9.90, rateUOM: "kg", totalQty: 29.5, totalQtyUOM: "kg"
+       unitPrice: 292.05, lineTotal: 292.05, isCatchweight: false
 
-SKIP THESE:
-  - Brand name rows (Row 2 of each item — no product ID, just a name like "BRITCO")
-  - "Total Weight ......  XXX KG", "Sub Total", "Discount", "Fuel Surcharge",
-    "Freight", "GST", "PST", "Invoice Total", "Total Pieces: N"`,
+  PRODUCT 13463  SHIPPED 6 CS  "Eggs Dark Yolk LW Loose 180/case / GOLDENVALL"
+  WEIGHT 66.000 KG  PRICE 78.00  per CS  AMOUNT 468.00
+    → per_case, signal: explicit_per_column
+       qtyShipped: 6, qtyShippedUOM: "cs", packQty: null, packSize: 180, packUOM: "each"
+       unitPrice: 78.00, lineTotal: 468.00
+
+SKIP:
+  • Brand-name rows (Row 2 of each item — no product ID)
+  • Footer: Total Weight, Sub Total, Discount, Fuel Surcharge, Freight,
+    GST, PST, Invoice Total, Total Pieces
+  → capture footer fees/taxes into HEADER fields, not line items`,
 
   'intercity packers': `
 SUPPLIER IDENTIFIED: INTERCITY PACKERS (meat & seafood)
 Columns: PRODUCT | DESCRIPTION | PACK | QTY ORD | U/M | QTY SHIP | U/M | PRICE | AMOUNT | TAX
 
-MULTI-ROW ITEMS — CRITICAL: Each product spans MULTIPLE rows:
-  Row 1: PRODUCT code + first line of description + pack + qty + price + amount
-  Rows 2+: Description continuation ONLY — no financial data. These include:
-    fishing method (TROLLING LINES, BEACH SEINES, LONGLINE)
-    habitat (WILD, FARMED)
-    certifications (MSC-C-50507, ASC-C-00057)
-    grade/quality (GREEN - BEST CHOICE, BLUE)
-    weight class (3LB, 40LB)
-    brand (OCEANWISE, TAJIMA, etc.)
-  → Merge relevant description rows into the product name, then skip them as separate items.
-  → All financial data (qty, price, amount) comes from Row 1 ONLY.
+MULTI-ROW ITEMS — CRITICAL: Each product spans multiple rows:
+  Row 1: PRODUCT code + first description line + financial data
+  Rows 2+: Description continuation ONLY (fishing method, certifications,
+    habitat, grade, weight class, brand). Merge into description; no
+    financial data on these rows.
 
-ANCHOR: Real product rows have a numeric PRODUCT code (8 digits). Sub-description rows have no product code.
+ANCHOR: Real product rows have an 8-digit PRODUCT code. Sub-description rows have none.
 
-ALL ITEMS ARE WEIGHT-PRICED:
-  qty         = QTY SHIP column value (actual shipped weight)
-  unit        = U/M column adjacent to QTY SHIP (LB or KG)
-  rate        = PRICE column ($/lb or $/kg)
-  totalQty    = QTY SHIP value (same as qty — all items sold by weight)
-  totalQtyUOM = U/M column (LB or KG)
-  lineTotal   = AMOUNT column = QTY SHIP × PRICE
-  unitPrice   = AMOUNT (treat as $/case since qty=shipped weight)
-  packSize + packUOM = parse from PACK column: "1/10 LB" → packQty:1, packSize:10, packUOM:lb
-
-SKIP THESE:
-  - All description continuation rows (no product code)
-  - Boilerplate: "All raw product is to be cooked for consumption",
-    "Please ensure payment including EFT is paid to Intercity Packers LTD"
-  - "INTEREST CHARGES" section, "CLAIMS" section
-  - Footer: "TOTAL WEIGHT (KG)", "TOTAL PIECES", "TERMS", "SUBTOTAL",
-    "FUEL SURCHARGE", "FREIGHT", "PST", "HST/GST", "INVOICE TOTAL"`,
-
-  acecard: `
-SUPPLIER IDENTIFIED: LEGENDS HAUL / ACECARD FOOD GROUP
-Columns: PRODUCT ID | ORDERED | SHIPPED | unit(PC/PK/CS) | DESCRIPTION/SIZE/BRAND | TAX | WEIGHT | PRICE | per | AMOUNT
-
-TWO-ROW ITEMS — CRITICAL: Each product occupies exactly TWO rows:
-  Row 1: PRODUCT ID, qty data, full description with size, weight, price, amount
-  Row 2: Brand name ONLY (e.g. "BRITCO", "JBS/CARGIL", "WHITEVEAL", "GOLDENVALL")
-  → Do NOT create a separate line item for Row 2. It belongs to Row 1.
-  → All financial data (weight, price, amount) comes from Row 1 only.
-
-ANCHOR: Real product rows have a 5-digit PRODUCT ID. Brand-name rows have no product ID.
+MODE DETECTION: ALWAYS per_weight (signal: explicit_per_column).
+Intercity is meat/seafood — every line is priced by weight.
 
 FIELD MAPPING:
-  qty  = SHIPPED column value
-  unit = unit column (PC=pieces, PK=packages, CS=cases) — not a multiplier on description
-  per = KG → rate=PRICE($/kg), totalQty=WEIGHT(actual kg), lineTotal=AMOUNT, unitPrice=AMOUNT÷SHIPPED
-  per = CS → unitPrice=PRICE($/case), lineTotal=AMOUNT
+  qtyOrdered  = QTY ORD value
+  qtyOrderedUOM = U/M next to QTY ORD (lb or kg)
+  qtyShipped  = QTY SHIP value
+  qtyShippedUOM = U/M next to QTY SHIP (lb or kg)
+  packQty, packSize, packUOM = parse PACK column
+    "1/10 LB" → packQty:1, packSize:10, packUOM:"lb"
+  rate        = PRICE ($/lb or $/kg)
+  rateUOM     = same UOM as qtyShippedUOM
+  totalQty    = QTY SHIP value (same as qtyShipped — qty IS the delivered weight)
+  totalQtyUOM = qtyShippedUOM
+  unitPrice   = AMOUNT ÷ QTY SHIP  (= rate, since qty is the weight)
+  lineTotal   = AMOUNT = QTY SHIP × PRICE
+  isCatchweight: true if qtyOrdered ≠ qtyShipped (catchweight scenario)
+  nominalWeight: null (Intercity doesn't ship in nominal pack format)
 
-  ⚠ WEIGHT column is ALWAYS authoritative for per=KG items — never derive totalQty from description
-  ⚠ "4 PC" of "Beef Brisket 4x7kg" = 4 pieces (qty:4), NOT 16. Description size is nominal only.
+EXAMPLES:
+  PRODUCT 21402211  PACK "1/10 LB"  ORD 40 LB / SHIP 40 LB  PRICE 18.79  AMOUNT 751.60
+    → per_weight, signal: explicit_per_column
+       qtyOrdered: 40, qtyOrderedUOM: "lb", qtyShipped: 40, qtyShippedUOM: "lb"
+       packQty: 1, packSize: 10, packUOM: "lb"
+       rate: 18.79, rateUOM: "lb", totalQty: 40, totalQtyUOM: "lb"
+       unitPrice: 18.79, lineTotal: 751.60, isCatchweight: false
 
-SKIP THESE:
-  - Brand name rows (Row 2 — no product ID)
-  - Footer rows: "Total Weight", "Sub Total", "Discount", "Fuel Surcharge",
-    "Freight", "GST", "PST", "Invoice Total", "Total Pieces"`,
+  PRODUCT 11108103  PACK "1/10 lb ODD"  ORD 3.00 LB / SHIP 3.20 LB  PRICE 19.89  AMOUNT 63.65
+    → per_weight, signal: explicit_per_column
+       qtyOrdered: 3.00, qtyOrderedUOM: "lb", qtyShipped: 3.20, qtyShippedUOM: "lb"
+       packQty: 1, packSize: 10, packUOM: "lb"
+       rate: 19.89, rateUOM: "lb", totalQty: 3.20, totalQtyUOM: "lb"
+       unitPrice: 19.89, lineTotal: 63.65, isCatchweight: true
+
+SKIP:
+  • All description continuation rows (no product code)
+  • Boilerplate: "All raw product is to be cooked for consumption",
+    "Please ensure payment...", INTEREST CHARGES, CLAIMS sections
+  • Footer: TOTAL WEIGHT, TOTAL PIECES, TERMS, SUBTOTAL, FUEL SURCHARGE,
+    FREIGHT, PST, HST/GST, INVOICE TOTAL
+  → capture footer fees/taxes into HEADER fields, not line items`,
 }
 
 // Lookup supplier hints by normalizing the supplier name and checking substrings
 function getSupplierHint(supplierName: string | null | undefined): string {
   if (!supplierName) return ''
   const n = supplierName.toLowerCase()
-  if (n.includes('sysco'))              return SUPPLIER_HINTS['sysco']
-  if (n.includes('gordon') || n.includes('gfs')) return SUPPLIER_HINTS['gordon']
-  if (n.includes('snow cap'))           return SUPPLIER_HINTS['snow cap']
-  if (n.includes('legends haul'))       return SUPPLIER_HINTS['legends haul']
-  if (n.includes('acecard'))            return SUPPLIER_HINTS['acecard']
-  if (n.includes('intercity'))          return SUPPLIER_HINTS['intercity packers']
+  if (n.includes('sysco'))                            return SUPPLIER_HINTS['sysco']
+  if (n.includes('gordon') || n.includes('gfs'))      return SUPPLIER_HINTS['gordon']
+  if (n.includes('snow cap'))                         return SUPPLIER_HINTS['snow cap']
+  if (n.includes('legends') || n.includes('acecard')) return SUPPLIER_HINTS['legends haul']
+  if (n.includes('intercity'))                        return SUPPLIER_HINTS['intercity packers']
   return ''
 }
 
@@ -463,32 +569,139 @@ function buildSystemPrompt(supplierName?: string | null, learning = false): stri
     hint
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export type PricingMode = 'per_case' | 'per_weight' | 'unknown'
+export type PricingModeSignal =
+  | 'explicit_per_column'
+  | 'price_uom_is_weight'
+  | 'weight_column_present'
+  | 'math_inference'
+  | 'default_case'
+  | 'indeterminate'
+
 export interface OcrLineItem {
+  // Identity
   description: string
-  qty: number | null
-  unit: string | null
-  packQty: number | null    // units per case (Sysco B Unit)
-  packSize: number | null   // NOMINAL size per unit from label (e.g. 5 from "5 LTR")
-  packUOM: string | null    // UOM for packSize (L, ml, kg, g, lb, oz, each)
+  supplierItemCode: string | null
+  lineCategory: string | null          // free-form: section header name OR column code (PR, DS, etc.)
+
+  // Pricing classification (primary)
+  pricingMode: PricingMode
+  pricingModeSignal: PricingModeSignal
+
+  // Quantities — UOM disambiguates case-count ("cs","pc","pk","ea") vs weight ("lb","kg","g","oz")
+  qtyOrdered: number | null
+  qtyOrderedUOM: string | null
+  qtyShipped: number | null
+  qtyShippedUOM: string | null
+
+  // Nominal pack composition
+  packQty: number | null
+  packSize: number | null
+  packUOM: string | null               // "L","ml","kg","g","lb","oz","each"
+
+  // Pricing fields (per mode)
+  // per_case: unitPrice = $/case; rate/totalQty null
+  // per_weight: rate = $/uom; totalQty = actual delivered weight; unitPrice = lineTotal/qtyShipped
   unitPrice: number | null
+  rate: number | null
+  rateUOM: string | null
+  totalQty: number | null
+  totalQtyUOM: string | null
+
+  // Catchweight
+  isCatchweight: boolean               // never null — defaults to false
+  nominalWeight: number | null
+
+  // Universal
   lineTotal: number | null
-  rate: number | null       // per-UOM rate shown on invoice (e.g. 9.90 for $9.90/kg)
-  totalQty: number | null   // ACTUAL total weight/volume delivered for this line
-  // Self-reported confidence in this line's extracted values. Used to flag
-  // uncertain rows in the review UI.
-  confidence?: 'low' | 'medium' | 'high'
-  // Short reason if confidence is 'low' (e.g. "blurry total column", "OCR'd qty hard to read")
-  confidenceNotes?: string | null
+
+  // Tax
+  taxFlag: string | null
+  lineTaxAmount: number | null
+
+  // Confidence
+  confidence: 'low' | 'medium' | 'high'
+  confidenceNotes: string | null
 }
 
 export interface OcrResult {
+  // Invoice identity
   supplierName: string | null
   invoiceNumber: string | null
   invoiceDate: string | null
+  poNumber: string | null
+
+  // Financial header
   subtotal: number | null
-  tax: number | null
+  discount: number | null
+  fuelSurcharge: number | null
+  freight: number | null
+  minimumOrderFee: number | null
+  gst: number | null
+  hst: number | null
+  pst: number | null
+  otherCharges: Array<{ label: string; amount: number }>
   total: number | null
+
+  // Lines
   lineItems: OcrLineItem[]
+}
+
+// ── JSON parsing & normalization ──────────────────────────────────────────────
+
+function asNum(v: unknown): number | null {
+  if (v == null) return null
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
+}
+
+function asStr(v: unknown): string | null {
+  if (v == null) return null
+  const s = String(v).trim()
+  return s.length ? s : null
+}
+
+function normalizeLineItem(raw: Record<string, unknown>): OcrLineItem {
+  const description = asStr(raw.description) ?? ''
+  const pricingMode = (raw.pricingMode === 'per_case' || raw.pricingMode === 'per_weight')
+    ? raw.pricingMode as PricingMode
+    : 'unknown'
+  const sig = raw.pricingModeSignal
+  const pricingModeSignal: PricingModeSignal =
+    sig === 'explicit_per_column' || sig === 'price_uom_is_weight' ||
+    sig === 'weight_column_present' || sig === 'math_inference' ||
+    sig === 'default_case' ? sig as PricingModeSignal : 'indeterminate'
+  const confRaw = raw.confidence
+  const confidence: 'low' | 'medium' | 'high' =
+    confRaw === 'high' ? 'high' : confRaw === 'medium' ? 'medium' : 'low'
+  return {
+    description,
+    supplierItemCode: asStr(raw.supplierItemCode),
+    lineCategory:     asStr(raw.lineCategory),
+    pricingMode,
+    pricingModeSignal,
+    qtyOrdered:     asNum(raw.qtyOrdered),
+    qtyOrderedUOM:  asStr(raw.qtyOrderedUOM),
+    qtyShipped:     asNum(raw.qtyShipped),
+    qtyShippedUOM:  asStr(raw.qtyShippedUOM),
+    packQty:        asNum(raw.packQty),
+    packSize:       asNum(raw.packSize),
+    packUOM:        asStr(raw.packUOM),
+    unitPrice:      asNum(raw.unitPrice),
+    rate:           asNum(raw.rate),
+    rateUOM:        asStr(raw.rateUOM),
+    totalQty:       asNum(raw.totalQty),
+    totalQtyUOM:    asStr(raw.totalQtyUOM),
+    isCatchweight:  raw.isCatchweight === true,
+    nominalWeight:  asNum(raw.nominalWeight),
+    lineTotal:      asNum(raw.lineTotal),
+    taxFlag:        asStr(raw.taxFlag),
+    lineTaxAmount:  asNum(raw.lineTaxAmount),
+    confidence,
+    confidenceNotes: asStr(raw.confidenceNotes),
+  }
 }
 
 function parseOcrResponse(rawText: string): OcrResult {
@@ -501,17 +714,54 @@ function parseOcrResponse(rawText: string): OcrResult {
     throw new Error('Claude returned an empty response — invoice may be unreadable or the image quality is too low')
   }
 
+  const parsed = JSON.parse(text) as Record<string, unknown>
+  const rawItems = Array.isArray(parsed.lineItems) ? parsed.lineItems as Record<string, unknown>[] : []
+  const rawOther = Array.isArray(parsed.otherCharges) ? parsed.otherCharges as Record<string, unknown>[] : []
+
+  return {
+    supplierName:    asStr(parsed.supplierName),
+    invoiceNumber:   asStr(parsed.invoiceNumber),
+    invoiceDate:     asStr(parsed.invoiceDate),
+    poNumber:        asStr(parsed.poNumber),
+    subtotal:        asNum(parsed.subtotal),
+    discount:        asNum(parsed.discount),
+    fuelSurcharge:   asNum(parsed.fuelSurcharge),
+    freight:         asNum(parsed.freight),
+    minimumOrderFee: asNum(parsed.minimumOrderFee),
+    gst:             asNum(parsed.gst),
+    hst:             asNum(parsed.hst),
+    pst:             asNum(parsed.pst),
+    otherCharges:    rawOther
+      .map(o => ({ label: asStr(o.label) ?? '', amount: asNum(o.amount) ?? 0 }))
+      .filter(o => o.label.length > 0),
+    total:           asNum(parsed.total),
+    lineItems:       rawItems.map(normalizeLineItem),
+  }
+}
+
+// ── JSON retry wrapper ────────────────────────────────────────────────────────
+// Caps at one retry. The thunk is called with an optional `retrySuffix`; on
+// retry the suffix is appended to the user message so Claude knows its
+// previous output failed to parse.
+async function callWithJsonRetry(
+  callApi: (retrySuffix?: string) => Promise<string>,
+): Promise<OcrResult> {
+  const first = await callApi()
   try {
-    const parsed = JSON.parse(text) as OcrResult
-    // Validate minimum shape
-    if (!Array.isArray(parsed.lineItems)) {
-      parsed.lineItems = []
+    return parseOcrResponse(first)
+  } catch (err) {
+    console.warn('[ocr] first response invalid JSON, retrying once:', err instanceof Error ? err.message : err)
+    const suffix =
+      '\n\nYour previous response was not valid JSON. Re-output the JSON object only — ' +
+      'no prose, no markdown fences. Here was your previous output:\n\n' +
+      first.slice(0, 4000)
+    const second = await callApi(suffix)
+    try {
+      return parseOcrResponse(second)
+    } catch (err2) {
+      console.error('[ocr] retry also failed. First 500 chars:', second.slice(0, 500))
+      throw new Error(`Failed to parse OCR response as JSON: ${err2 instanceof Error ? err2.message : String(err2)}`)
     }
-    return parsed
-  } catch (e) {
-    // Log the raw text so we can debug what Claude actually returned
-    console.error('[ocr] JSON parse failed. Raw response (first 500 chars):', text.slice(0, 500))
-    throw new Error(`Failed to parse OCR response as JSON: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -525,10 +775,9 @@ export async function extractInvoiceFromImages(
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
-  const maxTokens     = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
-  const thinkingBudget = learning ? LEARNING_THINKING  : NORMAL_THINKING
+  const maxTokens      = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
+  const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
-  // Compress all images in parallel (learning mode preserves more detail)
   const compressedImages = await Promise.all(
     files.map(async (f) => {
       const rawBytes = Buffer.byteLength(f.base64, 'base64')
@@ -541,39 +790,37 @@ export async function extractInvoiceFromImages(
     })
   )
 
-  // Build content blocks — one image block per page, then a single instruction
   const imageBlocks: Anthropic.ImageBlockParam[] = compressedImages.map(img => ({
     type: 'image',
     source: { type: 'base64', media_type: img.mediaType, data: img.data },
   }))
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await (client.messages.stream({
-    model: OCR_MODEL,
-    max_tokens: maxTokens,
-    system: buildSystemPrompt(supplierName, learning),
-    thinking: { type: 'enabled', budget_tokens: thinkingBudget },
-    messages: [{
-      role: 'user',
-      content: [
-        ...imageBlocks,
-        {
-          type: 'text',
-          text: files.length > 1
-            ? `These are ${files.length} pages of the same invoice. Parse all pages together and return one combined JSON object.`
-            : 'Parse this invoice and return JSON only.',
-        },
-      ],
-    }],
-  } as any) as any).finalMessage()
+  const baseInstruction = files.length > 1
+    ? `These are ${files.length} pages of the same invoice. Parse all pages together and return one combined JSON object.`
+    : 'Parse this invoice and return JSON only.'
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const text = (message as any).content
-    .filter((b: any) => b.type === 'text')
-    .map((b: any) => b.text as string)
-    .join('')
+  return callWithJsonRetry(async (retrySuffix) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const message = await (client.messages.stream({
+      model: OCR_MODEL,
+      max_tokens: maxTokens,
+      system: buildSystemPrompt(supplierName, learning),
+      thinking: { type: 'enabled', budget_tokens: thinkingBudget },
+      messages: [{
+        role: 'user',
+        content: [
+          ...imageBlocks,
+          { type: 'text', text: baseInstruction + (retrySuffix ?? '') },
+        ],
+      }],
+    } as any) as any).finalMessage()
 
-  return parseOcrResponse(text)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (message as any).content
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text as string)
+      .join('')
+  })
 }
 
 // ── Single image (kept for backwards compat) ──
@@ -598,29 +845,29 @@ export async function extractInvoiceFromPdf(
   const maxTokens      = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
   const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await (client.messages.stream({
-    model: OCR_MODEL,
-    max_tokens: maxTokens,
-    system: buildSystemPrompt(supplierName, learning),
-    thinking: { type: 'enabled', budget_tokens: thinkingBudget },
-    messages: [{
-      role: 'user',
-      content: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } } as any,
-        { type: 'text', text: 'Parse this invoice and return JSON only.' },
-      ],
-    }],
-  } as any) as any).finalMessage()
+  return callWithJsonRetry(async (retrySuffix) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const message = await (client.messages.stream({
+      model: OCR_MODEL,
+      max_tokens: maxTokens,
+      system: buildSystemPrompt(supplierName, learning),
+      thinking: { type: 'enabled', budget_tokens: thinkingBudget },
+      messages: [{
+        role: 'user',
+        content: [
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } } as any,
+          { type: 'text', text: 'Parse this invoice and return JSON only.' + (retrySuffix ?? '') },
+        ],
+      }],
+    } as any) as any).finalMessage()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const text = (message as any).content
-    .filter((b: any) => b.type === 'text')
-    .map((b: any) => b.text as string)
-    .join('')
-
-  return parseOcrResponse(text)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (message as any).content
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text as string)
+      .join('')
+  })
 }
 
 // ── Plain text (Claude-assisted) ──
@@ -636,33 +883,33 @@ export async function extractInvoiceFromText(
   const maxTokens      = learning ? LEARNING_MAX_TOKENS : NORMAL_MAX_TOKENS
   const thinkingBudget = learning ? LEARNING_THINKING   : NORMAL_THINKING
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await (client.messages.stream({
-    model: OCR_MODEL,
-    max_tokens: maxTokens,
-    system: buildSystemPrompt(supplierName, learning),
-    thinking: { type: 'enabled', budget_tokens: thinkingBudget },
-    messages: [{
-      role: 'user',
-      content: `Parse this invoice text and return JSON only.\n\n${text}`,
-    }],
-  } as any) as any).finalMessage()
+  return callWithJsonRetry(async (retrySuffix) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const message = await (client.messages.stream({
+      model: OCR_MODEL,
+      max_tokens: maxTokens,
+      system: buildSystemPrompt(supplierName, learning),
+      thinking: { type: 'enabled', budget_tokens: thinkingBudget },
+      messages: [{
+        role: 'user',
+        content: `Parse this invoice text and return JSON only.\n\n${text}${retrySuffix ?? ''}`,
+      }],
+    } as any) as any).finalMessage()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const responseText = (message as any).content
-    .filter((b: any) => b.type === 'text')
-    .map((b: any) => b.text as string)
-    .join('')
-
-  return parseOcrResponse(responseText)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (message as any).content
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text as string)
+      .join('')
+  })
 }
 
 // ── Quick metadata peek ────────────────────────────────────────────────────────
 // Reads only supplier name, date, and invoice number from the first page.
-// Uses Haiku (fast, cheap, no extended thinking) so the session list becomes
+// Uses Haiku 4.5 (fast, cheap, no extended thinking) so the session list becomes
 // identifiable within ~2 seconds while the full OCR is still running.
 
-const QUICK_MODEL = 'claude-3-5-haiku-20241022'
+const QUICK_MODEL = 'claude-haiku-4-5-20251001'
 
 export interface QuickMeta {
   supplierName:  string | null
@@ -687,7 +934,6 @@ export async function quickExtractMeta(
   let content: Anthropic.MessageParam['content']
 
   if (ft.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(fileName)) {
-    // Compress to ≤1 MB for the quick call — we only need to read a header, not every detail
     const compressed = await compressImageForClaude(buf.toString('base64'), false)
     content = [
       { type: 'image', source: { type: 'base64', media_type: compressed.mediaType, data: compressed.data } },
@@ -700,7 +946,6 @@ export async function quickExtractMeta(
       { type: 'text', text: question },
     ]
   } else {
-    // CSV / plain text — just send the first 1500 chars
     content = [{ type: 'text', text: `${buf.toString('utf-8').slice(0, 1500)}\n\n${question}` }]
   }
 
@@ -731,10 +976,18 @@ export async function quickExtractMeta(
 }
 
 // ── CSV — local parse, no API call needed ──
+// CSVs are mode-agnostic; we set pricingMode: 'unknown' and let the matcher
+// treat it as per_case downstream (matcher only reads unitPrice/packQty/packSize
+// which we populate normally).
 export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult> {
   const lines = csvText.split('\n').map(l => l.trim()).filter(Boolean)
   if (lines.length < 2) {
-    return { supplierName: null, invoiceNumber: null, invoiceDate: null, subtotal: null, tax: null, total: null, lineItems: [] }
+    return {
+      supplierName: null, invoiceNumber: null, invoiceDate: null, poNumber: null,
+      subtotal: null, discount: null, fuelSurcharge: null, freight: null,
+      minimumOrderFee: null, gst: null, hst: null, pst: null,
+      otherCharges: [], total: null, lineItems: [],
+    }
   }
 
   const header = lines[0].toLowerCase().split(',').map(h => h.replace(/"/g, '').trim())
@@ -749,19 +1002,42 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
     const cols = lines[i].split(',').map(c => c.replace(/"/g, '').trim())
     const desc = descIdx >= 0 ? cols[descIdx] : cols[0]
     if (!desc) continue
+    const qty       = qtyIdx   >= 0 ? parseFloat(cols[qtyIdx])   || null : null
+    const unit      = unitIdx  >= 0 ? cols[unitIdx]  || null : null
+    const unitPrice = priceIdx >= 0 ? parseFloat(cols[priceIdx]) || null : null
+    const lineTotal = totalIdx >= 0 ? parseFloat(cols[totalIdx]) || null : null
     lineItems.push({
       description: desc,
-      qty:       qtyIdx   >= 0 ? parseFloat(cols[qtyIdx])   || null : null,
-      unit:      unitIdx  >= 0 ? cols[unitIdx]  || null : null,
-      packQty:   null,
-      packSize:  null,
-      packUOM:   null,
-      unitPrice: priceIdx >= 0 ? parseFloat(cols[priceIdx]) || null : null,
-      lineTotal: totalIdx >= 0 ? parseFloat(cols[totalIdx]) || null : null,
-      rate:      null,
-      totalQty:  null,
+      supplierItemCode: null,
+      lineCategory: null,
+      pricingMode: 'unknown',
+      pricingModeSignal: 'indeterminate',
+      qtyOrdered: qty,
+      qtyOrderedUOM: unit,
+      qtyShipped: qty,
+      qtyShippedUOM: unit,
+      packQty:  null,
+      packSize: null,
+      packUOM:  null,
+      unitPrice,
+      rate:     null,
+      rateUOM:  null,
+      totalQty: null,
+      totalQtyUOM: null,
+      isCatchweight: false,
+      nominalWeight: null,
+      lineTotal,
+      taxFlag: null,
+      lineTaxAmount: null,
+      confidence: 'medium',
+      confidenceNotes: null,
     })
   }
 
-  return { supplierName: null, invoiceNumber: null, invoiceDate: null, subtotal: null, tax: null, total: null, lineItems }
+  return {
+    supplierName: null, invoiceNumber: null, invoiceDate: null, poNumber: null,
+    subtotal: null, discount: null, fuelSurcharge: null, freight: null,
+    minimumOrderFee: null, gst: null, hst: null, pst: null,
+    otherCharges: [], total: null, lineItems,
+  }
 }

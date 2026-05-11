@@ -189,8 +189,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           data: matched.map((item, i) => ({
             sessionId:          params.id,
             rawDescription:     item.description,
-            rawQty:             item.qty ?? null,
-            rawUnit:            item.unit ?? null,
+            rawQty:             item.qtyShipped ?? item.qtyOrdered ?? null,
+            rawUnit:            item.qtyShippedUOM ?? item.qtyOrderedUOM ?? null,
             rawUnitPrice:       item.unitPrice ?? null,
             rawLineTotal:       item.lineTotal ?? null,
             matchedItemId:      item.matchedItemId,
@@ -223,6 +223,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       autoSupplierId = await matchSupplierByName(finalSupplierName)
     }
 
+    // Sum the split Canadian taxes back into the single InvoiceSession.tax column
+    const taxSum = (sessionMeta.gst ?? 0) + (sessionMeta.hst ?? 0) + (sessionMeta.pst ?? 0)
+    const taxValue =
+      sessionMeta.gst != null || sessionMeta.hst != null || sessionMeta.pst != null
+        ? taxSum
+        : null
+
     await prisma.invoiceSession.update({
       where: { id: params.id },
       data: {
@@ -230,9 +237,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         supplierName:  finalSupplierName,
         invoiceDate:   sessionMeta.invoiceDate   ?? session.invoiceDate,
         invoiceNumber: sessionMeta.invoiceNumber ?? session.invoiceNumber,
-        subtotal:      sessionMeta.subtotal  ?? null,
-        tax:           sessionMeta.tax       ?? null,
-        total:         sessionMeta.total     ?? null,
+        subtotal:      sessionMeta.subtotal ?? null,
+        tax:           taxValue,
+        total:         sessionMeta.total    ?? null,
         errorMessage:  null,
         ...(autoSupplierId ? { supplierId: autoSupplierId } : {}),
       },
@@ -303,10 +310,17 @@ function isImage(fileType: string, fileName: string): boolean {
 }
 
 function mergeResult(result: OcrResult, meta: Partial<OcrResult>) {
-  if (meta.supplierName  == null && result.supplierName  != null) meta.supplierName  = result.supplierName
-  if (meta.invoiceDate   == null && result.invoiceDate   != null) meta.invoiceDate   = result.invoiceDate
-  if (meta.invoiceNumber == null && result.invoiceNumber != null) meta.invoiceNumber = result.invoiceNumber
-  if (meta.subtotal      == null && result.subtotal      != null) meta.subtotal      = result.subtotal
-  if (meta.tax           == null && result.tax           != null) meta.tax           = result.tax
-  if (meta.total         == null && result.total         != null) meta.total         = result.total
+  if (meta.supplierName    == null && result.supplierName    != null) meta.supplierName    = result.supplierName
+  if (meta.invoiceDate     == null && result.invoiceDate     != null) meta.invoiceDate     = result.invoiceDate
+  if (meta.invoiceNumber   == null && result.invoiceNumber   != null) meta.invoiceNumber   = result.invoiceNumber
+  if (meta.poNumber        == null && result.poNumber        != null) meta.poNumber        = result.poNumber
+  if (meta.subtotal        == null && result.subtotal        != null) meta.subtotal        = result.subtotal
+  if (meta.discount        == null && result.discount        != null) meta.discount        = result.discount
+  if (meta.fuelSurcharge   == null && result.fuelSurcharge   != null) meta.fuelSurcharge   = result.fuelSurcharge
+  if (meta.freight         == null && result.freight         != null) meta.freight         = result.freight
+  if (meta.minimumOrderFee == null && result.minimumOrderFee != null) meta.minimumOrderFee = result.minimumOrderFee
+  if (meta.gst             == null && result.gst             != null) meta.gst             = result.gst
+  if (meta.hst             == null && result.hst             != null) meta.hst             = result.hst
+  if (meta.pst             == null && result.pst             != null) meta.pst             = result.pst
+  if (meta.total           == null && result.total           != null) meta.total           = result.total
 }

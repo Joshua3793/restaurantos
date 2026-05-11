@@ -199,9 +199,9 @@ function buildMatchResult(
   }
 
   const formatMismatch = !!(
-    ocrItem.unit &&
+    ocrItem.qtyShippedUOM &&
     bestItem.purchaseUnit &&
-    ocrItem.unit.toLowerCase() !== bestItem.purchaseUnit.toLowerCase()
+    ocrItem.qtyShippedUOM.toLowerCase() !== bestItem.purchaseUnit.toLowerCase()
   )
 
   return {
@@ -218,8 +218,8 @@ function buildMatchResult(
     invoicePackSize,
     invoicePackUOM,
     needsFormatConfirm,
-    totalQty:    ocrItem.totalQty  ?? null,
-    totalQtyUOM: ocrItem.packUOM   ?? null,
+    totalQty:    ocrItem.totalQty    ?? null,
+    totalQtyUOM: ocrItem.totalQtyUOM ?? ocrItem.packUOM ?? null,
   }
 }
 
@@ -341,8 +341,8 @@ export async function matchLineItems(
         invoicePackSize: ocrItem.packSize ?? null,
         invoicePackUOM:  ocrItem.packUOM  ?? null,
         needsFormatConfirm: false,
-        totalQty:    ocrItem.totalQty ?? null,
-        totalQtyUOM: ocrItem.packUOM  ?? null,
+        totalQty:    ocrItem.totalQty    ?? null,
+        totalQtyUOM: ocrItem.totalQtyUOM ?? ocrItem.packUOM ?? null,
       }
     }
 
