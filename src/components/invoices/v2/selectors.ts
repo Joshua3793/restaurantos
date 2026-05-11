@@ -60,13 +60,14 @@ export function productDefaultMode(item: ScanItem): PricingMode | null {
 // "New cost per inventory base unit" in the linked product's baseUnit
 // (e.g. $/g, $/ml, $/each). Returns null when the math doesn't ground out.
 //
-// per_case rows: newCostPerBase = unitPrice ÷ (qtyPerPurchaseUnit × packSize × convFactor(packUOM → baseUnit))
-//   We re-use the same formula calcPricePerBaseUnit uses for inventory, but
-//   driven by *invoice* packQty/packSize/packUOM when present (falling back to
-//   the inventory's own pack format).
-// per_weight rows: newCostPerBase = rate × convFactor(rateUOM → baseUnit)
-//   Conversion only succeeds within the same dimension (weight↔weight,
-//   volume↔volume). Cross-dimension returns null.
+// per_case rows:
+//   total base units per case = packQty × packSize × unitsOf(packUOM → baseUOM)
+//   newCostPerBase            = unitPrice ÷ (total base units per case)
+// per_weight rows:
+//   newCostPerBase            = rate ÷ unitsOf(baseUOM → rateUOM)
+//   (i.e. if rate is $/lb and base is g, $/g = $/lb ÷ 453.59)
+// Conversion only succeeds within the same dimension (weight↔weight,
+// volume↔volume). Cross-dimension returns null.
 export function newCostPerBaseUnit(item: ScanItem): number | null {
   const inv = item.matchedItem
   if (!inv) return null
@@ -78,9 +79,10 @@ export function newCostPerBaseUnit(item: ScanItem): number | null {
     const rate    = num(item.rate)        ?? num(item.rawUnitPrice)
     const rateUOM = norm(item.rateUOM ?? item.invoicePackUOM ?? item.totalQtyUOM)
     if (rate == null || !rateUOM) return null
-    const factor = convFactor(rateUOM, baseUOM)
-    if (factor == null) return null
-    return rate * factor
+    // unitsPerRate = how many baseUOM in 1 rateUOM (e.g. 453.59 g per lb)
+    const unitsPerRate = unitsOf(rateUOM, baseUOM)
+    if (unitsPerRate == null || unitsPerRate <= 0) return null
+    return rate / unitsPerRate
   }
 
   // per_case (and 'unknown' → treat as per_case for cost-comparison purposes)
@@ -92,26 +94,27 @@ export function newCostPerBaseUnit(item: ScanItem): number | null {
   const packUOM  = norm(item.invoicePackUOM) || norm(inv.packUOM) || 'each'
   if (packQty <= 0 || packSize <= 0) return null
 
-  const factor = convFactor(packUOM, baseUOM)
-  if (factor == null) return null
+  // unitsPerPack = how many baseUOM in 1 packUOM (e.g. 1000 g per kg)
+  const unitsPerPack = unitsOf(packUOM, baseUOM)
+  if (unitsPerPack == null || unitsPerPack <= 0) return null
 
-  const totalBaseUnitsPerCase = packQty * packSize * (1 / factor)
+  const totalBaseUnitsPerCase = packQty * packSize * unitsPerPack
   if (totalBaseUnitsPerCase <= 0) return null
   return unitPrice / totalBaseUnitsPerCase
 }
 
-// Multiplier to convert one unit of `from` into units of `to`.
-// Returns null when the conversion crosses dimensions or one side is unknown.
+// How many `to` units are in one `from` unit. E.g. unitsOf('lb', 'g') = 453.59
+// (453.59 grams in 1 pound). Returns null when the conversion crosses
+// dimensions or one side is unknown.
 //
-// Uses the existing UNIT_CONV map exposed via getUnitConv (defined in src/lib/utils.ts).
 // getUnitConv returns "units of the canonical base for this dimension":
-//   g, kg, lb, oz → grams
-//   ml, l         → ml
-//   each          → 1 (its own dimension)
-// So convFactor(from, to) = getUnitConv(from) / getUnitConv(to) when both
-// resolve to the same dimension. We detect "same dimension" by demanding both
-// be weight, both be volume, or both be 'each'.
-export function convFactor(from: string, to: string): number | null {
+//   g → 1, kg → 1000, lb → 453.59, oz → 28.35
+//   ml → 1, l → 1000
+//   each → 1 (its own dimension)
+// So unitsOf(from, to) = getUnitConv(from) / getUnitConv(to) when both
+// resolve to the same dimension. Same-dimension is checked first to keep
+// cross-dimension conversions from silently returning a meaningless ratio.
+export function unitsOf(from: string, to: string): number | null {
   const f = norm(from)
   const t = norm(to)
   if (!f || !t) return null
@@ -125,6 +128,9 @@ export function convFactor(from: string, to: string): number | null {
   if (!Number.isFinite(fc) || !Number.isFinite(tc) || tc === 0) return null
   return fc / tc
 }
+
+// Back-compat alias — earlier code imported this name.
+export const convFactor = unitsOf
 
 // Signed variance vs the linked product's last applied price-per-base-unit.
 // Returns null when no link, no previous cost, or new cost can't be computed.
