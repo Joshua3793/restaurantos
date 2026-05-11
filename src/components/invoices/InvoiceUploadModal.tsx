@@ -52,8 +52,14 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
   }
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return
-    setFiles(prev => [...prev, ...Array.from(e.target.files!)])
+    const picked = e.target.files
+    if (!picked || picked.length === 0) {
+      console.warn('[upload] file input fired with no files')
+      return
+    }
+    const arr = Array.from(picked)
+    console.log('[upload] received', arr.length, 'file(s):', arr.map(f => `${f.name} (${f.type}, ${f.size}b)`).join(', '))
+    setFiles(prev => [...prev, ...arr])
     e.target.value = ''
   }
 
@@ -276,11 +282,16 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
             {/* FILE UPLOAD MODE */}
             {uploadMode === 'file' && (
               <>
-                <div
+                {/* Dropzone is a <label> so the OS file picker is opened by HTML
+                    semantics, not a JS click chain. Wrapping the input in an
+                    onClick div caused iOS Safari (and some Chromium builds) to
+                    re-fire the wrapper's click after the picker closed, silently
+                    discarding the selection. */}
+                <label
+                  htmlFor="invoice-file-input"
                   onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
                   onDragLeave={() => setIsDragging(false)}
                   onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
                   className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors ${
                     isDragging ? 'border-blue-400 bg-gold/10' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
                   }`}
@@ -291,14 +302,16 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                     <p className="text-xs text-gray-400 mt-1">JPEG, PNG, PDF, CSV supported</p>
                   </div>
                   <input
+                    id="invoice-file-input"
                     ref={fileInputRef}
                     type="file"
                     multiple
                     accept="image/*,.pdf,.csv,text/csv"
-                    className="hidden"
+                    className="sr-only"
                     onChange={handleFileInput}
+                    onClick={e => e.stopPropagation()}
                   />
-                </div>
+                </label>
 
                 {files.length > 0 && (
                   <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
