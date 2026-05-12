@@ -538,8 +538,8 @@ export function InvoiceReviewDrawer({
           <div className="flex-1 flex items-center justify-center">
             <Loader2 size={28} className="text-stone-300 animate-spin" />
           </div>
-        ) : approved ? (
-          <ApprovedSplash onClose={onClose} />
+        ) : approved || session.status === 'APPROVED' || session.status === 'REJECTED' ? (
+          <ApprovedSplash onClose={onClose} session={session} />
         ) : (
           <DrawerContext.Provider value={ctxValue}>
             {/* Full-width header */}
@@ -646,16 +646,23 @@ export function InvoiceReviewDrawer({
 
 // ─── ApprovedSplash ────────────────────────────────────────────────────────────
 
-function ApprovedSplash({ onClose }: { onClose: () => void }) {
+function ApprovedSplash({ onClose, session }: { onClose: () => void; session?: Session | null }) {
+  const rejected = session?.status === 'REJECTED'
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-      <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
-        <Check size={28} className="text-green-600" />
+      <div className={`w-14 h-14 rounded-full flex items-center justify-center ${rejected ? 'bg-red-100' : 'bg-green-100'}`}>
+        {rejected
+          ? <X size={28} className="text-red-600" />
+          : <Check size={28} className="text-green-600" />}
       </div>
       <div>
-        <h3 className="text-[18px] font-semibold text-stone-900 mb-1">Invoice approved</h3>
+        <h3 className="text-[18px] font-semibold text-stone-900 mb-1">
+          {rejected ? 'Invoice rejected' : 'Invoice applied'}
+        </h3>
         <p className="text-[13px] text-stone-400">
-          Inventory prices have been updated and price alerts generated.
+          {rejected
+            ? 'This invoice was rejected and no changes were applied.'
+            : 'Inventory prices have been updated and price alerts generated.'}
         </p>
       </div>
       <button
@@ -663,7 +670,7 @@ function ApprovedSplash({ onClose }: { onClose: () => void }) {
         onClick={onClose}
         className="mt-2 px-5 py-2 text-[13px] bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors"
       >
-        Done
+        Close
       </button>
     </div>
   )
