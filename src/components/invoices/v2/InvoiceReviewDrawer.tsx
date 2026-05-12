@@ -5,7 +5,7 @@
 import {
   useState, useEffect, useCallback, useMemo, useRef,
 } from 'react'
-import { X, Check, Loader2, AlertTriangle } from 'lucide-react'
+import { X, Check, Loader2, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag } from 'lucide-react'
 import { DrawerContext, type DrawerContextValue } from './context'
 import { LineItemCard } from './card'
 import { ChipRow, ReconcileBanner, type ReconcileResult } from './composites'
@@ -532,14 +532,26 @@ export function InvoiceReviewDrawer({
         className={`fixed inset-y-0 right-0 z-50 bg-white shadow-2xl flex flex-col transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
-        style={{ width: session?.files?.length ? '1020px' : '600px', maxWidth: '100vw' }}
+        style={{
+          width: (!approved && session?.status !== 'APPROVED' && session?.status !== 'REJECTED' && session?.files?.length)
+            ? '1020px' : '600px',
+          maxWidth: '100vw',
+        }}
       >
         {loading || !session ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 size={28} className="text-stone-300 animate-spin" />
           </div>
         ) : approved || session.status === 'APPROVED' || session.status === 'REJECTED' ? (
-          <ApprovedSplash onClose={onClose} session={session} />
+          <ApprovedView
+            session={session}
+            onClose={onClose}
+            onReviewAgain={() => {
+              setApproved(false)
+              onApproveOrReject()
+              fetchSession(session.id)
+            }}
+          />
         ) : (
           <DrawerContext.Provider value={ctxValue}>
             {/* Full-width header */}
@@ -644,34 +656,317 @@ export function InvoiceReviewDrawer({
   )
 }
 
-// ─── ApprovedSplash ────────────────────────────────────────────────────────────
+// ─── ApprovedView ──────────────────────────────────────────────────────────────
+// Full read-only view for APPROVED / REJECTED sessions.
 
-function ApprovedSplash({ onClose, session }: { onClose: () => void; session?: Session | null }) {
-  const rejected = session?.status === 'REJECTED'
+function ApprovedView({
+  session,
+  onClose,
+  onReviewAgain,
+}: {
+  session: Session
+  onClose: () => void
+  onReviewAgain: () => void
+}) {
+  const [priceAlertsOpen,  setPriceAlertsOpen]  = useState(true)
+  const [recipeAlertsOpen, setRecipeAlertsOpen] = useState(true)
+  const [reverting,        setReverting]        = useState(false)
+
+  const rejected  = session.status === 'REJECTED'
+  const total     = session.total    ? Number(session.total)    : null
+  const subtotal  = session.subtotal ? Number(session.subtotal) : null
+  const tax       = session.tax      ? Number(session.tax)      : null
+
+  const activeItems   = session.scanItems.filter(i => i.action !== 'SKIP')
+  const updatedItems  = session.scanItems.filter(i => i.action === 'UPDATE_PRICE' && i.approved)
+  const newItems      = session.scanItems.filter(i => i.isNewItem && i.approved)
+  const skippedItems  = session.scanItems.filter(i => i.action === 'SKIP')
+
+  const metaParts: string[] = []
+  if (session.invoiceNumber) metaParts.push(`#${session.invoiceNumber}`)
+  if (session.invoiceDate)   metaParts.push(session.invoiceDate)
+  metaParts.push(`${activeItems.length} line${activeItems.length !== 1 ? 's' : ''}`)
+
+  const handleReviewAgain = async () => {
+    setReverting(true)
+    try {
+      await fetch(`/api/invoices/sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'REVIEW' }),
+      })
+      onReviewAgain()
+    } finally {
+      setReverting(false)
+    }
+  }
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-      <div className={`w-14 h-14 rounded-full flex items-center justify-center ${rejected ? 'bg-red-100' : 'bg-green-100'}`}>
-        {rejected
-          ? <X size={28} className="text-red-600" />
-          : <Check size={28} className="text-green-600" />}
+    <div className="flex flex-col h-full">
+
+      {/* ── Header ── */}
+      <div className={`px-[22px] pt-[18px] pb-[16px] border-b border-stone-200 ${rejected ? 'bg-white' : 'bg-gradient-to-r from-emerald-50/60 to-white'}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2.5 mb-[5px]">
+              <div className={`flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11px] font-semibold ${
+                rejected
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-emerald-100 text-emerald-700'
+              }`}>
+                {rejected ? <X size={10} /> : <Check size={10} />}
+                {rejected ? 'Rejected' : 'Applied'}
+              </div>
+            </div>
+            <h2 className="text-[19px] font-semibold text-stone-900 leading-[1.2] truncate">
+              {session.supplierName ?? 'Unknown supplier'}
+            </h2>
+            <p className="text-[12.5px] text-stone-400 mt-[3px]">{metaParts.join(' · ')}</p>
+          </div>
+
+          <div className="text-right shrink-0">
+            <div className="text-[24px] font-semibold text-stone-900 leading-none tabular-nums">
+              {total !== null ? formatCurrency(total) : '—'}
+            </div>
+            {(subtotal !== null || tax !== null) && (
+              <div className="text-[11.5px] text-stone-400 mt-[4px] tabular-nums">
+                {subtotal !== null && `sub ${formatCurrency(subtotal)}`}
+                {subtotal !== null && tax !== null && ' · '}
+                {tax !== null && `tax ${formatCurrency(tax)}`}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
-      <div>
-        <h3 className="text-[18px] font-semibold text-stone-900 mb-1">
-          {rejected ? 'Invoice rejected' : 'Invoice applied'}
-        </h3>
-        <p className="text-[13px] text-stone-400">
-          {rejected
-            ? 'This invoice was rejected and no changes were applied.'
-            : 'Inventory prices have been updated and price alerts generated.'}
-        </p>
+
+      {/* ── Body ── */}
+      <div className="flex-1 overflow-y-auto">
+
+        {/* Summary stat cards */}
+        {!rejected && (
+          <div className="px-[18px] pt-[16px] pb-[4px] grid grid-cols-4 gap-3">
+            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{updatedItems.length}</div>
+              <div className="text-[11px] text-stone-400 mt-1">prices updated</div>
+            </div>
+            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{newItems.length}</div>
+              <div className="text-[11px] text-stone-400 mt-1">new items</div>
+            </div>
+            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{session.priceAlerts.length}</div>
+              <div className="text-[11px] text-stone-400 mt-1">price alerts</div>
+            </div>
+            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{session.recipeAlerts.length}</div>
+              <div className="text-[11px] text-stone-400 mt-1">recipe impacts</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Line items ── */}
+        <div className="px-[18px] pt-[16px]">
+          <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">Line items</p>
+          <div className="border border-stone-100 rounded-xl overflow-hidden divide-y divide-stone-100">
+            {session.scanItems.map(item => {
+              const prevPrice = item.previousPrice ? Number(item.previousPrice) : null
+              const newPrice  = item.newPrice      ? Number(item.newPrice)      : null
+              const diffPct   = item.priceDiffPct  ? Number(item.priceDiffPct)  : null
+              const lineTotal = item.rawLineTotal  ? Number(item.rawLineTotal)  : null
+              const isSkip    = item.action === 'SKIP'
+              const isNew     = item.isNewItem && item.approved
+              const isUpdate  = item.action === 'UPDATE_PRICE' && item.approved
+
+              return (
+                <div key={item.id} className={`flex items-center gap-3 px-4 py-3 ${isSkip ? 'opacity-40' : ''}`}>
+                  {/* Icon */}
+                  <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+                    isNew    ? 'bg-emerald-100'  :
+                    isUpdate ? 'bg-blue-50'      :
+                    isSkip   ? 'bg-stone-100'    : 'bg-stone-50'
+                  }`}>
+                    {isNew    ? <Package  size={13} className="text-emerald-600" /> :
+                     isSkip   ? <X        size={13} className="text-stone-400"   /> :
+                                <Tag      size={13} className="text-blue-500"    />}
+                  </div>
+
+                  {/* Name + badge */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[13px] font-medium text-stone-800 truncate">
+                        {item.matchedItem?.itemName ?? item.rawDescription}
+                      </span>
+                      {isNew && (
+                        <span className="text-[10px] font-semibold px-1.5 py-[1px] rounded bg-emerald-100 text-emerald-700">NEW</span>
+                      )}
+                      {isSkip && (
+                        <span className="text-[10px] font-semibold px-1.5 py-[1px] rounded bg-stone-100 text-stone-400">SKIPPED</span>
+                      )}
+                    </div>
+                    {item.rawDescription !== item.matchedItem?.itemName && item.matchedItem && (
+                      <div className="text-[11px] text-stone-400 truncate mt-0.5">{item.rawDescription}</div>
+                    )}
+                  </div>
+
+                  {/* Price change */}
+                  {!isSkip && !isNew && prevPrice !== null && newPrice !== null ? (
+                    <div className="shrink-0 text-right">
+                      <div className="flex items-center gap-1.5 justify-end">
+                        <span className="text-[12px] text-stone-400 line-through tabular-nums">{formatCurrency(prevPrice)}</span>
+                        <span className="text-[12px] font-medium text-stone-800 tabular-nums">{formatCurrency(newPrice)}</span>
+                        {diffPct !== null && (
+                          <span className={`text-[11px] font-semibold ${diffPct > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
+                      {lineTotal !== null && (
+                        <div className="text-[11px] text-stone-400 mt-0.5 tabular-nums">{formatCurrency(lineTotal)}</div>
+                      )}
+                    </div>
+                  ) : lineTotal !== null ? (
+                    <div className="shrink-0 text-[12px] text-stone-500 tabular-nums">{formatCurrency(lineTotal)}</div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── Price alerts ── */}
+        {session.priceAlerts.length > 0 && (
+          <div className="px-[18px] pt-[16px]">
+            <button
+              type="button"
+              onClick={() => setPriceAlertsOpen(v => !v)}
+              className="w-full flex items-center justify-between mb-2 group"
+            >
+              <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
+                Price alerts ({session.priceAlerts.length})
+              </p>
+              {priceAlertsOpen
+                ? <ChevronUp   size={14} className="text-stone-400 group-hover:text-stone-600" />
+                : <ChevronDown size={14} className="text-stone-400 group-hover:text-stone-600" />}
+            </button>
+            {priceAlertsOpen && (
+              <div className="border border-stone-100 rounded-xl overflow-hidden divide-y divide-stone-100">
+                {session.priceAlerts.map(alert => {
+                  const prev    = Number(alert.previousPrice)
+                  const next    = Number(alert.newPrice)
+                  const pct     = Number(alert.changePct)
+                  const up      = alert.direction === 'UP'
+                  return (
+                    <div key={alert.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                        {up
+                          ? <TrendingUp   size={13} className="text-red-500"     />
+                          : <TrendingDown size={13} className="text-emerald-600" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[13px] font-medium text-stone-800">{alert.inventoryItem.itemName}</span>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <span className="text-[12px] text-stone-400 line-through tabular-nums">{formatCurrency(prev)}</span>
+                          <span className="text-[12px] font-medium text-stone-800 tabular-nums">{formatCurrency(next)}</span>
+                          <span className={`text-[11px] font-semibold ${up ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {up ? '+' : ''}{pct.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Recipe impacts ── */}
+        {session.recipeAlerts.length > 0 && (
+          <div className="px-[18px] pt-[16px]">
+            <button
+              type="button"
+              onClick={() => setRecipeAlertsOpen(v => !v)}
+              className="w-full flex items-center justify-between mb-2 group"
+            >
+              <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
+                Recipe impacts ({session.recipeAlerts.length})
+              </p>
+              {recipeAlertsOpen
+                ? <ChevronUp   size={14} className="text-stone-400 group-hover:text-stone-600" />
+                : <ChevronDown size={14} className="text-stone-400 group-hover:text-stone-600" />}
+            </button>
+            {recipeAlertsOpen && (
+              <div className="border border-stone-100 rounded-xl overflow-hidden divide-y divide-stone-100">
+                {session.recipeAlerts.map(alert => {
+                  const prevCost  = Number(alert.previousCost)
+                  const newCost   = Number(alert.newCost)
+                  const pct       = Number(alert.changePct)
+                  const foodCost  = alert.newFoodCostPct ? Number(alert.newFoodCostPct) : null
+                  const up        = pct > 0
+                  return (
+                    <div key={alert.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-orange-50' : 'bg-emerald-50'}`}>
+                        <BookOpen size={13} className={up ? 'text-orange-500' : 'text-emerald-600'} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[13px] font-medium text-stone-800">{alert.recipe.name}</span>
+                        {foodCost !== null && (
+                          <div className="text-[11px] text-stone-400 mt-0.5">food cost {foodCost.toFixed(1)}%</div>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <span className="text-[12px] text-stone-400 line-through tabular-nums">{formatCurrency(prevCost)}</span>
+                          <span className="text-[12px] font-medium text-stone-800 tabular-nums">{formatCurrency(newCost)}</span>
+                          <span className={`text-[11px] font-semibold ${up ? 'text-orange-500' : 'text-emerald-600'}`}>
+                            {up ? '+' : ''}{pct.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="h-6" />
       </div>
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-2 px-5 py-2 text-[13px] bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors"
-      >
-        Close
-      </button>
+
+      {/* ── Footer ── */}
+      <div className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-between gap-3 bg-white">
+        {!rejected ? (
+          <button
+            type="button"
+            onClick={handleReviewAgain}
+            disabled={reverting}
+            className="flex items-center gap-1.5 text-[13px] text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-50"
+          >
+            {reverting
+              ? <Loader2 size={14} className="animate-spin" />
+              : <RotateCcw size={14} />}
+            Review again
+          </button>
+        ) : <div />}
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-5 py-2 text-[13px] bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors"
+        >
+          Close
+        </button>
+      </div>
     </div>
   )
 }
