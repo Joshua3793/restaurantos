@@ -66,3 +66,20 @@ body {
   textarea,
   select { font-size: 16px !important; }
 }
+
+/* ── Invoice image viewer — bbox highlight animation ─────────────────────── */
+@keyframes bbox-pulse {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  60%  { opacity: 0.85; }
+  100% { opacity: 0.4; }
+}
+.bbox-highlight { animation: bbox-pulse 1.4s ease-out forwards; }
+
+@keyframes bbox-ring-pulse {
+  0%   { stroke-width: 0.006; opacity: 0; }
+  20%  { stroke-width: 0.008; opacity: 1; }
+  80%  { stroke-width: 0.004; opacity: 0.8; }
+  100% { stroke-width: 0.003; opacity: 0.6; }
+}
+.bbox-ring { animation: bbox-ring-pulse 1.4s ease-out forwards; }

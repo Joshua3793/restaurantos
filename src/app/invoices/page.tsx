@@ -9,14 +9,7 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import { useNotifications } from '@/contexts/NotificationContext'
 
 const InvoiceDrawer = dynamic(
-  () => import('@/components/invoices/InvoiceDrawer').then(m => ({ default: m.InvoiceDrawer })),
-  { ssr: false, loading: () => null }
-)
-
-// V2 drawer — opt in via ?v=2 on /invoices. Substitute v1 by changing the
-// default branch once it's been validated against real invoices.
-const InvoiceDrawerV2 = dynamic(
-  () => import('@/components/invoices/v2/InvoiceDrawerV2').then(m => ({ default: m.InvoiceDrawerV2 })),
+  () => import('@/components/invoices/v2/InvoiceReviewDrawer').then(m => ({ default: m.InvoiceReviewDrawer })),
   { ssr: false, loading: () => null }
 )
 
@@ -29,26 +22,6 @@ export default function InvoicesPage() {
   const { activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
-  // V2 opt-in. Sticky once enabled — survives nav within the app.
-  // Toggle on   with /invoices?v=2
-  // Toggle off  with /invoices?v=1
-  // Status visible via the badge in the page header so we can confirm at a glance.
-  const [useV2, setUseV2] = useState(false)
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const apply = () => {
-      const q = new URLSearchParams(window.location.search).get('v')
-      let next: boolean
-      if (q === '2') { localStorage.setItem('drawerV2', '1'); next = true }
-      else if (q === '1') { localStorage.removeItem('drawerV2'); next = false }
-      else next = localStorage.getItem('drawerV2') === '1'
-      setUseV2(next)
-      console.log('[invoices] drawer:', next ? 'v2' : 'v1', '(query v=' + q + ')')
-    }
-    apply()
-    window.addEventListener('popstate', apply)
-    return () => window.removeEventListener('popstate', apply)
-  }, [])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -113,13 +86,22 @@ export default function InvoicesPage() {
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
 
-  // Poll every 4s while any session is PROCESSING
+  // Fast-poll (3s) while any session is in a transient state.
+  // UPLOADING is included so newly created sessions appear immediately.
   useEffect(() => {
-    const hasProcessing = sessions.some(s => s.status === 'PROCESSING' || s.status === 'APPROVING')
-    if (!hasProcessing) return
-    const interval = setInterval(fetchSessions, 4000)
+    const hasTransient = sessions.some(s =>
+      s.status === 'UPLOADING' || s.status === 'PROCESSING' || s.status === 'APPROVING'
+    )
+    const interval = setInterval(fetchSessions, hasTransient ? 3000 : 15000)
     return () => clearInterval(interval)
   }, [sessions, fetchSessions])
+
+  // Refresh whenever the tab regains focus (covers status changes made elsewhere)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchSessions() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [fetchSessions])
 
   const handleApproveOrReject = useCallback(() => {
     fetchSessions()
@@ -151,13 +133,8 @@ export default function InvoicesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
-      <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0 flex items-center gap-2">
+      <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Invoices</h1>
-        {useV2 && (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">
-            V2 BETA
-          </span>
-        )}
       </div>
       <InvoiceKpiStrip
         refreshKey={kpiRefreshKey}
@@ -172,21 +149,11 @@ export default function InvoicesPage() {
         onBulkDelete={handleBulkDelete}
         onRetry={handleRetry}
       />
-      {useV2 ? (
-        <InvoiceDrawerV2
-          sessionId={selectedSessionId}
-          onClose={() => setSelectedSessionId(null)}
-          onApproveOrReject={handleApproveOrReject}
-          allSessions={sessions}
-        />
-      ) : (
-        <InvoiceDrawer
-          sessionId={selectedSessionId}
-          onClose={() => setSelectedSessionId(null)}
-          onApproveOrReject={handleApproveOrReject}
-          allSessions={sessions}
-        />
-      )}
+      <InvoiceDrawer
+        sessionId={selectedSessionId}
+        onClose={() => setSelectedSessionId(null)}
+        onApproveOrReject={handleApproveOrReject}
+      />
       {showUpload && (
         <InvoiceUploadModal
           activeRcId={activeRcId}

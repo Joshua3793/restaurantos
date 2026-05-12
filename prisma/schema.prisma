@@ -365,6 +365,7 @@ model InvoiceScanItem {
   supplierItemCode   String?        // per-line product code from invoice
   taxFlag            String?        // row-level tax code ("B", "G", "GP")
   lineTaxAmount      Decimal?       // inline tax shown on row (Snow Cap style)
+  bbox               Json?          // { page, x, y, w, h } — 0-1 fractions of image dims, for highlight overlay
   matchedItem        InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
   revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
   session            InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)

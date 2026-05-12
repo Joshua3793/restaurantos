@@ -37,6 +37,21 @@ interface Props {
   allSessions?: SessionSummary[]
 }
 
+interface InventorySearchResult {
+  id: string; itemName: string; abbreviation: string | null;
+  purchaseUnit: string; purchasePrice: number; pricePerBaseUnit: number;
+  baseUnit: string; category: string; qtyPerPurchaseUnit: number;
+  packSize: number; packUOM: string;
+}
+
+function descriptionToKeywords(desc: string): string {
+  return desc
+    .replace(/\d+\s*[\/x]\s*\d+(?:\.\d+)?\s*(?:l|ml|kg|g|lb|oz)\b/gi, '')
+    .replace(/\d+(?:\.\d+)?\s*(?:l|ml|kg|g|lb|oz)\b/gi, '')
+    .replace(/[-–—]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .split(/\s+/).slice(0, 5).join(' ')
+}
+
 // ── Root drawer ───────────────────────────────────────────────────────────────
 export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSessions = [] }: Props) {
   const [session, setSession] = useState<Session | null>(null)
@@ -327,7 +342,23 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
   const tax  = taxAggregate(session)
   const fees = feesAggregate(session)
   const sub  = session.subtotal ? Number(session.subtotal) : null
-  const total = session.total ? Number(session.total) : null
+  const ocrTotal = session.total ? Number(session.total) : null
+
+  // When OCR didn't capture the invoice total, sum visible line items as a fallback.
+  const scannedTotal = useMemo(() => {
+    if (ocrTotal != null) return null // OCR total present — no need for fallback
+    let sum = 0
+    for (const item of session.scanItems) {
+      if (item.action === 'SKIP') continue
+      const lt = item.rawLineTotal != null ? Number(item.rawLineTotal) : null
+      if (lt != null) sum += lt
+    }
+    return sum
+  }, [ocrTotal, session.scanItems])
+
+  const displayTotal = ocrTotal ?? scannedTotal
+  const isComputedTotal = ocrTotal == null && scannedTotal != null
+
   const dup = session.invoiceNumber
     ? allSessions.find(s => s.id !== session.id && s.invoiceNumber === session.invoiceNumber)
     : null
@@ -348,18 +379,25 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
             </div>
           </div>
           <div className="text-right shrink-0">
-            {total != null && <div className="text-[22px] font-medium text-gray-900 leading-none">{formatCurrency(total)}</div>}
+            {displayTotal != null && (
+              <div>
+                <div className="text-[22px] font-medium text-gray-900 leading-none">{formatCurrency(displayTotal)}</div>
+                {isComputedTotal && (
+                  <div className="text-[10px] text-gray-400 mt-0.5">scanned total (no OCR total)</div>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-500 justify-end flex-wrap">
               {sub != null  && <span>sub {formatCurrency(sub)}</span>}
               {fees > 0     && <span>· fuel {formatCurrency(fees)}</span>}
               {tax != null && tax > 0 && <span>· tax {formatCurrency(tax)}</span>}
             </div>
-            {recon.match === true && (
+            {!isComputedTotal && recon.match === true && (
               <div role="status" className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <CheckCircle2 size={9} /> totals reconcile
               </div>
             )}
-            {recon.match === false && recon.diff != null && (
+            {!isComputedTotal && recon.match === false && recon.diff != null && (
               <div role="status" className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                 <AlertTriangle size={9} /> totals off by {formatCurrency(Math.abs(recon.diff))}
               </div>
@@ -528,7 +566,7 @@ function LineItemRow({
           <div className="mt-0.5 text-[11px] text-gray-500 truncate">
             {[
               item.supplierItemCode ? `#${item.supplierItemCode}` : null,
-              packDescription(item) || null,
+              packDescription(item) || (mode === 'per_case' ? '⚠ no pack format' : null),
               item.lineCategory || null,
             ].filter(Boolean).join(' · ')}
           </div>
@@ -592,7 +630,7 @@ function LineItemRow({
 
       {/* Expanded details */}
       {isExpanded && (
-        <ExpandedDetails
+        <ItemEditSection
           item={item}
           mode={mode}
           variance={v}
@@ -657,8 +695,8 @@ function RcAssigner({
   )
 }
 
-// ── Expanded details — mode toggle + adaptive form + variance result ──────────
-function ExpandedDetails({
+// ── Unified item edit section — replaces ExpandedDetails + PerCaseForm + PerWeightForm ──
+function ItemEditSection({
   item, mode, variance, productDefaultMode: pdm, patchItem,
 }: {
   item: ScanItem
@@ -667,56 +705,401 @@ function ExpandedDetails({
   productDefaultMode: PricingMode | null
   patchItem: (id: string, updates: Partial<ScanItem>) => Promise<void>
 }) {
+  // ── Local field state ────────────────────────────────────────────────────────
+  const [localQty,       setLocalQty]       = useState(item.rawQty        != null ? String(Number(item.rawQty))        : '')
+  const [localPackQty,   setLocalPackQty]   = useState(item.invoicePackQty != null ? String(Number(item.invoicePackQty)) : '')
+  const [localPackSize,  setLocalPackSize]  = useState(item.invoicePackSize != null ? String(Number(item.invoicePackSize)) : '')
+  const [localPackUOM,   setLocalPackUOM]   = useState(item.invoicePackUOM  ?? '')
+  const [localUnitPrice, setLocalUnitPrice] = useState(item.rawUnitPrice   != null ? String(Number(item.rawUnitPrice))  : '')
+  const [localLineTotal, setLocalLineTotal] = useState(item.rawLineTotal   != null ? String(Number(item.rawLineTotal))  : '')
+  const [localQtyOrdered, setLocalQtyOrdered] = useState(item.qtyOrdered  != null ? String(Number(item.qtyOrdered))    : '')
+  const [localRate,      setLocalRate]      = useState(item.rate           != null ? String(Number(item.rate))          : '')
+  const [localTotalQty,  setLocalTotalQty]  = useState(item.totalQty      != null ? String(Number(item.totalQty))      : '')
+  const [priceDriver,    setPriceDriver]    = useState<'unit' | 'total'>('unit')
+
+  // ── Search state ─────────────────────────────────────────────────────────────
+  const [searchQuery,   setSearchQuery]   = useState('')
+  const [searchResults, setSearchResults] = useState<InventorySearchResult[]>([])
+  const [isSearching,   setIsSearching]   = useState(false)
+  const [showDropdown,  setShowDropdown]  = useState(false)
+  const searchRef  = useRef<HTMLDivElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const recomputingRef = useRef(false)
+
+  // ── Sync local state when item.id changes (different row selected) ───────────
+  useEffect(() => {
+    setLocalQty(item.rawQty        != null ? String(Number(item.rawQty))        : '')
+    setLocalPackQty(item.invoicePackQty != null ? String(Number(item.invoicePackQty)) : '')
+    setLocalPackSize(item.invoicePackSize != null ? String(Number(item.invoicePackSize)) : '')
+    setLocalPackUOM(item.invoicePackUOM ?? '')
+    setLocalUnitPrice(item.rawUnitPrice != null ? String(Number(item.rawUnitPrice)) : '')
+    setLocalLineTotal(item.rawLineTotal != null ? String(Number(item.rawLineTotal)) : '')
+    setLocalQtyOrdered(item.qtyOrdered != null ? String(Number(item.qtyOrdered)) : '')
+    setLocalRate(item.rate != null ? String(Number(item.rate)) : '')
+    setLocalTotalQty(item.totalQty != null ? String(Number(item.totalQty)) : '')
+    setPriceDriver('unit')
+  }, [item.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Reactive cross-field calculation ─────────────────────────────────────────
+  useEffect(() => {
+    if (recomputingRef.current) return
+    recomputingRef.current = true
+    try {
+      if (mode === 'per_case') {
+        const qty  = parseFloat(localQty)
+        const up   = parseFloat(localUnitPrice)
+        const lt   = parseFloat(localLineTotal)
+        if (priceDriver === 'unit' && qty > 0 && up > 0) {
+          const next = (qty * up).toFixed(2)
+          if (next !== localLineTotal) setLocalLineTotal(next)
+        } else if (priceDriver === 'total' && qty > 0 && lt > 0) {
+          const next = (lt / qty).toFixed(4)
+          if (next !== localUnitPrice) setLocalUnitPrice(next)
+        }
+      } else if (mode === 'per_weight') {
+        const tq = parseFloat(localTotalQty)
+        const r  = parseFloat(localRate)
+        const lt = parseFloat(localLineTotal)
+        if (priceDriver === 'unit' && tq > 0 && r > 0) {
+          const next = (tq * r).toFixed(2)
+          if (next !== localLineTotal) setLocalLineTotal(next)
+        } else if (priceDriver === 'total' && tq > 0 && lt > 0) {
+          const next = (lt / tq).toFixed(4)
+          if (next !== localRate) setLocalRate(next)
+        }
+      }
+    } finally {
+      recomputingRef.current = false
+    }
+  }, [localQty, localUnitPrice, localLineTotal, localTotalQty, localRate, priceDriver, mode])
+
+  // ── Outside-click closes search dropdown ─────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // ── Inventory search ──────────────────────────────────────────────────────────
+  const search = useCallback((q: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!q.trim()) { setSearchResults([]); setShowDropdown(false); return }
+    searchTimerRef.current = setTimeout(async () => {
+      setIsSearching(true)
+      try {
+        const res = await fetch(`/api/inventory/search?q=${encodeURIComponent(q)}&limit=8`)
+        if (res.ok) {
+          const data: InventorySearchResult[] = await res.json()
+          setSearchResults(data)
+          setShowDropdown(true)
+        }
+      } finally {
+        setIsSearching(false)
+      }
+    }, 250)
+  }, [])
+
+  const handleSearchChange = (q: string) => {
+    setSearchQuery(q)
+    search(q)
+  }
+
+  const handleSelectItem = async (inv: InventorySearchResult) => {
+    setShowDropdown(false)
+    setSearchQuery(inv.itemName)
+    await patchItem(item.id, {
+      matchedItemId: inv.id,
+      action: 'UPDATE_PRICE',
+      matchConfidence: 'HIGH',
+      matchScore: 100,
+    } as Partial<ScanItem>)
+  }
+
+  const handleSelectCreateNew = async () => {
+    setShowDropdown(false)
+    await patchItem(item.id, { matchedItemId: null, action: 'CREATE_NEW' } as Partial<ScanItem>)
+  }
+
+  const handleSelectSkip = async () => {
+    setShowDropdown(false)
+    await patchItem(item.id, { action: 'SKIP' } as Partial<ScanItem>)
+  }
+
+  // ── Save all fields at once ───────────────────────────────────────────────────
+  const saveAll = useCallback(async () => {
+    const toNull = (v: string) => v.trim() === '' ? null : v
+    await patchItem(item.id, {
+      rawQty:         toNull(localQty),
+      invoicePackQty: toNull(localPackQty),
+      invoicePackSize: toNull(localPackSize),
+      invoicePackUOM:  toNull(localPackUOM),
+      rawUnitPrice:   toNull(localUnitPrice),
+      rawLineTotal:   toNull(localLineTotal),
+      qtyOrdered:     toNull(localQtyOrdered),
+      rate:           toNull(localRate),
+      totalQty:       toNull(localTotalQty),
+    } as Partial<ScanItem>)
+  }, [item.id, localQty, localPackQty, localPackSize, localPackUOM, localUnitPrice, localLineTotal, localQtyOrdered, localRate, localTotalQty, patchItem])
+
+  // ── Mode switch ───────────────────────────────────────────────────────────────
   const switchMode = async (next: 'per_case' | 'per_weight') => {
     if (mode === next) return
     if (next === 'per_case') {
-      // Clear weight-only fields; pre-fill unitPrice from lineTotal/qty if blank
-      const qty = item.rawQty != null ? Number(item.rawQty) : null
-      const lt  = item.rawLineTotal != null ? Number(item.rawLineTotal) : null
-      const fallbackUnitPrice = (qty && lt && qty > 0) ? lt / qty : null
+      const qty = parseFloat(localQty)
+      const lt  = parseFloat(localLineTotal)
+      const fallbackUnitPrice = (qty > 0 && lt > 0) ? String(lt / qty) : null
       await patchItem(item.id, {
         pricingMode: 'per_case',
         rate: null, rateUOM: null, totalQty: null, totalQtyUOM: null,
-        ...(item.rawUnitPrice == null && fallbackUnitPrice != null ? { rawUnitPrice: String(fallbackUnitPrice) } : {}),
-      })
+        ...(item.rawUnitPrice == null && fallbackUnitPrice != null ? { rawUnitPrice: fallbackUnitPrice } : {}),
+      } as Partial<ScanItem>)
     } else {
-      await patchItem(item.id, {
-        pricingMode: 'per_weight',
-        rawUnitPrice: null,
-      })
+      await patchItem(item.id, { pricingMode: 'per_weight', rawUnitPrice: null } as Partial<ScanItem>)
     }
   }
 
+  const rateUOM = item.rateUOM ?? item.totalQtyUOM ?? 'kg'
+  const hasPackFormat = localPackQty !== '' || localPackSize !== '' || localPackUOM !== ''
+  const linked = item.matchedItem
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="border-t border-dashed border-gray-200 bg-gray-50/80 px-3 py-3 space-y-3">
+
+      {/* ── Linked item search ─────────────────────────────────────────────── */}
+      <div ref={searchRef} className="relative">
+        <span className="block text-[10px] text-gray-500 mb-1 flex items-center gap-1">
+          {linked ? <Link2 size={10} className="text-gray-400" /> : <Unlink size={10} className="text-red-400" />}
+          {linked ? 'Linked item' : 'Link to inventory item'}
+        </span>
+        <div className="relative flex items-center">
+          <input
+            type="text"
+            value={showDropdown || searchQuery ? searchQuery : (linked?.itemName ?? '')}
+            placeholder={`Search inventory… (${descriptionToKeywords(item.rawDescription) || item.rawDescription})`}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onFocus={() => {
+              const initial = linked?.itemName ?? descriptionToKeywords(item.rawDescription)
+              if (!searchQuery) {
+                setSearchQuery(initial)
+                search(initial)
+              } else {
+                if (searchResults.length > 0) setShowDropdown(true)
+              }
+            }}
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold pr-7"
+          />
+          {isSearching && (
+            <Loader2 size={13} className="absolute right-2 text-gray-400 animate-spin" />
+          )}
+        </div>
+
+        {showDropdown && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            {searchResults.map((inv) => (
+              <button
+                key={inv.id}
+                onMouseDown={(e) => { e.preventDefault(); handleSelectItem(inv) }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-start gap-2 border-b border-gray-50 last:border-0"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-900 truncate">{inv.itemName}</div>
+                  <div className="text-[11px] text-gray-500 truncate">
+                    {inv.category} · {inv.packSize}{inv.packUOM} × {inv.qtyPerPurchaseUnit}/{inv.purchaseUnit}
+                  </div>
+                </div>
+              </button>
+            ))}
+            <div className="flex border-t border-gray-100">
+              <button
+                onMouseDown={(e) => { e.preventDefault(); handleSelectCreateNew() }}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-emerald-700 hover:bg-emerald-50 font-medium"
+              >
+                <Plus size={12} /> Create new item
+              </button>
+              <div className="w-px bg-gray-100" />
+              <button
+                onMouseDown={(e) => { e.preventDefault(); handleSelectSkip() }}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-gray-500 hover:bg-gray-50 font-medium"
+              >
+                — Skip this line
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pricing details label + mode toggle ───────────────────────────── */}
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Pricing details</span>
         <ModeToggle current={mode} onChange={switchMode} />
       </div>
 
+      {/* ── Mode-specific fields ───────────────────────────────────────────── */}
       {mode === 'per_case' ? (
-        <PerCaseForm item={item} patchItem={patchItem} />
+        <div className="space-y-2.5">
+          {/* Pack format */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Pack format</span>
+              {!hasPackFormat && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                  <AlertTriangle size={9} /> not detected
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="block">
+                <span className="block text-[10px] text-gray-500 mb-0.5">Pack qty</span>
+                <input type="number" step="any" min="0" value={localPackQty} placeholder="e.g. 4"
+                  onChange={(e) => setLocalPackQty(e.target.value)}
+                  onBlur={saveAll}
+                  className="flex-1 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              </label>
+              <label className="block">
+                <span className="block text-[10px] text-gray-500 mb-0.5">Pack size</span>
+                <input type="number" step="any" min="0" value={localPackSize} placeholder="e.g. 4"
+                  onChange={(e) => setLocalPackSize(e.target.value)}
+                  onBlur={saveAll}
+                  className="flex-1 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              </label>
+              <label className="block">
+                <span className="block text-[10px] text-gray-500 mb-0.5">Pack UOM</span>
+                <input type="text" value={localPackUOM} placeholder="kg, lb, L…"
+                  onChange={(e) => setLocalPackUOM(e.target.value)}
+                  onBlur={saveAll}
+                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              </label>
+            </div>
+            {hasPackFormat && (
+              <div className="mt-1 text-[11px] text-gray-500 px-1">
+                = {localPackQty || '?'} × {localPackSize || '?'}{localPackUOM} per case
+              </div>
+            )}
+          </div>
+          {/* Qty + pricing */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Qty ordered</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localQtyOrdered}
+                  onChange={(e) => setLocalQtyOrdered(e.target.value)}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">{item.qtyOrderedUOM ?? 'cs'}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Qty shipped</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localQty}
+                  onChange={(e) => setLocalQty(e.target.value)}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">{item.rawUnit ?? 'cs'}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Unit price</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localUnitPrice}
+                  onChange={(e) => { setLocalUnitPrice(e.target.value); setPriceDriver('unit') }}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">${'/'}{item.rawUnit ?? 'cs'}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Line total</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localLineTotal}
+                  onChange={(e) => { setLocalLineTotal(e.target.value); setPriceDriver('total') }}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">$</span>
+              </div>
+            </label>
+          </div>
+        </div>
       ) : mode === 'per_weight' ? (
-        <PerWeightForm item={item} patchItem={patchItem} />
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Qty ordered</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localQtyOrdered}
+                  onChange={(e) => setLocalQtyOrdered(e.target.value)}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">{item.qtyOrderedUOM ?? rateUOM}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Shipped (total qty)</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localTotalQty}
+                  onChange={(e) => setLocalTotalQty(e.target.value)}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">{item.totalQtyUOM ?? rateUOM}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Rate</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localRate}
+                  onChange={(e) => { setLocalRate(e.target.value); setPriceDriver('unit') }}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">${'/'}{rateUOM}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Line total</span>
+              <div className="flex items-center gap-1">
+                <input type="number" step="any" min="0" value={localLineTotal}
+                  onChange={(e) => { setLocalLineTotal(e.target.value); setPriceDriver('total') }}
+                  onBlur={saveAll}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-gray-500 shrink-0">$</span>
+              </div>
+            </label>
+          </div>
+          <div className="text-[11px] text-gray-500 px-1">
+            Line total = total qty × rate ={' '}
+            <span className="font-medium text-gray-700">
+              {localLineTotal !== '' ? formatCurrency(parseFloat(localLineTotal))
+                : (localRate !== '' && localTotalQty !== '')
+                  ? formatCurrency(parseFloat(localRate) * parseFloat(localTotalQty))
+                  : '—'}
+            </span>
+          </div>
+        </div>
       ) : (
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Mode couldn&apos;t be detected. Pick <button onClick={() => switchMode('per_case')} className="underline font-medium">per case</button> or <button onClick={() => switchMode('per_weight')} className="underline font-medium">per weight</button> to continue.
+          Mode couldn&apos;t be detected. Pick{' '}
+          <button onClick={() => switchMode('per_case')} className="underline font-medium">per case</button>
+          {' '}or{' '}
+          <button onClick={() => switchMode('per_weight')} className="underline font-medium">per weight</button>
+          {' '}to continue.
         </div>
       )}
 
-      {/* Inventory cost result */}
-      {item.matchedItem && (
-        <CostResult item={item} variance={variance} />
-      )}
+      {/* ── Inventory cost result ──────────────────────────────────────────── */}
+      {linked && <CostResult item={item} variance={variance} />}
 
-      {/* Mode-mismatch note — surface only; the "Confirm to switch product default"
-          action needs a new endpoint that doesn't exist yet, so we just inform. */}
-      {pdm && mode !== 'unknown' && pdm !== mode && item.matchedItem && (
+      {/* ── Mode-mismatch note ─────────────────────────────────────────────── */}
+      {pdm && mode !== 'unknown' && pdm !== mode && linked && (
         <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertCircle size={12} className="mt-0.5 shrink-0" />
           <div>
-            Detected pricing is per {mode === 'per_weight' ? 'weight' : 'case'}, but <span className="font-medium">{item.matchedItem.itemName}</span> is set up per {pdm === 'per_weight' ? 'weight' : 'case'}.
-            The mode change above applies to this line only.
+            Detected pricing is per {mode === 'per_weight' ? 'weight' : 'case'}, but{' '}
+            <span className="font-medium">{linked.itemName}</span> is set up per{' '}
+            {pdm === 'per_weight' ? 'weight' : 'case'}. The mode change above applies to this line only.
           </div>
         </div>
       )}
@@ -768,36 +1151,28 @@ function NumField({
   )
 }
 
-function PerCaseForm({ item, patchItem }: { item: ScanItem; patchItem: (id: string, u: Partial<ScanItem>) => Promise<void> }) {
+function TextField({
+  label, value, onCommit, placeholder,
+}: {
+  label: string
+  value: string | null | undefined
+  onCommit: (next: string) => void
+  placeholder?: string
+}) {
+  const [local, setLocal] = useState(value ?? '')
+  useEffect(() => { setLocal(value ?? '') }, [value])
   return (
-    <div className="grid grid-cols-2 gap-2.5">
-      <NumField label="Qty ordered"  value={item.qtyOrdered}   uom={item.qtyOrderedUOM ?? 'cs'} onCommit={(v) => patchItem(item.id, { qtyOrdered: v || null })} />
-      <NumField label="Qty shipped"  value={item.rawQty}        uom={item.rawUnit ?? 'cs'}      onCommit={(v) => patchItem(item.id, { rawQty: v || null })} />
-      <NumField label="Unit price"   value={item.rawUnitPrice}  uom={`$/${item.rawUnit ?? 'cs'}`} onCommit={(v) => patchItem(item.id, { rawUnitPrice: v || null })} />
-      <NumField label="Line total"   value={item.rawLineTotal}  uom="$"                          onCommit={(v) => patchItem(item.id, { rawLineTotal: v || null })} />
-    </div>
-  )
-}
-
-function PerWeightForm({ item, patchItem }: { item: ScanItem; patchItem: (id: string, u: Partial<ScanItem>) => Promise<void> }) {
-  const rateUOM = item.rateUOM ?? item.totalQtyUOM ?? 'kg'
-  return (
-    <>
-      <div className="grid grid-cols-2 gap-2.5">
-        <NumField label="Ordered weight" value={item.qtyOrdered}   uom={item.qtyOrderedUOM ?? rateUOM} onCommit={(v) => patchItem(item.id, { qtyOrdered: v || null })} />
-        <NumField label="Shipped weight" value={item.rawQty}        uom={item.rawUnit ?? rateUOM}       onCommit={(v) => patchItem(item.id, { rawQty: v || null })} />
-        <NumField label="Rate"           value={item.rate}          uom={`$/${rateUOM}`}                onCommit={(v) => patchItem(item.id, { rate: v || null })} />
-        <NumField label="Total qty"      value={item.totalQty}      uom={item.totalQtyUOM ?? rateUOM}   onCommit={(v) => patchItem(item.id, { totalQty: v || null })} />
-      </div>
-      <div className="text-[11px] text-gray-500 px-1">
-        Line total = total qty × rate ={' '}
-        <span className="font-medium text-gray-700">
-          {item.rawLineTotal != null ? formatCurrency(Number(item.rawLineTotal))
-            : (item.rate && item.totalQty) ? formatCurrency(Number(item.rate) * Number(item.totalQty))
-            : '—'}
-        </span>
-      </div>
-    </>
+    <label className="block">
+      <span className="block text-[10px] text-gray-500 mb-0.5">{label}</span>
+      <input
+        type="text"
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={() => { if (local !== (value ?? '')) onCommit(local) }}
+        placeholder={placeholder}
+        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+      />
+    </label>
   )
 }
 

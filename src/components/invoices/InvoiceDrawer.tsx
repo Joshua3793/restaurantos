@@ -768,12 +768,20 @@ function ScanItemCard({
           {/* VIEW MODE — compact summary. Tap anywhere to enter edit mode. */}
           {!editingPurchase && (
             <div
-              className="flex items-center gap-1.5 text-xs flex-wrap cursor-pointer rounded-md -mx-1 px-1 py-0.5 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 text-xs flex-wrap cursor-pointer rounded-lg -mx-1 px-2 py-1.5 hover:bg-blue-50/60 border border-transparent hover:border-blue-100 transition-all group"
               onClick={() => setEditingPurchase(true)}
               role="button"
               tabIndex={0}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditingPurchase(true) } }}
             >
+              {/* By Case / By Weight pill */}
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border shrink-0 ${
+                isWeightVol(item.invoicePackUOM)
+                  ? 'bg-blue-50 text-blue-600 border-blue-200'
+                  : 'bg-amber-50 text-amber-700 border-amber-200'
+              }`}>
+                {isWeightVol(item.invoicePackUOM) ? 'By Weight' : 'By Case'}
+              </span>
               {/* cases */}
               {item.rawQty !== null && (
                 <span className="font-semibold text-gray-700">{item.rawQty} {item.rawUnit || 'cs'}</span>
@@ -830,7 +838,7 @@ function ScanItemCard({
                   </>
                 )
               })()}
-              <button onClick={() => setEditingPurchase(true)} className="text-gray-200 hover:text-blue-400 ml-0.5" title="Edit"><Pencil size={10} /></button>
+              <ChevronDown size={13} className="text-gray-300 group-hover:text-blue-400 ml-auto shrink-0 transition-colors" />
             </div>
           )}
 
@@ -840,6 +848,39 @@ function ScanItemCard({
               className="mt-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-3 text-xs"
               onKeyDown={handleEditKeyDown}
             >
+
+              {/* ── Mode toggle: By Case / By Weight ── */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isWeightVol(localPackUOM)) {
+                      setLocalPackUOM('')
+                      setLocalPriceType('CASE')
+                    }
+                  }}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                    !isWeightVol(localPackUOM)
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                  }`}
+                >By Case</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isWeightVol(localPackUOM)) {
+                      const defaultUOM = 'kg'
+                      setLocalPackUOM(defaultUOM)
+                      if (!localTotalQtyUOM || !isWeightVol(localTotalQtyUOM)) setLocalTotalQtyUOM(defaultUOM)
+                    }
+                  }}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                    isWeightVol(localPackUOM)
+                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                  }`}
+                >By Weight</button>
+              </div>
 
               {/* ── Section: How they sold it ── */}
               <div className="space-y-2">

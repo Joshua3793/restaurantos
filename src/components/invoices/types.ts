@@ -77,6 +77,7 @@ export interface ScanItem {
   supplierItemCode?: string | null
   taxFlag?: string | null
   lineTaxAmount?: string | null
+  bbox?: { page: number; x: number; y: number; w: number; h: number } | null
 }
 
 // Full session — returned by GET /api/invoices/sessions/[id]

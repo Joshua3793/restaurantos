@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
+import fs from 'fs'
+import path from 'path'
 import { prisma } from '@/lib/prisma'
 import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv, quickExtractMeta } from '@/lib/invoice-ocr'
 import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
 import type { OcrResult } from '@/lib/invoice-ocr'
+
+function hasAnthropicKey(): boolean {
+  if (process.env.ANTHROPIC_API_KEY) return true
+  try {
+    const raw = fs.readFileSync(path.resolve(process.cwd(), '.env'), 'utf-8')
+    return /^ANTHROPIC_API_KEY=["']?.+/m.test(raw)
+  } catch { return false }
+}
 
 // Allow up to 120s for OCR (multi-page photo invoices can take a while)
 export const maxDuration = 120
@@ -45,7 +56,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   // ── Quick peek: extract supplier / date from the first file using Haiku (~2s) ──
   // This runs before the full OCR so the session list shows identifiable info
   // (e.g. "Metro Foods · 08/05/2026") while Claude is still scanning line items.
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (hasAnthropicKey()) {
     try {
       const firstFile = filesToProcess[0]
       const buf = await loadBuffer(firstFile)
@@ -77,7 +88,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
 
   const needsFreshOcr = filesToProcess.some(f => !f.ocrRawJson)
-  if (needsFreshOcr && !process.env.ANTHROPIC_API_KEY) {
+  if (needsFreshOcr && !hasAnthropicKey()) {
     await prisma.invoiceSession.update({
       where: { id: params.id },
       data: { status: 'ERROR', errorMessage: 'ANTHROPIC_API_KEY is not configured.' },
@@ -222,6 +233,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             supplierItemCode:   item.supplierItemCode  ?? null,
             taxFlag:            item.taxFlag           ?? null,
             lineTaxAmount:      item.lineTaxAmount     ?? null,
+            bbox:               item.bbox              ?? Prisma.DbNull,
             sortOrder:          i,
           })),
         })

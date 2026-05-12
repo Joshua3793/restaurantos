@@ -1,6 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk'
+import fs from 'fs'
+import path from 'path'
 
 const OCR_MODEL = 'claude-sonnet-4-6'
+
+// Claude Code's shell sets ANTHROPIC_API_KEY="" which dotenv won't override.
+// Fall back to reading the .env file directly so local dev always works.
+function resolveAnthropicKey(): string {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY
+  try {
+    const envPath = path.resolve(process.cwd(), '.env')
+    const raw = fs.readFileSync(envPath, 'utf-8')
+    const match = raw.match(/^ANTHROPIC_API_KEY=["']?([^"'\r\n]+)["']?/m)
+    return match?.[1] ?? ''
+  } catch {
+    return ''
+  }
+}
 
 // Learning mode: used for the first few invoices from a new supplier.
 // Higher quality image + more thinking tokens → slower but more accurate format detection.
@@ -114,7 +130,8 @@ OUTPUT SCHEMA
     "taxFlag":       string | null,
     "lineTaxAmount": number | null,
     "confidence":      "low" | "medium" | "high",
-    "confidenceNotes": string | null
+    "confidenceNotes": string | null,
+    "bbox": { "page": 0, "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.05 } | null
   } ]
 }
 
@@ -128,12 +145,32 @@ Every line follows a 3-level hierarchy:
 
 Pricing is ONE of two modes:
   per_case   — invoice states $/case; lineTotal = qtyShipped × unitPrice
-  per_weight — invoice states $/uom;  lineTotal = totalQty   × rate
+  per_weight — invoice states $/kg or $/lb; lineTotal = totalQty × rate
+               (rate is the PRIMARY price field for per_weight items)
 
 ═══════════════════════════════════════════════════════
-EXTRACTION ALGORITHM — apply per row in order
+STEP 0 — COLUMN LAYOUT DISCOVERY (run once before processing rows)
+═══════════════════════════════════════════════════════
+If a supplier hint is provided below, use its column definitions directly.
+
+If no supplier hint is available, scan the invoice header row to identify:
+  a) ANCHOR column — product code / item number that appears on every real
+     product row. Rows missing this anchor are headers, subtotals, or notes.
+  b) MODE column — "per", "U/M", "UNIT", or similar, adjacent to the price
+     column. Values: kg/lb → per_weight rows; cs/ea/pc/bx → per_case rows.
+     If no explicit mode column, look for $/kg or $/lb labels on the price.
+  c) WEIGHT column — numeric values labeled KG or LB, positioned between
+     the qty columns and the price/total columns. This is totalQty for
+     per_weight rows. It is NOT the same as qtyShipped.
+  d) PRICE column — dollar amount per unit. Labeled $/kg, $/lb, $/cs, PRICE,
+     UNIT PRICE, etc.
+  e) TOTAL column — the rightmost dollar column (EXTENSION, AMOUNT, TOTAL).
+
+Record this layout and apply it consistently to every line.
+
 ═══════════════════════════════════════════════════════
 STEP 1 — Is this a real product line?
+═══════════════════════════════════════════════════════
 Skip rows matching ANY of:
   • Category headers (DAIRY, PRODUCE, FROZEN, COOLER, DRY, PAPER, BEVERAGE, GROCERY...)
     — especially when wrapped in dashes (-- DAIRY --) or asterisks (** DRY **)
@@ -148,7 +185,9 @@ Skip rows matching ANY of:
   • Brand-name-only continuation rows
   • End-of-invoice category summary tables
 
+═══════════════════════════════════════════════════════
 STEP 2 — Detect pricing mode. Walk rules in order; first match wins.
+═══════════════════════════════════════════════════════
 Record which fired in pricingModeSignal.
   (a) explicit_per_column:
       Row has "per" / "U/M" column adjacent to unit price.
@@ -158,10 +197,10 @@ Record which fired in pricingModeSignal.
       Unit price label is $/kg, $/lb, /KG, /LB, $/oz, etc.
       → per_weight
   (c) weight_column_present:
-      Weight column populated AND (weight × unitPrice ≈ lineTotal) within 2%.
+      Dedicated weight column populated AND (weight × price ≈ lineTotal) within 2%.
       → per_weight
   (d) math_inference:
-      Try (qtyShipped × unitPrice ≈ lineTotal) and (weight × unitPrice ≈ lineTotal).
+      Try (qtyShipped × unitPrice ≈ lineTotal) and (weight × price ≈ lineTotal).
       Whichever passes within 2% wins.
   (e) default_case:
       No weight signals → per_case.
@@ -169,8 +208,9 @@ Record which fired in pricingModeSignal.
 If none of (a)–(e) resolves confidently:
   pricingMode = "unknown", signal = "indeterminate", confidence = "low".
 
+═══════════════════════════════════════════════════════
 STEP 3 — Extract fields per mode.
-
+═══════════════════════════════════════════════════════
 Universal (always extract):
   description       — exact product text. Merge multi-row descriptions; drop
                       brand-only continuation rows.
@@ -192,19 +232,21 @@ Mode-specific:
     unitPrice = $/case shown on row
     rate, rateUOM, totalQty, totalQtyUOM = null
   per_weight:
-    rate        = $/uom shown on row
+    rate        = $/kg or $/lb shown on row  ← PRIMARY price field
     rateUOM     = UOM of rate (kg, lb, g, oz)
-    totalQty    = ACTUAL weight/volume delivered for the line
-                  (from total weight, shipped weight, weight column)
-    totalQtyUOM = matching UOM
-    unitPrice   = lineTotal ÷ qtyShipped  (the price for one qtyShipped unit
-                  on this shipment — when qtyShipped is a weight, this equals
-                  rate; when qtyShipped is cases, this is the as-shipped case cost)
+    totalQty    = ACTUAL weight/volume delivered for the line — read from the
+                  dedicated WEIGHT column. NEVER derive from description math
+                  or from qtyShipped when qtyShippedUOM is a container unit.
+    totalQtyUOM = matching UOM (same as rateUOM)
+    unitPrice   = lineTotal ÷ qtyShipped  (secondary: per-container cost as
+                  shipped — equals rate only when qtyShipped is itself a weight)
 
 ⚠ unitPrice is ALWAYS populated whenever qtyShipped > 0 and lineTotal is known.
-  Downstream price-change detection depends on a consistent unitPrice field.
+  For per_weight, rate is what matters for price comparison; unitPrice is secondary.
 
+═══════════════════════════════════════════════════════
 STEP 4 — Cross-check math.
+═══════════════════════════════════════════════════════
   per_case:   qtyShipped × unitPrice ≈ lineTotal
   per_weight: totalQty   × rate      ≈ lineTotal
 Bands:
@@ -213,13 +255,20 @@ Bands:
   > 5%      → confidence = "low" (re-examine row first — likely you read a
               value from the wrong row)
 
+═══════════════════════════════════════════════════════
 STEP 5 — Catchweight (per_weight rows only)
-Set isCatchweight = true if EITHER:
-  (a) qtyOrderedUOM is a weight UOM AND qtyOrdered ≠ qtyShipped, OR
-  (b) packUOM is a weight/volume UOM AND
-      (packQty × packSize) differs from totalQty by > 2%.
-If (b), set nominalWeight = packQty × packSize. Otherwise null.
-For per_case rows, isCatchweight = false and nominalWeight = null.
+═══════════════════════════════════════════════════════
+isCatchweight = true if ANY of:
+  (a) qtyShippedUOM is a container unit (CS, PK, EA, BX, BG, PC) — item is
+      priced by weight but shipped as discrete containers whose actual weight
+      varies per shipment.
+  (b) qtyOrderedUOM is a weight UOM AND qtyOrdered ≠ qtyShipped (weight
+      variance between ordered and delivered).
+  (c) packUOM is a weight/volume UOM AND (packQty × packSize) differs from
+      totalQty by > 2% (actual weight differs from nominal pack spec).
+Set nominalWeight = packQty × packSize when (c) applies and values are known.
+Otherwise nominalWeight = null.
+For per_case rows: isCatchweight = false, nominalWeight = null.
 
 ═══════════════════════════════════════════════════════
 ROW ALIGNMENT — READ HORIZONTALLY, NEVER BORROW
@@ -267,6 +316,18 @@ For "medium"/"high", confidenceNotes = null.
 
 Do NOT mark "low" just because a field was null. Flag only when an
 extracted value could be wrong.
+
+═══════════════════════════════════════════════════════
+BOUNDING BOX
+═══════════════════════════════════════════════════════
+For each line item, return the bounding box of the entire row (spanning all
+columns) as fractions of the image/page dimensions:
+  { "page": <0-indexed file index>,
+    "x": <left edge / image width>,
+    "y": <top edge / image height>,
+    "w": <row width / image width>,
+    "h": <row height / image height> }
+All values are 0.0–1.0. If the position cannot be determined, return null.
 
 ═══════════════════════════════════════════════════════
 NUMERIC FORMATTING
@@ -442,15 +503,17 @@ FIELD MAPPING (per_weight, per=KG):
   qtyOrdered  = ORDERED, qtyOrderedUOM = unit column (CS/PC/PK)
   qtyShipped  = SHIPPED, qtyShippedUOM = unit column
   packQty/packSize/packUOM from DESCRIPTION (nominal reference only)
-  rate        = PRICE ($/kg)
+  rate        = PRICE ($/kg)  ← PRIMARY price field
   rateUOM     = "kg"
-  totalQty    = WEIGHT column (AUTHORITATIVE — actual delivered kg)
+  totalQty    = WEIGHT column (AUTHORITATIVE — actual delivered kg, NEVER derive
+                from description arithmetic or from qtyShipped)
   totalQtyUOM = "kg"
-  unitPrice   = AMOUNT ÷ SHIPPED
+  unitPrice   = AMOUNT ÷ SHIPPED  (per-container cost as shipped)
   lineTotal   = AMOUNT
-  isCatchweight: true if (packQty × packSize) differs from totalQty by > 2%
-                 (e.g. "Beef Brisket 4x7kg" nominal 28kg vs WEIGHT 36.1 KG)
-  nominalWeight: packQty × packSize when isCatchweight is true
+  isCatchweight: true — all per_weight rows with qtyShippedUOM=CS/PC/PK are
+                 catchweight (actual delivered weight varies per shipment)
+  nominalWeight: packQty × packSize when both are known and differ from totalQty
+                 by > 2% (e.g. "4x7kg" nominal 28kg vs 36.1 KG weight); else null
 
 FIELD MAPPING (per_case, per=CS):
   qtyOrdered, qtyShipped, qtyShippedUOM from ORDERED/SHIPPED/unit columns
@@ -473,7 +536,7 @@ EXAMPLES:
     → per_weight, signal: explicit_per_column
        qtyShipped: 1, qtyShippedUOM: "cs", packQty: 6, packSize: null, packUOM: null
        rate: 9.90, rateUOM: "kg", totalQty: 29.5, totalQtyUOM: "kg"
-       unitPrice: 292.05, lineTotal: 292.05, isCatchweight: false
+       unitPrice: 292.05, lineTotal: 292.05, isCatchweight: true, nominalWeight: null
 
   PRODUCT 13463  SHIPPED 6 CS  "Eggs Dark Yolk LW Loose 180/case / GOLDENVALL"
   WEIGHT 66.000 KG  PRICE 78.00  per CS  AMOUNT 468.00
@@ -558,8 +621,16 @@ function buildSystemPrompt(supplierName?: string | null, learning = false): stri
   const hint = getSupplierHint(supplierName)
   const learningNote = learning
     ? '\n\n⚑ LEARNING MODE: This is one of the first invoices from this supplier. ' +
-      'Take extra care to identify all columns correctly, capture every product line, ' +
-      'and pay close attention to the supplier-specific format described below.'
+      'Before processing any rows, scan the full invoice and complete these steps:\n' +
+      '  1. Read the column header row left-to-right and write out each column name.\n' +
+      '  2. Identify the MODE signal: find the "per" or "U/M" column near the price; ' +
+             'if absent, check whether the price column is labeled $/kg or $/lb.\n' +
+      '  3. Identify the WEIGHT column (if present) — numeric kg/lb values between ' +
+             'qty and price columns. This will be totalQty for per_weight rows.\n' +
+      '  4. Confirm the ANCHOR column (product code) — every real product row has one; ' +
+             'rows missing it are headers, subtotals, or brand-continuation lines.\n' +
+      '  5. Note any multi-row item patterns (brand on row 2, certifications on row 3).\n' +
+      'Then apply these column definitions consistently across every line item.'
     : ''
   if (!hint) return BASE_PROMPT + learningNote
   return BASE_PROMPT + learningNote + '\n\n' +
@@ -620,6 +691,9 @@ export interface OcrLineItem {
   // Tax
   taxFlag: string | null
   lineTaxAmount: number | null
+
+  // Bounding box — normalized coords (0–1 fractions of image dimensions)
+  bbox: { page: number; x: number; y: number; w: number; h: number } | null
 
   // Confidence
   confidence: 'low' | 'medium' | 'high'
@@ -699,6 +773,23 @@ function normalizeLineItem(raw: Record<string, unknown>): OcrLineItem {
     lineTotal:      asNum(raw.lineTotal),
     taxFlag:        asStr(raw.taxFlag),
     lineTaxAmount:  asNum(raw.lineTaxAmount),
+    bbox: (() => {
+      const b = raw.bbox as Record<string, unknown> | null | undefined
+      if (!b || typeof b !== 'object') return null
+      const page = typeof b.page === 'number' ? b.page : 0
+      const x = typeof b.x === 'number' ? b.x : null
+      const y = typeof b.y === 'number' ? b.y : null
+      const w = typeof b.w === 'number' ? b.w : null
+      const h = typeof b.h === 'number' ? b.h : null
+      if (x === null || y === null || w === null || h === null) return null
+      return {
+        page,
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+        w: Math.max(0, Math.min(1, w)),
+        h: Math.max(0, Math.min(1, h)),
+      }
+    })(),
     confidence,
     confidenceNotes: asStr(raw.confidenceNotes),
   }
@@ -771,7 +862,7 @@ export async function extractInvoiceFromImages(
   supplierName?: string | null,
   learning = false
 ): Promise<OcrResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
@@ -837,7 +928,7 @@ export async function extractInvoiceFromPdf(
   supplierName?: string | null,
   learning = false
 ): Promise<OcrResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
@@ -876,7 +967,7 @@ export async function extractInvoiceFromText(
   supplierName?: string | null,
   learning = false
 ): Promise<OcrResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
@@ -922,7 +1013,7 @@ export async function quickExtractMeta(
   fileType: string,
   fileName: string,
 ): Promise<QuickMeta> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
@@ -1029,6 +1120,7 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
       lineTotal,
       taxFlag: null,
       lineTaxAmount: null,
+      bbox: null,
       confidence: 'medium',
       confidenceNotes: null,
     })

@@ -125,7 +125,13 @@ function buildMatchResult(
   formatConfirmed = false   // true only when format came from a saved learned rule
 ): OcrLineItem & MatchResult {
   const previousPrice = Number(bestItem.purchasePrice)
-  const rawUnitPrice = ocrItem.unitPrice
+  // For per_weight items, the rate ($/kg) is the meaningful price to carry forward —
+  // rawUnitPrice is the line total per container (e.g. $292/case) which changes each
+  // shipment based on catch-weight and should never overwrite purchasePrice.
+  const effectiveUnitPrice = ocrItem.pricingMode === 'per_weight' && ocrItem.rate != null
+    ? Number(ocrItem.rate)
+    : ocrItem.unitPrice
+  const rawUnitPrice = effectiveUnitPrice
 
   let newPrice: number | null = rawUnitPrice ?? null
   let priceDiffPct: number | null = null
