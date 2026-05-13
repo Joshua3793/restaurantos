@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check } from 'lucide-react'
+import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check, FileText, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
+import { useNotifications } from '@/contexts/NotificationContext'
 
 interface PriceAlert {
   id: string
@@ -37,6 +38,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
   const [recipeAlerts, setRecipeAlerts] = useState<RecipeAlert[]>([])
   const [totalUnread, setTotalUnread] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
+  const { notifications, dismiss, dismissAll } = useNotifications()
 
   const fetchAlerts = async () => {
     try {
@@ -70,7 +72,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
     fetchAlerts()
   }
 
-  const badgeCount = totalUnread
+  const badgeCount = totalUnread + notifications.length
   const dropdownPos = dropdownAlign === 'right' ? 'right-0' : 'left-0'
 
   return (
@@ -94,11 +96,11 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
             <span className="font-semibold text-gray-900 text-sm">Notifications</span>
             <div className="flex items-center gap-2">
               <button
-                onClick={acknowledgeAll}
+                onClick={() => { acknowledgeAll(); dismissAll() }}
                 disabled={badgeCount === 0}
                 className={`text-xs flex items-center gap-1 ${badgeCount > 0 ? 'text-gold hover:underline' : 'text-gray-300 cursor-default'}`}
               >
-                <Check size={10} /> Mark all read
+                <Check size={10} /> Clear all
               </button>
               <button onClick={() => setOpen(false)}>
                 <X size={14} className="text-gray-400" />
@@ -108,13 +110,47 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
 
           {/* Content */}
           <div className="max-h-80 overflow-y-auto">
-            {priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
+            {notifications.length === 0 && priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">
                 No notifications
               </div>
             ) : (
               <>
-                {/* DB price alerts */}
+                {/* ── Soft notifications (invoice ready / applied) ──────────── */}
+                {notifications.map(n => (
+                  <div key={n.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
+                    <div className="flex items-start gap-2">
+                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_applied' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                        {n.type === 'invoice_applied'
+                          ? <CheckCircle2 size={12} className="text-green-500" />
+                          : <FileText size={12} className="text-blue-500" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">
+                          {n.type === 'invoice_applied' ? 'Invoice applied' : 'Invoice ready to review'}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {n.supplierName ?? 'Unknown supplier'}
+                          {n.invoiceNumber ? ` · #${n.invoiceNumber}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => { n.onAction(); setOpen(false) }}
+                          className="text-[10px] text-gold hover:underline font-medium"
+                        >
+                          {n.actionLabel}
+                        </button>
+                        <button onClick={() => dismiss(n.id)} className="ml-1 text-gray-300 hover:text-gray-500">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* ── DB price alerts ───────────────────────────────────────── */}
                 {priceAlerts.map(alert => (
                   <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
                     <div className="flex items-start gap-2">
@@ -140,7 +176,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
                   </div>
                 ))}
 
-                {/* DB recipe alerts */}
+                {/* ── DB recipe alerts ──────────────────────────────────────── */}
                 {recipeAlerts.map(alert => (
                   <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
                     <div className="flex items-start gap-2">
