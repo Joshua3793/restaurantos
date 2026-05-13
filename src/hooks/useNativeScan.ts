@@ -1,7 +1,7 @@
 // src/hooks/useNativeScan.ts
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { scanDocument } from '@/lib/capacitor'
 import { useUploadThing } from '@/lib/uploadthing-client'
 
@@ -11,7 +11,7 @@ interface Options {
 }
 
 // Converts a base64 JPEG string (no data-URI prefix) to Uint8Array.
-async function base64ToUint8Array(b64: string): Promise<Uint8Array> {
+function base64ToUint8Array(b64: string): Uint8Array {
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
@@ -25,28 +25,24 @@ async function mergePagesToPdf(base64Images: string[]): Promise<Blob> {
   for (const raw of base64Images) {
     // Strip data URI prefix if the plugin includes it
     const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
-    const bytes = await base64ToUint8Array(b64)
+    const bytes = base64ToUint8Array(b64)
     const image = await doc.embedJpg(bytes)
     const page = doc.addPage([image.width, image.height])
     page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height })
   }
   const pdfBytes = await doc.save()
-  return new Blob([Buffer.from(pdfBytes)], { type: 'application/pdf' })
+  return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
 }
 
 export function useNativeScan({ activeRcId, onComplete }: Options) {
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
-  const utErrorRef = useRef<string | null>(null)
 
-  const { startUpload } = useUploadThing('invoiceUploader', {
-    onUploadError: (err) => { utErrorRef.current = err.message ?? 'Upload error' },
-  })
+  const { startUpload } = useUploadThing('invoiceUploader', {})
 
-  const triggerScan = async () => {
+  const triggerScan = useCallback(async () => {
     setIsScanning(true)
     setScanError(null)
-    utErrorRef.current = null
 
     try {
       // 1. Open native scanner
@@ -86,7 +82,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               files: uploaded.map(f => ({
-                url: (f as any).ufsUrl ?? f.url,
+                url: f.url,
                 fileName: f.name,
                 fileType: 'application/pdf',
               })),
@@ -100,6 +96,14 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
 
       // 4b. Local fallback (same as InvoiceUploadModal)
       if (!uploadOk) {
+        const limitBytes = 4 * 1024 * 1024
+        if (pdfFile.size > limitBytes) {
+          setScanError(
+            `Scanned PDF is too large (${(pdfFile.size / 1024 / 1024).toFixed(1)} MB). ` +
+            `Try scanning fewer pages.`
+          )
+          return
+        }
         const fd = new FormData()
         fd.append('files', pdfFile)
         const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
@@ -125,7 +129,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
     } finally {
       setIsScanning(false)
     }
-  }
+  }, [activeRcId, onComplete, startUpload])
 
   const clearError = () => setScanError(null)
 
