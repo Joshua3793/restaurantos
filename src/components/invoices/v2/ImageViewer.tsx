@@ -61,15 +61,17 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   }, [])
 
   // ── Auto-pan+zoom to activeBbox ─────────────────────────────────────────────
+  const AUTO_ZOOM_MAX = 2.5   // cap auto-zoom so a thin line never fills the whole panel
+
   useEffect(() => {
     if (!activeBbox || activeBbox.page !== activeIdx || !naturalSize || !containerRef.current) return
 
     setBboxKey(k => k + 1)   // retrigger CSS animation
 
     const rect = containerRef.current.getBoundingClientRect()
-    // Subtract p-4 padding (16px each side) to get the usable content area
     const cw = rect.width  - 32
     const ch = rect.height - 32
+    if (cw <= 0 || ch <= 0) return
 
     // Rendered image size at zoom=1 in NATURAL orientation (before CSS rotation)
     const scale  = Math.min(cw / naturalSize.w, ch / naturalSize.h)
@@ -87,10 +89,14 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
     const bboxVisW = (activeBbox.w * cosA + activeBbox.h * sinA) * rendW
     const bboxVisH = (activeBbox.h * cosA + activeBbox.w * sinA) * rendH
 
-    // Zoom so the bbox fills ~55% of the container's shorter dimension
+    // Guard: skip auto-zoom for degenerate bboxes (too small to reliably center on)
+    if (bboxVisW < 2 || bboxVisH < 2) return
+
+    // Zoom so the bbox fills ~40% of the container's shorter dimension.
+    // Cap at AUTO_ZOOM_MAX so thin single-line bboxes don't produce extreme zoom.
     const targetZoom = Math.min(
-      Math.max((cw * 0.55) / bboxVisW, (ch * 0.55) / bboxVisH, 1.2),
-      ZOOM_MAX,
+      Math.max((Math.min(cw, ch) * 0.4) / Math.max(bboxVisW, bboxVisH), 1.2),
+      AUTO_ZOOM_MAX,
     )
 
     // Offset of bbox center from image center in natural image space (px)
@@ -103,10 +109,18 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
     const rdx = cos * dx - sin * dy
     const rdy = sin * dx + cos * dy
 
-    // Pan so the rotated bbox center aligns with the container center
+    // Pan so the rotated bbox center aligns with the container center,
+    // clamped so the image can't be pushed completely out of view.
+    const panX = -rdx * targetZoom
+    const panY = -rdy * targetZoom
+    const maxPanX = (rendW  * targetZoom - cw)  / 2
+    const maxPanY = (rendH  * targetZoom - ch) / 2
     setZoom(targetZoom)
-    setPan({ x: -rdx * targetZoom, y: -rdy * targetZoom })
-  }, [activeBbox, activeIdx, naturalSize, rotation])
+    setPan({
+      x: Math.max(-maxPanX, Math.min(maxPanX, panX)),
+      y: Math.max(-maxPanY, Math.min(maxPanY, panY)),
+    })
+  }, [activeBbox, activeIdx, naturalSize, rotation]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toolbar actions ─────────────────────────────────────────────────────────
   const zoomIn     = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
