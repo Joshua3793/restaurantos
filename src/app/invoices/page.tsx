@@ -29,14 +29,6 @@ export default function InvoicesPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
 
-  const { triggerScan, isScanning, scanError } = useNativeScan({
-    activeRcId,
-    onComplete: (newSessionId) => {
-      fetchSessions()
-      setSelectedSessionId(newSessionId)
-    },
-  })
-
   // Track previous statuses to detect PROCESSING → REVIEW / APPROVING → APPROVED transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
 
@@ -93,6 +85,16 @@ export default function InvoicesPage() {
       // silent — keeps existing sessions on screen, polling continues
     }
   }, [activeRcId, activeRc, push])
+
+  const handleScanComplete = useCallback((newSessionId: string) => {
+    fetchSessions()
+    setSelectedSessionId(newSessionId)
+  }, [fetchSessions])
+
+  const { triggerScan, isScanning, scanError, clearError } = useNativeScan({
+    activeRcId,
+    onComplete: handleScanComplete,
+  })
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
 
@@ -161,9 +163,12 @@ export default function InvoicesPage() {
         onRetry={handleRetry}
       />
       {scanError && (
-        <div className="fixed bottom-20 left-4 right-4 z-50 bg-red-600 text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:hidden">
-          {scanError}
-        </div>
+        <button
+          onClick={clearError}
+          className="fixed bottom-20 left-4 right-4 z-50 bg-red-600 text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:hidden text-left w-auto"
+        >
+          {scanError} — tap to dismiss
+        </button>
       )}
       {isScanning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 sm:hidden">
