@@ -204,9 +204,18 @@ export function LineItemCard({ lineId }: { lineId: string }) {
             role="presentation"
           >
             {item.action === 'CREATE_NEW' ? (
-              <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-[10px] py-[4px] rounded font-medium">
-                + new item on approve
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-[10px] py-[4px] rounded font-medium">
+                  + new item on approve
+                </span>
+                <button
+                  type="button"
+                  onClick={() => ctx.startLinkPicker(lineId)}
+                  className="text-[11px] text-stone-400 hover:text-blue-600 underline underline-offset-2 transition-colors"
+                >
+                  change
+                </button>
+              </div>
             ) : !isPicking && item.matchedItem ? (
               <LinkInfoRow item={item} onChangeClick={handleChangeLink} />
             ) : !isPicking && states.isUnlinked ? (
@@ -250,15 +259,13 @@ export function LineItemCard({ lineId }: { lineId: string }) {
                   onSelect={handleSelectLink}
                   onCreateNew={() => { ctx.closeLinkPicker(); ctx.openCreateNew(item) }}
                 />
-                {item.matchedItem && (
-                  <button
-                    type="button"
-                    onClick={ctx.closeLinkPicker}
-                    className="mt-2 text-[11px] text-stone-400 hover:text-stone-700 underline underline-offset-2"
-                  >
-                    cancel
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={ctx.closeLinkPicker}
+                  className="mt-2 text-[11px] text-stone-400 hover:text-stone-700 underline underline-offset-2"
+                >
+                  cancel
+                </button>
               </div>
             )}
 
