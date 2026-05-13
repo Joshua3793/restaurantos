@@ -9,6 +9,7 @@ import { AiChat } from '@/components/AiChat'
 import { UserProvider } from '@/contexts/UserContext'
 import { DrawerProvider } from '@/contexts/DrawerContext'
 import { NotificationProvider } from '@/contexts/NotificationContext'
+import { ToastProvider } from '@/components/Toast'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <UserProvider>
         <RcProvider>
+        <ToastProvider>
         <NotificationProvider>
         <DrawerProvider>
           <Navigation />
@@ -51,6 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AiChat />
         </DrawerProvider>
         </NotificationProvider>
+        </ToastProvider>
         </RcProvider>
         </UserProvider>
       </body>

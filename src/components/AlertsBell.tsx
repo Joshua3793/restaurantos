@@ -1,9 +1,8 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check, FileText, CheckCircle2 } from 'lucide-react'
+import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check } from 'lucide-react'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
-import { useNotifications } from '@/contexts/NotificationContext'
 
 interface PriceAlert {
   id: string
@@ -38,7 +37,6 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
   const [recipeAlerts, setRecipeAlerts] = useState<RecipeAlert[]>([])
   const [totalUnread, setTotalUnread] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
-  const { notifications, dismiss, dismissAll } = useNotifications()
 
   const fetchAlerts = async () => {
     try {
@@ -69,12 +67,10 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ acknowledgeAll: true }),
     })
-    dismissAll()
     fetchAlerts()
   }
 
-  const badgeCount = totalUnread + notifications.length
-
+  const badgeCount = totalUnread
   const dropdownPos = dropdownAlign === 'right' ? 'right-0' : 'left-0'
 
   return (
@@ -97,14 +93,6 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
             <span className="font-semibold text-gray-900 text-sm">Notifications</span>
             <div className="flex items-center gap-2">
-              {notifications.length > 0 && (
-                <button
-                  onClick={() => { dismissAll(); fetchAlerts() }}
-                  className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
-                >
-                  Clear all
-                </button>
-              )}
               <button
                 onClick={acknowledgeAll}
                 disabled={badgeCount === 0}
@@ -120,46 +108,12 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
 
           {/* Content */}
           <div className="max-h-80 overflow-y-auto">
-            {notifications.length === 0 && priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
+            {priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">
                 No notifications
               </div>
             ) : (
               <>
-                {/* Soft / transient notifications */}
-                {notifications.map(n => (
-                  <div key={n.id} className="px-4 py-3 border-b border-gray-50 bg-gold/10/40 hover:bg-gold/10 transition-colors">
-                    <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_ready' ? 'bg-gold/15' : 'bg-green-100'}`}>
-                        {n.type === 'invoice_ready'
-                          ? <FileText size={12} className="text-blue-500" />
-                          : <CheckCircle2 size={12} className="text-green-500" />
-                        }
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800">
-                          {n.type === 'invoice_ready' ? 'Invoice Ready' : 'Invoice Applied'}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {n.supplierName ?? 'Unknown supplier'}
-                          {n.invoiceNumber ? ` · #${n.invoiceNumber}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => { n.onAction(); dismiss(n.id); setOpen(false) }}
-                          className="text-xs font-medium text-gold hover:underline px-1.5 py-0.5"
-                        >
-                          {n.actionLabel}
-                        </button>
-                        <button onClick={() => dismiss(n.id)}>
-                          <X size={12} className="text-gray-300 hover:text-gray-500" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
                 {/* DB price alerts */}
                 {priceAlerts.map(alert => (
                   <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
