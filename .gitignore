@@ -43,3 +43,6 @@ next-env.d.ts
 prisma/*.db
 prisma/*.db-shm
 prisma/*.db-wal
+
+# Capacitor mobile
+/mobile/node_modules
