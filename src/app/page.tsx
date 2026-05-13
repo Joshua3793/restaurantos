@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -27,11 +27,12 @@ interface DashboardData {
   }>
   recentInvoices: Array<{
     id: string
-    invoiceNumber: string
-    supplier: { name: string }
-    invoiceDate: string
-    totalAmount: number
     status: string
+    supplierName: string | null
+    invoiceNumber: string | null
+    invoiceDate: string | null
+    total: string | null
+    createdAt: string
   }>
   weeklyRevenue: number
   weeklyFoodSales: number
@@ -54,7 +55,7 @@ export default function Dashboard() {
   const [highCostRecipes, setHighCostRecipes] = useState<HighCostRecipe[]>([])
   const { activeRcId, activeRc } = useRc()
 
-  useEffect(() => {
+  const fetchData = useCallback(async () => {
     const p = new URLSearchParams()
     if (activeRcId) { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
     fetch(`/api/reports/dashboard?${p}`).then(r => r.ok ? r.json() : null).then(d => { if (d && !d.error) setData(d) })
@@ -66,7 +67,21 @@ export default function Dashboard() {
         .slice(0, 5)
       setHighCostRecipes(high)
     })
-  }, [activeRcId])
+  }, [activeRcId, activeRc])
+
+  // Initial fetch + 60s polling interval
+  useEffect(() => {
+    fetchData()
+    const interval = setInterval(fetchData, 60000)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
+  // Re-fetch when tab regains focus
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchData() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [fetchData])
 
   if (!data) {
     return (
@@ -264,20 +279,33 @@ export default function Dashboard() {
                 className="px-4 py-3 flex items-center justify-between gap-2 hover:bg-gray-50 transition-colors group"
               >
                 <div>
-                  <div className="text-sm font-medium text-gray-800 group-hover:text-gold transition-colors">{inv.invoiceNumber}</div>
+                  <div className="text-sm font-medium text-gray-800 group-hover:text-gold transition-colors">
+                    {inv.invoiceNumber ?? 'No number'}
+                  </div>
                   <div className="text-xs text-gray-500">
-                    {inv.supplier.name} &middot; {new Date(inv.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                    {inv.supplierName ?? 'Unknown supplier'}
+                    {inv.invoiceDate ? ` · ${new Date(inv.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}` : ''}
                   </div>
                 </div>
                 <div className="text-right flex items-center gap-2">
                   <div>
-                    <div className="text-sm font-semibold">{formatCurrency(parseFloat(String(inv.totalAmount)))}</div>
+                    <div className="text-sm font-semibold">
+                      {inv.total != null ? formatCurrency(parseFloat(String(inv.total))) : '—'}
+                    </div>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      inv.status === 'COMPLETE'    ? 'bg-green-100 text-green-700' :
+                      inv.status === 'APPROVED'   ? 'bg-green-100 text-green-700' :
+                      inv.status === 'REVIEW'      ? 'bg-amber-100 text-amber-700' :
                       inv.status === 'PROCESSING'  ? 'bg-gold/15 text-gold' :
-                                                     'bg-amber-100 text-amber-700'
+                      inv.status === 'REJECTED'    ? 'bg-red-100 text-red-700' :
+                      inv.status === 'ERROR'        ? 'bg-red-100 text-red-700' :
+                                                     'bg-gray-100 text-gray-600'
                     }`}>
-                      {inv.status}
+                      {inv.status === 'APPROVED'  ? 'Applied' :
+                       inv.status === 'REVIEW'     ? 'Pending review' :
+                       inv.status === 'PROCESSING' ? 'Processing' :
+                       inv.status === 'REJECTED'   ? 'Rejected' :
+                       inv.status === 'ERROR'      ? 'Error' :
+                       inv.status}
                     </span>
                   </div>
                   <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 text-blue-400 transition-opacity" />

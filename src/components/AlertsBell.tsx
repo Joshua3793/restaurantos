@@ -97,14 +97,21 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
             <span className="font-semibold text-gray-900 text-sm">Notifications</span>
             <div className="flex items-center gap-2">
-              {(badgeCount > 0) && (
+              {notifications.length > 0 && (
                 <button
-                  onClick={acknowledgeAll}
-                  className="text-xs text-gold hover:underline flex items-center gap-1"
+                  onClick={() => { dismissAll(); fetchAlerts() }}
+                  className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
                 >
-                  <Check size={10} /> Mark all read
+                  Clear all
                 </button>
               )}
+              <button
+                onClick={acknowledgeAll}
+                disabled={badgeCount === 0}
+                className={`text-xs flex items-center gap-1 ${badgeCount > 0 ? 'text-gold hover:underline' : 'text-gray-300 cursor-default'}`}
+              >
+                <Check size={10} /> Mark all read
+              </button>
               <button onClick={() => setOpen(false)}>
                 <X size={14} className="text-gray-400" />
               </button>

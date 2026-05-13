@@ -33,7 +33,12 @@ export async function GET(req: NextRequest) {
     }),
     prisma.wastageLog.aggregate({ where: { date: { gte: weekAgo },  ...rcFilter }, _sum: { costImpact: true } }),
     prisma.wastageLog.aggregate({ where: { date: { gte: monthAgo }, ...rcFilter }, _sum: { costImpact: true } }),
-    prisma.invoice.findMany({ take: 5, orderBy: { createdAt: 'desc' }, include: { supplier: true } }),
+    prisma.invoiceSession.findMany({
+      take: 8,
+      orderBy: { createdAt: 'desc' },
+      where: { status: { not: 'UPLOADING' } },
+      select: { id: true, status: true, supplierName: true, invoiceNumber: true, invoiceDate: true, total: true, createdAt: true },
+    }),
     prisma.salesEntry.findMany({ where: { date: { gte: weekAgo }, ...rcFilter } }),
     prisma.invoiceScanItem.aggregate({
       where: { approved: true, session: { approvedAt: { gte: weekAgo } } },
