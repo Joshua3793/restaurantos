@@ -36,7 +36,7 @@ interface InventoryItemRef {
   packUOM: string
   countUOM: string
   location: string | null
-  storageArea: { name: string } | null
+  storageArea: { id: string; name: string } | null
   parLevel?: number | null         // from StockAllocation for the session's RC
   lastCountQty?: number | null     // last verified count, in baseUnit
 }
@@ -296,14 +296,18 @@ export default function CountPage() {
     }
   }, [active?.lines])
 
+  // Locations: derived exclusively from the structured StorageArea relation
+  // (same source as Inventory) — free-text `location` field is not used for filtering.
   const locations = useMemo(() => {
     const lines = active?.lines ?? []
-    const set = new Set<string>()
+    const map = new Map<string, string>() // id → name
     for (const l of lines) {
-      const loc = l.inventoryItem.location ?? l.inventoryItem.storageArea?.name
-      if (loc) set.add(loc)
+      const sa = l.inventoryItem.storageArea
+      if (sa) map.set(sa.id, sa.name)
     }
-    return Array.from(set).sort()
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
   }, [active?.lines])
 
   const categories = useMemo(() => {
@@ -318,10 +322,7 @@ export default function CountPage() {
     const q = searchQuery.trim().toLowerCase()
     return lines.filter(l => {
       if (catFilter && l.inventoryItem.category !== catFilter) return false
-      if (locFilter) {
-        const loc = l.inventoryItem.location ?? l.inventoryItem.storageArea?.name ?? ''
-        if (!loc.toLowerCase().includes(locFilter.toLowerCase())) return false
-      }
+      if (locFilter && l.inventoryItem.storageArea?.id !== locFilter) return false
       if (statusFilter === 'uncounted') { if (l.countedQty !== null || l.skipped) return false }
       if (statusFilter === 'counted')   { if (l.countedQty === null || l.skipped) return false }
       if (statusFilter === 'skipped')   { if (!l.skipped) return false }
@@ -1152,7 +1153,7 @@ export default function CountPage() {
       const isOpen    = openId === line.id
       const isCounted = line.countedQty !== null && !line.skipped
       const isSkipped = line.skipped
-      const locLabel  = line.inventoryItem.location ?? line.inventoryItem.storageArea?.name
+      const locLabel  = line.inventoryItem.storageArea?.name ?? line.inventoryItem.location
 
       // inputQty is in line.selectedUom; expectedQty is in baseUnit — convert before comparing
       const inputBase = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
@@ -1354,7 +1355,7 @@ export default function CountPage() {
       const isOpen    = openId === line.id
       const isCounted = line.countedQty !== null && !line.skipped
       const isSkipped = line.skipped
-      const locLabel  = line.inventoryItem.location ?? line.inventoryItem.storageArea?.name
+      const locLabel  = line.inventoryItem.storageArea?.name ?? line.inventoryItem.location
       const subtitle  = [line.inventoryItem.category, locLabel].filter(Boolean).join(' · ')
 
       const inputBase2 = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
@@ -1769,7 +1770,7 @@ export default function CountPage() {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">Location</p>
                 <div className="space-y-0.5">
                   {sidebarNavBtn(locFilter === null, () => setLocFilter(null), 'All locations')}
-                  {locations.map(loc => sidebarNavBtn(locFilter === loc, () => setLocFilter(locFilter === loc ? null : loc), loc))}
+                  {locations.map(loc => sidebarNavBtn(locFilter === loc.id, () => setLocFilter(locFilter === loc.id ? null : loc.id), loc.name))}
                 </div>
               </div>
             )}
@@ -1858,9 +1859,9 @@ export default function CountPage() {
                         className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
                       >All</button>
                       {locations.map(loc => (
-                        <button key={loc} onClick={() => setLocFilter(loc)}
-                          className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === loc ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
-                        >{loc}</button>
+                        <button key={loc.id} onClick={() => setLocFilter(locFilter === loc.id ? null : loc.id)}
+                          className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${locFilter === loc.id ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}
+                        >{loc.name}</button>
                       ))}
                     </div>
                   </div>
