@@ -26,6 +26,7 @@ interface Props {
   sessions: SessionSummary[]
   onSelect: (id: string) => void
   onUploadClick: () => void
+  onScanClick?: () => void
   onDelete: (id: string, status: SessionStatus) => Promise<void>
   onBulkDelete: (ids: string[]) => Promise<void>
   onRetry: (id: string) => Promise<void>
@@ -109,7 +110,7 @@ function Checkbox({ checked, indeterminate, onChange }: {
   )
 }
 
-export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBulkDelete, onRetry }: Props) {
+export function InvoiceList({ sessions, onSelect, onUploadClick, onScanClick, onDelete, onBulkDelete, onRetry }: Props) {
   const [tab, setTab]                     = useState<Tab>('all')
   const [search, setSearch]               = useState('')
   const [openMenu, setOpenMenu]           = useState<string | null>(null)
@@ -238,9 +239,17 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onDelete, onBul
               </button>
             ))}
           </div>
+          {onScanClick && (
+            <button
+              onClick={onScanClick}
+              className="bg-gold text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#a88930] transition-colors shrink-0 sm:px-3 sm:py-1.5 sm:text-xs flex items-center gap-1.5"
+            >
+              📷 Scan
+            </button>
+          )}
           <button onClick={onUploadClick}
             className="bg-gold text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#a88930] transition-colors shrink-0 sm:px-3 sm:py-1.5 sm:text-xs">
-            + Scan Invoice
+            + Upload
           </button>
         </div>
         <div className="px-3 pb-2 sm:hidden">
