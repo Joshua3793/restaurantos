@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   webDir: '../out',
   server: {
     // Replace with your actual production Vercel URL before running cap sync.
-    url: 'https://your-app.vercel.app',
+    url: 'https://controlaos.vercel.app',
     cleartext: false,
   },
 }
