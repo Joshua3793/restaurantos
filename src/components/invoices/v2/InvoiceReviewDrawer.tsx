@@ -109,10 +109,12 @@ function DrawerFooter({
   saveStatus: 'idle' | 'saving' | 'error'
   goToTask: (key: 'link' | 'math' | 'mismatch') => void
 }) {
-  const unlinkedCount  = items.filter(i => isUnlinked(i)).length
-  const mathCount      = items.filter(i => hasMathCheck(i)).length
+  // Skipped items are intentionally excluded — they don't affect COGS and don't need review
+  const activeItems    = items.filter(i => i.action !== 'SKIP')
+  const unlinkedCount  = activeItems.filter(i => isUnlinked(i)).length
+  const mathCount      = activeItems.filter(i => hasMathCheck(i)).length
   // Mode mismatches acknowledged by the writeback checkbox don't need manual resolution
-  const mismatchCount  = items.filter(i =>
+  const mismatchCount  = activeItems.filter(i =>
     (hasModeMismatch(i) && !modeWritebackItems.has(i.id)) || hasFormatMismatch(i)
   ).length
 
@@ -270,7 +272,7 @@ export function InvoiceReviewDrawer({
     if (!session) return
     const toExpand = new Set(
       session.scanItems
-        .filter(i => isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i))
+        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i)))
         .map(i => i.id),
     )
     setExpandedLineIds(toExpand)

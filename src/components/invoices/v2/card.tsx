@@ -3,7 +3,7 @@
 // Reads shared state from DrawerContext; owns only local animation state.
 
 import { useState } from 'react'
-import { AlertTriangle, ChevronDown, ExternalLink } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ExternalLink, Ban, Undo2 } from 'lucide-react'
 import { useDrawerContext } from './context'
 import { ModeIcon, Pill, VariancePill } from './atoms'
 import {
@@ -56,26 +56,34 @@ export function LineItemCard({ lineId }: { lineId: string }) {
   const listHasOpen  = ctx.expandedLineIds.size > 0
   const rc           = ctx.getItemRc(lineId)
   const accent       = pickAccent(item)
+  const isSkipped    = item.action === 'SKIP'
 
   const states = {
-    isUnlinked:      isUnlinked(item),
-    hasModeMismatch: hasModeMismatch(item),
-    hasFormatMismatch: hasFormatMismatch(item),
-    isCatchweight:   isCatchweight(item),
-    hasMathCheck:    hasMathCheck(item),
+    isUnlinked:       !isSkipped && isUnlinked(item),
+    hasModeMismatch:  !isSkipped && hasModeMismatch(item),
+    hasFormatMismatch:!isSkipped && hasFormatMismatch(item),
+    isCatchweight:    isCatchweight(item),
+    hasMathCheck:     !isSkipped && hasMathCheck(item),
+  }
+
+  const handleSkip = () => {
+    ctx.updateLine(lineId, { action: 'SKIP' })
+  }
+  const handleUnskip = () => {
+    const restored = item.matchedItemId ? 'UPDATE_PRICE' : 'PENDING'
+    ctx.updateLine(lineId, { action: restored })
   }
 
   // data-task for goToTask() footer targeting — highest priority outstanding issue
-  const dataTask = states.isUnlinked
-    ? 'link'
-    : states.hasMathCheck
-    ? 'math'
-    : states.hasModeMismatch || states.hasFormatMismatch
-    ? 'mismatch'
+  // Skipped items are intentionally excluded from tasks
+  const dataTask = isSkipped ? undefined
+    : states.isUnlinked    ? 'link'
+    : states.hasMathCheck  ? 'math'
+    : states.hasModeMismatch || states.hasFormatMismatch ? 'mismatch'
     : undefined
 
-  const stripeCls  = accent ? ACCENT_STRIPE[accent] : 'bg-stone-200'
-  const borderCls  = accent ? ACCENT_BORDER[accent]  : 'border-stone-200'
+  const stripeCls  = isSkipped ? 'bg-stone-300' : (accent ? ACCENT_STRIPE[accent] : 'bg-stone-200')
+  const borderCls  = isSkipped ? 'border-stone-200' : (accent ? ACCENT_BORDER[accent] : 'border-stone-200')
 
   // When another card is open, non-open cards recede to 85% opacity
   const opacityCls = listHasOpen && !isOpen ? 'opacity-[0.85] hover:opacity-100' : ''
@@ -121,7 +129,7 @@ export function LineItemCard({ lineId }: { lineId: string }) {
       className={`
         flex rounded-lg border bg-white mb-[5px] overflow-hidden
         transition-[opacity,box-shadow] duration-200
-        ${borderCls} ${opacityCls}
+        ${borderCls} ${isSkipped ? 'opacity-50 hover:opacity-75' : opacityCls}
         ${isOpen ? 'shadow-md' : ''}
         ${isFlashing ? 'animate-flash-highlight' : ''}
       `}
@@ -154,7 +162,7 @@ export function LineItemCard({ lineId }: { lineId: string }) {
                 {states.hasModeMismatch                               && <Pill variant="warn">mode mismatch</Pill>}
                 {states.hasFormatMismatch && !states.hasModeMismatch  && <Pill variant="neutral">format mismatch</Pill>}
                 {states.hasMathCheck                                  && <Pill variant="warn">math check</Pill>}
-                {item.ocrConfidence === 'low' && (
+                {item.ocrConfidence === 'low' && !isSkipped && (
                   <span
                     title={item.ocrNotes ?? 'OCR uncertain — double-check the values below'}
                     className="inline-flex items-center gap-[3px] px-[6px] py-[1px] rounded-full text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-200 cursor-help"
@@ -203,7 +211,23 @@ export function LineItemCard({ lineId }: { lineId: string }) {
             onKeyDown={e => e.stopPropagation()}
             role="presentation"
           >
-            {item.action === 'CREATE_NEW' ? (
+            {isSkipped ? (
+              /* ── Skipped state ─────────────────────────────────────────── */
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[12px] text-stone-500 bg-stone-100 border border-stone-200 px-[10px] py-[4px] rounded font-medium">
+                  <Ban size={11} className="shrink-0" />
+                  Skipped — no COGS impact
+                </span>
+                <button
+                  type="button"
+                  onClick={handleUnskip}
+                  className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 underline underline-offset-2 transition-colors"
+                >
+                  <Undo2 size={11} />
+                  Undo
+                </button>
+              </div>
+            ) : item.action === 'CREATE_NEW' ? (
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-[10px] py-[4px] rounded font-medium">
                   + new item on approve
@@ -228,7 +252,19 @@ export function LineItemCard({ lineId }: { lineId: string }) {
               </button>
             ) : null}
 
-            <div className="ml-auto shrink-0">
+            <div className="ml-auto shrink-0 flex items-center gap-2">
+              {/* Skip / undo button — only show when not already skipped */}
+              {!isSkipped && !isPicking && (
+                <button
+                  type="button"
+                  onClick={handleSkip}
+                  title="Skip this line — won't affect COGS (use for cleaning products, tools, etc.)"
+                  className="inline-flex items-center gap-1 text-[11px] text-stone-400 hover:text-stone-600 hover:bg-stone-100 px-[7px] py-[3px] rounded transition-colors"
+                >
+                  <Ban size={11} className="shrink-0" />
+                  Skip
+                </button>
+              )}
               <select
                 value={item.revenueCenterId ?? defaultRcId}
                 onChange={handleRcChange}
