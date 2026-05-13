@@ -7,6 +7,8 @@ import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useNotifications } from '@/contexts/NotificationContext'
+import { isNative } from '@/lib/capacitor'
+import { useNativeScan } from '@/hooks/useNativeScan'
 
 const InvoiceDrawer = dynamic(
   () => import('@/components/invoices/v2/InvoiceReviewDrawer').then(m => ({ default: m.InvoiceReviewDrawer })),
@@ -26,6 +28,14 @@ export default function InvoicesPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
+
+  const { triggerScan, isScanning, scanError } = useNativeScan({
+    activeRcId,
+    onComplete: (newSessionId) => {
+      fetchSessions()
+      setSelectedSessionId(newSessionId)
+    },
+  })
 
   // Track previous statuses to detect PROCESSING → REVIEW / APPROVING → APPROVED transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
@@ -145,10 +155,24 @@ export default function InvoicesPage() {
         sessions={sessions}
         onSelect={setSelectedSessionId}
         onUploadClick={() => setShowUpload(true)}
+        onScanClick={isNative() ? triggerScan : undefined}
         onDelete={handleDelete}
         onBulkDelete={handleBulkDelete}
         onRetry={handleRetry}
       />
+      {scanError && (
+        <div className="fixed bottom-20 left-4 right-4 z-50 bg-red-600 text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:hidden">
+          {scanError}
+        </div>
+      )}
+      {isScanning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 sm:hidden">
+          <div className="bg-white rounded-2xl px-8 py-6 flex flex-col items-center gap-3 shadow-xl">
+            <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-gray-700">Processing scan…</p>
+          </div>
+        </div>
+      )}
       <InvoiceDrawer
         sessionId={selectedSessionId}
         onClose={() => setSelectedSessionId(null)}
