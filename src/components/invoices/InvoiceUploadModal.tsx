@@ -1,19 +1,16 @@
 'use client'
 import { useState, useRef } from 'react'
 import {
-  Upload, ScanLine, Camera, X, CheckCircle2, Loader2,
+  Upload, ScanLine, X, Loader2,
   Image, FileText, FileSpreadsheet,
 } from 'lucide-react'
 import { useUploadThing } from '@/lib/uploadthing-client'
-import { CameraCapture } from '@/components/CameraCapture'
 
 interface Props {
   onClose: () => void
   onComplete: (newSessionId: string) => void
   activeRcId: string | null
 }
-
-const MAX_PHOTOS = 5
 
 const fileIcon = (fileType: string) => {
   if (fileType.includes('pdf')) return <FileText size={16} className="text-red-500" />
@@ -28,9 +25,6 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
   const [noApiKey, setNoApiKey] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [uploadStep, setUploadStep] = useState<string | null>(null)
-  const [uploadMode, setUploadMode] = useState<'file' | 'camera'>('file')
-  const [showCamera, setShowCamera] = useState(false)
-  const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const utErrorRef = useRef<string | null>(null)
@@ -61,27 +55,6 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     console.log('[upload] received', arr.length, 'file(s):', arr.map(f => `${f.name} (${f.type}, ${f.size}b)`).join(', '))
     setFiles(prev => [...prev, ...arr])
     e.target.value = ''
-  }
-
-  const handleCameraCapture = (photo: File) => {
-    setFiles(prev => {
-      if (prev.length >= MAX_PHOTOS) return prev
-      const next = [...prev, photo]
-      if (next.length >= MAX_PHOTOS) setShowCamera(false)
-      return next
-    })
-    setPhotoPreviews(prev => {
-      if (prev.length >= MAX_PHOTOS) return prev
-      return [...prev, URL.createObjectURL(photo)]
-    })
-  }
-
-  const removePhoto = (idx: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== idx))
-    setPhotoPreviews(prev => {
-      URL.revokeObjectURL(prev[idx])
-      return prev.filter((_, i) => i !== idx)
-    })
   }
 
   // Compress an image file to ≤1 MB at ≤2000 px using Canvas.
@@ -127,7 +100,7 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
     setNoApiKey(false)
 
     try {
-      // 0. Compress images client-side so camera photos (3-8 MB) become ~0.5-1 MB.
+      // 0. Compress images client-side so large photos become ~0.5-1 MB.
       //    PDFs and CSVs are passed through unchanged.
       setUploadStep('Preparing files…')
       const compressedFiles = await Promise.all(files.map(compressImageFile))
@@ -203,8 +176,6 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
         }
       }
 
-      photoPreviews.forEach(url => URL.revokeObjectURL(url))
-
       // 3. Fire process as fire-and-forget (drawer will poll for status updates)
       fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
 
@@ -232,7 +203,7 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
               <div className="w-8 h-8 rounded-lg bg-gold/15 flex items-center justify-center">
                 <ScanLine size={16} className="text-gold" />
               </div>
-              <h2 className="text-base font-bold text-gray-900">Scan Invoice</h2>
+              <h2 className="text-base font-bold text-gray-900">Upload Invoice</h2>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100">
               <X size={16} />
@@ -253,34 +224,8 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
               </div>
             )}
 
-            {/* Mode toggle: Upload / Camera */}
-            <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setUploadMode('file')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  uploadMode === 'file'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <Upload size={15} /> Upload File
-              </button>
-              <button
-                type="button"
-                onClick={() => setUploadMode('camera')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  uploadMode === 'camera'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <Camera size={15} /> Use Camera
-              </button>
-            </div>
-
-            {/* FILE UPLOAD MODE */}
-            {uploadMode === 'file' && (
+            {/* File upload */}
+            {(
               <>
                 {/* Dropzone is a <label> so the OS file picker is opened by HTML
                     semantics, not a JS click chain. Wrapping the input in an
@@ -329,76 +274,6 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                 )}
               </>
             )}
-
-            {/* CAMERA MODE */}
-            {uploadMode === 'camera' && (
-              <>
-                {/* Photo grid */}
-                {photoPreviews.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        Pages captured
-                      </p>
-                      <p className="text-xs text-gray-400">{photoPreviews.length} / {MAX_PHOTOS}</p>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {photoPreviews.map((url, i) => (
-                        <div key={i} className="relative aspect-[3/4] rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt={`Page ${i + 1}`} className="w-full h-full object-cover" />
-                          <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
-                            <span className="text-white text-[10px] font-bold">{i + 1}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removePhoto(i)}
-                            className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-red-500 flex items-center justify-center"
-                          >
-                            <X size={10} className="text-white" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Take photo button */}
-                {photoPreviews.length < MAX_PHOTOS ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowCamera(true)}
-                    className="w-full border-2 border-dashed border-gold/30 bg-gold/10 hover:bg-gold/15 rounded-2xl py-10 flex flex-col items-center gap-3 transition-colors"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-gold flex items-center justify-center shadow-lg">
-                      <Camera size={28} className="text-white" />
-                    </div>
-                    <div className="text-center">
-                      <p className="font-semibold text-gold">
-                        {photoPreviews.length === 0 ? 'Open Camera' : 'Add Another Page'}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {photoPreviews.length === 0
-                          ? 'Point at the invoice · tap Done when finished'
-                          : `${MAX_PHOTOS - photoPreviews.length} page${MAX_PHOTOS - photoPreviews.length !== 1 ? 's' : ''} remaining`}
-                      </p>
-                    </div>
-                  </button>
-                ) : (
-                  <div className="w-full border-2 border-gray-100 bg-gray-50 rounded-2xl py-6 flex flex-col items-center gap-2">
-                    <CheckCircle2 size={24} className="text-green-500" />
-                    <p className="text-sm font-medium text-gray-600">Maximum {MAX_PHOTOS} pages reached</p>
-                    <p className="text-xs text-gray-400">Remove a page above to replace it</p>
-                  </div>
-                )}
-
-                {photoPreviews.length === 0 && (
-                  <p className="text-center text-xs text-gray-400">
-                    Multi-page invoice? Capture one page at a time — tap <strong className="text-gray-500">Done</strong> in the camera when finished.
-                  </p>
-                )}
-              </>
-            )}
           </div>
 
           {/* Footer with Scan button */}
@@ -409,21 +284,12 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
               className="w-full bg-gold text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-[#a88930] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isCreating ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
-              {uploadStep ?? (isCreating ? 'Starting…' : `Scan ${files.length > 0 ? `${files.length} ${files.length > 1 ? 'pages' : 'file'}` : 'Invoice'}`)}
+              {uploadStep ?? (isCreating ? 'Starting…' : `Upload${files.length > 0 ? ` ${files.length} ${files.length > 1 ? 'files' : 'file'}` : ' Invoice'}`)}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Camera overlay */}
-      {showCamera && (
-        <CameraCapture
-          pageNumber={files.length + 1}
-          maxPages={MAX_PHOTOS}
-          onCapture={handleCameraCapture}
-          onClose={() => setShowCamera(false)}
-        />
-      )}
     </>
   )
 }
