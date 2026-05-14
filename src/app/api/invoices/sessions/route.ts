@@ -14,6 +14,13 @@ export async function GET(req: NextRequest) {
         : { revenueCenterId: rcId })
     : {}
 
+  // Auto-recover sessions stuck in PROCESSING for >5 min (Vercel hard-kill leaves no ERROR)
+  const staleThreshold = new Date(Date.now() - 5 * 60 * 1000)
+  await prisma.invoiceSession.updateMany({
+    where: { ...where, status: 'PROCESSING', updatedAt: { lt: staleThreshold } },
+    data: { status: 'ERROR', errorMessage: 'Processing timed out. Tap retry to try again.' },
+  })
+
   const sessions = await prisma.invoiceSession.findMany({
     where,
     orderBy: { createdAt: 'desc' },
