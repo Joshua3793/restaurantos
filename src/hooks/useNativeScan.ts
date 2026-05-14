@@ -7,7 +7,7 @@ import { useUploadThing } from '@/lib/uploadthing-client'
 
 interface Options {
   activeRcId: string | null
-  onComplete: (sessionId: string) => void
+  onComplete: () => void
 }
 
 // Converts a base64 JPEG string (no data-URI prefix) to Uint8Array.
@@ -123,7 +123,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
       fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
 
       // 6. Notify parent
-      onComplete(sess.id)
+      onComplete()
     } catch (err) {
       setScanError(`Scan error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {

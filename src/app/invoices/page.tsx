@@ -86,9 +86,8 @@ export default function InvoicesPage() {
     }
   }, [activeRcId, activeRc, push])
 
-  const handleScanComplete = useCallback((newSessionId: string) => {
+  const handleScanComplete = useCallback(() => {
     fetchSessions()
-    setSelectedSessionId(newSessionId)
   }, [fetchSessions])
 
   const { triggerScan, isScanning, scanError, clearError } = useNativeScan({
