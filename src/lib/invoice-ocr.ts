@@ -24,7 +24,7 @@ function resolveAnthropicKey(): string {
 const NORMAL_MAX_TOKENS   = 20000
 const NORMAL_THINKING     = 10000
 const LEARNING_MAX_TOKENS = 32000
-const LEARNING_THINKING   = 24000
+const LEARNING_THINKING   = 15000
 
 // Claude API hard limit per image (bytes after base64 decode)
 const API_IMAGE_LIMIT = 5 * 1024 * 1024
