@@ -152,8 +152,9 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
 
   return (
     <>
+      {/* Backdrop — desktop only; mobile uses full-screen overlay */}
       <div
-        className="fixed inset-0 z-40 bg-black/40"
+        className="hidden sm:block fixed inset-0 z-40 bg-black/40"
         onClick={onClose}
         style={{ opacity: open ? 1 : 0, transition: 'opacity 150ms ease-out' }}
       />
@@ -193,45 +194,46 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
         </div>
       </div>
 
-      {/* Mobile bottom sheet — follows the dual-renderer pattern from CLAUDE.md */}
-      <div className="sm:hidden fixed inset-0 z-50 flex items-end" style={{ pointerEvents: open ? 'auto' : 'none' }}>
-        <div
-          className="relative bg-white w-full rounded-t-2xl shadow-2xl flex flex-col"
-          style={{ maxHeight: '92vh', transform: open ? 'translateY(0)' : 'translateY(100%)', transition: 'transform 150ms ease-out' }}
-        >
-          <div className="flex justify-center pt-3 pb-1 shrink-0"><div className="w-10 h-1 rounded-full bg-gray-200" /></div>
-          <DrawerChrome onClose={onClose} title={session ? labelFor(session.status) : 'Loading…'} size="sm" />
-          {isReview && session?.files && session.files.length > 0 && (
-            <div className="flex border-b border-gray-100 shrink-0">
-              <button onClick={() => setMobileTab('review')} className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Review</button>
-              <button onClick={() => setMobileTab('image')}  className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'image'  ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Invoice Image</button>
-            </div>
-          )}
-          <div className="flex-1 overflow-y-auto">
-            {isReview && mobileTab === 'image' && session?.files?.length
-              ? <InvoiceImageViewer files={session.files} />
-              : <DrawerBody
-                  session={session}
-                  approveResult={approveResult}
-                  allSessions={allSessions}
-                  filter={filter} onFilter={setFilter}
-                  sortMode={sortMode} onSortMode={setSortMode}
-                  expandedIds={expandedIds} onToggle={(id) => setExpandedIds(p => ({ ...p, [id]: !p[id] ? true : undefined! }))}
-                  patchItem={patchItem}
-                  revenueCenters={revenueCenters}
-                />}
+      {/* Mobile — full-screen overlay, slides up from bottom */}
+      <div
+        className="sm:hidden fixed inset-0 z-50 bg-white flex flex-col"
+        style={{
+          transform: open ? 'translateY(0)' : 'translateY(100%)',
+          transition: 'transform 200ms ease-out',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+        }}
+      >
+        <DrawerChrome onClose={onClose} title={session ? labelFor(session.status) : 'Loading…'} size="sm" />
+        {isReview && session?.files && session.files.length > 0 && (
+          <div className="flex border-b border-gray-100 shrink-0">
+            <button onClick={() => setMobileTab('review')} className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Review</button>
+            <button onClick={() => setMobileTab('image')}  className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'image'  ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Invoice Image</button>
           </div>
-          {isReview && session && (
-            <DrawerFooter
-              session={session}
-              approvedBy={approvedBy}
-              onApprovedByChange={(v) => { setApprovedBy(v); localStorage.setItem('approvedBy', v) }}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              isApproving={isApproving}
-            />
-          )}
+        )}
+        <div className="flex-1 overflow-y-auto overscroll-contain">
+          {isReview && mobileTab === 'image' && session?.files?.length
+            ? <InvoiceImageViewer files={session.files} />
+            : <DrawerBody
+                session={session}
+                approveResult={approveResult}
+                allSessions={allSessions}
+                filter={filter} onFilter={setFilter}
+                sortMode={sortMode} onSortMode={setSortMode}
+                expandedIds={expandedIds} onToggle={(id) => setExpandedIds(p => ({ ...p, [id]: !p[id] ? true : undefined! }))}
+                patchItem={patchItem}
+                revenueCenters={revenueCenters}
+              />}
         </div>
+        {isReview && session && (
+          <DrawerFooter
+            session={session}
+            approvedBy={approvedBy}
+            onApprovedByChange={(v) => { setApprovedBy(v); localStorage.setItem('approvedBy', v) }}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            isApproving={isApproving}
+          />
+        )}
       </div>
     </>
   )
