@@ -1,19 +1,29 @@
-// src/lib/capacitor.ts
-// SSR safety: isNative() guards typeof window; scanDocument() uses dynamic import
-// so the native plugin is never loaded during server-side rendering.
+// SSR safety: isNative() guards typeof window; scanDocument() uses dynamic
+// import so @capacitor/core is never loaded during server-side rendering.
+
 export function isNative(): boolean {
   if (typeof window === 'undefined') return false
-  return !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
+  return !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } })
+    .Capacitor?.isNativePlatform?.()
 }
 
 // Returns base64-encoded JPEG strings, one per scanned page.
 // Only call this when isNative() is true.
 export async function scanDocument(): Promise<string[]> {
-  const { DocumentScanner, ResponseType, ScanDocumentResponseStatus } = await import(/* webpackIgnore: true */ 'capacitor-document-scanner')
+  const { registerPlugin } = await import('@capacitor/core')
+
+  const DocumentScanner = registerPlugin<{
+    scanDocument(opts: {
+      responseType: string
+      maxNumDocuments: number
+    }): Promise<{ scannedImages?: string[]; status?: string }>
+  }>('DocumentScanner')
+
   const result = await DocumentScanner.scanDocument({
-    responseType: ResponseType.Base64,
+    responseType: 'base64',
     maxNumDocuments: 10,
   })
-  if (result.status === ScanDocumentResponseStatus.Cancel) return []
+
+  if (result.status === 'cancel') return []
   return result.scannedImages ?? []
 }
