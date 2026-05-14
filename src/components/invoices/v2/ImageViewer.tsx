@@ -216,7 +216,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
       {/* Image / PDF / fallback */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden flex items-center justify-center p-4 select-none relative"
+        className="flex-1 overflow-hidden select-none relative"
         style={{ cursor: isImage && zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
@@ -225,22 +225,34 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
         onMouseLeave={stopDrag}
       >
         {isImage && file?.fileUrl ? (
+          // The absolute div has explicit pixel dimensions (inset-0) so percentage
+          // max-width/height on its children resolve correctly — breaking the
+          // circular dependency that caused images to render at natural pixel size.
           <div
-            className="relative"
             style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px',
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
               transformOrigin: 'center center',
               transition: isDragging ? 'none' : 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
             }}
           >
-            {/* Invoice image */}
+            <div
+              className="relative"
+              style={{ lineHeight: 0, maxWidth: '100%', maxHeight: '100%', minWidth: 0, minHeight: 0 }}
+            >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={file.fileUrl}
               alt={file.fileName}
               draggable={false}
               onLoad={handleImageLoad}
-              className="max-w-full rounded-lg shadow-sm border border-gray-200 object-contain block"
+              className="rounded-lg shadow-sm border border-gray-200"
+              style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto' }}
             />
 
             {/* SVG highlight overlay — sits exactly over the image */}
@@ -288,16 +300,18 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
                 />
               </svg>
             )}
+            </div>
           </div>
         ) : isPdf && file?.fileUrl ? (
-          <iframe
-            src={file.fileUrl}
-            title={file.fileName}
-            className="w-full rounded-lg border border-gray-200 bg-white"
-            style={{ height: '100%', minHeight: '600px' }}
-          />
+          <div className="absolute inset-0 p-2">
+            <iframe
+              src={file.fileUrl}
+              title={file.fileName}
+              className="w-full h-full rounded-lg border border-gray-200 bg-white"
+            />
+          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-3 text-gray-400 h-full">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-400">
             <FileText size={40} className="text-gray-300" />
             <p className="text-sm">{file?.fileName ?? 'No file'}</p>
             {file?.fileUrl && (
