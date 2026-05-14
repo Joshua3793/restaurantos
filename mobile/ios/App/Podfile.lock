@@ -1,0 +1,28 @@
+PODS:
+  - Capacitor (5.7.8):
+    - CapacitorCordova
+  - CapacitorCordova (5.7.8)
+  - CapacitorDocumentScanner (2.0.0):
+    - Capacitor
+
+DEPENDENCIES:
+  - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - CapacitorDocumentScanner (from `../../node_modules/capacitor-document-scanner`)
+
+EXTERNAL SOURCES:
+  Capacitor:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorCordova:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorDocumentScanner:
+    :path: "../../node_modules/capacitor-document-scanner"
+
+SPEC CHECKSUMS:
+  Capacitor: 9686e5711b48a1aa84671ede795d0175848abcba
+  CapacitorCordova: 31ab98dca2ddcee051027a1afe7e8c85c82f7297
+  CapacitorDocumentScanner: c0cb73d9081ca6abecbe19920d0fc49485c3d202
+
+PODFILE CHECKSUM: e93c9cca737f2d2bfd7f7300051083ae46d3e990
+
+COCOAPODS: 1.16.2
