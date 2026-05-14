@@ -6,9 +6,9 @@ const config: CapacitorConfig = {
   // webDir is relative to this file; used as fallback if server.url is unreachable.
   webDir: '../out',
   server: {
-    // Replace with your actual production Vercel URL before running cap sync.
     url: 'https://controlaos.vercel.app',
     cleartext: false,
+    allowNavigation: ['controlaos.vercel.app'],
   },
 }
 
