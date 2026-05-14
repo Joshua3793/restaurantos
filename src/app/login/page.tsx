@@ -25,7 +25,7 @@ function LoginPageInner() {
       setError(error.message)
       setLoading(false)
     } else {
-      window.location.href = '/'
+      router.push('/')
     }
   }
 
