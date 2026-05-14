@@ -47,8 +47,17 @@ body {
   background-clip: text;
 }
 
-/* ── Safe area utility ─────────────────────────────────────────────────────── */
+/* ── Safe area utilities ───────────────────────────────────────────────────── */
 .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.px-safe { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+
+/* Mobile main content: offset for RC bar (40px) + status bar safe area */
+@media (max-width: 767px) {
+  .mobile-content-top {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+  }
+}
 
 /* ── Text balance ──────────────────────────────────────────────────────────── */
 @layer utilities {

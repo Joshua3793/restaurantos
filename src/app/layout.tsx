@@ -45,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Navigation />
           <MobileRcBar />
           <GlobalSearch />
-          <main className="md:ml-[240px] pb-20 md:pb-0 pt-10 md:pt-0 min-h-screen bg-gray-50">
+          <main className="md:ml-[240px] pb-20 md:pb-0 mobile-content-top md:pt-0 min-h-screen bg-gray-50">
             <div className="p-4 md:p-6 max-w-7xl mx-auto">
               {children}
             </div>

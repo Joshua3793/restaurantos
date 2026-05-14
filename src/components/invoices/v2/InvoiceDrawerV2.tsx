@@ -1221,7 +1221,7 @@ function DrawerFooter({
   const hasBlockerHint = blockers.needsLink > 0 || blockers.mismatch > 0 || blockers.lowConf > 0 || blockers.unknownMode > 0
 
   return (
-    <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+    <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 pb-safe flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
       <div className="flex-1 text-[12px] text-gray-600 leading-tight">
         <div className="font-medium text-gray-800">{totalItems} items</div>
         {hasBlockerHint && (

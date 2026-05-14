@@ -17,9 +17,12 @@ export function MobileRcBar() {
   return (
     <>
       <div
-        className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-100 flex items-center justify-between px-4 h-10"
+        className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-100 flex flex-col"
         style={{ borderLeftColor: hex, borderLeftWidth: 3 }}
       >
+        {/* Status bar spacer */}
+        <div className="pt-safe" />
+        <div className="flex items-center justify-between px-4 h-10">
         <button
           onClick={() => setOpen(true)}
           className="flex items-center gap-2 text-sm font-medium text-gray-700"
@@ -31,7 +34,8 @@ export function MobileRcBar() {
           {isAll ? 'All Revenue Centers' : activeRc?.name}
           <ChevronDown size={14} className="text-gray-400" />
         </button>
-        <AlertsBell dropdownAlign="right" />
+          <AlertsBell dropdownAlign="right" />
+        </div>
       </div>
 
       {open && (
