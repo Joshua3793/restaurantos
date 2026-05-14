@@ -97,15 +97,29 @@ export default function InvoicesPage() {
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
 
-  // Fast-poll (3s) while any session is in a transient state.
-  // UPLOADING is included so newly created sessions appear immediately.
+  // Sequential poll via refs so the timer never resets mid-wait.
+  // Using refs instead of state deps prevents the interval from being
+  // cancelled and restarted on every sessions update (which caused the
+  // timer to keep resetting before it could fire on Capacitor WebView).
+  const fetchRef    = useRef(fetchSessions)
+  const sessionsRef = useRef(sessions)
+  fetchRef.current    = fetchSessions
+  sessionsRef.current = sessions
+
   useEffect(() => {
-    const hasTransient = sessions.some(s =>
-      s.status === 'UPLOADING' || s.status === 'PROCESSING' || s.status === 'APPROVING'
-    )
-    const interval = setInterval(fetchSessions, hasTransient ? 3000 : 15000)
-    return () => clearInterval(interval)
-  }, [sessions, fetchSessions])
+    let timer: ReturnType<typeof setTimeout>
+    const schedule = () => {
+      const hasTransient = sessionsRef.current.some(s =>
+        s.status === 'UPLOADING' || s.status === 'PROCESSING' || s.status === 'APPROVING'
+      )
+      timer = setTimeout(async () => {
+        await fetchRef.current()
+        schedule()
+      }, hasTransient ? 3000 : 15000)
+    }
+    schedule()
+    return () => clearTimeout(timer)
+  }, []) // runs once; uses refs for always-fresh values
 
   // Refresh whenever the tab regains focus (covers status changes made elsewhere)
   useEffect(() => {

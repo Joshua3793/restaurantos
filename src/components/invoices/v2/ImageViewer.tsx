@@ -1,13 +1,8 @@
 'use client'
-// Invoice image viewer with:
-//  • Auto-rotate to landscape on load (portrait photos of invoices are rotated 90°)
-//  • Zoom / pan / rotate toolbar
-//  • SVG bbox highlight overlay — animates to the active line item on expand
+// Invoice image viewer with zoom / pan / rotate toolbar and SVG bbox highlight.
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import {
-  ZoomIn, ZoomOut, RotateCcw, RotateCw, Maximize2, FileText, Minus, Plus,
-} from 'lucide-react'
+import { RotateCcw, RotateCw, Maximize2, FileText, Minus, Plus } from 'lucide-react'
 
 export interface BBox {
   page: number   // 0-indexed file index
@@ -25,15 +20,18 @@ interface Props {
 const ZOOM_STEP = 0.25
 const ZOOM_MIN  = 0.25
 const ZOOM_MAX  = 6
+const PADDING   = 16   // px of inset padding around the image
 
 export function ImageViewerV2({ files, activeBbox }: Props) {
-  const [activeIdx,    setActiveIdx]    = useState(0)
-  const [zoom,         setZoom]         = useState(1)
-  const [rotation,     setRotation]     = useState(0)     // 0 / 90 / 180 / 270
-  const [pan,          setPan]          = useState({ x: 0, y: 0 })
-  const [isDragging,   setIsDragging]   = useState(false)
-  const [naturalSize,  setNaturalSize]  = useState<{ w: number; h: number } | null>(null)
-  const [bboxKey,      setBboxKey]      = useState(0)     // bumped to retrigger animation
+  const [activeIdx,   setActiveIdx]   = useState(0)
+  const [zoom,        setZoom]        = useState(1)
+  const [rotation,    setRotation]    = useState(0)
+  const [pan,         setPan]         = useState({ x: 0, y: 0 })
+  const [isDragging,  setIsDragging]  = useState(false)
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null)
+  const [bboxKey,     setBboxKey]     = useState(0)
+  // Pixel rect of the rendered image inside containerRef (for bbox SVG positioning)
+  const [imgRect,     setImgRect]     = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStart    = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
@@ -42,75 +40,94 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   const isPdf   = file?.fileType === 'application/pdf' || file?.fileName?.endsWith('.pdf')
   const isImage = file?.fileType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file?.fileName ?? '')
 
+  // ── Compute the pixel rect of the contained image ──────────────────────────
+  // object-fit: contain centres the image and letterboxes — we need the exact
+  // rendered rect so the bbox SVG overlay aligns with the visible pixels.
+  const computeImgRect = useCallback((ns: { w: number; h: number }) => {
+    const c = containerRef.current
+    if (!c) return
+    const availW = c.clientWidth  - PADDING * 2
+    const availH = c.clientHeight - PADDING * 2
+    if (availW <= 0 || availH <= 0) return
+    const scale = Math.min(availW / ns.w, availH / ns.h)
+    const rw = ns.w * scale
+    const rh = ns.h * scale
+    setImgRect({
+      x: PADDING + (availW - rw) / 2,
+      y: PADDING + (availH - rh) / 2,
+      w: rw,
+      h: rh,
+    })
+  }, [])
+
+  // Recompute whenever container resizes (also fires when hidden → visible on tab switch)
+  useEffect(() => {
+    const c = containerRef.current
+    if (!c || !naturalSize) return
+    const obs = new ResizeObserver(() => computeImgRect(naturalSize))
+    obs.observe(c)
+    computeImgRect(naturalSize)
+    return () => obs.disconnect()
+  }, [naturalSize, computeImgRect])
+
   // ── Reset when switching files ──────────────────────────────────────────────
   useEffect(() => {
-    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }); setNaturalSize(null)
+    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }); setNaturalSize(null); setImgRect(null)
   }, [activeIdx])
 
   // ── Switch page when activeBbox points to a different file ──────────────────
   useEffect(() => {
-    if (activeBbox && activeBbox.page !== activeIdx) {
-      setActiveIdx(activeBbox.page)
-    }
+    if (activeBbox && activeBbox.page !== activeIdx) setActiveIdx(activeBbox.page)
   }, [activeBbox]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Record natural size on load (no auto-rotation — invoices may be portrait) ─
+  // ── Record natural size on load ─────────────────────────────────────────────
   const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget
-    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
-  }, [])
+    const ns = { w: img.naturalWidth, h: img.naturalHeight }
+    setNaturalSize(ns)
+    computeImgRect(ns)
+  }, [computeImgRect])
 
   // ── Auto-pan+zoom to activeBbox ─────────────────────────────────────────────
-  const AUTO_ZOOM_MAX = 2.5   // cap auto-zoom so a thin line never fills the whole panel
+  const AUTO_ZOOM_MAX = 2.5
 
   useEffect(() => {
     if (!activeBbox || activeBbox.page !== activeIdx || !naturalSize || !containerRef.current) return
 
-    setBboxKey(k => k + 1)   // retrigger CSS animation
+    setBboxKey(k => k + 1)
 
     const rect = containerRef.current.getBoundingClientRect()
-    const cw = rect.width  - 32
-    const ch = rect.height - 32
+    const cw = rect.width  - PADDING * 2
+    const ch = rect.height - PADDING * 2
     if (cw <= 0 || ch <= 0) return
 
-    // Rendered image size at zoom=1 in NATURAL orientation (before CSS rotation)
     const scale  = Math.min(cw / naturalSize.w, ch / naturalSize.h)
     const rendW  = naturalSize.w * scale
     const rendH  = naturalSize.h * scale
 
-    // Bbox center as fraction (0–1) of natural image
     const bboxCx = activeBbox.x + activeBbox.w / 2
     const bboxCy = activeBbox.y + activeBbox.h / 2
 
-    // Bbox visual size after rotation (axis-aligned bounding box of the rotated rect)
     const rad    = (rotation * Math.PI) / 180
     const cosA   = Math.abs(Math.cos(rad))
     const sinA   = Math.abs(Math.sin(rad))
     const bboxVisW = (activeBbox.w * cosA + activeBbox.h * sinA) * rendW
     const bboxVisH = (activeBbox.h * cosA + activeBbox.w * sinA) * rendH
 
-    // Guard: skip auto-zoom for degenerate bboxes (too small to reliably center on)
     if (bboxVisW < 2 || bboxVisH < 2) return
 
-    // Zoom so the bbox fills ~40% of the container's shorter dimension.
-    // Cap at AUTO_ZOOM_MAX so thin single-line bboxes don't produce extreme zoom.
     const targetZoom = Math.min(
       Math.max((Math.min(cw, ch) * 0.4) / Math.max(bboxVisW, bboxVisH), 1.2),
       AUTO_ZOOM_MAX,
     )
 
-    // Offset of bbox center from image center in natural image space (px)
     const dx = (bboxCx - 0.5) * rendW
     const dy = (bboxCy - 0.5) * rendH
-
-    // Apply CSS rotation to the offset (CW positive in y-down space)
     const cos = Math.cos(rad)
     const sin = Math.sin(rad)
     const rdx = cos * dx - sin * dy
     const rdy = sin * dx + cos * dy
 
-    // Pan so the rotated bbox center aligns with the container center,
-    // clamped so the image can't be pushed completely out of view.
     const panX = -rdx * targetZoom
     const panY = -rdy * targetZoom
     const maxPanX = (rendW  * targetZoom - cw)  / 2
@@ -123,8 +140,8 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   }, [activeBbox, activeIdx, naturalSize, rotation]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toolbar actions ─────────────────────────────────────────────────────────
-  const zoomIn     = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
-  const zoomOut    = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
+  const zoomIn      = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
+  const zoomOut     = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
   const rotateRight = () => setRotation(r => (r + 90) % 360)
   const rotateLeft  = () => setRotation(r => (r + 270) % 360)
   const reset       = () => { setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }) }
@@ -151,7 +168,6 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   }
   const stopDrag = () => { setIsDragging(false); dragStart.current = null }
 
-  // ── Toolbar button component ────────────────────────────────────────────────
   const Btn = ({ onClick, children, title, disabled }: {
     onClick: () => void; children: React.ReactNode; title: string; disabled?: boolean
   }) => (
@@ -165,11 +181,13 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
     </button>
   )
 
-  // ── Active bbox — only show when it matches the current page ────────────────
   const showBbox = activeBbox && activeBbox.page === activeIdx && isImage
 
+  const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`
+  const transition = isDragging ? 'none' : 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)'
+
   return (
-    <div className="flex flex-col bg-gray-50 shrink-0 w-full sm:w-[460px]">
+    <div className="flex flex-col bg-gray-50 shrink-0 w-full md:w-[460px]">
 
       {/* File / page tabs */}
       {files.length > 1 && (
@@ -188,18 +206,14 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
         </div>
       )}
 
-      {/* Toolbar — images only */}
+      {/* Toolbar */}
       {isImage && file?.fileUrl && (
         <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-white shrink-0">
-          <Btn onClick={zoomOut} title="Zoom out (Ctrl/⌘ + scroll)" disabled={zoom <= ZOOM_MIN}>
-            <Minus size={14} />
-          </Btn>
+          <Btn onClick={zoomOut} title="Zoom out" disabled={zoom <= ZOOM_MIN}><Minus size={14} /></Btn>
           <span className="text-xs font-mono text-gray-400 w-12 text-center select-none">
             {Math.round(zoom * 100)}%
           </span>
-          <Btn onClick={zoomIn} title="Zoom in" disabled={zoom >= ZOOM_MAX}>
-            <Plus size={14} />
-          </Btn>
+          <Btn onClick={zoomIn} title="Zoom in" disabled={zoom >= ZOOM_MAX}><Plus size={14} /></Btn>
           <div className="w-px h-4 bg-gray-200 mx-1" />
           <Btn onClick={rotateLeft}  title="Rotate left"><RotateCcw size={14} /></Btn>
           <Btn onClick={rotateRight} title="Rotate right"><RotateCw size={14} /></Btn>
@@ -225,26 +239,8 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
         onMouseLeave={stopDrag}
       >
         {isImage && file?.fileUrl ? (
-          // The absolute div has explicit pixel dimensions (inset-0) so percentage
-          // max-width/height on its children resolve correctly — breaking the
-          // circular dependency that caused images to render at natural pixel size.
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '16px',
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
-              transformOrigin: 'center center',
-              transition: isDragging ? 'none' : 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-          >
-            <div
-              className="relative"
-              style={{ lineHeight: 0, maxWidth: '100%', maxHeight: '100%', minWidth: 0, minHeight: 0 }}
-            >
+          <>
+            {/* Image — object-fit:contain guarantees it fits the container at any size */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={file.fileUrl}
@@ -252,56 +248,58 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
               draggable={false}
               onLoad={handleImageLoad}
               className="rounded-lg shadow-sm border border-gray-200"
-              style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto' }}
+              style={{
+                position: 'absolute',
+                left: PADDING, top: PADDING, right: PADDING, bottom: PADDING,
+                width: `calc(100% - ${PADDING * 2}px)`,
+                height: `calc(100% - ${PADDING * 2}px)`,
+                objectFit: 'contain',
+                objectPosition: 'center',
+                display: 'block',
+                transform,
+                transformOrigin: 'center center',
+                transition,
+                userSelect: 'none',
+              }}
             />
 
-            {/* SVG highlight overlay — sits exactly over the image */}
-            {showBbox && (
+            {/* SVG bbox overlay — positioned to match the rendered image pixels */}
+            {showBbox && imgRect && (
               <svg
-                key={bboxKey}                   // remount = retrigger animation
+                key={bboxKey}
                 viewBox="0 0 1 1"
                 preserveAspectRatio="none"
-                className="absolute inset-0 w-full h-full rounded-lg pointer-events-none overflow-visible"
+                style={{
+                  position: 'absolute',
+                  left: imgRect.x,
+                  top: imgRect.y,
+                  width: imgRect.w,
+                  height: imgRect.h,
+                  pointerEvents: 'none',
+                  overflow: 'visible',
+                  transform,
+                  transformOrigin: 'center center',
+                  transition,
+                }}
+                className="rounded-lg"
               >
-                {/* Amber fill */}
                 <rect
                   className="bbox-highlight"
-                  x={activeBbox!.x}
-                  y={activeBbox!.y}
-                  width={activeBbox!.w}
-                  height={activeBbox!.h}
-                  fill="rgba(251, 191, 36, 0.22)"
-                  rx="0.004"
+                  x={activeBbox!.x} y={activeBbox!.y}
+                  width={activeBbox!.w} height={activeBbox!.h}
+                  fill="rgba(251, 191, 36, 0.22)" rx="0.004"
                 />
-                {/* Amber stroke ring */}
                 <rect
                   className="bbox-ring"
-                  x={activeBbox!.x}
-                  y={activeBbox!.y}
-                  width={activeBbox!.w}
-                  height={activeBbox!.h}
-                  fill="none"
-                  stroke="rgb(245, 158, 11)"
-                  strokeWidth="0.003"
-                  rx="0.004"
+                  x={activeBbox!.x} y={activeBbox!.y}
+                  width={activeBbox!.w} height={activeBbox!.h}
+                  fill="none" stroke="rgb(245, 158, 11)" strokeWidth="0.003" rx="0.004"
                 />
-                {/* Corner accents — top-left and bottom-right only */}
-                <CornerAccent
-                  cx={activeBbox!.x}
-                  cy={activeBbox!.y}
-                  size={0.018}
-                  position="tl"
-                />
-                <CornerAccent
-                  cx={activeBbox!.x + activeBbox!.w}
-                  cy={activeBbox!.y + activeBbox!.h}
-                  size={0.018}
-                  position="br"
-                />
+                <CornerAccent cx={activeBbox!.x} cy={activeBbox!.y} size={0.018} position="tl" />
+                <CornerAccent cx={activeBbox!.x + activeBbox!.w} cy={activeBbox!.y + activeBbox!.h} size={0.018} position="br" />
               </svg>
             )}
-            </div>
-          </div>
+          </>
         ) : isPdf && file?.fileUrl ? (
           <div className="absolute inset-0 p-2">
             <iframe
@@ -332,11 +330,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
 }
 
 // ── Corner accent ──────────────────────────────────────────────────────────────
-// Small L-shaped bracket at the highlight corners (like camera focus brackets).
-
-function CornerAccent({
-  cx, cy, size, position,
-}: {
+function CornerAccent({ cx, cy, size, position }: {
   cx: number; cy: number; size: number; position: 'tl' | 'br'
 }) {
   const s = size
