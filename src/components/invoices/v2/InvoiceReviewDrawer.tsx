@@ -127,7 +127,7 @@ function DrawerFooter({
     : ''
 
   return (
-    <div className="border-t border-stone-200 px-[18px] py-[13px] flex items-center gap-3 bg-white">
+    <div className="border-t border-stone-200 px-[18px] py-[13px] pb-safe flex items-center gap-3 bg-white">
       {/* Left: outstanding task count + tappable links */}
       <div className="flex-1 min-w-0">
         <div className="text-[12px] text-stone-500 truncate">
@@ -263,6 +263,7 @@ export function InvoiceReviewDrawer({
   const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
   const [editingInventoryItemId,  setEditingInventoryItemId]  = useState<string | null>(null)
   const [activeBboxItemId,   setActiveBboxItemId]    = useState<string | null>(null)
+  const [mobileTab,          setMobileTab]          = useState<'review' | 'image'>('review')
 
   // Ref for the scrollable list container
   const listRef = useRef<HTMLDivElement>(null)
@@ -282,6 +283,7 @@ export function InvoiceReviewDrawer({
     setPickingLinkForId(null)
     setModeWritebackItems(new Set())
     setActiveBboxItemId(null)
+    setMobileTab('review')
   }, [session])
 
   // ── Computed data ────────────────────────────────────────────────────────────
@@ -563,22 +565,53 @@ export function InvoiceReviewDrawer({
               onClose={onClose}
             />
 
-            {/* Body: image viewer (left) + review panel (right) */}
+            {/* Mobile tab bar — only shown on small screens when files exist */}
+            {session.files.length > 0 && (
+              <div className="md:hidden flex border-b border-stone-200 shrink-0">
+                <button
+                  onClick={() => setMobileTab('review')}
+                  className={`flex-1 py-2.5 text-[13px] font-medium transition-colors ${
+                    mobileTab === 'review'
+                      ? 'text-stone-900 border-b-2 border-stone-900'
+                      : 'text-stone-400'
+                  }`}
+                >
+                  Review items
+                </button>
+                <button
+                  onClick={() => setMobileTab('image')}
+                  className={`flex-1 py-2.5 text-[13px] font-medium transition-colors ${
+                    mobileTab === 'image'
+                      ? 'text-stone-900 border-b-2 border-stone-900'
+                      : 'text-stone-400'
+                  }`}
+                >
+                  Invoice image
+                </button>
+              </div>
+            )}
+
+            {/* Body: image viewer (left) + review panel (right) on desktop;
+                    tabs control which panel is visible on mobile */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
 
               {/* ── Image viewer ───────────────────────────────────────────── */}
               {session.files.length > 0 && (
                 <>
-                  <ImageViewerV2
-                    files={session.files}
-                    activeBbox={activeBbox}
-                  />
-                  <div className="w-px bg-stone-200 shrink-0" />
+                  <div className={mobileTab === 'review' ? 'hidden md:contents' : 'contents'}>
+                    <ImageViewerV2
+                      files={session.files}
+                      activeBbox={activeBbox}
+                    />
+                  </div>
+                  <div className="hidden md:block w-px bg-stone-200 shrink-0" />
                 </>
               )}
 
               {/* ── Review panel ───────────────────────────────────────────── */}
-              <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+              <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${
+                session.files.length > 0 && mobileTab === 'image' ? 'hidden md:flex' : 'flex'
+              }`}>
                 {/* Filter chip row */}
                 <ChipRow
                   totalCount={effectiveLines.filter(i => i.action !== 'SKIP').length}
