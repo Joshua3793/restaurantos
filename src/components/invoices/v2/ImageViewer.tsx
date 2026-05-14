@@ -169,7 +169,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   const showBbox = activeBbox && activeBbox.page === activeIdx && isImage
 
   return (
-    <div className="flex flex-col bg-gray-50 shrink-0" style={{ width: '460px' }}>
+    <div className="flex flex-col bg-gray-50 shrink-0 w-full sm:w-[460px]">
 
       {/* File / page tabs */}
       {files.length > 1 && (

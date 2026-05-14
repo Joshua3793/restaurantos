@@ -2018,7 +2018,7 @@ export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileN
   )
 
   return (
-    <div className="flex flex-col bg-gray-50 shrink-0" style={{ width: '460px' }}>
+    <div className="flex flex-col bg-gray-50 shrink-0 w-full sm:w-[460px]">
       {/* File tabs (only if multiple files) */}
       {files.length > 1 && (
         <div className="flex gap-1 px-3 py-2 border-b border-gray-200 bg-white overflow-x-auto shrink-0">

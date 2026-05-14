@@ -210,7 +210,7 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
             <button onClick={() => setMobileTab('image')}  className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'image'  ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Invoice Image</button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
           {isReview && mobileTab === 'image' && session?.files?.length
             ? <InvoiceImageViewer files={session.files} />
             : <DrawerBody
