@@ -1028,7 +1028,7 @@ function AddNewItemModal({
   const [qtyPerPurchase,  setQtyPerPurchase]  = useState(item.invoicePackQty ?? '1')
   const [packSize,        setPackSize]        = useState(item.invoicePackSize ?? '1')
   const [packUOM,         setPackUOM]         = useState(item.invoicePackUOM ?? 'each')
-  const [priceType,       setPriceType]       = useState<'CASE' | 'UOM'>(item.pricingMode === 'UOM' ? 'UOM' : 'CASE')
+  const [priceType,       setPriceType]       = useState<'CASE' | 'UOM'>(item.pricingMode === 'per_weight' ? 'UOM' : 'CASE')
   const [purchasePrice,   setPurchasePrice]   = useState(item.rate ?? item.rawUnitPrice ?? item.newPrice ?? '')
 
   useEffect(() => {
