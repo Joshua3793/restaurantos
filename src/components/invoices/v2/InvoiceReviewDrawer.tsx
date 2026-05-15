@@ -1028,8 +1028,8 @@ function AddNewItemModal({
   const [qtyPerPurchase,  setQtyPerPurchase]  = useState(item.invoicePackQty ?? '1')
   const [packSize,        setPackSize]        = useState(item.invoicePackSize ?? '1')
   const [packUOM,         setPackUOM]         = useState(item.invoicePackUOM ?? 'each')
-  const [priceType,       setPriceType]       = useState<'CASE' | 'UOM'>('CASE')
-  const [purchasePrice,   setPurchasePrice]   = useState(item.rawUnitPrice ?? item.newPrice ?? '')
+  const [priceType,       setPriceType]       = useState<'CASE' | 'UOM'>(item.pricingMode === 'UOM' ? 'UOM' : 'CASE')
+  const [purchasePrice,   setPurchasePrice]   = useState(item.rate ?? item.rawUnitPrice ?? item.newPrice ?? '')
 
   useEffect(() => {
     fetch('/api/categories').then(r => r.json()).then((data: { name: string }[]) => {
@@ -1047,18 +1047,6 @@ function AddNewItemModal({
 
   const handleSave = async () => {
     setSaving(true)
-    const newItemData = JSON.stringify({
-      itemName:           itemName.trim() || item.rawDescription,
-      category,
-      purchaseUnit,
-      qtyPerPurchaseUnit: Number(qtyPerPurchase) || 1,
-      packSize:           Number(packSize) || 1,
-      packUOM,
-      priceType,
-      purchasePrice:      Number(purchasePrice) || 0,
-      pricePerBaseUnit:   ppb ?? 0,
-      baseUnit:           packUOM,
-    })
     await fetch(`/api/invoices/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1067,7 +1055,18 @@ function AddNewItemModal({
         action:        'CREATE_NEW',
         isNewItem:     true,
         matchedItemId: null,
-        newItemData,
+        newItemData: {
+          itemName:           itemName.trim() || item.rawDescription,
+          category,
+          purchaseUnit,
+          qtyPerPurchaseUnit: Number(qtyPerPurchase) || 1,
+          packSize:           Number(packSize) || 1,
+          packUOM,
+          priceType,
+          purchasePrice:      Number(purchasePrice) || 0,
+          pricePerBaseUnit:   ppb ?? 0,
+          baseUnit:           packUOM,
+        },
       }),
     })
     setSaving(false)
