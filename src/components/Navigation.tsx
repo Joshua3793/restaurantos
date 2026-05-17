@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState, Suspense } from 'react'
 import {
   LayoutDashboard, Package, FileText, Trash2, BarChart3,
-  ClipboardList, BookOpen, UtensilsCrossed, LayoutGrid,
+  BookOpen, UtensilsCrossed, LayoutGrid,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
@@ -30,8 +30,7 @@ const navItems: NavItem[] = [
   { href: '/invoices',  label: 'Invoices',     icon: FileText },
   { href: '/suppliers', label: 'Suppliers',    icon: Truck },
   // Group 2 — Kitchen
-  { href: '/count',     label: 'Count Stock',  icon: ClipboardList,  dividerBefore: true },
-  { href: '/prep',      label: 'Prep List',    icon: ChefHat },
+  { href: '/prep',      label: 'Prep List',    icon: ChefHat,        dividerBefore: true },
   { href: '/recipes',   label: 'Recipe Book',  icon: BookOpen },
   { href: '/menu',      label: 'Menu',         icon: UtensilsCrossed },
   // Group 3 — Analytics
@@ -49,8 +48,8 @@ const mobileLeft: NavItem[] = [
   { href: '/inventory', label: 'Inventory', icon: Package },
 ]
 const mobileRight: NavItem[] = [
-  { href: '/count', label: 'Count', icon: ClipboardList },
-  { href: '/prep',  label: 'Prep',  icon: ChefHat },
+  { href: '/prep',     label: 'Prep',     icon: ChefHat },
+  { href: '/invoices', label: 'Invoices', icon: FileText },
 ]
 
 // ── Mobile Pages drawer — mirrors the desktop sidebar groups ──────────────────
@@ -67,7 +66,6 @@ const mobilePagesGroups = [
   {
     label: 'Kitchen',
     items: [
-      { href: '/count',    label: 'Count Stock',  icon: ClipboardList },
       { href: '/prep',     label: 'Prep List',    icon: ChefHat },
       { href: '/recipes',  label: 'Recipe Book',  icon: BookOpen },
       { href: '/menu',     label: 'Menu',         icon: UtensilsCrossed },
