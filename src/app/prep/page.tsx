@@ -43,8 +43,12 @@ export default function PrepPage() {
   const [filterPriority, setFilterPriority] = useState('ALL')
   const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
+  const [filterStation,  setFilterStation]  = useState<'ALL' | 'UNASSIGNED' | string>('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
   const [viewMode,       setViewMode]       = useState<'today' | 'plan' | 'history'>('today')
+
+  // Settings — station list for filter dropdown and plan grouping
+  const [stations, setStations] = useState<string[]>([])
 
   // History tab state
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
@@ -86,11 +90,22 @@ export default function PrepPage() {
     }
   }, [activeOnly])
 
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/prep/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setStations((data.stations ?? []).filter(Boolean))
+      }
+    } catch { /* silent degradation — stations stays [] */ }
+  }, [])
+
   useEffect(() => {
     // Initialise offline state and any pending mutations left from a previous session
     setIsOffline(!navigator.onLine)
     setPendingCount(loadQueue().length)
     load()
+    loadSettings()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -991,7 +1006,7 @@ export default function PrepPage() {
       {showSettings && (
         <PrepSettingsModal
           onClose={() => setShowSettings(false)}
-          onSaved={() => { load(); setShowSettings(false) }}
+          onSaved={() => { load(); loadSettings(); setShowSettings(false) }}
         />
       )}
     </div>
