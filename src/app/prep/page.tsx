@@ -29,7 +29,7 @@ export default function PrepPage() {
   const [offlineSyncing, setOfflineSyncing] = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
-  const [planSort,   setPlanSort]   = useState<'az' | 'category'>('category')
+  const [planSort,   setPlanSort]   = useState<'az' | 'category' | 'station'>('category')
   const [planView,   setPlanView]   = useState<'all' | 'need-attention' | 'pending'>('all')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
 
@@ -223,12 +223,30 @@ export default function PrepPage() {
   const planSorted = useMemo(() => [...filtered].sort((a, b) => a.name.localeCompare(b.name)), [filtered])
 
   const planGroups = useMemo(() => {
-    if (viewMode !== 'plan' || planSort !== 'category') return null
-    const map = new Map<string, typeof filtered>()
-    for (const cat of [...new Set(planSorted.map(i => i.category))].sort()) map.set(cat, [])
-    for (const item of planSorted) map.get(item.category)!.push(item)
-    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
-  }, [filtered, planSorted, viewMode, planSort])
+    if (viewMode !== 'plan') return null
+
+    if (planSort === 'category') {
+      const map = new Map<string, typeof filtered>()
+      for (const cat of [...new Set(planSorted.map(i => i.category))].sort()) map.set(cat, [])
+      for (const item of planSorted) map.get(item.category)!.push(item)
+      return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
+    }
+
+    if (planSort === 'station') {
+      const groups: [string, typeof filtered][] = []
+      // Named station buckets in settings order
+      for (const station of stations) {
+        const rows = planSorted.filter(i => i.station === station)
+        if (rows.length > 0) groups.push([station, rows])
+      }
+      // Unassigned bucket at the bottom
+      const unassigned = planSorted.filter(i => !i.station || i.station.trim() === '')
+      if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
+      return groups.length > 0 ? groups : null
+    }
+
+    return null
+  }, [filtered, planSorted, viewMode, planSort, stations])
 
   // Keep detail panel in sync with live data — avoids stale snapshot after auto-refresh
   const selectedLive = useMemo(
@@ -781,10 +799,10 @@ export default function PrepPage() {
               </button>
             </div>
 
-            {/* Sort toggle: A–Z / By Category — only in All Items view */}
+            {/* Sort toggle: A–Z / By Category / By Station — only in All Items view */}
             {planView === 'all' && (
               <div className="flex items-center gap-1 bg-indigo-100 rounded-lg p-0.5">
-                {([['az', 'A – Z'], ['category', 'By Category']] as const).map(([mode, label]) => (
+                {([['az', 'A – Z'], ['category', 'By Category'], ['station', 'By Station']] as const).map(([mode, label]) => (
                   <button
                     key={mode}
                     onClick={() => setPlanSort(mode)}
