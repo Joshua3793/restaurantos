@@ -239,9 +239,14 @@ export default function PrepPage() {
         const rows = planSorted.filter(i => i.station === station)
         if (rows.length > 0) groups.push([station, rows])
       }
-      // Unassigned bucket at the bottom
+      // Unassigned bucket (null / empty string)
       const unassigned = planSorted.filter(i => !i.station || i.station.trim() === '')
       if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
+      // Other bucket: items with a station value not in the current settings list
+      const other = planSorted.filter(
+        i => i.station && i.station.trim() !== '' && !stations.includes(i.station)
+      )
+      if (other.length > 0) groups.push(['Other', other])
       return groups.length > 0 ? groups : null
     }
 
