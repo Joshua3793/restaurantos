@@ -182,9 +182,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
             {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}
             <span className="text-gray-300">/{item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}</span>
           </span>
-          {item.station && (
-            <span className="shrink-0 text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full">
-              {item.station}
+          {item.station?.trim() && (
+            <span className="shrink-0 text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full max-w-[8rem] truncate">
+              {item.station.trim()}
             </span>
           )}
 
@@ -282,9 +282,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           <div className={`text-sm font-medium truncate ${isDone ? 'text-green-900' : isPartial ? 'text-yellow-900' : 'text-gray-800'}`}>
             {item.name}
           </div>
-          {item.station && (
+          {item.station?.trim() && (
             <span className="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full mt-0.5 inline-block">
-              {item.station}
+              {item.station.trim()}
             </span>
           )}
           {isCompleted ? (
