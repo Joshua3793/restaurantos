@@ -43,7 +43,7 @@ export default function PrepPage() {
   const [filterPriority, setFilterPriority] = useState('ALL')
   const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
-  const [filterStation,  setFilterStation]  = useState<'ALL' | 'UNASSIGNED' | string>('ALL')
+  const [filterStation,  setFilterStation]  = useState<'ALL' | 'UNASSIGNED' | (string & {})>('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
   const [viewMode,       setViewMode]       = useState<'today' | 'plan' | 'history'>('today')
 
@@ -107,7 +107,7 @@ export default function PrepPage() {
     load()
     loadSettings()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadSettings])
 
   useEffect(() => { load() }, [load])
 
