@@ -93,7 +93,8 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
         return r.json()
       })
       .then(data => {
-        setStations(data.stations ?? [])
+        // Filter out any empty strings that may have crept into the DB
+        setStations((data.stations ?? []).filter((s: string) => s.trim() !== ''))
         setLoading(false)
       })
       .catch(err => {

@@ -34,7 +34,10 @@ export async function GET() {
       settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
     }
     if (!settings) throw new Error('Could not create singleton row')
-    return NextResponse.json({ categories: settings.categories, stations: settings.stations })
+    return NextResponse.json({
+      categories: settings.categories.filter(Boolean),
+      stations:   settings.stations.filter(Boolean),
+    })
   } catch (err) {
     console.error('[prep/settings GET]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
