@@ -4,17 +4,14 @@ import { PREP_CATEGORIES as DEFAULT_CATEGORIES, PREP_STATIONS as DEFAULT_STATION
 
 export async function GET() {
   try {
-    let settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
-    if (!settings) {
-      // Use raw INSERT to avoid any pgbouncer array-handling issues on first create
-      await prisma.$executeRaw`
-        INSERT INTO "PrepSettings" (id, categories, stations, "updatedAt")
-        VALUES ('singleton', ${DEFAULT_CATEGORIES}, ${DEFAULT_STATIONS}, NOW())
-        ON CONFLICT (id) DO NOTHING
-      `
-      settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
-    }
-    if (!settings) throw new Error('Could not create singleton row')
+    // Upsert the singleton row if it doesn't exist yet, then return it.
+    // Using the ORM upsert (not $executeRaw) so Prisma handles String[]
+    // serialisation correctly with pgBouncer (?pgbouncer=true in DATABASE_URL).
+    const settings = await prisma.prepSettings.upsert({
+      where:  { id: 'singleton' },
+      update: {},   // already exists — no changes
+      create: { id: 'singleton', categories: DEFAULT_CATEGORIES, stations: DEFAULT_STATIONS },
+    })
     return NextResponse.json({ categories: settings.categories, stations: settings.stations })
   } catch (err) {
     console.error('[prep/settings GET]', err)
@@ -32,16 +29,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Lists cannot be empty' }, { status: 400 })
     }
 
-    // Raw SQL bypasses Prisma's array serialisation, which can fail
-    // with pgBouncer in transaction mode (prepared-statement restrictions).
-    await prisma.$executeRaw`
-      INSERT INTO "PrepSettings" (id, categories, stations, "updatedAt")
-      VALUES ('singleton', ${categories}, ${stations}, NOW())
-      ON CONFLICT (id) DO UPDATE
-        SET categories = EXCLUDED.categories,
-            stations   = EXCLUDED.stations,
-            "updatedAt" = NOW()
-    `
+    // Use the Prisma ORM upsert — it serialises String[] fields correctly
+    // with pgBouncer when ?pgbouncer=true is present in DATABASE_URL.
+    // (The previous $executeRaw approach used parameterised queries which
+    //  pgBouncer in transaction mode can reject as prepared statements.)
+    await prisma.prepSettings.upsert({
+      where:  { id: 'singleton' },
+      update: { categories, stations },
+      create: { id: 'singleton', categories, stations },
+    })
 
     return NextResponse.json({ categories, stations })
   } catch (err) {

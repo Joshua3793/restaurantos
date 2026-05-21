@@ -991,7 +991,7 @@ export default function PrepPage() {
       {showSettings && (
         <PrepSettingsModal
           onClose={() => setShowSettings(false)}
-          onSaved={() => setShowSettings(false)}
+          onSaved={() => { load(); setShowSettings(false) }}
         />
       )}
     </div>
