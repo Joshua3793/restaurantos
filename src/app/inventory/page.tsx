@@ -931,6 +931,10 @@ function InventoryPageInner() {
           <option value="">All Suppliers</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
+        <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+          <option value="">All Areas</option>
+          {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
         <div className="hidden sm:flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
           {([['category','⊞ Grouped'],['all','≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
             <button
