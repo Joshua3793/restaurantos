@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, X, BookOpen, Search, Pencil, Link2 } from 'lucide-react'
-import { RecipeCard, RecipePanel, CategoryManager } from '@/components/recipes/shared'
+import { Plus, X, BookOpen, Search, Pencil, Link2, Check } from 'lucide-react'
+import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { useDrawer } from '@/contexts/DrawerContext'
 
@@ -25,6 +25,8 @@ function RecipesInner() {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
   const [showNewForm, setShowNewForm]       = useState(false)
   const [showCatManager, setShowCatManager] = useState(false)
+  const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set())
+  const [bulkConfirm, setBulkConfirm]       = useState<'deactivate' | 'delete' | null>(null)
   const [newForm, setNewForm]               = useState({
     name: '', categoryId: '', baseYieldQty: '', yieldUnit: '',
     portionSize: '', portionUnit: '', menuPrice: '', notes: '',
@@ -94,6 +96,42 @@ function RecipesInner() {
   const handleDelete = async (id: string) => {
     await fetch(`/api/recipes/${id}`, { method: 'DELETE' })
     if (selectedRecipeId === id) setSelectedRecipeId(null)
+    await loadRecipes()
+    await loadCategories()
+  }
+
+  const handleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const allVisibleSelected = displayRecipes.length > 0 && displayRecipes.every(r => selectedIds.has(r.id))
+
+  const handleSelectAll = () => {
+    if (allVisibleSelected) setSelectedIds(new Set())
+    else setSelectedIds(new Set(displayRecipes.map(r => r.id)))
+  }
+
+  const handleBulkDeactivate = async () => {
+    const toDeactivate = displayRecipes.filter(r => selectedIds.has(r.id) && r.isActive)
+    await Promise.all(toDeactivate.map(r =>
+      fetch(`/api/recipes/${r.id}/toggle`, { method: 'PATCH' })
+    ))
+    setSelectedIds(new Set())
+    setBulkConfirm(null)
+    await loadRecipes()
+  }
+
+  const handleBulkDelete = async () => {
+    await Promise.all([...selectedIds].map(id =>
+      fetch(`/api/recipes/${id}`, { method: 'DELETE' })
+    ))
+    if (selectedIds.has(selectedRecipeId ?? '')) setSelectedRecipeId(null)
+    setSelectedIds(new Set())
+    setBulkConfirm(null)
     await loadRecipes()
     await loadCategories()
   }
@@ -250,7 +288,23 @@ function RecipesInner() {
         ) : (
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-50">
             <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 text-xs font-medium text-gray-400">
-              <span className="w-2.5 shrink-0" />
+              <button
+                onClick={handleSelectAll}
+                className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                  allVisibleSelected
+                    ? 'border-blue-500 bg-blue-500'
+                    : selectedIds.size > 0
+                      ? 'border-blue-400 bg-blue-100'
+                      : 'border-gray-300 hover:border-blue-400 bg-white'
+                }`}
+                title={allVisibleSelected ? 'Deselect all' : 'Select all'}
+              >
+                {allVisibleSelected
+                  ? <Check size={11} className="text-white" strokeWidth={3} />
+                  : selectedIds.size > 0
+                    ? <span className="w-2 h-0.5 bg-blue-500 rounded-full" />
+                    : null}
+              </button>
               <span className="flex-1">Name</span>
               <span className="hidden sm:block pr-20">Total cost · Base cost/unit</span>
             </div>
@@ -259,7 +313,9 @@ function RecipesInner() {
                 onOpen={() => setSelectedRecipeId(recipe.id)}
                 onToggle={() => handleToggle(recipe.id)}
                 onDuplicate={() => handleDuplicate(recipe)}
-                onDelete={() => handleDelete(recipe.id)} />
+                onDelete={() => handleDelete(recipe.id)}
+                isSelected={selectedIds.has(recipe.id)}
+                onSelect={() => handleSelect(recipe.id)} />
             ))}
           </div>
         )}
@@ -275,6 +331,42 @@ function RecipesInner() {
         <CategoryManager type={type} categories={categories}
           onClose={() => setShowCatManager(false)}
           onUpdated={loadCategories} />
+      )}
+
+      {selectedIds.size > 0 && !bulkConfirm && (
+        <BulkActionBar
+          count={selectedIds.size}
+          onDeactivate={() => setBulkConfirm('deactivate')}
+          onDelete={() => setBulkConfirm('delete')}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      )}
+
+      {bulkConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setBulkConfirm(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            {bulkConfirm === 'deactivate' ? (
+              <>
+                <h3 className="font-bold text-gray-900 text-base mb-1">Deactivate {selectedIds.size} {selectedIds.size === 1 ? 'recipe' : 'recipes'}?</h3>
+                <p className="text-sm text-gray-500 mb-5">They will be hidden from active lists but not deleted. You can reactivate them at any time.</p>
+                <div className="flex gap-2">
+                  <button onClick={handleBulkDeactivate} className="flex-1 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-semibold transition-colors">Deactivate</button>
+                  <button onClick={() => setBulkConfirm(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="font-bold text-gray-900 text-base mb-1">Delete {selectedIds.size} {selectedIds.size === 1 ? 'recipe' : 'recipes'}?</h3>
+                <p className="text-sm text-gray-500 mb-5">This is permanent and cannot be undone. All ingredients and costing data will be removed.</p>
+                <div className="flex gap-2">
+                  <button onClick={handleBulkDelete} className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors">Delete permanently</button>
+                  <button onClick={() => setBulkConfirm(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

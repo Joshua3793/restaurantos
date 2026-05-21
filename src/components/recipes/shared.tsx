@@ -142,13 +142,50 @@ export function InlineEdit({ value, onSave, className = '' }: { value: string; o
   )
 }
 
+// ─── BulkActionBar ────────────────────────────────────────────────────────────
+export function BulkActionBar({ count, onDeactivate, onDelete, onClear }: {
+  count: number
+  onDeactivate: () => void
+  onDelete: () => void
+  onClear: () => void
+}) {
+  return (
+    <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-gray-900 text-white rounded-2xl shadow-2xl px-2 py-2 text-sm">
+      <span className="px-3 font-semibold tabular-nums">{count} selected</span>
+      <div className="w-px h-5 bg-white/15 mx-1" />
+      <button
+        onClick={onDeactivate}
+        className="px-3 py-1.5 rounded-xl text-yellow-300 hover:bg-white/10 transition-colors font-medium"
+      >
+        Deactivate
+      </button>
+      <button
+        onClick={onDelete}
+        className="px-3 py-1.5 rounded-xl text-red-400 hover:bg-white/10 transition-colors font-medium"
+      >
+        Delete
+      </button>
+      <div className="w-px h-5 bg-white/15 mx-1" />
+      <button
+        onClick={onClear}
+        className="px-2 py-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+        title="Clear selection"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
 // ─── RecipeCard ───────────────────────────────────────────────────────────────
-export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: {
+export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, isSelected, onSelect }: {
   recipe: Recipe
   onOpen: () => void
   onToggle: () => void
   onDuplicate: () => void
   onDelete?: () => void
+  isSelected?: boolean
+  onSelect?: () => void
 }) {
   const [showMore, setShowMore] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
@@ -185,6 +222,20 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
       className="flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/60 transition-colors cursor-pointer"
       onClick={onOpen}
     >
+      {/* ── Selection checkbox (only when bulk-select is active) ── */}
+      {onSelect && (
+        <button
+          onClick={e => { e.stopPropagation(); onSelect() }}
+          className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+            isSelected
+              ? 'border-blue-500 bg-blue-500'
+              : 'border-gray-300 hover:border-blue-400 bg-white'
+          }`}
+        >
+          {isSelected && <Check size={11} className="text-white" strokeWidth={3} />}
+        </button>
+      )}
+
       {/* ── Faded content — everything except the more menu ── */}
       <div className={`flex items-center gap-3 flex-1 min-w-0 ${inactive ? 'opacity-50' : ''}`}>
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: recipe.categoryColor ?? '#94a3b8' }} />
