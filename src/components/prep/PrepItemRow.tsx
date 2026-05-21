@@ -176,12 +176,17 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           </button>
         </div>
 
-        {/* Row 2: stock + priority chips */}
+        {/* Row 2: stock + station badge + priority chips */}
         <div className="flex items-center gap-2 mt-1.5 pl-9">
           <span className="shrink-0 text-xs text-gray-400">
             {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}
             <span className="text-gray-300">/{item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}</span>
           </span>
+          {item.station && (
+            <span className="shrink-0 text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full">
+              {item.station}
+            </span>
+          )}
 
           <div className="flex items-center gap-1 ml-auto" onClick={e => e.stopPropagation()}>
             {PLAN_CHIPS.map(chip => (
@@ -272,11 +277,16 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           </span>
         )}
 
-        {/* Name + status label for completed, suggested qty for active */}
+        {/* Name + station badge + status label for completed, suggested qty for active */}
         <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
           <div className={`text-sm font-medium truncate ${isDone ? 'text-green-900' : isPartial ? 'text-yellow-900' : 'text-gray-800'}`}>
             {item.name}
           </div>
+          {item.station && (
+            <span className="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full mt-0.5 inline-block">
+              {item.station}
+            </span>
+          )}
           {isCompleted ? (
             <div className={`text-xs font-semibold mt-0.5 ${isDone ? 'text-green-700' : 'text-yellow-700'}`}>
               {isDone ? '✓ Done' : '◐ Partial'}
