@@ -133,7 +133,7 @@ function NavigationInner() {
           <Image src="/logo-wordmark.png" alt="Controla OS" width={176} height={52}
             className="shrink-0 object-contain object-left"
             style={{ height: 52, width: 176, maxWidth: 176 }} />
-          <div className="[&_button]:text-white/30 [&_button:hover]:text-white [&_button:hover]:bg-white/5 rounded-lg shrink-0">
+          <div className="[&>div>button]:text-white/30 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/5 rounded-lg shrink-0">
             <AlertsBell />
           </div>
         </div>
