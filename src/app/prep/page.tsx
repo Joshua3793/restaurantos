@@ -177,6 +177,11 @@ export default function PrepPage() {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
     if (filterPriority !== 'ALL' && item.priority !== filterPriority)     return false
     if (filterCategory !== 'ALL' && item.category !== filterCategory)     return false
+    if (filterStation === 'UNASSIGNED') {
+      if (item.station && item.station.trim() !== '') return false
+    } else if (filterStation !== 'ALL') {
+      if (item.station !== filterStation) return false
+    }
 
     if (viewMode === 'plan') {
       if (planView === 'need-attention') {
@@ -196,7 +201,7 @@ export default function PrepPage() {
     const s = item.todayLog.status
     if (filterStatus !== 'ALL' && s !== filterStatus) return false
     return true
-  }), [items, search, filterPriority, filterCategory, filterStatus, viewMode, planView])
+  }), [items, search, filterPriority, filterCategory, filterStation, filterStatus, viewMode, planView])
 
   const inProgress  = useMemo(() => items.filter(i => i.todayLog?.status === 'IN_PROGRESS'), [items])
   const todayItems  = useMemo(() => items.filter(i => i.todayLog != null), [items])
@@ -447,7 +452,7 @@ export default function PrepPage() {
 
   const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
 
-  const activeFilterCount = [filterPriority !== 'ALL', filterStatus !== 'ALL', filterCategory !== 'ALL'].filter(Boolean).length
+  const activeFilterCount = [filterPriority !== 'ALL', filterStatus !== 'ALL', filterCategory !== 'ALL', filterStation !== 'ALL'].filter(Boolean).length
 
   return (
     <div className="space-y-3 md:space-y-5">
@@ -547,6 +552,11 @@ export default function PrepPage() {
             <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className={selCls + ' w-full'} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
+              <option value="ALL">All Stations</option>
+              <option value="UNASSIGNED">Unassigned</option>
+              {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         )}
@@ -676,6 +686,11 @@ export default function PrepPage() {
             <select className={selCls} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className={selCls} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
+              <option value="ALL">All Stations</option>
+              <option value="UNASSIGNED">Unassigned</option>
+              {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-4 text-sm flex-wrap">
