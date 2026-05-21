@@ -183,8 +183,14 @@ function NavigationInner() {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 pb-safe">
         {/* Raised center button sits above the bar */}
         <div className="relative flex items-end">
-          {/* Bar background */}
-          <div className="absolute inset-x-0 bottom-0 h-16 bg-white border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)]" />
+          {/* Bar background — extends through the safe-area inset so there's no gap */}
+          <div
+            className="absolute inset-x-0 bg-white border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)]"
+            style={{
+              bottom: 'calc(-1 * env(safe-area-inset-bottom, 0px))',
+              height: 'calc(4rem + env(safe-area-inset-bottom, 0px))',
+            }}
+          />
 
           {/* Left two tabs */}
           {mobileLeft.map(item => {
