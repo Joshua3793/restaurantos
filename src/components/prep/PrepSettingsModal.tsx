@@ -79,9 +79,7 @@ interface Props {
 }
 
 export function PrepSettingsModal({ onClose, onSaved }: Props) {
-  const [categories, setCategories] = useState<string[]>([])
   const [stations,   setStations]   = useState<string[]>([])
-  const [newCategory, setNewCategory] = useState('')
   const [newStation,  setNewStation]  = useState('')
   const [saving,  setSaving]  = useState(false)
   const [loading, setLoading] = useState(true)
@@ -95,7 +93,6 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
         return r.json()
       })
       .then(data => {
-        setCategories(data.categories ?? [])
         setStations(data.stations ?? [])
         setLoading(false)
       })
@@ -108,8 +105,8 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
   }, [])
 
   async function handleSave() {
-    if (categories.length === 0 || stations.length === 0) {
-      setError('Both lists must have at least one entry.')
+    if (stations.length === 0) {
+      setError('Stations list must have at least one entry.')
       return
     }
     setSaving(true)
@@ -119,8 +116,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          categories: categories.map(c => c.trim()).filter(Boolean),
-          stations:   stations.map(s => s.trim()).filter(Boolean),
+          stations: stations.map(s => s.trim()).filter(Boolean),
         }),
       })
       if (!res.ok) {
@@ -135,21 +131,6 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
     } finally {
       setSaving(false)
     }
-  }
-
-  function addCategory() {
-    const v = newCategory.trim()
-    if (!v || categories.includes(v)) return
-    setCategories(prev => [...prev, v])
-    setNewCategory('')
-  }
-
-  function removeCategory(idx: number) {
-    setCategories(prev => prev.filter((_, i) => i !== idx))
-  }
-
-  function updateCategory(idx: number, val: string) {
-    setCategories(prev => prev.map((c, i) => i === idx ? val : c))
   }
 
   function addStation() {
@@ -177,7 +158,10 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
     >
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h2 id="prep-settings-title" className="font-semibold text-gray-900">Prep Settings</h2>
+          <div>
+            <h2 id="prep-settings-title" className="font-semibold text-gray-900">Prep Settings</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Categories come from Recipe Book — only stations are configurable here.</p>
+          </div>
           <button onClick={onClose} disabled={saving} aria-label="Close" className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-50">
             <X size={18} />
           </button>
@@ -189,17 +173,6 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
           </div>
         ) : (
           <div className="p-5 space-y-6">
-            <ListEditor
-              label="Categories"
-              items={categories}
-              onUpdate={updateCategory}
-              onRemove={removeCategory}
-              newValue={newCategory}
-              onNewValueChange={setNewCategory}
-              onAdd={addCategory}
-              addPlaceholder="Add category…"
-            />
-            <div className="border-t border-gray-100" />
             <ListEditor
               label="Stations"
               items={stations}

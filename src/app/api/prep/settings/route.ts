@@ -5,11 +5,9 @@ import { PREP_CATEGORIES as DEFAULT_CATEGORIES, PREP_STATIONS as DEFAULT_STATION
 export async function GET() {
   try {
     // Upsert the singleton row if it doesn't exist yet, then return it.
-    // Using the ORM upsert (not $executeRaw) so Prisma handles String[]
-    // serialisation correctly with pgBouncer (?pgbouncer=true in DATABASE_URL).
     const settings = await prisma.prepSettings.upsert({
       where:  { id: 'singleton' },
-      update: {},   // already exists — no changes
+      update: {},
       create: { id: 'singleton', categories: DEFAULT_CATEGORIES, stations: DEFAULT_STATIONS },
     })
     return NextResponse.json({ categories: settings.categories, stations: settings.stations })
@@ -22,24 +20,24 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json()
-    const categories: string[] = Array.isArray(body.categories) ? body.categories.map(String) : DEFAULT_CATEGORIES
-    const stations:   string[] = Array.isArray(body.stations)   ? body.stations.map(String)   : DEFAULT_STATIONS
 
-    if (categories.length === 0 || stations.length === 0) {
-      return NextResponse.json({ error: 'Lists cannot be empty' }, { status: 400 })
+    // Categories are managed exclusively by sync-from-recipes (they mirror
+    // Recipe Book PREP categories). Only stations are user-editable here.
+    const stations: string[] = Array.isArray(body.stations)
+      ? body.stations.map(String).filter(Boolean)
+      : DEFAULT_STATIONS
+
+    if (stations.length === 0) {
+      return NextResponse.json({ error: 'Stations list cannot be empty' }, { status: 400 })
     }
 
-    // Use the Prisma ORM upsert — it serialises String[] fields correctly
-    // with pgBouncer when ?pgbouncer=true is present in DATABASE_URL.
-    // (The previous $executeRaw approach used parameterised queries which
-    //  pgBouncer in transaction mode can reject as prepared statements.)
-    await prisma.prepSettings.upsert({
+    const updated = await prisma.prepSettings.upsert({
       where:  { id: 'singleton' },
-      update: { categories, stations },
-      create: { id: 'singleton', categories, stations },
+      update: { stations },
+      create: { id: 'singleton', categories: DEFAULT_CATEGORIES, stations },
     })
 
-    return NextResponse.json({ categories, stations })
+    return NextResponse.json({ categories: updated.categories, stations: updated.stations })
   } catch (err) {
     console.error('[prep/settings PUT]', err)
     const message = err instanceof Error ? err.message : String(err)
