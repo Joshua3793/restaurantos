@@ -21,9 +21,13 @@ function toPgTextArray(arr: string[]): string {
 
 export async function GET() {
   try {
-    // findUnique + INSERT with no array params — safe with pgBouncer.
-    let settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
-    if (!settings) {
+    // Use only $queryRawUnsafe / $executeRawUnsafe — no ORM queries — so
+    // pgBouncer transaction mode never sees named prepared statements.
+    const rows = await prisma.$queryRawUnsafe<Array<{ categories: string[]; stations: string[] }>>(
+      `SELECT categories, stations FROM "PrepSettings" WHERE id = 'singleton' LIMIT 1`
+    )
+
+    if (rows.length === 0) {
       const cats = toPgTextArray(DEFAULT_CATEGORIES)
       const sta  = toPgTextArray(DEFAULT_STATIONS)
       await prisma.$executeRawUnsafe(`
@@ -31,12 +35,15 @@ export async function GET() {
         VALUES ('singleton', '${cats}'::text[], '${sta}'::text[], NOW())
         ON CONFLICT (id) DO NOTHING
       `)
-      settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
+      return NextResponse.json({
+        categories: DEFAULT_CATEGORIES.filter(Boolean),
+        stations:   DEFAULT_STATIONS.filter(Boolean),
+      })
     }
-    if (!settings) throw new Error('Could not create singleton row')
+
     return NextResponse.json({
-      categories: settings.categories.filter(Boolean),
-      stations:   settings.stations.filter(Boolean),
+      categories: (rows[0].categories ?? []).filter(Boolean),
+      stations:   (rows[0].stations   ?? []).filter(Boolean),
     })
   } catch (err) {
     console.error('[prep/settings GET]', err)
@@ -58,10 +65,16 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Stations list cannot be empty' }, { status: 400 })
     }
 
-    // Fetch existing categories to preserve them in the upsert.
-    const existing = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
-    const cats = toPgTextArray(existing?.categories ?? DEFAULT_CATEGORIES)
-    const sta  = toPgTextArray(stations)
+    // Fetch existing categories via raw SQL — no ORM, no prepared statements.
+    const existing = await prisma.$queryRawUnsafe<Array<{ categories: string[] }>>(
+      `SELECT categories FROM "PrepSettings" WHERE id = 'singleton' LIMIT 1`
+    )
+    const cats = toPgTextArray(
+      existing.length > 0 && (existing[0].categories?.length ?? 0) > 0
+        ? existing[0].categories
+        : DEFAULT_CATEGORIES
+    )
+    const sta = toPgTextArray(stations)
 
     // $executeRawUnsafe embeds values as literals → no parameterised binding
     // → works reliably with pgBouncer transaction mode (no prepared statements).
@@ -73,10 +86,12 @@ export async function PUT(req: NextRequest) {
             "updatedAt" = NOW()
     `)
 
-    const updated = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
+    const updated = await prisma.$queryRawUnsafe<Array<{ categories: string[]; stations: string[] }>>(
+      `SELECT categories, stations FROM "PrepSettings" WHERE id = 'singleton' LIMIT 1`
+    )
     return NextResponse.json({
-      categories: updated?.categories ?? existing?.categories ?? DEFAULT_CATEGORIES,
-      stations:   updated?.stations   ?? stations,
+      categories: (updated[0]?.categories ?? existing[0]?.categories ?? DEFAULT_CATEGORIES).filter(Boolean),
+      stations:   (updated[0]?.stations   ?? stations).filter(Boolean),
     })
   } catch (err) {
     console.error('[prep/settings PUT]', err)
