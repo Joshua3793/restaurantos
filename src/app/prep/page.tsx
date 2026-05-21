@@ -959,7 +959,7 @@ export default function PrepPage() {
           )}
         </div>
       ) : viewMode === 'plan' && planGroups ? (
-        /* ── Plan mode — By Category ── */
+        /* ── Plan mode — Grouped (By Category or By Station) ── */
         <div className="space-y-4">
           {planGroups.map(([cat, rows]) => (
             <div key={cat} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
