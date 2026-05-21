@@ -100,6 +100,17 @@ export default function PrepPage() {
     } catch { /* silent degradation — stations stays [] */ }
   }, [])
 
+  // Reset station filter if the selected station no longer exists in settings
+  useEffect(() => {
+    if (
+      filterStation !== 'ALL' &&
+      filterStation !== 'UNASSIGNED' &&
+      !stations.includes(filterStation as string)
+    ) {
+      setFilterStation('ALL')
+    }
+  }, [stations, filterStation])
+
   useEffect(() => {
     // Initialise offline state and any pending mutations left from a previous session
     setIsOffline(!navigator.onLine)
