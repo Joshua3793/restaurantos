@@ -442,7 +442,7 @@ export default function PrepPage() {
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
-              <ChefHat size={20} className="text-gold" /> Prep
+              <ChefHat size={20} className="text-gold" /> Prep List
             </h1>
             <p className="text-xs text-gray-500">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -542,7 +542,7 @@ export default function PrepPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <ChefHat size={24} className="text-gold" /> Prep
+              <ChefHat size={24} className="text-gold" /> Prep List
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
