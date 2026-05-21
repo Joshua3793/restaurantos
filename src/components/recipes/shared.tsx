@@ -154,6 +154,8 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
   const [showPrint, setShowPrint] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -165,6 +167,15 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
+  const openMore = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!showMore && moreButtonRef.current) {
+      const rect = moreButtonRef.current.getBoundingClientRect()
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    setShowMore(s => !s)
+  }
 
   const isMenu = recipe.type === 'MENU'
   const inactive = !recipe.isActive
@@ -262,44 +273,50 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete }: 
 
       {/* ── More menu (Duplicate + Delete only) ── */}
       <div className="relative shrink-0" ref={moreRef} onClick={e => e.stopPropagation()}>
-        <button onClick={() => setShowMore(s => !s)} className="p-1 text-gray-300 hover:text-gray-500 rounded">
+        <button ref={moreButtonRef} onClick={openMore} className="p-1 text-gray-300 hover:text-gray-500 rounded">
           <MoreHorizontal size={15} />
         </button>
-        {showMore && (
-          <div className="absolute right-0 top-7 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-10 w-36">
-            <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-              <Copy size={13} /> Duplicate
-            </button>
-            {onDelete && (
-              <>
-                <div className="border-t border-gray-100 my-1" />
-                {confirmDelete ? (
-                  <div className="px-3 py-2">
-                    <p className="text-xs text-gray-500 mb-2">Delete permanently?</p>
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => { setShowMore(false); setConfirmDelete(false); onDelete() }}
-                        className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
-                      >Delete</button>
-                      <button
-                        onClick={() => setConfirmDelete(false)}
-                        className="flex-1 px-2 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50"
-                      >Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    className="w-full px-3 py-2 text-sm text-left text-red-600 hover:bg-red-50 flex items-center gap-2"
-                  >
-                    <Trash2 size={13} /> Delete
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
       </div>
+      {showMore && menuPos && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={moreRef}
+          style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 9999 }}
+          className="bg-white rounded-xl shadow-lg border border-gray-100 py-1 w-36"
+          onClick={e => e.stopPropagation()}
+        >
+          <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            <Copy size={13} /> Duplicate
+          </button>
+          {onDelete && (
+            <>
+              <div className="border-t border-gray-100 my-1" />
+              {confirmDelete ? (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-gray-500 mb-2">Delete permanently?</p>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => { setShowMore(false); setConfirmDelete(false); onDelete() }}
+                      className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                    >Delete</button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="flex-1 px-2 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50"
+                    >Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="w-full px-3 py-2 text-sm text-left text-red-600 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <Trash2 size={13} /> Delete
+                </button>
+              )}
+            </>
+          )}
+        </div>,
+        document.body
+      )}
       {showPrint && typeof document !== 'undefined' && createPortal(
         <RecipePrintModal recipe={recipe} onClose={() => setShowPrint(false)} />,
         document.body
