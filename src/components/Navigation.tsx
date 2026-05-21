@@ -20,6 +20,8 @@ type NavItem = {
   icon: React.ComponentType<{ size?: number | string; color?: string }>
   dividerBefore?: boolean
   adminOnly?: boolean
+  /** When true, only highlight this item on an exact pathname match (no prefix matching). */
+  exact?: boolean
 }
 
 // ── Sidebar nav groups ────────────────────────────────────────────────────────
@@ -37,7 +39,7 @@ const navItems: NavItem[] = [
   { href: '/sales',                      label: 'Sales',        icon: ShoppingBag,  dividerBefore: true },
   { href: '/wastage',                    label: 'Wastage',      icon: Trash2 },
   { href: '/reports/theoretical-usage', label: 'Usage',        icon: TrendingUp },
-  { href: '/reports',                    label: 'Reports',      icon: BarChart3 },
+  { href: '/reports',                    label: 'Reports',      icon: BarChart3,  exact: true },
   // Group 4 — Admin
   { href: '/settings',  label: 'Settings',     icon: Settings,     dividerBefore: true, adminOnly: true },
 ]
@@ -77,7 +79,7 @@ const mobilePagesGroups = [
       { href: '/sales',                     label: 'Sales',    icon: ShoppingBag },
       { href: '/wastage',                   label: 'Wastage',  icon: Trash2 },
       { href: '/reports/theoretical-usage', label: 'Usage',    icon: TrendingUp },
-      { href: '/reports',                   label: 'Reports',  icon: BarChart3 },
+      { href: '/reports',                   label: 'Reports',  icon: BarChart3,  exact: true },
     ] as NavItem[],
   },
   {
@@ -103,8 +105,8 @@ function NavigationInner() {
   useRc()
   const { role }  = useUser()
 
-  const isActive = (item: { href: string }) =>
-    pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href + '/'))
+  const isActive = (item: { href: string; exact?: boolean }) =>
+    pathname === item.href || (!item.exact && item.href !== '/' && pathname.startsWith(item.href + '/'))
 
   async function handleLogout() {
     const supabase = createClient()
