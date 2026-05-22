@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { PREP_CATEGORIES as DEFAULT_CATEGORIES, PREP_STATIONS as DEFAULT_STATIONS } from '@/lib/prep-utils'
 
+// CRITICAL: the GET handler below takes no `request` arg and uses no dynamic
+// APIs, so Next.js would statically prerender this route at build time. A
+// statically-prerendered route handler serves ONLY GET (as a cached file) —
+// every other method (PUT/POST/…) returns 405 Method Not Allowed. That was the
+// real cause of "Failed to save": the PUT handler never executed in production.
+// force-dynamic keeps the route a live serverless function for all methods.
+export const dynamic = 'force-dynamic'
+
 /**
  * Serialise a JS string array to a PostgreSQL text-array literal.
  * e.g. ['Grill', 'Cold'] → '{"Grill","Cold"}'
