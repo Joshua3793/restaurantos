@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncPrepToInventory, fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { syncPrepToInventory } from '@/lib/recipeCosts'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  await syncPrepToInventory(params.id)
-  const recipe = await fetchRecipeWithCost(params.id)
-  return NextResponse.json(recipe, { status: 201 })
+  // Fire sync in background — client handles optimistic display
+  syncPrepToInventory(params.id).catch(console.error)
+  return NextResponse.json({ id: ing.id }, { status: 201 })
 }

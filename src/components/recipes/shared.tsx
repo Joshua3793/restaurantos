@@ -878,16 +878,50 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }
 
   const addIngredient = async (item: IngredientSearchResult) => {
+    // Close search immediately — don't wait for server
+    setShowSearch(false); setSearchQ(''); setSearchResults([])
+
+    // Optimistically add ingredient with a temp ID so it appears instantly
+    const tempId = `temp-${Date.now()}`
+    setRecipe(prev => {
+      if (!prev) return prev
+      const newIng: IngredientWithCost = {
+        id: tempId,
+        sortOrder: (prev.ingredients.at(-1)?.sortOrder ?? -1) + 1,
+        qtyBase: 0,
+        unit: item.unit,
+        notes: null,
+        recipePercent: null,
+        inventoryItemId: item.type === 'inventory' ? item.id : null,
+        linkedRecipeId: item.type === 'recipe' ? item.id : null,
+        ingredientName: item.name,
+        ingredientType: item.type,
+        pricePerBaseUnit: item.pricePerBaseUnit,
+        lineCost: 0,
+        ingredientBaseUnit: item.unit,
+      }
+      return { ...prev, ingredients: [...prev.ingredients, newIng] }
+    })
+
+    // POST in background — reconcile temp ID with real ID on success
     const res = await fetch(`/api/recipes/${recipeId}/ingredients`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 0, unit: item.unit }),
     })
     if (res.ok) {
-      const updated = await res.json()
-      setRecipe(updated)
+      const { id: realId } = await res.json()
+      setRecipe(prev => {
+        if (!prev) return prev
+        return { ...prev, ingredients: prev.ingredients.map(i => i.id === tempId ? { ...i, id: realId } : i) }
+      })
       dirtyRef.current = true
+    } else {
+      // POST failed — remove the temp ingredient
+      setRecipe(prev => {
+        if (!prev) return prev
+        return { ...prev, ingredients: prev.ingredients.filter(i => i.id !== tempId) }
+      })
     }
-    setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
 
   const updateIngredient = useCallback(async (ingId: string, data: Record<string, unknown>) => {
@@ -912,11 +946,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     }
 
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    if (res.ok) {
-      const updated = await res.json()
-      setRecipe(updated)
-      dirtyRef.current = true
-    }
+    if (res.ok) dirtyRef.current = true
   }, [recipeId])
 
   const deleteIngredient = useCallback(async (ingId: string) => {
@@ -930,10 +960,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     dirtyRef.current = true
 
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
-    if (res.ok) {
-      const updated = await res.json()
-      setRecipe(updated) // reconcile with server (accurate cost after sync)
-    }
+    if (res.ok) dirtyRef.current = true
   }, [recipeId])
 
   const handleClose = () => {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncPrepToInventory, fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { syncPrepToInventory } from '@/lib/recipeCosts'
+
+export const dynamic = 'force-dynamic'
 
 export async function PATCH(
   req: NextRequest,
@@ -21,14 +23,12 @@ export async function PATCH(
     },
   })
 
-  // Only sync when cost-affecting fields change.
-  // sortOrder, notes, recipePercent do not affect cost.
+  // Fire sync in background — don't block the response.
+  // The client already shows the correct cost via optimistic update.
   const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined
-  if (costAffecting) await syncPrepToInventory(params.id)
+  if (costAffecting) syncPrepToInventory(params.id).catch(console.error)
 
-  // Return the full updated recipe so the client can update state without an extra fetch.
-  const recipe = await fetchRecipeWithCost(params.id)
-  return NextResponse.json(recipe)
+  return NextResponse.json({ ok: true })
 }
 
 export async function DELETE(
@@ -36,8 +36,9 @@ export async function DELETE(
   { params }: { params: { id: string; ingredientId: string } }
 ) {
   await prisma.recipeIngredient.delete({ where: { id: params.ingredientId } })
-  await syncPrepToInventory(params.id)
-  // Return the full updated recipe so the client can update state without an extra fetch.
-  const recipe = await fetchRecipeWithCost(params.id)
-  return NextResponse.json(recipe)
+
+  // Fire sync in background — don't block the response.
+  syncPrepToInventory(params.id).catch(console.error)
+
+  return NextResponse.json({ ok: true })
 }
