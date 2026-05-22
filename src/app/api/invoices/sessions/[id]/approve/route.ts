@@ -9,8 +9,6 @@ import { requireSession, AuthError } from '@/lib/auth'
 // Give background work up to 60s after the response is sent
 export const maxDuration = 60
 
-const WEIGHT_VOL_SET = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
-const isWeightVol = (uom: string | null | undefined) => !!uom && WEIGHT_VOL_SET.has(uom.toLowerCase())
 
 interface ApproveResult {
   itemsUpdated: number
@@ -46,7 +44,7 @@ async function doApprove(
         const newPurchasePrice = Number(scanItem.newPrice)
         const item = scanItem.matchedItem!
 
-        const useInvoicePack = isWeightVol(scanItem.invoicePackUOM) && scanItem.invoicePackSize !== null
+        const useInvoicePack = scanItem.invoicePackSize !== null && scanItem.invoicePackQty !== null
         const packQty  = useInvoicePack ? (Number(scanItem.invoicePackQty) || 1) : Number(item.qtyPerPurchaseUnit)
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')

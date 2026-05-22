@@ -2,6 +2,39 @@ import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
 
+// Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
+const UOM_ALIASES: Record<string, string> = {
+  cs:      'case',
+  cases:   'case',
+  cse:     'case',
+  ctn:     'case',
+  carton:  'case',
+  bx:      'case',
+  box:     'case',
+  boxes:   'case',
+  ea:      'each',
+  pc:      'each',
+  pcs:     'each',
+  piece:   'each',
+  pieces:  'each',
+  ct:      'each',
+  bt:      'each',
+  bottle:  'each',
+  btl:     'each',
+  btls:    'each',
+  pk:      'pack',
+  pkg:     'pack',
+  packs:   'pack',
+  bg:      'bag',
+  bag:     'bag',
+  bags:    'bag',
+}
+
+function normalizeUOM(uom: string): string {
+  const lower = uom.trim().toLowerCase()
+  return UOM_ALIASES[lower] ?? lower
+}
+
 export type MatchConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE'
 export type LineItemAction = 'PENDING' | 'UPDATE_PRICE' | 'ADD_SUPPLIER' | 'CREATE_NEW' | 'SKIP'
 
@@ -207,7 +240,7 @@ function buildMatchResult(
   const formatMismatch = !!(
     ocrItem.qtyShippedUOM &&
     bestItem.purchaseUnit &&
-    ocrItem.qtyShippedUOM.toLowerCase() !== bestItem.purchaseUnit.toLowerCase()
+    normalizeUOM(ocrItem.qtyShippedUOM) !== normalizeUOM(bestItem.purchaseUnit)
   )
 
   return {
