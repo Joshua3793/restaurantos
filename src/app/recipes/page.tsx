@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Plus, X, BookOpen, Search, Pencil, Link2, Check } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
@@ -20,7 +20,9 @@ function RecipesInner() {
   const [recipes, setRecipes]               = useState<Recipe[]>([])
   const [categories, setCategories]         = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]       = useState<string | null>(null)
+  const [searchInput, setSearchInput]       = useState('')
   const [search, setSearch]                 = useState('')
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>()
   const [showInactive, setShowInactive]     = useState(false)
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
   const [showNewForm, setShowNewForm]       = useState(false)
@@ -150,9 +152,13 @@ function RecipesInner() {
         </div>
         <div className="relative hidden md:block">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search recipes…"
+          <input value={searchInput} onChange={e => {
+              setSearchInput(e.target.value)
+              clearTimeout(searchDebounce.current)
+              searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
+            }} placeholder="Search recipes…"
             className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all focus:w-64" />
-          {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X size={13} /></button>}
+          {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X size={13} /></button>}
         </div>
         <button onClick={() => setShowNewForm(true)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors">
@@ -165,9 +171,13 @@ function RecipesInner() {
       {/* ── MOBILE SEARCH ── */}
       <div className="md:hidden relative">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search recipes…"
+        <input value={searchInput} onChange={e => {
+            setSearchInput(e.target.value)
+            clearTimeout(searchDebounce.current)
+            searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
+          }} placeholder="Search recipes…"
           className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400" />
-        {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X size={13} /></button>}
+        {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X size={13} /></button>}
       </div>
 
       {/* ── CATEGORY FILTER PILLS ── */}

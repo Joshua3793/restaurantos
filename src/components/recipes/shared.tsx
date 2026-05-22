@@ -1,6 +1,6 @@
 'use client'
 // ─── Shared types, helpers and components used by both Recipe Book and Menu pages ───
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit, calcPricePerBaseUnit, deriveBaseUnit, PACK_UOMS, compatibleCountUnits, getUnitDimension } from '@/lib/utils'
 import { UOM_GROUPS, getUnitGroup, convertQty } from '@/lib/uom'
@@ -705,7 +705,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
 }
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
-function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onEditItem }: {
+const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onEditItem }: {
   ing: IngredientWithCost
   scaleFactor: number
   canMoveUp: boolean
@@ -813,7 +813,7 @@ function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onD
       </div>
     </div>
   )
-}
+})
 
 // ─── RecipePanel ──────────────────────────────────────────────────────────────
 export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
