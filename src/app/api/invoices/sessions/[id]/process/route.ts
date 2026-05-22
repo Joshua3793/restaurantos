@@ -16,8 +16,9 @@ function hasAnthropicKey(): boolean {
   } catch { return false }
 }
 
-// Allow up to 120s for OCR (multi-page photo invoices can take a while)
-export const maxDuration = 120
+// Allow up to 300s for OCR — large invoices (100+ items) generate 30–40k output tokens
+// which can take 90–150s to stream. 120s was too tight and caused silent function kills.
+export const maxDuration = 300
 
 // POST /api/invoices/sessions/[id]/process
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {

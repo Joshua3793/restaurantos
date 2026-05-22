@@ -21,10 +21,16 @@ function resolveAnthropicKey(): string {
 // Learning mode: used for the first few invoices from a new supplier.
 // Higher quality image + more thinking tokens → slower but more accurate format detection.
 // Normal mode: faster, cheaper — used once the supplier format is well understood.
-const NORMAL_MAX_TOKENS   = 20000
-const NORMAL_THINKING     = 10000
-const LEARNING_MAX_TOKENS = 32000
-const LEARNING_THINKING   = 15000
+//
+// max_tokens is the TOTAL budget (thinking + text). With extended thinking, thinking
+// tokens are subtracted from this total, leaving the remainder for JSON output.
+// A 100-item invoice needs ~20–25k output tokens; a 150-item one needs ~30k.
+// Previous values (20k normal / 32k learning) only left 10–17k for text — any large
+// invoice hit the ceiling, truncated the JSON, and caused a parse error → ERROR status.
+const NORMAL_MAX_TOKENS   = 40000   // ~32k text budget after 8k thinking
+const NORMAL_THINKING     =  8000   // reduced from 10k — saves time, more output room
+const LEARNING_MAX_TOKENS = 48000   // ~36k text budget after 12k thinking
+const LEARNING_THINKING   = 12000   // reduced from 15k — still plenty for format discovery
 
 // Claude API hard limit per image (bytes after base64 decode)
 const API_IMAGE_LIMIT = 5 * 1024 * 1024
@@ -834,6 +840,16 @@ function parseOcrResponse(rawText: string): OcrResult {
 // Caps at one retry. The thunk is called with an optional `retrySuffix`; on
 // retry the suffix is appended to the user message so Claude knows its
 // previous output failed to parse.
+function looksLikeTruncated(text: string): boolean {
+  const t = text.trimEnd()
+  // Truncated JSON ends without the closing braces / brackets of the root object
+  if (!t.endsWith('}') && !t.endsWith(']')) return true
+  // Also check if lineItems array is left unclosed (common truncation point)
+  const opens  = (t.match(/\[/g)?.length ?? 0) + (t.match(/\{/g)?.length ?? 0)
+  const closes = (t.match(/\]/g)?.length ?? 0) + (t.match(/\}/g)?.length ?? 0)
+  return opens > closes
+}
+
 async function callWithJsonRetry(
   callApi: (retrySuffix?: string) => Promise<string>,
 ): Promise<OcrResult> {
@@ -841,7 +857,11 @@ async function callWithJsonRetry(
   try {
     return parseOcrResponse(first)
   } catch (err) {
-    console.warn('[ocr] first response invalid JSON, retrying once:', err instanceof Error ? err.message : err)
+    const truncated = looksLikeTruncated(first.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim())
+    console.warn(
+      `[ocr] first response invalid JSON${truncated ? ' (appears truncated)' : ''}, retrying once:`,
+      err instanceof Error ? err.message : err,
+    )
     const suffix =
       '\n\nYour previous response was not valid JSON. Re-output the JSON object only — ' +
       'no prose, no markdown fences. Here was your previous output:\n\n' +
@@ -851,7 +871,12 @@ async function callWithJsonRetry(
       return parseOcrResponse(second)
     } catch (err2) {
       console.error('[ocr] retry also failed. First 500 chars:', second.slice(0, 500))
-      throw new Error(`Failed to parse OCR response as JSON: ${err2 instanceof Error ? err2.message : String(err2)}`)
+      const hint = truncated
+        ? ' — the response was likely truncated (too many line items for the token budget)'
+        : ''
+      throw new Error(
+        `Failed to parse OCR response as JSON${hint}: ${err2 instanceof Error ? err2.message : String(err2)}`
+      )
     }
   }
 }
