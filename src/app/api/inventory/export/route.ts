@@ -6,7 +6,29 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const items = await prisma.inventoryItem.findMany({
-    include: { supplier: true, storageArea: true },
+    select: {
+      itemName: true,
+      category: true,
+      supplier: { select: { name: true } },
+      storageArea: { select: { name: true } },
+      purchaseUnit: true,
+      qtyPerPurchaseUnit: true,
+      qtyUOM: true,
+      priceType: true,
+      packSize: true,
+      packUOM: true,
+      countUOM: true,
+      purchasePrice: true,
+      baseUnit: true,
+      conversionFactor: true,
+      pricePerBaseUnit: true,
+      stockOnHand: true,
+      barcode: true,
+      isActive: true,
+      lastCountDate: true,
+      lastCountQty: true,
+      location: true,
+    },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
 
@@ -38,7 +60,7 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, kpiSheet, 'KPI Summary')
 
   // Inventory sheet
-  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Purchase Unit', 'Qty/Purchase Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
+  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Purchase Unit', 'Qty/Purchase Unit', 'Qty UOM', 'Price Type', 'Pack Size', 'Pack UOM', 'Count UOM', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
   const rows = items.map(item => {
     const stockValue = parseFloat(item.stockOnHand.toString()) * parseFloat(item.pricePerBaseUnit.toString())
     return [
@@ -48,12 +70,18 @@ export async function GET() {
       item.storageArea?.name || '',
       item.purchaseUnit,
       parseFloat(item.qtyPerPurchaseUnit.toString()),
+      item.qtyUOM,
+      item.priceType,
+      parseFloat(item.packSize.toString()),
+      item.packUOM,
+      item.countUOM,
       parseFloat(item.purchasePrice.toString()),
       item.baseUnit,
       parseFloat(item.conversionFactor.toString()),
       parseFloat(item.pricePerBaseUnit.toString()),
       parseFloat(item.stockOnHand.toString()),
       stockValue,
+      item.barcode || '',
       item.isActive ? 'Yes' : 'No',
       item.lastCountDate ? new Date(item.lastCountDate).toLocaleDateString() : '',
       item.lastCountQty ? parseFloat(item.lastCountQty.toString()) : '',
