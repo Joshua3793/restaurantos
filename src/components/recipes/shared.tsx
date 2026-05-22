@@ -804,7 +804,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
       <div className="col-span-2 text-right text-sm font-medium text-gray-800">{formatCurrency(displayCost)}</div>
 
-      <div className="col-span-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+      <div className="col-span-1 flex items-center gap-0.5">
         <div className="flex flex-col">
           <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronUp size={10} /></button>
           <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronDown size={10} /></button>
