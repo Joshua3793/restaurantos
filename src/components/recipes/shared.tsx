@@ -836,6 +836,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const [editingItem, setEditingItem] = useState<{ inventoryItemId: string } | { linkedRecipeId: string } | null>(null)
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+  const dirtyRef = useRef(false)
 
   const load = useCallback(async () => {
     const data = await fetch(`/api/recipes/${recipeId}`).then(r => r.json())
@@ -860,8 +861,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
   const patchRecipe = async (data: Record<string, unknown>) => {
     setSaving(true)
-    await fetch(`/api/recipes/${recipeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    await load(); onUpdated(); setSaving(false)
+    const res = await fetch(`/api/recipes/${recipeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    const updated = await res.json()
+    setRecipe(updated)
+    dirtyRef.current = true
+    setSaving(false)
   }
 
   const addIngredient = async (item: IngredientSearchResult) => {
@@ -869,17 +873,28 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 0, unit: item.unit }),
     })
-    await load(); onUpdated(); setShowSearch(false); setSearchQ(''); setSearchResults([])
+    await load()
+    dirtyRef.current = true
+    setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
 
   const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
-    await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    await load(); onUpdated()
+    const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    const updated = await res.json()
+    setRecipe(updated)
+    dirtyRef.current = true
   }
 
   const deleteIngredient = async (ingId: string) => {
-    await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
-    await load(); onUpdated()
+    const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
+    const updated = await res.json()
+    setRecipe(updated)
+    dirtyRef.current = true
+  }
+
+  const handleClose = () => {
+    if (dirtyRef.current) onUpdated()
+    onClose()
   }
 
   const saveScale = async () => {
@@ -903,13 +918,13 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
   return (
     <div className="fixed inset-0 z-[60] flex">
-      <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={handleClose} />
       <div className="w-full md:w-[640px] bg-white h-full overflow-y-auto flex flex-col shadow-2xl">
         <div
           className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10"
           style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
         >
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><ArrowLeft size={20} /></button>
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600"><ArrowLeft size={20} /></button>
           <div className="flex-1 min-w-0">
             <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-lg font-bold text-gray-900" />
             <div className="flex items-center gap-2 mt-0.5">
@@ -1176,14 +1191,14 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
         <InventoryQuickEdit
           inventoryItemId={(editingItem as { inventoryItemId: string }).inventoryItemId}
           onClose={() => setEditingItem(null)}
-          onSaved={async () => { setEditingItem(null); await load(); onUpdated() }}
+          onSaved={async () => { setEditingItem(null); await load(); dirtyRef.current = true }}
         />
       )}
       {'linkedRecipeId' in (editingItem ?? {}) && (editingItem as { linkedRecipeId: string })?.linkedRecipeId && (
         <PrepRecipeModal
           linkedRecipeId={(editingItem as { linkedRecipeId: string }).linkedRecipeId}
           onClose={() => setEditingItem(null)}
-          onUpdated={async () => { await load(); onUpdated() }}
+          onUpdated={async () => { await load(); dirtyRef.current = true }}
         />
       )}
     </div>
