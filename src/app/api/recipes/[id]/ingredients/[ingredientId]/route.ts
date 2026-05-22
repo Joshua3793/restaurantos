@@ -9,7 +9,7 @@ export async function PATCH(
   { params }: { params: { id: string; ingredientId: string } }
 ) {
   const body = await req.json()
-  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId } = body
+  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId } = body
 
   await prisma.recipeIngredient.update({
     where: { id: params.ingredientId },
@@ -19,13 +19,16 @@ export async function PATCH(
       ...(notes !== undefined ? { notes } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),
-      ...(inventoryItemId !== undefined ? { inventoryItemId, linkedRecipeId: null } : {}),
+      // Substituting with an inventory item — clears linkedRecipeId
+      ...(inventoryItemId !== undefined && linkedRecipeId === undefined ? { inventoryItemId, linkedRecipeId: null } : {}),
+      // Substituting with a linked recipe — clears inventoryItemId
+      ...(linkedRecipeId !== undefined ? { linkedRecipeId, inventoryItemId: null } : {}),
     },
   })
 
   // Fire sync in background — don't block the response.
   // The client already shows the correct cost via optimistic update.
-  const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined
+  const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined || linkedRecipeId !== undefined
   if (costAffecting) syncPrepToInventory(params.id).catch(console.error)
 
   return NextResponse.json({ ok: true })

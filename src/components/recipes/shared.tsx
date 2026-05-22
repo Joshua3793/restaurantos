@@ -705,7 +705,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
 }
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
-const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onEditItem }: {
+const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute }: {
   ing: IngredientWithCost
   scaleFactor: number
   canMoveUp: boolean
@@ -714,7 +714,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   onDelete: (ingId: string) => void
   onMoveUp: () => void
   onMoveDown: () => void
-  onEditItem: () => void
+  onSubstitute: (ingId: string, item: IngredientSearchResult) => void
 }) {
   const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
@@ -722,9 +722,43 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   const [unit, setUnit] = useState(ing.unit)
   const [pct, setPct] = useState(ing.recipePercent !== null ? String(ing.recipePercent) : '')
 
+  // Substitute-mode state (inline search)
+  const [substituting, setSubstituting] = useState(false)
+  const [subQ, setSubQ] = useState('')
+  const [subResults, setSubResults] = useState<IngredientSearchResult[]>([])
+  const subTimer = useRef<ReturnType<typeof setTimeout>>()
+  const subInputRef = useRef<HTMLInputElement>(null)
+  const subRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => { setQty(ing.qtyBase === 0 ? '' : String(ing.qtyBase)) }, [ing.qtyBase])
   useEffect(() => { setUnit(ing.unit) }, [ing.unit])
   useEffect(() => { setPct(ing.recipePercent !== null ? String(ing.recipePercent) : '') }, [ing.recipePercent])
+
+  // Auto-focus search input when substituting mode opens
+  useEffect(() => { if (substituting) subInputRef.current?.focus() }, [substituting])
+
+  // Close substitute dropdown on outside click
+  useEffect(() => {
+    if (!substituting) return
+    const handler = (e: MouseEvent) => {
+      if (subRef.current && !subRef.current.contains(e.target as Node)) {
+        setSubstituting(false); setSubQ(''); setSubResults([])
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [substituting])
+
+  const doSubSearch = async (q: string) => {
+    if (!q.trim()) { setSubResults([]); return }
+    const data: IngredientSearchResult[] = await fetch(`/api/recipes/search-ingredients?q=${encodeURIComponent(q)}`).then(r => r.json())
+    setSubResults(data)
+  }
+
+  const pickSubstitute = (item: IngredientSearchResult) => {
+    setSubstituting(false); setSubQ(''); setSubResults([])
+    onSubstitute(ing.id, item)
+  }
 
   const saveQty = () => { setEditingQty(false); if (qty !== String(ing.qtyBase)) onUpdate(ing.id, { qtyBase: qty, unit }) }
   const saveUnit = (newUnit: string) => { setUnit(newUnit); onUpdate(ing.id, { qtyBase: qty, unit: newUnit }) }
@@ -740,77 +774,117 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   const displayCost = ing.lineCost * scaleFactor
 
   // Only show units that are compatible with the ingredient's inventory base unit.
-  // e.g. parsley is measured in 'g' → only Weight units are valid (g, kg, oz, lb, mg).
-  // Falls back to all groups if the base unit is unknown (e.g. custom/recipe units).
   const baseUnitGroup = getUnitGroup(ing.ingredientBaseUnit)
   const compatibleGroups = baseUnitGroup
     ? UOM_GROUPS.filter(g => g.label === baseUnitGroup)
     : UOM_GROUPS
 
   return (
-    <div className="grid grid-cols-12 gap-2 px-3 py-2 items-center border-t border-gray-50 hover:bg-gray-50 group">
-      <div className="col-span-4 flex items-center gap-1.5 min-w-0">
-        {ing.ingredientType === 'recipe'
-          ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
-          : <Package size={11} className="text-blue-500 shrink-0" />
-        }
-        <button
-          onClick={onEditItem}
-          title={`Quick-edit ${ing.ingredientName}`}
-          className="text-sm text-gray-800 text-left hover:text-gold group/name flex items-start gap-1 min-w-0"
-        >
-          <span className="line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
-          <Pencil size={10} className="shrink-0 opacity-0 group-hover/name:opacity-50 text-blue-500 transition-opacity mt-0.5" />
-        </button>
-      </div>
-
-      <div className="col-span-1 text-center">
-        {editingPct ? (
-          <input type="number" value={pct} onChange={e => setPct(e.target.value)} onBlur={savePct}
-            onKeyDown={e => e.key === 'Enter' && savePct()} placeholder="0"
-            className="w-full text-center border border-blue-300 rounded px-0.5 py-0.5 text-xs text-gray-900 focus:outline-none" autoFocus />
-        ) : (
-          <span onClick={() => setEditingPct(true)} className={`text-xs cursor-pointer rounded px-0.5 ${
-            ing.recipePercent !== null ? 'font-semibold text-indigo-600 hover:text-indigo-800' : 'text-gray-300 hover:text-gray-500'
-          }`}>
-            {ing.recipePercent !== null ? `${ing.recipePercent}%` : '—'}
-          </span>
-        )}
-      </div>
-
-      <div className="col-span-2 text-right">
-        {editingQty ? (
-          <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
-            onKeyDown={e => e.key === 'Enter' && saveQty()}
-            className="w-full text-right border border-blue-300 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none" autoFocus />
-        ) : (
-          <span onClick={() => setEditingQty(true)} className="text-sm text-gray-800 cursor-pointer hover:text-gold">
-            {Number(displayQty.toFixed(3)).toString()}
-          </span>
-        )}
-      </div>
-
-      <div className="col-span-2">
-        <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
-          {!unitInList && <option value="__custom__">{unit}</option>}
-          {compatibleGroups.map(group => (
-            <optgroup key={group.label} label={group.label}>
-              {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-
-      <div className="col-span-2 text-right text-sm font-medium text-gray-800">{formatCurrency(displayCost)}</div>
-
-      <div className="col-span-1 flex items-center gap-0.5">
-        <div className="flex flex-col">
-          <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronUp size={10} /></button>
-          <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronDown size={10} /></button>
+    <div className="border-t border-gray-50">
+      <div className="grid grid-cols-12 gap-2 px-3 py-2 items-center hover:bg-gray-50 group">
+        <div className="col-span-4 flex items-center gap-1.5 min-w-0">
+          {ing.ingredientType === 'recipe'
+            ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
+            : <Package size={11} className="text-blue-500 shrink-0" />
+          }
+          <span className="text-sm text-gray-800 line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
         </div>
-        <button onClick={() => onDelete(ing.id)} className="text-gray-300 hover:text-red-500 ml-0.5"><Trash2 size={12} /></button>
+
+        <div className="col-span-1 text-center">
+          {editingPct ? (
+            <input type="number" value={pct} onChange={e => setPct(e.target.value)} onBlur={savePct}
+              onKeyDown={e => e.key === 'Enter' && savePct()} placeholder="0"
+              className="w-full text-center border border-blue-300 rounded px-0.5 py-0.5 text-xs text-gray-900 focus:outline-none" autoFocus />
+          ) : (
+            <span onClick={() => setEditingPct(true)} className={`text-xs cursor-pointer rounded px-0.5 ${
+              ing.recipePercent !== null ? 'font-semibold text-indigo-600 hover:text-indigo-800' : 'text-gray-300 hover:text-gray-500'
+            }`}>
+              {ing.recipePercent !== null ? `${ing.recipePercent}%` : '—'}
+            </span>
+          )}
+        </div>
+
+        <div className="col-span-2 text-right">
+          {editingQty ? (
+            <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
+              onKeyDown={e => e.key === 'Enter' && saveQty()}
+              className="w-full text-right border border-blue-300 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none" autoFocus />
+          ) : (
+            <span onClick={() => setEditingQty(true)} className="text-sm text-gray-800 cursor-pointer hover:text-gold">
+              {Number(displayQty.toFixed(3)).toString()}
+            </span>
+          )}
+        </div>
+
+        <div className="col-span-2">
+          <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
+            className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
+            {!unitInList && <option value="__custom__">{unit}</option>}
+            {compatibleGroups.map(group => (
+              <optgroup key={group.label} label={group.label}>
+                {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
+        <div className="col-span-2 text-right text-sm font-medium text-gray-800">{formatCurrency(displayCost)}</div>
+
+        <div className="col-span-1 flex items-center gap-0.5">
+          <div className="flex flex-col">
+            <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronUp size={10} /></button>
+            <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronDown size={10} /></button>
+          </div>
+          <button
+            onClick={() => setSubstituting(s => !s)}
+            title="Substitute ingredient"
+            className={`ml-0.5 transition-colors ${substituting ? 'text-blue-500' : 'text-gray-300 hover:text-blue-500'}`}
+          >
+            <Pencil size={12} />
+          </button>
+          <button onClick={() => onDelete(ing.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>
+        </div>
       </div>
+
+      {/* Inline substitute search */}
+      {substituting && (
+        <div ref={subRef} className="relative px-3 pb-2">
+          <div className="flex items-center gap-2 border border-blue-300 rounded-lg px-2 py-1.5 bg-blue-50">
+            <Search size={13} className="text-blue-400 shrink-0" />
+            <input
+              ref={subInputRef}
+              value={subQ}
+              onChange={e => {
+                setSubQ(e.target.value)
+                clearTimeout(subTimer.current)
+                subTimer.current = setTimeout(() => doSubSearch(e.target.value), 300)
+              }}
+              onKeyDown={e => { if (e.key === 'Escape') { setSubstituting(false); setSubQ(''); setSubResults([]) } }}
+              placeholder={`Replace "${ing.ingredientName}" with…`}
+              className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
+            />
+            <button onClick={() => { setSubstituting(false); setSubQ(''); setSubResults([]) }} className="text-gray-400 hover:text-gray-600">
+              <X size={13} />
+            </button>
+          </div>
+          {subResults.length > 0 && (
+            <div className="absolute left-3 right-3 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto">
+              {subResults.map(item => (
+                <button key={`${item.type}-${item.id}`} onClick={() => pickSubstitute(item)}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 text-left text-sm">
+                  {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue-500 shrink-0" />}
+                  <span className="flex-1 text-gray-800">{item.name}</span>
+                  <span className="text-xs text-gray-400">{item.unit}</span>
+                  <span className="text-xs text-gray-500">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
+                    {item.type === 'recipe' ? 'PREP' : item.category}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 })
@@ -833,7 +907,6 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const [saving, setSaving] = useState(false)
   const [showSaveScale, setShowSaveScale] = useState(false)
   const [newScaleName, setNewScaleName] = useState('')
-  const [editingItem, setEditingItem] = useState<{ inventoryItemId: string } | { linkedRecipeId: string } | null>(null)
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const dirtyRef = useRef(false)
@@ -962,6 +1035,42 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
     if (res.ok) dirtyRef.current = true
   }, [recipeId])
+
+  const substituteIngredient = useCallback(async (ingId: string, item: IngredientSearchResult) => {
+    // Optimistic: update name, type, and zero the cost (server will recalculate)
+    setRecipe(prev => {
+      if (!prev) return prev
+      const updatedIngredients = prev.ingredients.map(ing => {
+        if (ing.id !== ingId) return ing
+        return {
+          ...ing,
+          ingredientName: item.name,
+          ingredientType: item.type,
+          inventoryItemId: item.type === 'inventory' ? item.id : null,
+          linkedRecipeId: item.type === 'recipe' ? item.id : null,
+          pricePerBaseUnit: item.pricePerBaseUnit,
+          ingredientBaseUnit: item.unit,
+          lineCost: 0,
+        }
+      })
+      const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
+      return { ...prev, ingredients: updatedIngredients, totalCost }
+    })
+
+    const body = item.type === 'inventory'
+      ? { inventoryItemId: item.id }
+      : { linkedRecipeId: item.id }
+
+    const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      dirtyRef.current = true
+      // Reload to get accurate cost after substitution
+      await load()
+    }
+  }, [recipeId, load])
 
   const handleClose = () => {
     if (dirtyRef.current) onUpdated()
@@ -1193,10 +1302,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                     updateIngredient(ing.id, { sortOrder: next.sortOrder })
                     updateIngredient(next.id, { sortOrder: ing.sortOrder })
                   }}
-                  onEditItem={() => {
-                    if (ing.linkedRecipeId) setEditingItem({ linkedRecipeId: ing.linkedRecipeId })
-                    else if (ing.inventoryItemId) setEditingItem({ inventoryItemId: ing.inventoryItemId })
-                  }}
+                  onSubstitute={substituteIngredient}
                 />
               ))}
             </div>
@@ -1281,21 +1387,6 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
         </div>
       </div>
 
-      {/* ── Quick-edit overlays ───────────────────────────────────────────── */}
-      {'inventoryItemId' in (editingItem ?? {}) && (editingItem as { inventoryItemId: string })?.inventoryItemId && (
-        <InventoryQuickEdit
-          inventoryItemId={(editingItem as { inventoryItemId: string }).inventoryItemId}
-          onClose={() => setEditingItem(null)}
-          onSaved={async () => { setEditingItem(null); await load(); dirtyRef.current = true }}
-        />
-      )}
-      {'linkedRecipeId' in (editingItem ?? {}) && (editingItem as { linkedRecipeId: string })?.linkedRecipeId && (
-        <PrepRecipeModal
-          linkedRecipeId={(editingItem as { linkedRecipeId: string }).linkedRecipeId}
-          onClose={() => setEditingItem(null)}
-          onUpdated={async () => { await load(); dirtyRef.current = true }}
-        />
-      )}
     </div>
   )
 }
