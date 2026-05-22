@@ -120,16 +120,17 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 pb-4 shrink-0">
           <h3 className="text-base font-bold text-gray-900">
             {supplier ? 'Edit Supplier' : 'Add Supplier'}
           </h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100">
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">
             <X size={16} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="space-y-3 px-6 flex-1 overflow-y-auto">
           {fields.map(f => (
             <div key={f.key}>
               <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -186,7 +187,9 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          <div className="flex gap-2 pt-2">
+          </div>
+
+          <div className="flex gap-2 p-6 pt-4 border-t border-gray-100 shrink-0">
             <button
               type="button"
               onClick={onClose}

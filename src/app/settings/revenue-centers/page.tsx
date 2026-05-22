@@ -83,7 +83,7 @@ function RcFormModal({
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto">
           <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-gray-100">
             <h3 className="font-semibold text-gray-900">
@@ -208,7 +208,7 @@ function RcFormModal({
 
             {error && <p className="text-xs text-red-500">{error}</p>}
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-1 pb-[env(safe-area-inset-bottom)]">
               <button
                 type="submit"
                 disabled={saving}

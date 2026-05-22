@@ -332,7 +332,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
@@ -455,7 +455,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
           </div>
 
           {/* Footer */}
-          <div className="px-5 pb-5 pt-3 border-t border-gray-100 shrink-0 flex gap-3">
+          <div className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 border-t border-gray-100 shrink-0 flex gap-3">
             <button type="button" onClick={onCancel}
               className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
               Cancel
@@ -581,7 +581,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
   const unmatched = parsed?.items.filter(i => (overrides[i.rawName] ?? i.matchedRecipeId) === null) ?? []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
 
         {/* Header */}
@@ -770,7 +770,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
             </div>
 
             {/* Footer */}
-            <div className="px-5 pb-5 pt-3 border-t border-gray-100 shrink-0 flex gap-3">
+            <div className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 border-t border-gray-100 shrink-0 flex gap-3">
               <button onClick={() => setStep('upload')} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 ← Back
               </button>

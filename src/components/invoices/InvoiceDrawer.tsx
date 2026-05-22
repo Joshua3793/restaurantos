@@ -131,7 +131,7 @@ function AddItemModal({
               <h3 className="font-semibold text-gray-900">Add Line Item</h3>
               <p className="text-xs text-gray-400 mt-0.5">Manually add a missing item to this invoice</p>
             </div>
-            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={18} /></button>
           </div>
 
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -1378,7 +1378,7 @@ function ItemDetailPanel({
             </p>
             <h3 className="font-semibold text-gray-900 text-sm truncate mt-0.5">{item.rawDescription}</h3>
           </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600">
             <X size={18} />
           </button>
         </div>
@@ -1645,7 +1645,7 @@ function ItemDetailPanel({
         )}
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 flex gap-2">
+        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
           {isNew && (
             <button
               onClick={() => {
@@ -1830,7 +1830,7 @@ function InventoryEditModal({
             <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Edit Inventory Item</p>
             <h3 className="font-semibold text-gray-900 text-sm mt-0.5 truncate">{form.itemName || '…'}</h3>
           </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
         {loading ? (
@@ -1928,7 +1928,7 @@ function InventoryEditModal({
         )}
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 flex gap-2">
+        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
           <button
             onClick={handleSave}
             disabled={saving || loading}
@@ -3160,7 +3160,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         </div>
 
         {/* Sticky approve bar */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 flex flex-col sm:flex-row items-center gap-3">
+        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex flex-col sm:flex-row items-center gap-3">
           <div className="flex-1 flex items-center gap-2 flex-wrap">
             <span className="text-sm text-gray-500">{activeItems} items to apply</span>
             {actionCounts['UPDATE_PRICE'] > 0 && (
@@ -3496,7 +3496,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-gray-900">Create New Supplier</h3>
-              <button onClick={() => setCreateSupplierOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100">
+              <button onClick={() => setCreateSupplierOpen(false)} className="p-2.5 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">
                 <X size={14} />
               </button>
             </div>
@@ -3587,7 +3587,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
       {/* Mobile: bottom sheet */}
       <div
-        className="sm:hidden fixed inset-0 z-50 flex items-end"
+        className="sm:hidden fixed inset-0 z-[60] flex items-end"
         style={{ pointerEvents: open ? 'auto' : 'none' }}
       >
         <div
@@ -3604,7 +3604,10 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           </div>
 
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+          <div
+            className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0"
+            style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+          >
             <div className="flex items-center gap-2">
               <ScanLine size={16} className="text-gold" />
               <span className="font-semibold text-gray-900 text-sm">
@@ -3615,7 +3618,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   : 'Loading…'}
               </span>
             </div>
-            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600">
+            <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600">
               <X size={16} />
             </button>
           </div>

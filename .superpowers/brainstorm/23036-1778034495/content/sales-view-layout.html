@@ -1,0 +1,97 @@
+<h2>Sales Page — Day / Week / Month View</h2>
+<p class="subtitle">How should the three views be structured? Pick the layout that feels right.</p>
+
+<div class="cards">
+
+  <!-- Option A: Tabs -->
+  <div class="card" data-choice="tabs" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f9fafb;padding:16px;border-radius:8px;">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div style="background:#B8953F;color:white;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:600;">Day</div>
+        <div style="background:white;border:1px solid #e5e7eb;color:#6b7280;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:600;">Week</div>
+        <div style="background:white;border:1px solid #e5e7eb;color:#6b7280;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:600;">Month</div>
+      </div>
+      <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;padding:8px 12px;background:#f9fafb;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">
+          <span>Date</span><span>Revenue</span><span>Food Sales</span><span>Status</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #f3f4f6;font-size:11px;color:#111827;">
+          <span>Mon May 5</span><span>$4,210</span><span>$2,890</span><span style="color:#16a34a;font-size:10px;font-weight:600;">✓</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #f3f4f6;font-size:11px;color:#111827;">
+          <span>Tue May 6</span><span>$3,950</span><span>$2,640</span><span style="color:#16a34a;font-size:10px;font-weight:600;">✓</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #f3f4f6;font-size:11px;color:#9ca3af;font-style:italic;">
+          <span>Wed May 7</span><span>—</span><span>—</span><span style="color:#f59e0b;font-size:10px;font-weight:600;">Missing</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #f3f4f6;font-size:11px;color:#111827;">
+          <span>Thu May 8</span><span>$5,100</span><span>$3,400</span><span style="color:#16a34a;font-size:10px;font-weight:600;">✓</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Tabs (Day / Week / Month)</h3>
+      <p>Switch between three separate views with tab buttons. Each view shows entries at that granularity. Clean, focused — one mode at a time.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Grouped accordion -->
+  <div class="card" data-choice="accordion" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f9fafb;padding:16px;border-radius:8px;">
+      <!-- Month header -->
+      <div style="background:#1f2937;color:white;padding:8px 12px;border-radius:8px 8px 0 0;font-size:12px;font-weight:700;display:flex;justify-content:space-between;">
+        <span>May 2026</span><span>$58,400 total ▾</span>
+      </div>
+      <!-- Week row -->
+      <div style="background:#f3f4f6;padding:6px 12px 6px 24px;border-left:3px solid #B8953F;margin-top:2px;font-size:11px;display:flex;justify-content:space-between;color:#374151;">
+        <span>Week May 5–11</span><span style="color:#6b7280;">$27,200 (4/7 days)</span>
+      </div>
+      <!-- Day rows indented -->
+      <div style="padding:4px 12px 4px 40px;font-size:10px;display:flex;justify-content:space-between;color:#6b7280;border-left:1px solid #e5e7eb;margin-left:24px;">
+        <span>Mon May 5</span><span>$4,210</span>
+      </div>
+      <div style="padding:4px 12px 4px 40px;font-size:10px;display:flex;justify-content:space-between;color:#6b7280;border-left:1px solid #e5e7eb;margin-left:24px;">
+        <span>Tue May 6</span><span>$3,950</span>
+      </div>
+      <div style="padding:4px 12px 4px 40px;font-size:10px;display:flex;justify-content:space-between;color:#f59e0b;border-left:1px solid #e5e7eb;margin-left:24px;font-style:italic;">
+        <span>Wed May 7</span><span>Missing</span>
+      </div>
+      <div style="background:#f3f4f6;padding:6px 12px 6px 24px;border-left:3px solid #B8953F;margin-top:2px;font-size:11px;display:flex;justify-content:space-between;color:#374151;">
+        <span>Week May 12–18</span><span style="color:#6b7280;">$31,200 (7/7 days)</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Nested (Month → Week → Day)</h3>
+      <p>One continuous list grouped by month and week. Collapse/expand each level. Always see the hierarchy — good for spotting which weeks are complete vs partial.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Split panel -->
+  <div class="card" data-choice="split" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f9fafb;padding:16px;border-radius:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div>
+        <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Weekly Summary</div>
+        <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:8px;">
+          <div style="font-size:11px;font-weight:600;color:#111827;">Week May 5–11</div>
+          <div style="font-size:18px;font-weight:700;color:#B8953F;margin:4px 0;">$27,200</div>
+          <div style="font-size:10px;color:#6b7280;">4 of 7 days recorded</div>
+          <div style="background:#fef3c7;border-radius:4px;padding:3px 6px;font-size:10px;color:#92400e;margin-top:4px;display:inline-block;">Partial week</div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Daily Detail</div>
+        <div style="font-size:10px;color:#6b7280;line-height:1.8;">
+          <div style="display:flex;justify-content:space-between;"><span>Mon</span><span>$4,210</span></div>
+          <div style="display:flex;justify-content:space-between;"><span>Tue</span><span>$3,950</span></div>
+          <div style="display:flex;justify-content:space-between;color:#f59e0b;font-style:italic;"><span>Wed</span><span>—</span></div>
+          <div style="display:flex;justify-content:space-between;"><span>Thu</span><span>$5,100</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Split Panel (summary + detail)</h3>
+      <p>Left side shows weekly/monthly summary card; right side shows the days within that period. Good for drilling down without switching views.</p>
+    </div>
+  </div>
+
+</div>

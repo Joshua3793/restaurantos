@@ -80,7 +80,7 @@ export function PullModal({ item, revenueCenters, activeRcId, onClose, onSuccess
             <h3 className="font-semibold text-gray-900">Pull Stock</h3>
             <p className="text-sm text-gray-500 mt-0.5">{item.itemName}</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100">
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center rounded-lg hover:bg-gray-100">
             <X size={18} className="text-gray-400" />
           </button>
         </div>

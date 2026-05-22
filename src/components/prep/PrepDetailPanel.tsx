@@ -153,7 +153,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
               {item.station && <span className="text-xs text-gray-400">{item.station}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="shrink-0 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
+          <button onClick={onClose} className="shrink-0 p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
             <X size={18} />
           </button>
         </div>

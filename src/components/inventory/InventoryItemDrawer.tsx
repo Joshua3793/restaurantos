@@ -310,7 +310,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
         ) : (
           <>
             {/* Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between gap-2">
+            <div
+              className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between gap-2"
+              style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+            >
               <div className="flex-1 min-w-0">
                 {editMode ? (
                   <input
@@ -344,7 +347,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
                     <Pencil size={12} /> Edit
                   </button>
                 )}
-                <button onClick={onClose}><X size={20} className="text-gray-400" /></button>
+                <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={20} /></button>
               </div>
             </div>
 

@@ -157,13 +157,13 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
       aria-labelledby="prep-settings-title"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
           <div>
             <h2 id="prep-settings-title" className="font-semibold text-gray-900">Prep Settings</h2>
             <p className="text-xs text-gray-400 mt-0.5">Categories come from Recipe Book — only stations are configurable here.</p>
           </div>
-          <button onClick={onClose} disabled={saving} aria-label="Close" className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-50">
+          <button onClick={onClose} disabled={saving} aria-label="Close" className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600 disabled:opacity-50">
             <X size={18} />
           </button>
         </div>
@@ -173,21 +173,23 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gold" />
           </div>
         ) : (
-          <div className="p-5 space-y-6">
-            <ListEditor
-              label="Stations"
-              items={stations}
-              onUpdate={updateStation}
-              onRemove={removeStation}
-              newValue={newStation}
-              onNewValueChange={setNewStation}
-              onAdd={addStation}
-              addPlaceholder="Add station…"
-            />
+          <>
+            <div className="p-5 space-y-6 flex-1 overflow-y-auto">
+              <ListEditor
+                label="Stations"
+                items={stations}
+                onUpdate={updateStation}
+                onRemove={removeStation}
+                newValue={newStation}
+                onNewValueChange={setNewStation}
+                onAdd={addStation}
+                addPlaceholder="Add station…"
+              />
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p className="text-sm text-red-600">{error}</p>}
+            </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 p-5 border-t border-gray-100 shrink-0">
               <button type="button" onClick={onClose} disabled={saving}
                 className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
                 Cancel
@@ -197,7 +199,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>

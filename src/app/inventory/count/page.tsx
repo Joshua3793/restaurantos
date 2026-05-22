@@ -771,7 +771,7 @@ export default function CountPage() {
           <div className="flex-1 px-4 pt-6 pb-48">
             {NewSessionFields}
           </div>
-          <div className="fixed bottom-20 inset-x-0 bg-white border-t border-gray-100 px-4 py-4 flex gap-3 z-40">
+          <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] inset-x-0 bg-white border-t border-gray-100 px-4 py-4 flex gap-3 z-[60]">
             <button type="button" onClick={cancelNew}
               className="flex-1 py-3.5 border border-gray-200 rounded-2xl text-sm font-medium text-gray-700 hover:bg-gray-50">
               Cancel

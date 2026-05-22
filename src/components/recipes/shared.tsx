@@ -902,10 +902,13 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const margin = recipe.menuPrice !== null ? recipe.menuPrice - recipe.totalCost : null
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-[60] flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div className="w-full md:w-[640px] bg-white h-full overflow-y-auto flex flex-col shadow-2xl">
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10">
+        <div
+          className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10"
+          style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+        >
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><ArrowLeft size={20} /></button>
           <div className="flex-1 min-w-0">
             <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-lg font-bold text-gray-900" />
@@ -1327,7 +1330,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-gray-100 shrink-0">
+            <div className="px-5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t border-gray-100 shrink-0">
               <button onClick={onClose} className="w-full border border-gray-200 rounded-xl py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
                 Done
               </button>
