@@ -10,10 +10,11 @@ import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
+import { InventoryImportModal } from '@/components/inventory/InventoryImportModal'
 import {
   Search, Plus, X, Download, Loader2,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
-  ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy,
+  ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy, UploadCloud,
 } from 'lucide-react'
 
 interface StorageArea { id: string; name: string }
@@ -230,6 +231,7 @@ function InventoryPageInner() {
   const [activePill,   setActivePill]   = useState<FilterPill>('all')
   const [selected,     setSelected]     = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
+  const [showImport,   setShowImport]   = useState(false)
   const [form,         setForm]         = useState(defaultForm)
   const [checkedIds,   setCheckedIds]   = useState<Set<string>>(new Set())
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set())
@@ -766,6 +768,12 @@ function InventoryPageInner() {
             <ShoppingCart size={15} /> Order List
           </button>
           <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+          >
+            <UploadCloud size={15} /> Import
+          </button>
+          <button
             onClick={() => window.location.href = '/api/inventory/export'}
             className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
           >
@@ -862,6 +870,14 @@ function InventoryPageInner() {
             ▽ Filter{(catFilter || supplierFilter || areaFilter) ? ' ·' : ''}
           </button>
           <div className="flex-1" />
+          {/* Import CSV */}
+          <button
+            onClick={() => setShowImport(true)}
+            title="Import CSV"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50"
+          >
+            <UploadCloud size={11} /> Import
+          </button>
           {/* Export CSV */}
           <button
             onClick={() => { window.location.href = '/api/inventory/export' }}
@@ -1451,6 +1467,14 @@ function InventoryPageInner() {
           ))}
           onClose={() => setShowBulkAllergen(false)}
           onApply={executeBulkAllergen}
+        />
+      )}
+
+      {/* Import Modal */}
+      {showImport && (
+        <InventoryImportModal
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); fetchItems() }}
         />
       )}
 
