@@ -201,12 +201,14 @@ export function parseImportFile(buffer: Buffer): RawRow[] {
   })
   if (matrix.length === 0) throw new Error('The file is empty')
 
-  const header = (matrix[0] as unknown[]).map(h => String(h ?? '').trim())
-  const missing = IMPORT_HEADERS.filter(h => !header.includes(h))
+  const headerRaw = (matrix[0] as unknown[]).map(h => String(h ?? '').trim())
+  const headerLower = headerRaw.map(h => h.toLowerCase())
+  const importHeadersLower = IMPORT_HEADERS.map(h => h.toLowerCase())
+  const missing = IMPORT_HEADERS.filter((_, i) => !headerLower.includes(importHeadersLower[i]))
   if (missing.length > 0) {
     throw new Error(`Missing required columns: ${missing.join(', ')}`)
   }
-  const colIndex = (name: string) => header.indexOf(name)
+  const colIndex = (name: string) => headerLower.indexOf(name.toLowerCase())
 
   const rows: RawRow[] = []
   for (let i = 1; i < matrix.length; i++) {
@@ -214,7 +216,7 @@ export function parseImportFile(buffer: Buffer): RawRow[] {
     const cell = (name: string) => String(r[colIndex(name)] ?? '').trim()
     if (IMPORT_HEADERS.every(h => cell(h) === '')) continue   // skip blank rows
     rows.push({
-      rowNumber: i,
+      rowNumber: i + 1,
       itemName: cell('Item Name'),
       purchasePrice: cell('Purchase Price'),
       priceBasis: cell('Price Basis'),
@@ -281,15 +283,24 @@ export function validateRows(rows: RawRow[], existingNamesLower: Set<string>): I
     }
     seenInFile.add(nameLower)
 
-    const payload = mapRowToPayload(row)
-    reports.push({
-      rowNumber: row.rowNumber,
-      itemName: name,
-      status: 'valid',
-      errors: [],
-      payload,
-      computed: { pricePerBaseUnit: payload.pricePerBaseUnit, baseUnit: payload.baseUnit },
-    })
+    try {
+      const payload = mapRowToPayload(row)
+      reports.push({
+        rowNumber: row.rowNumber,
+        itemName: name,
+        status: 'valid',
+        errors: [],
+        payload,
+        computed: { pricePerBaseUnit: payload.pricePerBaseUnit, baseUnit: payload.baseUnit },
+      })
+    } catch (e) {
+      reports.push({
+        rowNumber: row.rowNumber,
+        itemName: name,
+        status: 'error',
+        errors: [e instanceof Error ? e.message : 'Could not compute pricing for this row'],
+      })
+    }
   }
 
   return {
