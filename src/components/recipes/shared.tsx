@@ -861,11 +861,16 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
   const patchRecipe = async (data: Record<string, unknown>) => {
     setSaving(true)
-    const res = await fetch(`/api/recipes/${recipeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    const updated = await res.json()
-    setRecipe(updated)
-    dirtyRef.current = true
-    setSaving(false)
+    try {
+      const res = await fetch(`/api/recipes/${recipeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+      if (res.ok) {
+        const updated = await res.json()
+        setRecipe(updated)
+        dirtyRef.current = true
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   const addIngredient = async (item: IngredientSearchResult) => {
@@ -873,6 +878,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 0, unit: item.unit }),
     })
+    // POST returns only the created ingredient, not the full recipe — must re-fetch
     await load()
     dirtyRef.current = true
     setShowSearch(false); setSearchQ(''); setSearchResults([])
@@ -880,16 +886,20 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
   const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-    const updated = await res.json()
-    setRecipe(updated)
-    dirtyRef.current = true
+    if (res.ok) {
+      const updated = await res.json()
+      setRecipe(updated)
+      dirtyRef.current = true
+    }
   }
 
   const deleteIngredient = async (ingId: string) => {
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
-    const updated = await res.json()
-    setRecipe(updated)
-    dirtyRef.current = true
+    if (res.ok) {
+      const updated = await res.json()
+      setRecipe(updated)
+      dirtyRef.current = true
+    }
   }
 
   const handleClose = () => {
