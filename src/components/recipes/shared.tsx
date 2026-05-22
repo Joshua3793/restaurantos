@@ -710,8 +710,8 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   scaleFactor: number
   canMoveUp: boolean
   canMoveDown: boolean
-  onUpdate: (data: Record<string, unknown>) => void
-  onDelete: () => void
+  onUpdate: (ingId: string, data: Record<string, unknown>) => void
+  onDelete: (ingId: string) => void
   onMoveUp: () => void
   onMoveDown: () => void
   onEditItem: () => void
@@ -726,12 +726,12 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   useEffect(() => { setUnit(ing.unit) }, [ing.unit])
   useEffect(() => { setPct(ing.recipePercent !== null ? String(ing.recipePercent) : '') }, [ing.recipePercent])
 
-  const saveQty = () => { setEditingQty(false); if (qty !== String(ing.qtyBase)) onUpdate({ qtyBase: qty, unit }) }
-  const saveUnit = (newUnit: string) => { setUnit(newUnit); onUpdate({ qtyBase: qty, unit: newUnit }) }
+  const saveQty = () => { setEditingQty(false); if (qty !== String(ing.qtyBase)) onUpdate(ing.id, { qtyBase: qty, unit }) }
+  const saveUnit = (newUnit: string) => { setUnit(newUnit); onUpdate(ing.id, { qtyBase: qty, unit: newUnit }) }
   const savePct = () => {
     setEditingPct(false)
     const parsed = pct === '' ? null : parseFloat(pct)
-    if (parsed !== ing.recipePercent) onUpdate({ recipePercent: parsed })
+    if (parsed !== ing.recipePercent) onUpdate(ing.id, { recipePercent: parsed })
   }
 
   const allKnownUnits = UOM_GROUPS.flatMap(g => g.units.map(u => u.label))
@@ -809,7 +809,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronUp size={10} /></button>
           <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronDown size={10} /></button>
         </div>
-        <button onClick={onDelete} className="text-gray-300 hover:text-red-500 ml-0.5"><Trash2 size={12} /></button>
+        <button onClick={() => onDelete(ing.id)} className="text-gray-300 hover:text-red-500 ml-0.5"><Trash2 size={12} /></button>
       </div>
     </div>
   )
@@ -888,7 +888,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
 
-  const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
+  const updateIngredient = useCallback(async (ingId: string, data: Record<string, unknown>) => {
     const newQtyBase = data.qtyBase !== undefined ? Number(data.qtyBase) : undefined
     const newUnit = data.unit !== undefined ? String(data.unit) : undefined
 
@@ -915,16 +915,16 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       setRecipe(updated)
       dirtyRef.current = true
     }
-  }
+  }, [recipeId])
 
-  const deleteIngredient = async (ingId: string) => {
+  const deleteIngredient = useCallback(async (ingId: string) => {
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
     if (res.ok) {
       const updated = await res.json()
       setRecipe(updated)
       dirtyRef.current = true
     }
-  }
+  }, [recipeId])
 
   const handleClose = () => {
     if (dirtyRef.current) onUpdated()
@@ -1128,8 +1128,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               {recipe.ingredients.map((ing, idx) => (
                 <IngredientRow key={ing.id} ing={ing} scaleFactor={sf}
                   canMoveUp={idx > 0} canMoveDown={idx < recipe.ingredients.length - 1}
-                  onUpdate={data => updateIngredient(ing.id, data)}
-                  onDelete={() => deleteIngredient(ing.id)}
+                  onUpdate={updateIngredient}
+                  onDelete={deleteIngredient}
                   onMoveUp={() => { const prev = recipe.ingredients[idx - 1]; updateIngredient(ing.id, { sortOrder: prev.sortOrder }); updateIngredient(prev.id, { sortOrder: ing.sortOrder }) }}
                   onMoveDown={() => { const next = recipe.ingredients[idx + 1]; updateIngredient(ing.id, { sortOrder: next.sortOrder }); updateIngredient(next.id, { sortOrder: ing.sortOrder }) }}
                   onEditItem={() => {
