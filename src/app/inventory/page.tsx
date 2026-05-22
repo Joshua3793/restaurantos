@@ -1067,7 +1067,11 @@ function InventoryPageInner() {
 
       {/* Mobile Sort Sheet */}
       {showMobileSortSheet && (
-        <div className="fixed inset-0 z-50 flex items-end sm:hidden" onClick={() => setShowMobileSortSheet(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:hidden"
+          onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+          onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') setShowMobileSortSheet(false) }}
+        >
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
@@ -1123,7 +1127,11 @@ function InventoryPageInner() {
 
       {/* Mobile Filter Sheet */}
       {showMobileFilterSheet && (
-        <div className="fixed inset-0 z-50 flex items-end sm:hidden" onClick={() => setShowMobileFilterSheet(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:hidden"
+          onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+          onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') setShowMobileFilterSheet(false) }}
+        >
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
@@ -1480,7 +1488,11 @@ function InventoryPageInner() {
 
       {/* Add Item Modal */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setShowAdd(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
+          onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+          onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') setShowAdd(false) }}
+        >
           <div className="absolute inset-0 bg-black/30" />
           <div className="relative bg-white rounded-xl p-6 w-full max-w-lg shadow-xl my-8" onClick={e => e.stopPropagation()}>
             <h3 className="font-semibold mb-4 text-lg">Add Inventory Item</h3>

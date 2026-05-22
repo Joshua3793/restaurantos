@@ -1608,7 +1608,11 @@ export default function CountPage() {
 
         {/* ── Add Item Modal ─────────────────────────────────────────────────── */}
         {showAddItem && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setShowAddItem(false)}>
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
+            onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+            onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') setShowAddItem(false) }}
+          >
             <div className="absolute inset-0 bg-black/30" />
             <div className="relative bg-white rounded-xl p-6 w-full max-w-lg shadow-xl my-8" onClick={e => e.stopPropagation()}>
               <h3 className="font-semibold mb-4 text-lg">Add Inventory Item</h3>
@@ -1829,7 +1833,11 @@ export default function CountPage() {
 
         {/* ── Mobile filter bottom sheet ──────────────────────────────────────── */}
         {showCountFilterSheet && (
-          <div className="fixed inset-0 z-50 flex items-end md:hidden" onClick={() => setShowCountFilterSheet(false)}>
+          <div
+            className="fixed inset-0 z-50 flex items-end md:hidden"
+            onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+            onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') setShowCountFilterSheet(false) }}
+          >
             <div className="absolute inset-0 bg-black/40" />
             <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
               <div className="w-9 h-1 bg-gray-200 rounded-full mx-auto mb-4" />

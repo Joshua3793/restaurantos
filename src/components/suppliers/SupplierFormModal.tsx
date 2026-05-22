@@ -119,7 +119,11 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+      onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') onClose() }}
+    >
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 pb-4 shrink-0">
           <h3 className="text-base font-bold text-gray-900">

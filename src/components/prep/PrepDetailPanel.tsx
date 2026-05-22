@@ -134,7 +134,11 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
       : 1
 
   return (
-    <div className="fixed inset-0 z-[60] flex justify-end" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex justify-end"
+      onMouseDown={(e) => { (e.currentTarget as HTMLElement).dataset.mdown = String(e.target === e.currentTarget) }}
+      onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') onClose() }}
+    >
       <div
         className="w-full max-w-md bg-white shadow-xl h-full overflow-y-auto flex flex-col"
         onClick={e => e.stopPropagation()}
