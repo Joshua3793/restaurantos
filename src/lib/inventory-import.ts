@@ -197,7 +197,7 @@ export function parseImportFile(buffer: Buffer): RawRow[] {
   const sheetName = wb.SheetNames[0]
   if (!sheetName) throw new Error('The file has no sheets')
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], {
-    header: 1, blankrows: false, defval: '',
+    header: 1, blankrows: true, defval: '',
   })
   if (matrix.length === 0) throw new Error('The file is empty')
 
