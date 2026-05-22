@@ -1,4 +1,5 @@
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import * as XLSX from 'xlsx'
 
 // ── Allowed values ───────────────────────────────────────────────────────────
 export const PRICE_BASES = [
@@ -178,5 +179,123 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
     stockOnHand,
     barcode: row.barcode.trim() || null,
     isActive: true,
+  }
+}
+
+// ── File parsing ─────────────────────────────────────────────────────────────
+/**
+ * Parses a .csv or .xlsx buffer into RawRows. Throws Error with a
+ * human-readable message on unreadable files or missing columns.
+ */
+export function parseImportFile(buffer: Buffer): RawRow[] {
+  let wb: XLSX.WorkBook
+  try {
+    wb = XLSX.read(buffer, { type: 'buffer' })
+  } catch {
+    throw new Error('Could not read this file — make sure it is a .csv or .xlsx')
+  }
+  const sheetName = wb.SheetNames[0]
+  if (!sheetName) throw new Error('The file has no sheets')
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], {
+    header: 1, blankrows: false, defval: '',
+  })
+  if (matrix.length === 0) throw new Error('The file is empty')
+
+  const header = (matrix[0] as unknown[]).map(h => String(h ?? '').trim())
+  const missing = IMPORT_HEADERS.filter(h => !header.includes(h))
+  if (missing.length > 0) {
+    throw new Error(`Missing required columns: ${missing.join(', ')}`)
+  }
+  const colIndex = (name: string) => header.indexOf(name)
+
+  const rows: RawRow[] = []
+  for (let i = 1; i < matrix.length; i++) {
+    const r = matrix[i] as unknown[]
+    const cell = (name: string) => String(r[colIndex(name)] ?? '').trim()
+    if (IMPORT_HEADERS.every(h => cell(h) === '')) continue   // skip blank rows
+    rows.push({
+      rowNumber: i,
+      itemName: cell('Item Name'),
+      purchasePrice: cell('Purchase Price'),
+      priceBasis: cell('Price Basis'),
+      caseContains: cell('Case Contains'),
+      contentUnit: cell('Content Unit'),
+      stockOnHand: cell('Stock On Hand'),
+      barcode: cell('Barcode'),
+    })
+  }
+  return rows
+}
+
+// ── Validation ───────────────────────────────────────────────────────────────
+/**
+ * Classifies each row as valid / error / duplicate.
+ * @param existingNamesLower lowercased trimmed names of items already in the DB
+ */
+export function validateRows(rows: RawRow[], existingNamesLower: Set<string>): ImportReport {
+  const seenInFile = new Set<string>()
+  const reports: RowReport[] = []
+
+  for (const row of rows) {
+    const errors: string[] = []
+    const name = row.itemName.trim()
+    const nameLower = name.toLowerCase()
+
+    if (!name) errors.push('Item Name is required')
+
+    const price = Number(row.purchasePrice)
+    if (row.purchasePrice.trim() === '' || !Number.isFinite(price) || price < 0) {
+      errors.push('Purchase Price must be a number of 0 or more')
+    }
+
+    const basis = normalizePriceBasis(row.priceBasis)
+    if (!basis) {
+      errors.push(`Price Basis "${row.priceBasis}" not recognized — use one of: ${PRICE_BASES.join(', ')}`)
+    }
+
+    if (basis === 'Per Case') {
+      const caseContains = Number(row.caseContains)
+      if (row.caseContains.trim() === '' || !Number.isFinite(caseContains) || caseContains <= 0) {
+        errors.push('Case Contains must be a number greater than 0 for Per Case items')
+      }
+      if (!normalizeContentUnit(row.contentUnit)) {
+        errors.push(`Content Unit "${row.contentUnit}" not recognized — use one of: ${CONTENT_UNITS.join(', ')}`)
+      }
+    }
+
+    if (row.stockOnHand.trim() !== '') {
+      const stock = Number(row.stockOnHand)
+      if (!Number.isFinite(stock) || stock < 0) {
+        errors.push('Stock On Hand must be a number of 0 or more')
+      }
+    }
+
+    if (errors.length > 0) {
+      reports.push({ rowNumber: row.rowNumber, itemName: name, status: 'error', errors })
+      continue
+    }
+
+    if (existingNamesLower.has(nameLower) || seenInFile.has(nameLower)) {
+      reports.push({ rowNumber: row.rowNumber, itemName: name, status: 'duplicate', errors: [] })
+      continue
+    }
+    seenInFile.add(nameLower)
+
+    const payload = mapRowToPayload(row)
+    reports.push({
+      rowNumber: row.rowNumber,
+      itemName: name,
+      status: 'valid',
+      errors: [],
+      payload,
+      computed: { pricePerBaseUnit: payload.pricePerBaseUnit, baseUnit: payload.baseUnit },
+    })
+  }
+
+  return {
+    rows: reports,
+    validCount: reports.filter(r => r.status === 'valid').length,
+    errorCount: reports.filter(r => r.status === 'error').length,
+    duplicateCount: reports.filter(r => r.status === 'duplicate').length,
   }
 }
