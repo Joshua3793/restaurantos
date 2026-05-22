@@ -1345,7 +1345,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
         </div>
 
         {!recipe ? (
-          <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600" /></div>
+          <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gold" /></div>
         ) : (
           <>
             {/* Stats */}
@@ -1358,9 +1358,9 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                 <div className="text-[10px] text-gray-400 uppercase tracking-wide">Yield</div>
                 <div className="font-semibold text-gray-800 text-sm">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</div>
               </div>
-              <div className="bg-emerald-50 rounded-lg px-3 py-2 text-center">
-                <div className="text-[10px] text-emerald-500 uppercase tracking-wide">Cost/{recipe.yieldUnit}</div>
-                <div className="font-semibold text-emerald-700 text-sm">{formatUnitPrice(costPerUnit)}</div>
+              <div className="bg-gold/10 rounded-lg px-3 py-2 text-center">
+                <div className="text-[10px] text-gold/70 uppercase tracking-wide">Cost/{recipe.yieldUnit}</div>
+                <div className="font-semibold text-gold text-sm">{formatUnitPrice(costPerUnit)}</div>
               </div>
             </div>
 

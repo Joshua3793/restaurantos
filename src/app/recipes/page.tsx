@@ -138,7 +138,7 @@ function RecipesInner() {
     await loadCategories()
   }
 
-  const activePill  = 'bg-emerald-600 text-white shadow-sm'
+  const activePill  = 'bg-gold text-white shadow-sm'
   const inactivePill = 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
 
   return (
@@ -147,7 +147,7 @@ function RecipesInner() {
       {/* ── TOP BAR ── */}
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-2 mr-auto">
-          <BookOpen size={18} className="text-emerald-600" />
+          <BookOpen size={18} className="text-gold" />
           <h1 className="text-lg font-bold text-gray-900">Recipe Book</h1>
         </div>
         <div className="relative hidden md:block">
@@ -157,11 +157,11 @@ function RecipesInner() {
               clearTimeout(searchDebounce.current)
               searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
             }} placeholder="Search recipes…"
-            className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all focus:w-64" />
+            className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-all focus:w-64" />
           {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X size={13} /></button>}
         </div>
         <button onClick={() => setShowNewForm(true)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors">
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white bg-gold hover:bg-[#a88930] transition-colors">
           <Plus size={15} />
           <span className="hidden sm:inline">New Recipe</span>
           <span className="sm:hidden">New</span>
@@ -176,7 +176,7 @@ function RecipesInner() {
             clearTimeout(searchDebounce.current)
             searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
           }} placeholder="Search recipes…"
-          className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+          className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold" />
         {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X size={13} /></button>}
       </div>
 
@@ -234,12 +234,12 @@ function RecipesInner() {
                 <div className="col-span-2">
                   <label className="text-xs font-medium text-gray-600 block mb-1">Name *</label>
                   <input required value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Category *</label>
                   <select required value={newForm.categoryId} onChange={e => setNewForm(f => ({ ...f, categoryId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold">
                     <option value="">Select…</option>
                     {typeCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -252,10 +252,10 @@ function RecipesInner() {
                   <div className="flex gap-1">
                     <input required type="number" min="0" step="0.01" placeholder="500" value={newForm.baseYieldQty}
                       onChange={e => setNewForm(f => ({ ...f, baseYieldQty: e.target.value }))}
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
                     <select required value={newForm.yieldUnit}
                       onChange={e => setNewForm(f => ({ ...f, yieldUnit: e.target.value }))}
-                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                       <option value="">Unit…</option>
                       <option value="g">g (grams)</option>
                       <option value="kg">kg</option>
@@ -273,12 +273,12 @@ function RecipesInner() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-start gap-2 text-xs text-emerald-600 bg-emerald-50 p-2.5 rounded-lg">
+              <div className="flex items-start gap-2 text-xs text-gold bg-gold/10 p-2.5 rounded-lg">
                 <Link2 size={12} className="mt-0.5 shrink-0" />
                 <span>This recipe will automatically create a <strong>PREPD</strong> inventory item so it can be counted in stock takes and COGS.</span>
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="flex-1 bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800">Create</button>
+                <button type="submit" className="flex-1 bg-gold text-white py-2 rounded-lg text-sm font-medium hover:bg-[#a88930]">Create</button>
                 <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
               </div>
             </form>
@@ -290,7 +290,7 @@ function RecipesInner() {
             <BookOpen size={40} className="text-gray-200 mb-3" />
             <p className="text-gray-400 text-sm">{search ? `No recipes match "${search}"` : 'No recipes yet'}</p>
             {!search && (
-              <button onClick={() => setShowNewForm(true)} className="mt-3 text-sm text-emerald-600 hover:text-emerald-700">
+              <button onClick={() => setShowNewForm(true)} className="mt-3 text-sm text-gold hover:text-[#a88930]">
                 Create your first recipe →
               </button>
             )}
