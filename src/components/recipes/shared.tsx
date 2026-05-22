@@ -837,6 +837,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const dirtyRef = useRef(false)
+  const searchCache = useRef<Map<string, IngredientSearchResult[]>>(new Map())
 
   const load = useCallback(async () => {
     const data = await fetch(`/api/recipes/${recipeId}`).then(r => r.json())
@@ -855,7 +856,10 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setSearchResults([]); return }
-    const data = await fetch(`/api/recipes/search-ingredients?q=${encodeURIComponent(q)}`).then(r => r.json())
+    const cached = searchCache.current.get(q)
+    if (cached) { setSearchResults(cached); return }
+    const data: IngredientSearchResult[] = await fetch(`/api/recipes/search-ingredients?q=${encodeURIComponent(q)}`).then(r => r.json())
+    searchCache.current.set(q, data)
     setSearchResults(data)
   }, [])
 
@@ -1141,7 +1145,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 <input value={searchQ} onChange={e => {
                   setSearchQ(e.target.value)
                   clearTimeout(searchTimer.current)
-                  searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 250)
+                  searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 400)
                 }}
                   onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
                   placeholder="+ Add ingredient — search inventory or recipes…"
@@ -1243,6 +1247,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
   const [showSearch, setShowSearch] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+  const searchCache = useRef<Map<string, IngredientSearchResult[]>>(new Map())
 
   const load = useCallback(async () => {
     const data = await fetch(`/api/recipes/${linkedRecipeId}`).then(r => r.json())
@@ -1261,7 +1266,10 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
 
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setSearchResults([]); return }
-    const data = await fetch(`/api/recipes/search-ingredients?q=${encodeURIComponent(q)}`).then(r => r.json())
+    const cached = searchCache.current.get(q)
+    if (cached) { setSearchResults(cached); return }
+    const data: IngredientSearchResult[] = await fetch(`/api/recipes/search-ingredients?q=${encodeURIComponent(q)}`).then(r => r.json())
+    searchCache.current.set(q, data)
     setSearchResults(data)
   }, [])
 
@@ -1350,7 +1358,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                   <input value={searchQ} onChange={e => {
                     setSearchQ(e.target.value)
                     clearTimeout(searchTimer.current)
-                    searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 250)
+                    searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 400)
                   }}
                     onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
                     placeholder="+ Add ingredient…"

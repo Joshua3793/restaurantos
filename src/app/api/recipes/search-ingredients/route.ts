@@ -76,10 +76,11 @@ export async function GET(req: NextRequest) {
           ],
         } : {}),
       },
-      include: {
-        ingredients: {
-          include: { inventoryItem: { select: { pricePerBaseUnit: true } } },
-        },
+      select: {
+        id: true,
+        name: true,
+        yieldUnit: true,
+        inventoryItem: { select: { pricePerBaseUnit: true } },
       },
       orderBy: { name: 'asc' },
       take: 50,
@@ -96,23 +97,15 @@ export async function GET(req: NextRequest) {
     _score: q ? fuzzyScore(q, item.itemName) : 100,
   }))
 
-  const recipeResults = prepRecipes.map(recipe => {
-    const totalCost = recipe.ingredients.reduce(
-      (s, ing) => s + Number(ing.qtyBase) * Number(ing.inventoryItem?.pricePerBaseUnit ?? 0),
-      0
-    )
-    const yieldQty = Number(recipe.baseYieldQty)
-    const pricePerBaseUnit = yieldQty > 0 ? totalCost / yieldQty : 0
-    return {
-      type: 'recipe' as const,
-      id: recipe.id,
-      name: recipe.name,
-      unit: recipe.yieldUnit,
-      pricePerBaseUnit,
-      category: 'PREPD',
-      _score: q ? fuzzyScore(q, recipe.name) : 100,
-    }
-  })
+  const recipeResults = prepRecipes.map(recipe => ({
+    type: 'recipe' as const,
+    id: recipe.id,
+    name: recipe.name,
+    unit: recipe.yieldUnit,
+    pricePerBaseUnit: Number(recipe.inventoryItem?.pricePerBaseUnit ?? 0),
+    category: 'PREPD',
+    _score: q ? fuzzyScore(q, recipe.name) : 100,
+  }))
 
   // Sort by score descending, filter out zero-score, return top 20
   const combined = [...invResults, ...recipeResults]
