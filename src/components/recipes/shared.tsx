@@ -878,13 +878,15 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }
 
   const addIngredient = async (item: IngredientSearchResult) => {
-    await fetch(`/api/recipes/${recipeId}/ingredients`, {
+    const res = await fetch(`/api/recipes/${recipeId}/ingredients`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inventoryItemId: item.type === 'inventory' ? item.id : null, linkedRecipeId: item.type === 'recipe' ? item.id : null, qtyBase: 0, unit: item.unit }),
     })
-    // POST returns only the created ingredient, not the full recipe — must re-fetch
-    await load()
-    dirtyRef.current = true
+    if (res.ok) {
+      const updated = await res.json()
+      setRecipe(updated)
+      dirtyRef.current = true
+    }
     setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
 
