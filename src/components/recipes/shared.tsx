@@ -782,7 +782,12 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   return (
     <div className="border-t border-gray-50">
       <div className="grid grid-cols-12 gap-2 px-3 py-2 items-center hover:bg-gray-50 group">
-        <div className="col-span-4 flex items-center gap-1.5 min-w-0">
+        <div className="col-span-1 flex flex-col items-center">
+          <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-400 hover:text-gray-800 disabled:opacity-0 leading-none transition-colors"><ChevronUp size={13} /></button>
+          <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-400 hover:text-gray-800 disabled:opacity-0 leading-none transition-colors"><ChevronDown size={13} /></button>
+        </div>
+
+        <div className="col-span-3 flex items-center gap-1.5 min-w-0">
           {ing.ingredientType === 'recipe'
             ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
             : <Package size={11} className="text-blue-500 shrink-0" />
@@ -830,15 +835,11 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
         <div className="col-span-2 text-right text-sm font-medium text-gray-800">{formatCurrency(displayCost)}</div>
 
-        <div className="col-span-1 flex items-center gap-0.5">
-          <div className="flex flex-col">
-            <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronUp size={10} /></button>
-            <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-300 hover:text-gray-600 disabled:opacity-0 leading-none"><ChevronDown size={10} /></button>
-          </div>
+        <div className="col-span-1 flex items-center justify-end gap-1">
           <button
             onClick={() => setSubstituting(s => !s)}
             title="Substitute ingredient"
-            className={`ml-0.5 transition-colors ${substituting ? 'text-blue-500' : 'text-gray-300 hover:text-blue-500'}`}
+            className={`transition-colors ${substituting ? 'text-blue-500' : 'text-gray-300 hover:text-blue-500'}`}
           >
             <Pencil size={12} />
           </button>
