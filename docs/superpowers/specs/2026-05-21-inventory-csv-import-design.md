@@ -54,11 +54,11 @@ Olive Oil         | 65.00          | Per Case    | 6             | L            
 
 ### Template download — typo prevention
 
-The downloadable template is a **pre-authored static `.xlsx` file** committed to the repo at `public/templates/inventory-import-template.xlsx`, authored with **data-validation dropdowns** on the `Price Basis` and `Content Unit` columns, plus the header row and two example rows. The SheetJS community library cannot *write* data validations, so the file is a static asset, not generated at request time.
+The downloadable `.xlsx` template is **generated programmatically with the `exceljs` library**, which supports writing Excel data-validation dropdowns (the existing SheetJS `xlsx` library cannot). The template endpoint builds the file on each request: the header row, two example rows, and **list-type data-validation dropdowns** on the `Price Basis` and `Content Unit` columns so the user picks valid values instead of typing them.
 
-**Fallback:** if authoring a dropdown-enabled `.xlsx` proves impractical with available tooling, the template instead is a generated `.xlsx` (headers + 2 example rows + a second "Valid Values" sheet listing every accepted `Price Basis` and `Content Unit`). Typo prevention is then carried entirely by the import preview, which is the hard guarantee regardless. The dropdown is a convenience layer, not the enforcement mechanism.
+`exceljs` is added as a dependency, used **only** for template generation. Import-file *parsing* continues to use the existing `xlsx` dependency.
 
-The "Download template" action serves whichever template file exists.
+Generating the template from code keeps it in sync if the valid values ever change. Typo prevention has two layers: the dropdown (convenience) and the import preview's strict validation (the hard guarantee).
 
 ---
 
@@ -129,9 +129,12 @@ All other rows are **Valid**.
   - `mapRowToPayload(row: RawRow): InventoryCreatePayload` — maps a valid row to the create payload.
 - `src/app/api/inventory/import/preview/route.ts` — `POST`; accepts the uploaded file, returns the validation report. No writes. `export const dynamic = 'force-dynamic'`.
 - `src/app/api/inventory/import/route.ts` — `POST`; accepts the file, re-validates, creates the valid items inside a transaction, returns counts. `export const dynamic = 'force-dynamic'`.
-- `src/app/api/inventory/import/template/route.ts` — `GET`; serves the static `.xlsx` template. `export const dynamic = 'force-dynamic'`.
+- `src/app/api/inventory/import/template/route.ts` — `GET`; generates and serves the dropdown-enabled `.xlsx` template via `exceljs`. `export const dynamic = 'force-dynamic'`.
 - `src/components/inventory/InventoryImportModal.tsx` — the three-step modal.
-- `public/templates/inventory-import-template.xlsx` — the static, dropdown-enabled template file.
+
+### New dependency
+
+- `exceljs` — used only by the template route to write data-validation dropdowns.
 
 ### Modified files
 
