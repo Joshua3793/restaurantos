@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Plus, X, UtensilsCrossed, Search, Pencil, Check } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
@@ -23,7 +23,9 @@ function MenuPageInner() {
   const [recipes, setRecipes]             = useState<Recipe[]>([])
   const [categories, setCategories]       = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]     = useState<string | null>(null)
+  const [searchInput, setSearchInput]     = useState('')
   const [search, setSearch]               = useState('')
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>()
   const [showInactive, setShowInactive]   = useState(false)
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
   const [showNewForm, setShowNewForm]     = useState(false)
@@ -169,13 +171,17 @@ function MenuPageInner() {
         <div className="relative hidden md:block">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={e => {
+              setSearchInput(e.target.value)
+              clearTimeout(searchDebounce.current)
+              searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
+            }}
             placeholder="Search dishes…"
             className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-all focus:w-64"
           />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+          {searchInput && (
+            <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
               <X size={13} />
             </button>
           )}
@@ -195,13 +201,17 @@ function MenuPageInner() {
       <div className="md:hidden relative">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
         <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={e => {
+            setSearchInput(e.target.value)
+            clearTimeout(searchDebounce.current)
+            searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
+          }}
           placeholder="Search dishes…"
           className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold"
         />
-        {search && (
-          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+        {searchInput && (
+          <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
             <X size={13} />
           </button>
         )}
@@ -385,9 +395,9 @@ function MenuPageInner() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <UtensilsCrossed size={40} className="text-gray-200 mb-3" />
             <p className="text-gray-400 text-sm">
-              {search ? `No dishes match "${search}"` : 'No dishes yet'}
+              {searchInput ? `No dishes match "${searchInput}"` : 'No dishes yet'}
             </p>
-            {!search && (
+            {!searchInput && (
               <button onClick={() => setShowNewForm(true)} className="mt-3 text-sm text-gold hover:text-gold">
                 Create your first dish →
               </button>
