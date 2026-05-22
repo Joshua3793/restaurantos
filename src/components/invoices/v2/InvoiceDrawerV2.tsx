@@ -196,7 +196,7 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
 
       {/* Mobile — full-screen overlay, slides up from bottom */}
       <div
-        className="sm:hidden fixed inset-0 z-50 bg-white flex flex-col"
+        className="sm:hidden fixed inset-0 z-[60] bg-white flex flex-col"
         style={{
           transform: open ? 'translateY(0)' : 'translateY(100%)',
           transition: 'transform 200ms ease-out',
@@ -255,7 +255,7 @@ function DrawerChrome({ onClose, title, size = 'md' }: { onClose: () => void; ti
         <ScanLine size={size === 'sm' ? 16 : 18} className="text-gold" />
         <span className={`font-semibold text-gray-900 ${size === 'sm' ? 'text-sm' : ''}`}>{title}</span>
       </div>
-      <button onClick={onClose} aria-label="Close" className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+      <button onClick={onClose} aria-label="Close" className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
         <X size={size === 'sm' ? 16 : 18} />
       </button>
     </div>

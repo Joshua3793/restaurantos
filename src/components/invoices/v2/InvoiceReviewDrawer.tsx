@@ -650,7 +650,10 @@ export function InvoiceReviewDrawer({
                     goToTask={goToTask}
                   />
                 ) : (
-                  <div className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-center gap-3">
+                  <div
+                    className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-center gap-3"
+                    style={{ paddingBottom: 'calc(13px + env(safe-area-inset-bottom, 0px))' }}
+                  >
                     <Loader2 size={16} className="animate-spin text-stone-500" />
                     <span className="text-[13px] text-stone-500">Approving…</span>
                   </div>
@@ -743,7 +746,10 @@ function ApprovedView({
     <div className="flex flex-col h-full">
 
       {/* ── Header ── */}
-      <div className={`px-[22px] pt-[18px] pb-[16px] border-b border-stone-200 ${rejected ? 'bg-white' : 'bg-gradient-to-r from-emerald-50/60 to-white'}`}>
+      <div
+        className={`px-[22px] pt-[18px] pb-[16px] border-b border-stone-200 ${rejected ? 'bg-white' : 'bg-gradient-to-r from-emerald-50/60 to-white'}`}
+        style={{ paddingTop: 'calc(18px + env(safe-area-inset-top, 0px))' }}
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5 mb-[5px]">
@@ -778,7 +784,7 @@ function ApprovedView({
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+            className="shrink-0 p-2.5 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
           >
             <X size={18} />
           </button>
@@ -983,7 +989,10 @@ function ApprovedView({
       </div>
 
       {/* ── Footer ── */}
-      <div className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-between gap-3 bg-white">
+      <div
+        className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-between gap-3 bg-white"
+        style={{ paddingBottom: 'calc(13px + env(safe-area-inset-bottom, 0px))' }}
+      >
         {!rejected ? (
           <button
             type="button"
@@ -1090,7 +1099,7 @@ function AddNewItemModal({
               <h3 className="text-[16px] font-semibold text-stone-900">Create new product</h3>
               <p className="text-[12px] text-stone-400 mt-0.5">These fields will be set when the invoice is approved.</p>
             </div>
-            <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-600 transition-colors">
+            <button type="button" onClick={onClose} className="p-2.5 flex items-center justify-center text-stone-400 hover:text-stone-600 transition-colors">
               <X size={18} />
             </button>
           </div>

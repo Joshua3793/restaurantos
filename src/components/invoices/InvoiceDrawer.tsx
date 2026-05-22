@@ -1371,7 +1371,10 @@ function ItemDetailPanel({
       {/* Panel */}
       <div className="fixed inset-y-0 right-0 z-[70] w-full max-w-md bg-white shadow-xl overflow-y-auto flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-2">
+        <div
+          className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-2"
+          style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+        >
           <div className="flex-1 min-w-0">
             <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
               {isNew ? 'New Inventory Item' : 'Matched Item'}
@@ -1825,7 +1828,10 @@ function InventoryEditModal({
       <div className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
       <div className="fixed inset-y-0 right-0 z-[70] w-full max-w-md bg-white shadow-xl overflow-y-auto flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-2">
+        <div
+          className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-2"
+          style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+        >
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Edit Inventory Item</p>
             <h3 className="font-semibold text-gray-900 text-sm mt-0.5 truncate">{form.itemName || '…'}</h3>
@@ -3460,7 +3466,10 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         </div>
 
         {/* Footer: Review Again button */}
-        <div className="shrink-0 border-t border-gray-100 p-4">
+        <div
+          className="shrink-0 border-t border-gray-100 p-4"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           <button
             onClick={async () => {
               setIsApproving(true)
