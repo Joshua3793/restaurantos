@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit, calcPricePerBaseUnit, deriveBaseUnit, PACK_UOMS, compatibleCountUnits, getUnitDimension } from '@/lib/utils'
-import { UOM_GROUPS, getUnitGroup } from '@/lib/uom'
+import { UOM_GROUPS, getUnitGroup, convertQty } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
@@ -885,6 +885,26 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }
 
   const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
+    const newQtyBase = data.qtyBase !== undefined ? Number(data.qtyBase) : undefined
+    const newUnit = data.unit !== undefined ? String(data.unit) : undefined
+
+    // Optimistic update: immediately reflect qty/unit/cost changes in the UI
+    if (newQtyBase !== undefined || newUnit !== undefined) {
+      setRecipe(prev => {
+        if (!prev) return prev
+        const updatedIngredients = prev.ingredients.map(ing => {
+          if (ing.id !== ingId) return ing
+          const qtyBase = newQtyBase ?? ing.qtyBase
+          const unit = newUnit ?? ing.unit
+          const converted = convertQty(qtyBase, unit, ing.ingredientBaseUnit)
+          const lineCost = (converted !== null ? converted : qtyBase) * ing.pricePerBaseUnit
+          return { ...ing, qtyBase, unit, lineCost }
+        })
+        const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
+        return { ...prev, ingredients: updatedIngredients, totalCost }
+      })
+    }
+
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     if (res.ok) {
       const updated = await res.json()
