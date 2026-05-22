@@ -47,7 +47,10 @@ function InvoiceHeader({
   metaParts.push(`${itemCount} line${itemCount !== 1 ? 's' : ''}`)
 
   return (
-    <div className="px-[22px] pt-[18px] pb-[14px] border-b border-stone-200">
+    <div
+      className="px-[22px] pt-[18px] pb-[14px] border-b border-stone-200"
+      style={{ paddingTop: 'calc(18px + env(safe-area-inset-top, 0px))' }}
+    >
       <div className="flex items-start justify-between gap-4">
         {/* Left: supplier + meta */}
         <div className="min-w-0">
@@ -77,7 +80,7 @@ function InvoiceHeader({
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+          className="shrink-0 p-2.5 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
           aria-label="Close drawer"
         >
           <X size={18} />
@@ -533,7 +536,7 @@ export function InvoiceReviewDrawer({
 
       {/* Drawer panel — wider to fit image viewer + review side by side */}
       <div
-        className={`fixed inset-y-0 right-0 z-50 bg-white shadow-2xl flex flex-col transition-transform duration-300 ${
+        className={`fixed inset-y-0 right-0 z-[60] bg-white shadow-2xl flex flex-col transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{

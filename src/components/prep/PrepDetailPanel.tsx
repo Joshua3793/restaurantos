@@ -134,13 +134,16 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
       : 1
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex justify-end" onClick={onClose}>
       <div
         className="w-full max-w-md bg-white shadow-xl h-full overflow-y-auto flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 border-b border-gray-100 flex items-start justify-between gap-2">
+        <div
+          className="p-4 border-b border-gray-100 flex items-start justify-between gap-2"
+          style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+        >
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="font-semibold text-gray-900 text-base truncate">{item.name}</h2>
@@ -371,7 +374,10 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-100">
+        <div
+          className="p-4 border-t border-gray-100"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           <button onClick={onEdit}
             className="w-full px-4 py-2 text-sm border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
             Edit Prep Settings

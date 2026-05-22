@@ -234,8 +234,11 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
 
       {/* ── TOP BAR ───────────────────────────────────────────────────────── */}
       <div
-        className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 pt-10 pb-6"
-        style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.80), transparent)' }}
+        className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 pb-6"
+        style={{
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.80), transparent)',
+          paddingTop: 'calc(2.5rem + env(safe-area-inset-top, 0px))',
+        }}
       >
         {/* Close */}
         <button
