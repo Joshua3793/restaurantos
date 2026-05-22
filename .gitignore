@@ -46,3 +46,19 @@ prisma/*.db-wal
 
 # Capacitor mobile
 /mobile/node_modules
+
+# AI tooling artifacts
+.claude/worktrees/
+.superpowers/
+agentdb.rvf
+agentdb.rvf.lock
+*.rvf
+*.rvf.lock
+
+# database dumps
+data.sql
+
+# macOS duplicate files
+* 2.json
+* 2.ts
+* 2.tsx
