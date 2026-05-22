@@ -98,6 +98,8 @@ export function normalizeContentUnit(raw: string): ContentUnit | null {
 }
 
 // ── Row → payload mapping ────────────────────────────────────────────────────
+// qtyUOM values use lowercase engine keys (matching UNIT_CONV in utils.ts).
+// purchaseUnit values use display-case strings shown to users.
 const BASIS_TO_QTY_UOM: Record<Exclude<PriceBasis, 'Per Case'>, string> = {
   'Per Each': 'each', 'Per kg': 'kg', 'Per g': 'g',
   'Per L': 'l', 'Per mL': 'ml', 'Per lb': 'lb', 'Per oz': 'oz',
@@ -113,7 +115,11 @@ const CONTENT_UNIT_TO_QTY_UOM: Record<ContentUnit, string> = {
 export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   const basis = normalizePriceBasis(row.priceBasis)
   if (!basis) throw new Error(`mapRowToPayload called on invalid Price Basis: ${row.priceBasis}`)
+
   const price = Number(row.purchasePrice)
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error(`mapRowToPayload: invalid Purchase Price: ${row.purchasePrice}`)
+  }
 
   let qtyUOM: string
   let qtyPerPurchaseUnit: number
@@ -124,6 +130,9 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
     if (!contentUnit) throw new Error(`mapRowToPayload: invalid Content Unit: ${row.contentUnit}`)
     qtyUOM = CONTENT_UNIT_TO_QTY_UOM[contentUnit]
     qtyPerPurchaseUnit = Number(row.caseContains)
+    if (!Number.isFinite(qtyPerPurchaseUnit) || qtyPerPurchaseUnit <= 0) {
+      throw new Error(`mapRowToPayload: invalid Case Contains: ${row.caseContains}`)
+    }
     purchaseUnit = 'Case'
   } else {
     qtyUOM = BASIS_TO_QTY_UOM[basis]
@@ -146,6 +155,9 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   const baseUnit = deriveBaseUnit(qtyUOM, packUOM)
 
   const enteredStock = row.stockOnHand.trim() === '' ? 0 : Number(row.stockOnHand)
+  if (!Number.isFinite(enteredStock) || enteredStock < 0) {
+    throw new Error(`mapRowToPayload: invalid Stock On Hand: ${row.stockOnHand}`)
+  }
   const stockOnHand = enteredStock * conversionFactor
 
   return {
