@@ -27,7 +27,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     },
   })
 
-  await syncPrepToInventory(params.id)
+  // Only sync to inventory when fields that affect cost change (yield quantity/unit).
+  // name, notes, isActive, categoryId, menuPrice, portionSize/Unit do not affect cost.
+  const costAffecting = baseYieldQty !== undefined || yieldUnit !== undefined
+  if (costAffecting) await syncPrepToInventory(params.id)
+
   const updated = await fetchRecipeWithCost(params.id)
   return NextResponse.json(updated)
 }
@@ -37,20 +41,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const id = params.id
   try {
     await prisma.$transaction(async tx => {
-      // 1. Null out any ingredients in other recipes that link to this recipe
       await tx.recipeIngredient.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
-      // 2. Remove sale line items referencing this recipe
       await tx.saleLineItem.deleteMany({ where: { recipeId: id } })
-      // 3. Disconnect prep items that reference this recipe
       await tx.prepItem.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
-      // 4. Remove recipe alerts for this recipe
       await tx.recipeAlert.deleteMany({ where: { recipeId: id } })
-      // 5. For PREP recipes: deactivate the synced inventory item (don't hard-delete — it may have stock history)
       const recipe = await tx.recipe.findUnique({ where: { id }, select: { inventoryItemId: true } })
       if (recipe?.inventoryItemId) {
         await tx.inventoryItem.update({ where: { id: recipe.inventoryItemId }, data: { isActive: false } })
       }
-      // 6. Delete the recipe — cascades to its own RecipeIngredient rows
       await tx.recipe.delete({ where: { id } })
     })
     return NextResponse.json({ success: true })

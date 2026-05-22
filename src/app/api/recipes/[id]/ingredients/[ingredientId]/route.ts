@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { syncPrepToInventory, fetchRecipeWithCost } from '@/lib/recipeCosts'
 
 export async function PATCH(
   req: NextRequest,
@@ -9,7 +9,7 @@ export async function PATCH(
   const body = await req.json()
   const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId } = body
 
-  const updated = await prisma.recipeIngredient.update({
+  await prisma.recipeIngredient.update({
     where: { id: params.ingredientId },
     data: {
       ...(qtyBase !== undefined ? { qtyBase: parseFloat(qtyBase) } : {}),
@@ -21,8 +21,14 @@ export async function PATCH(
     },
   })
 
-  await syncPrepToInventory(params.id)
-  return NextResponse.json(updated)
+  // Only sync when cost-affecting fields change.
+  // sortOrder, notes, recipePercent do not affect cost.
+  const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined
+  if (costAffecting) await syncPrepToInventory(params.id)
+
+  // Return the full updated recipe so the client can update state without an extra fetch.
+  const recipe = await fetchRecipeWithCost(params.id)
+  return NextResponse.json(recipe)
 }
 
 export async function DELETE(
@@ -31,5 +37,7 @@ export async function DELETE(
 ) {
   await prisma.recipeIngredient.delete({ where: { id: params.ingredientId } })
   await syncPrepToInventory(params.id)
-  return NextResponse.json({ success: true })
+  // Return the full updated recipe so the client can update state without an extra fetch.
+  const recipe = await fetchRecipeWithCost(params.id)
+  return NextResponse.json(recipe)
 }
