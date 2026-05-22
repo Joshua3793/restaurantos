@@ -920,11 +920,19 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }, [recipeId])
 
   const deleteIngredient = useCallback(async (ingId: string) => {
+    // Optimistic: remove immediately so the UI feels instant
+    setRecipe(prev => {
+      if (!prev) return prev
+      const updatedIngredients = prev.ingredients.filter(i => i.id !== ingId)
+      const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
+      return { ...prev, ingredients: updatedIngredients, totalCost }
+    })
+    dirtyRef.current = true
+
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'DELETE' })
     if (res.ok) {
       const updated = await res.json()
-      setRecipe(updated)
-      dirtyRef.current = true
+      setRecipe(updated) // reconcile with server (accurate cost after sync)
     }
   }, [recipeId])
 
@@ -1132,8 +1140,32 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   canMoveUp={idx > 0} canMoveDown={idx < recipe.ingredients.length - 1}
                   onUpdate={updateIngredient}
                   onDelete={deleteIngredient}
-                  onMoveUp={() => { const prev = recipe.ingredients[idx - 1]; updateIngredient(ing.id, { sortOrder: prev.sortOrder }); updateIngredient(prev.id, { sortOrder: ing.sortOrder }) }}
-                  onMoveDown={() => { const next = recipe.ingredients[idx + 1]; updateIngredient(ing.id, { sortOrder: next.sortOrder }); updateIngredient(next.id, { sortOrder: ing.sortOrder }) }}
+                  onMoveUp={() => {
+                    const prev = recipe.ingredients[idx - 1]
+                    // Optimistic: swap immediately
+                    setRecipe(r => {
+                      if (!r) return r
+                      const ings = [...r.ingredients]
+                      ;[ings[idx - 1], ings[idx]] = [ings[idx], ings[idx - 1]]
+                      return { ...r, ingredients: ings }
+                    })
+                    // Persist sort orders in background
+                    updateIngredient(ing.id, { sortOrder: prev.sortOrder })
+                    updateIngredient(prev.id, { sortOrder: ing.sortOrder })
+                  }}
+                  onMoveDown={() => {
+                    const next = recipe.ingredients[idx + 1]
+                    // Optimistic: swap immediately
+                    setRecipe(r => {
+                      if (!r) return r
+                      const ings = [...r.ingredients]
+                      ;[ings[idx], ings[idx + 1]] = [ings[idx + 1], ings[idx]]
+                      return { ...r, ingredients: ings }
+                    })
+                    // Persist sort orders in background
+                    updateIngredient(ing.id, { sortOrder: next.sortOrder })
+                    updateIngredient(next.id, { sortOrder: ing.sortOrder })
+                  }}
                   onEditItem={() => {
                     if (ing.linkedRecipeId) setEditingItem({ linkedRecipeId: ing.linkedRecipeId })
                     else if (ing.inventoryItemId) setEditingItem({ inventoryItemId: ing.inventoryItemId })
