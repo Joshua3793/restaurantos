@@ -336,6 +336,11 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onScanClick, on
                     )}
                     {s.invoiceNumber ?? 'No invoice #'}
                   </p>
+                  {s.status === 'ERROR' && s.errorMessage && (
+                    <p className="text-[10px] text-red-500 truncate mt-0.5" title={s.errorMessage}>
+                      {s.errorMessage}
+                    </p>
+                  )}
                 </div>
                 <div className="text-xs text-gray-600">{s.invoiceDate ?? '—'}</div>
                 <div className="text-sm font-semibold text-gray-900">
@@ -401,6 +406,11 @@ export function InvoiceList({ sessions, onSelect, onUploadClick, onScanClick, on
                       </p>
                     )}
                   </div>
+                  {s.status === 'ERROR' && s.errorMessage && (
+                    <p className="text-[10px] text-red-500 truncate mt-0.5" title={s.errorMessage}>
+                      {s.errorMessage}
+                    </p>
+                  )}
                 </div>
                 <div className="relative flex items-center pr-2 shrink-0" onClick={e => e.stopPropagation()}>
                   <button
