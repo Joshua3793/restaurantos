@@ -621,8 +621,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
   const selectCls = inputCls + ' bg-white'
 
   return (
-    // Full-screen dimmed overlay at z-[60], above the recipe panel (z-50)
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40" />
       <div
         className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
@@ -718,7 +717,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
 }
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
-const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute }: {
+const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick }: {
   ing: IngredientWithCost
   scaleFactor: number
   canMoveUp: boolean
@@ -728,6 +727,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   onMoveUp: () => void
   onMoveDown: () => void
   onSubstitute: (ingId: string, item: IngredientSearchResult) => void
+  onInventoryClick?: (inventoryItemId: string) => void
 }) {
   const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
@@ -805,7 +805,17 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
             : <Package size={11} className="text-blue-500 shrink-0" />
           }
-          <span className="text-sm text-gray-800 line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
+          {ing.ingredientType === 'inventory' && ing.inventoryItemId && onInventoryClick ? (
+            <button
+              onClick={() => onInventoryClick(ing.inventoryItemId!)}
+              className="text-sm text-gray-800 line-clamp-2 break-words leading-snug text-left hover:text-blue-600 hover:underline underline-offset-2 transition-colors"
+              title="Open inventory item"
+            >
+              {ing.ingredientName}
+            </button>
+          ) : (
+            <span className="text-sm text-gray-800 line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
+          )}
         </div>
 
         <div className="col-span-1 text-center">
@@ -921,6 +931,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const [saving, setSaving] = useState(false)
   const [showSaveScale, setShowSaveScale] = useState(false)
   const [newScaleName, setNewScaleName] = useState('')
+  const [quickEditItemId, setQuickEditItemId] = useState<string | null>(null)
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const dirtyRef = useRef(false)
@@ -1111,6 +1122,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const margin = recipe.menuPrice !== null ? recipe.menuPrice - recipe.totalCost : null
 
   return (
+    <>
     <div className="fixed inset-0 z-[60] flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={handleClose} />
       <div className="w-full md:w-[640px] bg-white h-full overflow-y-auto flex flex-col shadow-2xl">
@@ -1297,6 +1309,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   canMoveUp={idx > 0} canMoveDown={idx < recipe.ingredients.length - 1}
                   onUpdate={updateIngredient}
                   onDelete={deleteIngredient}
+                  onInventoryClick={id => setQuickEditItemId(id)}
                   onMoveUp={() => {
                     const prev = recipe.ingredients[idx - 1]
                     // Optimistic: swap immediately
@@ -1409,6 +1422,15 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       </div>
 
     </div>
+
+    {quickEditItemId && (
+      <InventoryQuickEdit
+        inventoryItemId={quickEditItemId}
+        onClose={() => setQuickEditItemId(null)}
+        onSaved={() => { setQuickEditItemId(null); load() }}
+      />
+    )}
+    </>
   )
 }
 
