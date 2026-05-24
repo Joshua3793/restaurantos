@@ -11,6 +11,19 @@ import {
 } from 'lucide-react'
 import { AllergenBadges } from '@/components/AllergenBadges'
 
+// ─── Markdown renderer (bold + italic only) ───────────────────────────────────
+function renderMarkdown(text: string) {
+  return text.split('\n').map((line, li, lines) => {
+    const parts = line.split(/(\*\*[\s\S]+?\*\*|\*[^*]+?\*|_[^_]+?_)/)
+    const nodes = parts.map((part, i) => {
+      if (/^\*\*[\s\S]+?\*\*$/.test(part)) return <strong key={i}>{part.slice(2, -2)}</strong>
+      if (/^\*[^*]+?\*$/.test(part) || /^_[^_]+?_$/.test(part)) return <em key={i}>{part.slice(1, -1)}</em>
+      return part
+    })
+    return <span key={li}>{nodes}{li < lines.length - 1 && <br />}</span>
+  })
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface RecipeCategory {
   id: string
@@ -504,7 +517,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
           {recipe.notes && (
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Method</h2>
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{recipe.notes}</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{renderMarkdown(recipe.notes)}</p>
             </div>
           )}
 
@@ -1210,9 +1223,16 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               Notes {recipe.notes && <span className="text-blue-500">•</span>}
             </button>
             {showNotes && (
-              <textarea defaultValue={recipe.notes ?? ''} onBlur={e => patchRecipe({ notes: e.target.value || null })} rows={3}
-                className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold resize-none"
-                placeholder="Recipe notes, storage instructions…" />
+              <div className="mt-2 space-y-2">
+                {recipe.notes && (
+                  <div className="text-sm text-gray-700 leading-relaxed px-3 py-2 bg-gray-50 rounded-lg">
+                    {renderMarkdown(recipe.notes)}
+                  </div>
+                )}
+                <textarea defaultValue={recipe.notes ?? ''} onBlur={e => patchRecipe({ notes: e.target.value || null })} rows={3}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold resize-none"
+                  placeholder="Recipe notes, storage instructions…" />
+              </div>
             )}
           </div>
 
