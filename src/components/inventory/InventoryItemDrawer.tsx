@@ -72,6 +72,7 @@ interface Props {
   onClose: () => void
   onUpdated?: () => void
   zClassName?: string
+  initialEditMode?: boolean
 }
 
 // ─── Purchase description ─────────────────────────────────────────────────────
@@ -175,7 +176,7 @@ function displayStock(item: InventoryItem): number {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = 'z-50' }: Props) {
+export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = 'z-50', initialEditMode = false }: Props) {
   const { revenueCenters } = useRc()
   const defaultRcId = revenueCenters.find(rc => rc.isDefault)?.id ?? null
 
@@ -211,13 +212,38 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       fetch(`/api/inventory/${itemId}/price-history`).then(r => r.json()).catch(() => []),
       fetch(`/api/inventory/${itemId}/stock-movements`).then(r => r.json()).catch(() => null),
     ]).then(([fetchedItem, sups, cats, areas, ph, sm]) => {
-      setItem(normalizeItem(fetchedItem))
+      const normalized = normalizeItem(fetchedItem)
+      setItem(normalized)
       setSuppliers(sups)
       setCategories(cats)
       setStorageAreas(areas)
       setPriceHistory(ph)
       setStockMovements(sm)
       setLoading(false)
+      if (initialEditMode) {
+        setEditForm({
+          itemName: normalized.itemName,
+          category: normalized.category,
+          supplierId: normalized.supplierId || '',
+          supplierName: normalized.supplier?.name || '',
+          storageAreaId: normalized.storageAreaId || '',
+          storageAreaName: normalized.storageArea?.name || '',
+          purchaseUnit: normalizePurchaseUnit(normalized.purchaseUnit),
+          qtyPerPurchaseUnit: String(normalized.qtyPerPurchaseUnit),
+          purchasePrice: String(normalized.purchasePrice),
+          packSize: (Number(normalized.packSize ?? 1) === 1 && ['each', ''].includes(normalized.packUOM ?? 'each')) ? '' : String(normalized.packSize ?? 1),
+          packUOM: normalized.packUOM ?? 'each',
+          countUOM: normalized.countUOM ?? 'each',
+          qtyUOM: normalized.qtyUOM ?? 'each',
+          innerQty: normalized.innerQty != null ? String(normalized.innerQty) : '',
+          stockOnHand: String(parseFloat(displayStock(normalized).toFixed(4))),
+          isActive: normalized.isActive,
+          allergens: normalized.allergens ?? [],
+          barcode: normalized.barcode ?? null,
+          priceType: normalized.priceType ?? 'CASE',
+        })
+        setEditMode(true)
+      }
     })
   }, [itemId])
 

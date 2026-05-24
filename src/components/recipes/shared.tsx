@@ -1428,6 +1428,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       <InventoryItemDrawer
         itemId={quickEditItemId}
         zClassName="z-[70]"
+        initialEditMode
         onClose={() => setQuickEditItemId(null)}
         onUpdated={() => load()}
       />
