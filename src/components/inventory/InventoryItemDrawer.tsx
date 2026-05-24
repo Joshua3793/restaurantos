@@ -71,6 +71,7 @@ interface Props {
   itemId: string
   onClose: () => void
   onUpdated?: () => void
+  zClassName?: string
 }
 
 // ─── Purchase description ─────────────────────────────────────────────────────
@@ -174,7 +175,7 @@ function displayStock(item: InventoryItem): number {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
+export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = 'z-50' }: Props) {
   const { revenueCenters } = useRc()
   const defaultRcId = revenueCenters.find(rc => rc.isDefault)?.id ?? null
 
@@ -295,7 +296,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-stretch sm:justify-end" onClick={onClose}>
+    <div className={`fixed inset-0 ${zClassName} flex items-end sm:items-stretch sm:justify-end`} onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
       <div
         className="relative bg-white w-full sm:max-w-md h-[92vh] sm:h-full overflow-y-auto shadow-xl rounded-t-2xl sm:rounded-none"

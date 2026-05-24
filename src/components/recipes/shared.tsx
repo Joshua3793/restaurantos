@@ -10,6 +10,7 @@ import {
   Link2, Package, ExternalLink, Printer,
 } from 'lucide-react'
 import { AllergenBadges } from '@/components/AllergenBadges'
+import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 
 // ─── Markdown renderer (bold + italic only) ───────────────────────────────────
 function renderMarkdown(text: string) {
@@ -1424,10 +1425,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     </div>
 
     {quickEditItemId && (
-      <InventoryQuickEdit
-        inventoryItemId={quickEditItemId}
+      <InventoryItemDrawer
+        itemId={quickEditItemId}
+        zClassName="z-[70]"
         onClose={() => setQuickEditItemId(null)}
-        onSaved={() => { setQuickEditItemId(null); load() }}
+        onUpdated={() => load()}
       />
     )}
     </>
