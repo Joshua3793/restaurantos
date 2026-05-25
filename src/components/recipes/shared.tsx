@@ -1221,6 +1221,36 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
+
+            {!isMenu && (
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">
+                  Portion size <span className="text-gray-300">(optional)</span>
+                </label>
+                <div className="flex gap-1">
+                  <input
+                    type="number" min="0" step="any"
+                    defaultValue={recipe.portionSize ?? ''}
+                    placeholder="e.g. 50"
+                    onBlur={e => patchRecipe({ portionSize: e.target.value || null, portionUnit: recipe.portionUnit ?? recipe.yieldUnit })}
+                    className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                  />
+                  <select
+                    value={recipe.portionUnit ?? recipe.yieldUnit}
+                    onChange={e => patchRecipe({ portionUnit: e.target.value, portionSize: recipe.portionSize ?? null })}
+                    className="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                  >
+                    {['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray'].map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                    {!['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray'].includes(recipe.portionUnit ?? recipe.yieldUnit) && (
+                      <option value={recipe.portionUnit ?? recipe.yieldUnit}>{recipe.portionUnit ?? recipe.yieldUnit}</option>
+                    )}
+                  </select>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Amount used per dish — sets cost per portion</p>
+              </div>
+            )}
           </div>
 
           {recipe.allergens && recipe.allergens.length > 0 && (
@@ -1380,9 +1410,29 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   <span className="font-bold text-gray-900">{formatCurrency(scaledTotal)}{sf !== 1 && <span className="text-xs text-blue-500 ml-1">at ×{sf}</span>}</span>
                 </div>
                 <div className="flex justify-between text-sm items-center">
-                  <span className="text-gray-600">Base Cost</span>
+                  <span className="text-gray-600">Cost per {recipe.yieldUnit}</span>
                   <span className="font-semibold text-gray-800">{formatUnitPrice(baseCostPerUnit)}<span className="text-gray-400 text-xs ml-0.5">/{recipe.yieldUnit}</span></span>
                 </div>
+                {recipe.portionSize && recipe.portionSize > 0 && (() => {
+                  const portionUnit = recipe.portionUnit ?? recipe.yieldUnit
+                  const portionQty = Number(recipe.portionSize)
+                  const portionCost = recipe.costPerPortion !== null ? recipe.costPerPortion * sf : baseCostPerUnit * portionQty * sf
+                  const portionsPerBatch = recipe.baseYieldQty > 0 && portionQty > 0 ? Math.floor(recipe.baseYieldQty / portionQty) : null
+                  return (
+                    <>
+                      <div className="border-t border-gray-200 pt-2 mt-1 flex justify-between text-sm items-center">
+                        <span className="text-gray-600">Cost per {portionQty}{portionUnit} portion</span>
+                        <span className="font-semibold text-indigo-700">{formatCurrency(portionCost)}</span>
+                      </div>
+                      {portionsPerBatch !== null && (
+                        <div className="flex justify-between text-xs text-gray-400">
+                          <span>Portions per batch</span>
+                          <span>{portionsPerBatch} × {portionQty}{portionUnit}</span>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
               </>
             ) : (
               <>
