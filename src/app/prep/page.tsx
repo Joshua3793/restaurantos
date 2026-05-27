@@ -460,82 +460,88 @@ export default function PrepPage() {
   // ── Smart Prep item card (shared across urgency/category/station views) ──
   function SmartPrepCard({ item }: { item: PrepItemRich }) {
     const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
-    const barColor = item.priority === '911' ? 'bg-red-400' : item.priority === 'NEEDED_TODAY' ? 'bg-orange-400' : 'bg-green-400'
-    const suggestColor = item.priority === '911' ? 'text-red-600' : item.priority === 'NEEDED_TODAY' ? 'text-orange-600' : 'text-green-600'
+    const parPct = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
+    const isCritical = item.priority === '911'
+    const isNeeded = item.priority === 'NEEDED_TODAY'
+    const barColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
+    const suggestColor = isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-green-700'
+    const suggestAccent = isCritical ? 'text-red-500' : isNeeded ? 'text-gold' : 'text-green-500'
     const isAdded = item.isOnList
+    const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
 
     return (
-      <div className="px-4 py-4 border-b border-gray-50 last:border-0">
-        {/* Name row */}
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <button onClick={() => setSelected(item)} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-sm font-semibold text-gray-800">{item.name}</span>
-              {item.manualPriorityOverride && (
-                <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Override</span>
-              )}
-            </div>
-            <div className="text-[11px] text-gray-400 flex items-center gap-1.5 mt-0.5">
-              <span>{item.category}</span>
+      <div className={`bg-paper border ${cardBorder} rounded-[10px] p-3.5 flex flex-col gap-2.5`}>
+        {/* Top: name + meta + Add button */}
+        <div className="flex items-start justify-between gap-2.5">
+          <button onClick={() => setSelected(item)} className="text-left min-w-0 flex-1 hover:opacity-80 transition-opacity">
+            <div className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink leading-[1.2]">{item.name}</div>
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap whitespace-nowrap">
+              <span className="font-mono text-[10.5px] text-ink-3">{item.category}</span>
               {item.station && (
-                <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{item.station}</span>
+                <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded-[4px] bg-bg-2 text-ink-2 font-medium tracking-[0.02em] uppercase">{item.station}</span>
+              )}
+              {item.manualPriorityOverride && (
+                <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>
               )}
             </div>
           </button>
           <button
             onClick={() => handleToggleOnList(item.id, !isAdded)}
-            className={`btn-action shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors ${
               isAdded
-                ? 'bg-green-600 text-white hover:bg-green-700'
-                : 'bg-gray-800 text-white hover:bg-gray-700'
+                ? 'bg-green-600 text-paper hover:bg-green-700'
+                : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
-            {isAdded ? '✓ On List' : '+ Add'}
+            {isAdded ? <>✓ On list</> : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
 
-        {/* Stock bar */}
-        <div className="flex items-center gap-2 mb-1">
-          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${stockPct}%` }} />
+        {/* Progress */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
+            <span><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
+            <span className={isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
           </div>
-          <span className="text-[11px] text-gray-500 shrink-0 font-medium">
-            {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
-          </span>
+          <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
+            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
+          </div>
         </div>
 
         {/* Suggestion */}
         {item.priority !== 'LATER' ? (
           item.manualPriorityOverride ? (
-            <p className="text-xs text-gray-400 mb-2.5 line-through">
-              {item.suggestedQty > 0 ? `System suggests → Make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'System suggests → review stock'}
-            </p>
+            <div className="font-mono text-[11.5px] text-ink-3 line-through tracking-[0]">
+              System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
+            </div>
           ) : (
-            <p className={`text-xs font-semibold mb-2.5 ${suggestColor}`}>
-              System suggests → {item.suggestedQty > 0 ? `Make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
-            </p>
+            <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 whitespace-nowrap ${suggestColor}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={suggestAccent}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+              System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
+              {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
+            </div>
           )
         ) : (
-          <p className="text-xs text-green-600 font-medium mb-2.5">At or above par — looking good</p>
+          <div className="font-mono text-[11.5px] text-green-700 tracking-[0]">At or above par — looking good</div>
         )}
 
-        {/* Priority override pills */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] text-gray-400">{item.priority === 'LATER' ? 'If adding:' : 'Override:'}</span>
+        {/* Override pills */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-2.5 border-t border-line">
+          <span className="font-mono text-[10px] text-ink-3 tracking-[0.02em] mr-0.5">OVERRIDE</span>
           {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
-            const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed Today', 'LATER': 'Later' }
-            const activeStyles: Record<string, string> = {
-              '911': 'bg-red-100 text-red-700 border-red-300',
-              'NEEDED_TODAY': 'bg-orange-100 text-orange-700 border-orange-300',
-              'LATER': 'bg-gray-100 text-gray-600 border-gray-300',
-            }
+            const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
             const isActive = (item.manualPriorityOverride ?? item.priority) === p
+            const activeCls = p === '911'
+              ? 'bg-red-100 text-red-700 border-red-100'
+              : p === 'NEEDED_TODAY'
+                ? 'bg-gold-soft text-gold-2 border-gold-soft'
+                : 'bg-bg-2 text-ink-2 border-bg-2'
             return (
               <button
                 key={p}
                 onClick={() => handlePriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
-                className={`pill text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
-                  isActive ? `${activeStyles[p]} font-semibold` : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                className={`font-mono text-[10px] px-2 py-1 rounded-full border font-medium tracking-[0] transition-colors ${
+                  isActive ? activeCls : 'bg-paper text-ink-2 border-line hover:border-ink-3'
                 }`}
               >
                 {labels[p]}
@@ -731,52 +737,59 @@ export default function PrepPage() {
       {/* ── Desktop Header ── */}
       <div className="hidden md:block space-y-4">
         {/* Top bar */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <ChefHat size={24} className="text-gold" /> Prep List
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
+            <p className="font-mono text-[10.5px] text-ink-3 tracking-wide mb-2 flex items-center gap-2">
+              <ChefHat size={13} className="text-ink-3" />
+              TODAY / PREP
+            </p>
+            <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
+            <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
 
-          {/* Desktop tabs — centered */}
-          <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+          {/* Desktop tabs — centered, branded pill */}
+          <div className="inline-flex bg-bg-2 border border-line rounded-[10px] p-[3px] gap-0.5">
             <button onClick={() => setViewMode('today')} id="dtab-today"
-              className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${viewMode === 'today' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
-              To Do
-              {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}
+              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'today' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M7 13h4M7 16h6"/></svg>
+              To do
+              {todayItems.length > 0 && <span className="font-mono text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{todayItems.length}</span>}
             </button>
             <button onClick={() => setViewMode('smartprep')} id="dtab-smartprep"
-              className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${viewMode === 'smartprep' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
-              Smart Prep
-              {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}
+              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+              Smart prep
+              {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length + spNeeded.length}</span>}
             </button>
             <button onClick={() => setViewMode('history')} id="dtab-history"
-              className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors ${viewMode === 'history' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              <History size={13} />
               History
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowSettings(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
-              <Settings size={14} /> Settings
-            </button>
+          <div className="flex items-center gap-2 shrink-0">
             <button onClick={handleRefresh} disabled={generating}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
-              <RefreshCw size={14} className={generating ? 'animate-spin' : ''} />
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-50 whitespace-nowrap">
+              <RefreshCw size={13} className={`text-ink-3 ${generating ? 'animate-spin' : ''}`} />
               {generating ? 'Refreshing…' : 'Refresh'}
             </button>
             <button onClick={handleSync} disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-gold/30 text-gold bg-gold/10 rounded-lg hover:bg-gold/15 disabled:opacity-50">
-              <BookOpen size={14} className={syncing ? 'animate-pulse' : ''} />
-              {syncing ? 'Syncing…' : 'Sync from Recipes'}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-50 whitespace-nowrap">
+              <BookOpen size={13} className={`text-ink-3 ${syncing ? 'animate-pulse' : ''}`} />
+              {syncing ? 'Syncing…' : 'Sync from recipes'}
+            </button>
+            <button onClick={() => setShowSettings(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
+              <Settings size={13} className="text-ink-3" />
+              Settings
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-gold text-white rounded-lg hover:bg-[#a88930]">
-              <Plus size={14} /> Add Item
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap">
+              <span className="text-gold font-semibold text-base leading-none">+</span>
+              Add item
             </button>
           </div>
         </div>
@@ -925,23 +938,154 @@ export default function PrepPage() {
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'smartprep' && (
         <div className="space-y-4">
-          {/* Header row: info banner + view toggle */}
-          <div className="flex items-center gap-3 flex-wrap">
+          {/* ── Desktop KPI strip (Smart Prep context cards) ── */}
+          {(() => {
+            const actionItems = [...spCritical, ...spNeeded]
+            const topAction = actionItems[0]
+            const totalPrepMinutes = actionItems.reduce((sum, i) => sum + (i.estimatedPrepTime ?? 0), 0)
+            const stationsCount = new Set(items.filter(i => i.station).map(i => i.station)).size
+            return (
+              <div className="hidden md:grid grid-cols-[1.35fr_1.1fr_1fr_1.1fr] gap-3">
+                {/* Hero — today's suggested prep */}
+                <div className="bg-ink text-paper rounded-xl border border-ink p-[18px] flex flex-col justify-between min-h-[128px] relative">
+                  <div className="absolute top-[18px] right-4 flex items-end gap-[2px] h-[18px]">
+                    {[11,14,8,16,10,13,17,12].map((h, i) => (
+                      <span key={i} className="w-[3px] rounded-[1px]" style={{ height: h, background: '#3f3f46' }} />
+                    ))}
+                  </div>
+                  <div>
+                    <p className="font-mono text-[10.5px] text-[#a1a1aa] tracking-[0.01em]">TODAY&apos;S SUGGESTED PREP</p>
+                    <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2">
+                      {actionItems.length}
+                      <sub className="text-[20px] font-medium text-gold align-baseline ml-1 tracking-[-0.02em]">
+                        item{actionItems.length !== 1 ? 's' : ''}
+                      </sub>
+                    </p>
+                  </div>
+                  <p className="font-mono text-[11px] text-[#a1a1aa] mt-2">
+                    {topAction
+                      ? <>{topAction.suggestedQty % 1 === 0 ? topAction.suggestedQty.toFixed(0) : topAction.suggestedQty.toFixed(1)} {topAction.unit} {topAction.name.toLowerCase()}{totalPrepMinutes > 0 ? <> · <b className="text-paper font-medium">~{totalPrepMinutes} min</b></> : null}</>
+                      : 'nothing to prep right now'}
+                  </p>
+                </div>
+
+                {/* Critical */}
+                <div className="rounded-xl p-[18px] flex flex-col justify-between min-h-[128px] relative bg-[#fef2f2] border border-[#fca5a5]">
+                  {spCritical.length > 0 && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-red-500" />}
+                  <div>
+                    <p className="font-mono text-[10.5px] tracking-[0.01em] text-red-700">CRITICAL</p>
+                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-red-700">{spCritical.length}</p>
+                  </div>
+                  <p className="font-mono text-[11px] text-ink-3 mt-2">
+                    {spCritical.length > 0
+                      ? <><b className="text-red-700 font-medium">Stock depleted</b> · needs prep now</>
+                      : <>no critical items</>}
+                  </p>
+                </div>
+
+                {/* Needed today */}
+                <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[128px]">
+                  <div>
+                    <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">NEEDED TODAY</p>
+                    <p className={`text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 ${spNeeded.length > 0 ? 'text-ink' : 'text-ink-3'}`}>{spNeeded.length}</p>
+                  </div>
+                  <p className="font-mono text-[11px] text-ink-3 mt-2">
+                    {spNeeded.length > 0 ? 'below par — prep today' : 'no items below par right now'}
+                  </p>
+                </div>
+
+                {/* Looking good */}
+                <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[128px]">
+                  <div>
+                    <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">LOOKING GOOD</p>
+                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-green-700">{spLookingGood.length}</p>
+                  </div>
+                  <p className="font-mono text-[11px] text-ink-3 mt-2">
+                    <b className="text-green-700 font-medium">on par or above</b>{stationsCount > 0 ? ` · across ${stationsCount} station${stationsCount !== 1 ? 's' : ''}` : ''}
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Info banner (branded) */}
+          <div className="hidden md:flex items-center gap-3 px-4 py-3 bg-gold-soft border border-[#fcd34d] rounded-[10px]">
+            <div className="w-7 h-7 rounded-[7px] bg-paper border border-[#fcd34d] grid place-items-center text-gold-2 shrink-0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+            </div>
+            <p className="text-[13px] text-[#78350f] tracking-[-0.005em] leading-[1.4] flex-1">
+              Suggestions are computed live from <b className="font-semibold text-ink">theoretical stock</b> — sales, wastage &amp; invoices since the last count. Resets at each stock count.
+            </p>
+          </div>
+
+          {/* Mobile info banner (original) */}
+          <div className="md:hidden flex items-center gap-3 flex-wrap">
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 flex-1 min-w-0">
               <span className="text-amber-600 shrink-0">📊</span>
               <p className="text-sm text-amber-800">
                 Suggestions based on <strong>theoretical stock</strong> from sales, wastage &amp; invoices. Resets at each stock count.
               </p>
             </div>
-            {/* Desktop view toggle */}
-            <div className="hidden md:flex bg-gray-100 rounded-xl p-1 gap-0.5 shrink-0">
+          </div>
+
+          {/* Desktop tools row: search + dropdowns + segmented control */}
+          <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+              <input
+                className="w-full bg-paper border border-line rounded-[9px] pl-9 pr-3 py-2.5 text-[13px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors tracking-[-0.005em]"
+                placeholder="Search prep items, recipes, stations…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <select
+              value={filterCategory}
+              onChange={e => setFilterCategory(e.target.value)}
+              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
+            >
+              <option value="ALL">All categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select
+              value={filterStation}
+              onChange={e => setFilterStation(e.target.value)}
+              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
+            >
+              <option value="ALL">All stations</option>
+              <option value="UNASSIGNED">Unassigned</option>
+              {stations.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <label className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 transition-colors flex items-center gap-2 cursor-pointer tracking-[-0.005em]">
+              <span className={`w-[14px] h-[14px] border-[1.5px] rounded-[3px] grid place-items-center text-[9px] ${activeOnly ? 'bg-ink border-ink text-paper' : 'border-line-2 bg-paper'}`}>
+                {activeOnly && '✓'}
+              </span>
+              <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="hidden" />
+              Active only
+            </label>
+            <div className="flex bg-paper border border-line rounded-[9px] p-[3px]">
               {(['urgency', 'category', 'station'] as const).map(v => (
                 <button key={v} onClick={() => setSmartPrepView(v)}
-                  className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors capitalize ${smartPrepView === v ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
-                  By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
+                  className={`px-3 py-1.5 font-mono text-[11px] rounded-[6px] transition-colors whitespace-nowrap ${smartPrepView === v ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'}`}>
+                  By {v}
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Desktop "showing N items" mono label */}
+          <p className="hidden md:block font-mono text-[11px] text-ink-3 tracking-[0.01em]">
+            SHOWING {items.length} ITEMS · GROUPED BY {smartPrepView.toUpperCase()} · RESETS WITH NEXT COUNT
+          </p>
+
+          {/* Mobile view toggle */}
+          <div className="md:hidden flex bg-gray-100 rounded-xl p-1 gap-0.5">
+            {(['urgency', 'category', 'station'] as const).map(v => (
+              <button key={v} onClick={() => setSmartPrepView(v)}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${smartPrepView === v ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
+                By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
+              </button>
+            ))}
           </div>
 
           {/* Mobile view toggle */}
@@ -962,81 +1106,111 @@ export default function PrepPage() {
             <>
               {/* ── BY URGENCY ── */}
               {smartPrepView === 'urgency' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
 
                   {/* Critical column */}
-                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                    <div className="px-4 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                  <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-gray-100 rounded-xl flex flex-col min-h-[480px]">
+                    <div className="px-4 py-3.5 border-b border-[#fca5a5] flex items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
                         <span className="w-2 h-2 rounded-full bg-red-500" />
-                        <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Critical</span>
-                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length}</span>
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-700">CRITICAL</span>
+                        <span className="font-mono text-[11px] text-ink-3 font-normal">· {spCritical.length} item{spCritical.length !== 1 ? 's' : ''}</span>
                       </div>
                       {spCritical.some(i => !i.isOnList) && (
                         <button onClick={() => handleAddAll('911')}
-                          className="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-full transition-colors">
-                          Add All
+                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red-500 bg-red-500 text-paper hover:bg-red-600 whitespace-nowrap">
+                          + Add all
                         </button>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">Stock depleted — make now</p>
-                    {spCritical.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-xs text-gray-400">No critical items 🎉</div>
-                    ) : (
-                      spCritical.map(item => <SmartPrepCard key={item.id} item={item} />)
-                    )}
+                    <p className="font-mono text-[10.5px] text-red-700 px-4 pt-2 pb-1">Stock depleted — make now</p>
+                    <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-2 overflow-auto">
+                      {spCritical.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
+                          <div className="w-9 h-9 rounded-full bg-bg-2 grid place-items-center text-ink-4 mb-2.5">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                          </div>
+                          <p className="text-[13px] text-ink-3 tracking-[-0.005em]">No critical items</p>
+                        </div>
+                      ) : (
+                        spCritical.map(item => <SmartPrepCard key={item.id} item={item} />)
+                      )}
+                    </div>
                   </div>
 
                   {/* Needed Today column */}
-                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                    <div className="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-orange-400" />
-                        <span className="text-xs font-bold text-orange-700 uppercase tracking-wide">Needed Today</span>
-                        <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-semibold">{spNeeded.length}</span>
+                  <div className="bg-paper border border-line rounded-xl flex flex-col min-h-[480px]">
+                    <div className="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
+                        <span className="w-2 h-2 rounded-full bg-gold" />
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-gold-2">NEEDED TODAY</span>
+                        <span className="font-mono text-[11px] text-ink-3 font-normal">· {spNeeded.length} item{spNeeded.length !== 1 ? 's' : ''}</span>
                       </div>
                       {spNeeded.some(i => !i.isOnList) && (
                         <button onClick={() => handleAddAll('NEEDED_TODAY')}
-                          className="text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 px-3 py-1 rounded-full transition-colors">
-                          Add All
+                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-ink bg-ink text-paper hover:bg-ink-2 whitespace-nowrap">
+                          + Add all
                         </button>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">Below par — should be prepped today</p>
-                    {spNeeded.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-xs text-gray-400">No items below par</div>
-                    ) : (
-                      spNeeded.map(item => <SmartPrepCard key={item.id} item={item} />)
-                    )}
+                    <p className="font-mono text-[10.5px] text-ink-3 px-4 pt-2 pb-1">Below par — should be prepped today</p>
+                    <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-2 overflow-auto">
+                      {spNeeded.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
+                          <div className="w-9 h-9 rounded-full bg-bg-2 grid place-items-center text-ink-4 mb-2.5">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                          </div>
+                          <p className="text-[13px] text-ink-3 tracking-[-0.005em]">All par levels met<br/>
+                            <span className="text-ink-4 text-[12px]">Nothing else needs prepping today.</span>
+                          </p>
+                        </div>
+                      ) : (
+                        spNeeded.map(item => <SmartPrepCard key={item.id} item={item} />)
+                      )}
+                    </div>
                   </div>
 
-                  {/* Looking Good column — collapsible */}
-                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                  {/* Looking Good column */}
+                  <div className="bg-paper border border-line rounded-xl flex flex-col min-h-[480px]">
                     <button
                       onClick={() => setLookingGoodOpen(v => !v)}
-                      className="w-full px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between hover:bg-gray-100/70 transition-colors"
+                      className="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2.5 hover:bg-bg-2/40 transition-colors"
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-400" />
-                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Looking Good</span>
-                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">{spLookingGood.length}</span>
+                      <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-green-700">LOOKING GOOD</span>
+                        <span className="font-mono text-[11px] text-ink-3 font-normal">· {spLookingGood.length} item{spLookingGood.length !== 1 ? 's' : ''}</span>
                       </div>
-                      <span className="text-gray-400 text-sm">{lookingGoodOpen ? '▾' : '▸'}</span>
+                      <span className="font-mono text-[11px] text-ink-3">{lookingGoodOpen ? '▾' : '→'}</span>
                     </button>
-                    {lookingGoodOpen && (
-                      <>
-                        <p className="text-xs text-gray-400 italic px-4 py-2 border-b border-gray-50">
-                          At or above par. Add manually if you have an event or know something the system doesn&apos;t.
-                        </p>
+                    <p className="font-mono text-[10.5px] text-ink-3 px-4 pt-2 pb-1">On par or above — no action needed</p>
+                    {lookingGoodOpen ? (
+                      <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-1.5 overflow-auto">
                         {spLookingGood.length === 0 ? (
-                          <div className="px-4 py-8 text-center text-xs text-gray-400">No items</div>
+                          <div className="flex-1 flex items-center justify-center text-[13px] text-ink-3">No items</div>
                         ) : (
-                          spLookingGood.map(item => <SmartPrepCard key={item.id} item={item} />)
+                          spLookingGood.map(item => {
+                            const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
+                            const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
+                            return (
+                              <button key={item.id} onClick={() => setSelected(item)}
+                                className="bg-bg border border-line rounded-lg px-3 py-2.5 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors text-left">
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="text-[13px] font-medium text-ink tracking-[-0.01em] truncate">{item.name}</span>
+                                  <span className="font-mono text-[10.5px] text-ink-3 whitespace-nowrap">
+                                    {item.category} · {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
+                                  </span>
+                                </div>
+                                <span className="font-mono text-[11px] text-green-700 font-medium shrink-0">{label}</span>
+                              </button>
+                            )
+                          })
                         )}
-                      </>
-                    )}
-                    {!lookingGoodOpen && spLookingGood.length === 0 && (
-                      <div className="px-4 py-4 text-center text-xs text-gray-400">No items</div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setLookingGoodOpen(true)} className="flex-1 font-mono text-[11px] text-ink-3 hover:text-ink py-2.5 text-center transition-colors">
+                        {spLookingGood.length > 0 ? `+ ${spLookingGood.length} ITEMS · EXPAND ALL` : 'No items'}
+                      </button>
                     )}
                   </div>
                 </div>
