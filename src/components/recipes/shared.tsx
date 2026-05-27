@@ -1099,7 +1099,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }, [recipeId, load])
 
   const handleClose = () => {
-    if (dirtyRef.current) onUpdated()
+    onUpdated()
     onClose()
   }
 

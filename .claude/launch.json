@@ -7,6 +7,12 @@
       "runtimeArgs": ["node_modules/next/dist/bin/next", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "Prep Mockup",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["-m", "http.server", "4321", "--directory", "docs"],
+      "port": 4321
     }
   ]
 }
