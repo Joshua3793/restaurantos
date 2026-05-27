@@ -63,6 +63,25 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 purchasePrice / (qtyPerPurchaseUnit × packSize × getUnitConv(packUOM))
 ```
 
+### The spine — `pricePerBaseUnit`
+
+`InventoryItem.pricePerBaseUnit` is the **single value every cost in the app traces back to**. The redesign codifies this as Principle 01 ("cost is chrome") — the live cost-chrome strip in the app shell reads it directly, and clicking the value opens [src/components/layout/SpineAuditDrawer.tsx](src/components/layout/SpineAuditDrawer.tsx) which shows top contributors and recent writers.
+
+**Writers** (only places that ever set `pricePerBaseUnit`):
+- [src/lib/inventory-import.ts](src/lib/inventory-import.ts) — CSV import / migration tool
+- [src/app/api/invoices/sessions/route.ts](src/app/api/invoices/sessions/route.ts) — invoice line create (preview)
+- [src/app/api/invoices/sessions/[id]/route.ts](src/app/api/invoices/sessions/[id]/route.ts) — invoice line update (preview)
+- [src/app/api/invoices/sessions/[id]/approve/route.ts](src/app/api/invoices/sessions/[id]/approve/route.ts) — **canonical writer**; approval is the only spine-write that fires recipe re-cost / alerts
+- [src/app/api/inventory/[id]/route.ts](src/app/api/inventory/[id]/route.ts) — manual override via inventory edit
+- [src/app/api/inventory/repair-prices/route.ts](src/app/api/inventory/repair-prices/route.ts) — admin repair tool
+- [src/lib/recipeCosts.ts](src/lib/recipeCosts.ts) `syncPrepToInventory` — writes a PREP recipe's computed cost back to its linked `InventoryItem` so the recipe can be used as an ingredient
+
+**Readers**: ~46 sites. Recipes/menu/prep/wastage/count/cost/variance/sales/cost-chrome all read it for display or compute `lineCost = convertQty(qty, unit, baseUnit) × pricePerBaseUnit`.
+
+**Live aggregate endpoint**: [src/app/api/insights/cost-chrome/route.ts](src/app/api/insights/cost-chrome/route.ts) returns the four values shown in the chrome (WTD food cost %, target, 7d variance, on-hand). [src/app/api/insights/spine-audit/route.ts](src/app/api/insights/spine-audit/route.ts) powers the click-through audit drawer.
+
+**Rule of thumb when adding a cost number anywhere**: don't compute or store a parallel price — read `pricePerBaseUnit` at query time. If you find yourself wanting to cache a cost on a recipe/menu/sales row, you're probably building a divergence bug.
+
 ### Shared components
 
 `src/components/recipes/shared.tsx` — single large file containing `RecipeCard`, `RecipePanel`, `CategoryManager`, `IngredientRow`, and related types. Both the Recipe Book page and Menu page import from here.
