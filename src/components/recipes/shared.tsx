@@ -197,25 +197,25 @@ export function BulkActionBar({ count, onDeactivate, onDelete, onClear }: {
   onClear: () => void
 }) {
   return (
-    <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-gray-900 text-white rounded-2xl shadow-2xl px-2 py-2 text-sm">
-      <span className="px-3 font-semibold tabular-nums">{count} selected</span>
+    <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-ink text-paper rounded-[14px] shadow-2xl px-2 py-2 text-[13px]">
+      <span className="px-3 font-mono text-[12px] font-semibold tabular-nums"><span className="text-gold">{count}</span> selected</span>
       <div className="w-px h-5 bg-white/15 mx-1" />
       <button
         onClick={onDeactivate}
-        className="px-3 py-1.5 rounded-xl text-yellow-300 hover:bg-white/10 transition-colors font-medium"
+        className="px-3 py-1.5 rounded-[10px] text-paper hover:bg-white/10 transition-colors font-medium"
       >
         Deactivate
       </button>
       <button
         onClick={onDelete}
-        className="px-3 py-1.5 rounded-xl text-red-400 hover:bg-white/10 transition-colors font-medium"
+        className="px-3 py-1.5 rounded-[10px] text-red-400 hover:bg-white/10 transition-colors font-medium"
       >
         Delete
       </button>
       <div className="w-px h-5 bg-white/15 mx-1" />
       <button
         onClick={onClear}
-        className="px-2 py-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+        className="px-2 py-1.5 rounded-[10px] text-ink-4 hover:text-paper hover:bg-white/10 transition-colors"
         title="Clear selection"
       >
         <X size={14} />
@@ -266,41 +266,41 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/60 transition-colors cursor-pointer"
+      className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0 bg-paper hover:bg-bg-2/40 transition-colors cursor-pointer"
       onClick={onOpen}
     >
       {/* ── Selection checkbox (only when bulk-select is active) ── */}
       {onSelect && (
         <button
           onClick={e => { e.stopPropagation(); onSelect() }}
-          className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+          className={`shrink-0 w-4 h-4 rounded-[4px] border-[1.5px] flex items-center justify-center transition-colors ${
             isSelected
-              ? 'border-blue-500 bg-blue-500'
-              : 'border-gray-300 hover:border-blue-400 bg-white'
+              ? 'border-ink bg-ink'
+              : 'border-line-2 hover:border-ink-3 bg-paper'
           }`}
         >
-          {isSelected && <Check size={11} className="text-white" strokeWidth={3} />}
+          {isSelected && <Check size={10} className="text-paper" strokeWidth={3} />}
         </button>
       )}
 
       {/* ── Faded content — everything except the more menu ── */}
       <div className={`flex items-center gap-3 flex-1 min-w-0 ${inactive ? 'opacity-50' : ''}`}>
-        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: recipe.categoryColor ?? '#94a3b8' }} />
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: recipe.categoryColor ?? '#a1a1aa' }} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-gray-900 text-sm">{recipe.name}</span>
-            {inactive && <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full">Off</span>}
+            <span className="font-medium text-ink text-[13.5px] tracking-[-0.01em]">{recipe.name}</span>
+            {inactive && <span className="font-mono text-[10px] bg-bg-2 text-ink-3 px-1.5 py-0.5 rounded-full uppercase tracking-[0.04em]">Off</span>}
           </div>
           {/* Yield subtitle */}
-          <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">
+          <div className="font-mono text-[11px] text-ink-3 mt-1 flex items-center gap-1.5">
             {!isMenu ? (
               <>
-                <span>Yields <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
+                <span>Yields <span className="text-ink-2 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
                 {recipe.portionSize && recipe.portionUnit && recipe.portionSize > 0 && (
                   <>
-                    <span className="text-gray-200">·</span>
+                    <span className="text-ink-4">·</span>
                     <span>
-                      <span className="text-gray-500 font-medium">
+                      <span className="text-ink-2 font-medium">
                         {Math.round(recipe.baseYieldQty / recipe.portionSize)}
                       </span> × {formatQtyUnit(recipe.portionSize, recipe.portionUnit)} portions
                     </span>
@@ -308,17 +308,17 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
                 )}
                 {recipe.usedInCount !== undefined && recipe.usedInCount > 0 && (
                   <>
-                    <span className="text-gray-200">·</span>
-                    <span className="text-emerald-600 font-medium">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
+                    <span className="text-ink-4">·</span>
+                    <span className="text-green-text font-medium" style={{ color: '#166534' }}>used in {recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
                   </>
                 )}
               </>
             ) : (
               <>
                 {recipe.portionSize && recipe.portionUnit ? (
-                  <span>Per portion: <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.portionSize, recipe.portionUnit)}</span></span>
+                  <span>Per portion: <span className="text-ink-2 font-medium">{formatQtyUnit(recipe.portionSize, recipe.portionUnit)}</span></span>
                 ) : (
-                  <span>Yield: <span className="text-gray-500 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
+                  <span>Yield: <span className="text-ink-2 font-medium">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</span></span>
                 )}
               </>
             )}
@@ -331,81 +331,81 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
         </div>
 
         {!isMenu && (
-          <div className="hidden sm:flex items-center gap-1.5 text-xs shrink-0">
-            <span className="text-gray-400">{formatCurrency(recipe.totalCost)}</span>
-            <span className="text-gray-200">·</span>
-            <span className="font-semibold text-gray-700">
-              {recipe.baseYieldQty > 0 ? `${formatUnitPrice(recipe.totalCost / recipe.baseYieldQty)}/${recipe.yieldUnit}` : '—'}
+          <div className="hidden sm:flex flex-col items-end gap-0.5 text-right shrink-0">
+            <span className="font-mono text-[13.5px] text-ink tracking-[-0.01em]">{formatCurrency(recipe.totalCost)}</span>
+            <span className="font-mono text-[10.5px] text-ink-3">
+              {recipe.baseYieldQty > 0 ? <><span className="text-ink-2 font-medium">{formatUnitPrice(recipe.totalCost / recipe.baseYieldQty)}</span> / {recipe.yieldUnit}</> : '—'}
             </span>
           </div>
         )}
 
         {isMenu && (
-          <div className="hidden sm:flex items-center gap-1.5 text-xs shrink-0">
-            <span className="text-gray-400">{formatCurrency(recipe.totalCost)}</span>
-            <span className="text-gray-200">·</span>
-            <span className="text-gray-700">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
-            <span className="text-gray-200">·</span>
-            <span className={`font-semibold ${foodCostClass(recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null)}`}>
-              {recipe.menuPrice ? `${((recipe.totalCost / recipe.menuPrice) * 100).toFixed(1)}%` : '—'}
+          <div className="hidden sm:flex flex-col items-end gap-0.5 text-right shrink-0">
+            <div className="font-mono text-[13px] text-ink tracking-[-0.01em] flex items-center gap-1.5">
+              <span className="text-ink-3">{formatCurrency(recipe.totalCost)}</span>
+              <span className="text-ink-4">·</span>
+              <span>{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
+            </div>
+            <span className={`font-mono text-[11px] font-medium ${foodCostClass(recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null)}`}>
+              {recipe.menuPrice ? `${((recipe.totalCost / recipe.menuPrice) * 100).toFixed(1)}% food cost` : '—'}
             </span>
           </div>
         )}
 
         <button
           onClick={e => { e.stopPropagation(); onToggle() }}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}
+          className={`relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-line-2'}`}
         >
-          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+          <span className={`pointer-events-none absolute top-[2px] inline-block h-[14px] w-[14px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
         </button>
 
         {/* Print Card — always visible */}
         <button
           onClick={e => { e.stopPropagation(); setShowPrint(true) }}
           title="Print recipe card"
-          className="p-1 text-gray-300 hover:text-gray-600 rounded transition-colors shrink-0"
+          className="p-1.5 rounded-[7px] text-ink-4 hover:text-ink hover:bg-bg-2 transition-colors shrink-0"
         >
-          <Printer size={15} />
+          <Printer size={14} />
         </button>
       </div>
 
       {/* ── More menu (Duplicate + Delete only) ── */}
       <div className="relative shrink-0" ref={moreRef} onClick={e => e.stopPropagation()}>
-        <button ref={moreButtonRef} onClick={openMore} className="p-1 text-gray-300 hover:text-gray-500 rounded">
-          <MoreHorizontal size={15} />
+        <button ref={moreButtonRef} onClick={openMore} className="p-1.5 rounded-[7px] text-ink-4 hover:text-ink hover:bg-bg-2 transition-colors">
+          <MoreHorizontal size={14} />
         </button>
       </div>
       {showMore && menuPos && typeof document !== 'undefined' && createPortal(
         <div
           ref={moreRef}
           style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 9999 }}
-          className="bg-white rounded-xl shadow-lg border border-gray-100 py-1 w-36"
+          className="bg-paper rounded-[10px] shadow-lg border border-line py-1 w-36"
           onClick={e => e.stopPropagation()}
         >
-          <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+          <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-[13px] text-left text-ink-2 hover:bg-bg-2 flex items-center gap-2">
             <Copy size={13} /> Duplicate
           </button>
           {onDelete && (
             <>
-              <div className="border-t border-gray-100 my-1" />
+              <div className="border-t border-line my-1" />
               {confirmDelete ? (
                 <div className="px-3 py-2">
-                  <p className="text-xs text-gray-500 mb-2">Delete permanently?</p>
+                  <p className="text-[11px] text-ink-3 mb-2">Delete permanently?</p>
                   <div className="flex gap-1.5">
                     <button
                       onClick={() => { setShowMore(false); setConfirmDelete(false); onDelete() }}
-                      className="flex-1 px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                      className="flex-1 px-2 py-1 bg-red-600 text-paper text-[11px] rounded-[6px] hover:bg-red-700"
                     >Delete</button>
                     <button
                       onClick={() => setConfirmDelete(false)}
-                      className="flex-1 px-2 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50"
+                      className="flex-1 px-2 py-1 border border-line text-ink-2 text-[11px] rounded-[6px] hover:bg-bg-2"
                     >Cancel</button>
                   </div>
                 </div>
               ) : (
                 <button
                   onClick={() => setConfirmDelete(true)}
-                  className="w-full px-3 py-2 text-sm text-left text-red-600 hover:bg-red-50 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-[13px] text-left text-red-600 hover:bg-red-50 flex items-center gap-2"
                 >
                   <Trash2 size={13} /> Delete
                 </button>
@@ -1169,7 +1169,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }
 
   if (!recipe) return (
-    <div className="fixed inset-y-0 right-0 w-full md:w-[600px] bg-white shadow-2xl flex items-center justify-center z-50">
+    <div className="fixed inset-y-0 right-0 w-full md:w-[600px] bg-paper shadow-2xl flex items-center justify-center z-50">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
     </div>
   )
@@ -1191,85 +1191,86 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     <>
     <div className="fixed inset-0 z-[60] flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={handleClose} />
-      <div className="w-full md:w-[640px] bg-white h-full overflow-y-auto flex flex-col shadow-2xl">
-        <div className="sticky top-0 bg-white z-10">
+      <div className="w-full md:w-[640px] bg-bg h-full overflow-y-auto flex flex-col shadow-2xl">
+        <div className="sticky top-0 bg-paper z-10">
           {/* Title bar */}
           <div
-            className="border-b border-gray-100 px-5 py-4 flex items-center gap-3"
+            className="border-b border-line px-5 py-4 flex items-center gap-3 bg-paper"
             style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
           >
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600"><ArrowLeft size={20} /></button>
+            <button onClick={handleClose} className="w-8 h-8 rounded-[8px] border border-line flex items-center justify-center text-ink-2 hover:border-ink-3 transition-colors bg-paper"><ArrowLeft size={16} /></button>
             <div className="flex-1 min-w-0">
-              <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-lg font-bold text-gray-900" />
-              <div className="flex items-center gap-2 mt-0.5">
+              <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-[20px] font-semibold text-ink tracking-[-0.03em] leading-tight" />
+              <div className="flex items-center gap-2 mt-1.5">
                 {isMenu ? (
-                  <span className="text-xs text-gold bg-gold/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-gold-2 bg-gold-soft px-2 py-0.5 rounded-full flex items-center gap-1">
                     <UtensilsCrossed size={10} /> Menu
                   </span>
                 ) : (
-                  <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-green-700 bg-green-50 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <BookOpen size={10} /> Recipe
                   </span>
                 )}
                 {recipe.inventoryItemId && (
                   <a href={`/inventory?highlight=${recipe.inventoryItemId}`}
-                    className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full flex items-center gap-1 hover:bg-emerald-100 transition-colors"
+                    className="font-mono text-[10px] uppercase tracking-[0.06em] bg-bg-2 text-ink-3 px-2 py-0.5 rounded-full flex items-center gap-1 hover:text-ink-2 transition-colors"
                     onClick={e => e.stopPropagation()}
                     title="View in Inventory">
-                    <Link2 size={9} /> Synced to Inventory <ExternalLink size={8} />
+                    <Link2 size={9} /> Synced <ExternalLink size={8} />
                   </a>
                 )}
               </div>
             </div>
-            {saving && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />}
+            {saving && <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />}
             <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}>
-              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
+              className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-line-2'}`}>
+              <span className={`pointer-events-none absolute top-[2px] inline-block h-[18px] w-[18px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
             </button>
             <button onClick={() => setShowPrint(true)} title="Print recipe card"
-              className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
-              <Printer size={18} />
+              className="p-1.5 rounded-[7px] text-ink-3 hover:text-ink hover:bg-bg-2 transition-colors">
+              <Printer size={16} />
             </button>
           </div>
 
-          {/* Cost chrome strip */}
+          {/* Cost chrome strip — dark ink with gold accent */}
           {recipe.totalCost > 0 && (
-            <div className="bg-gray-950 px-5 py-2.5 flex items-center gap-1 text-xs overflow-x-auto">
+            <div className="bg-ink px-5 py-3 flex items-center gap-1 text-[11.5px] overflow-x-auto">
               {isMenu ? (
                 <>
-                  <span className="text-gray-500 shrink-0">Cost</span>
-                  <span className="text-white font-semibold ml-1 shrink-0">{formatCurrency(recipe.totalCost)}</span>
-                  <span className="text-gray-700 mx-2 shrink-0">·</span>
-                  <span className="text-gray-500 shrink-0">Price</span>
-                  <span className="text-white font-semibold ml-1 shrink-0">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-gray-600 italic">unset</span>}</span>
-                  <span className="text-gray-700 mx-2 shrink-0">·</span>
-                  <span className="text-gray-500 shrink-0">Food cost</span>
-                  <span className={`font-bold ml-1 shrink-0 ${menuFoodCostPct !== null ? foodCostClass(menuFoodCostPct).replace('text-green-600', 'text-green-400').replace('text-red-600', 'text-red-400').replace('text-amber-500', 'text-amber-400') : 'text-gray-600'}`}>
+                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Cost</span>
+                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{formatCurrency(recipe.totalCost)}</span>
+                  <span className="text-zinc-700 mx-3 shrink-0">|</span>
+                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Price</span>
+                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-zinc-600 italic">unset</span>}</span>
+                  <span className="text-zinc-700 mx-3 shrink-0">|</span>
+                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Food cost</span>
+                  <span className={`font-mono text-[14px] font-bold ml-1.5 shrink-0 ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-green-400' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-red-400') : 'text-zinc-600'}`}>
                     {menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}
                   </span>
                   {menuFoodCostPct !== null && (
-                    <div className="ml-3 h-1.5 w-20 bg-gray-800 rounded-full overflow-hidden shrink-0">
+                    <div className="ml-3 relative h-1.5 w-24 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                       <div
-                        className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green-500' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-amber-400' : 'bg-red-500'}`}
+                        className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green-500' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-gold' : 'bg-red-500'}`}
                         style={{ width: `${Math.min(100, menuFoodCostPct)}%` }}
                       />
+                      <div className="absolute top-[-2px] w-px h-3 bg-gold" style={{ left: `${FOOD_COST_GREEN}%` }} />
                     </div>
                   )}
                 </>
               ) : (
                 <>
-                  <span className="text-gray-500 shrink-0">Batch</span>
-                  <span className="text-white font-semibold ml-1 shrink-0">{formatCurrency(recipe.totalCost)}</span>
-                  <span className="text-gray-700 mx-2 shrink-0">·</span>
-                  <span className="text-gray-500 shrink-0">Per {recipe.yieldUnit}</span>
-                  <span className="text-white font-semibold ml-1 shrink-0">
+                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Batch</span>
+                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{formatCurrency(recipe.totalCost)}</span>
+                  <span className="text-zinc-700 mx-3 shrink-0">|</span>
+                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Per {recipe.yieldUnit}</span>
+                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">
                     {recipe.baseYieldQty > 0 ? formatCurrency(recipe.totalCost / recipe.baseYieldQty) : '—'}
                   </span>
                   {recipe.costPerPortion !== null && (
                     <>
-                      <span className="text-gray-700 mx-2 shrink-0">·</span>
-                      <span className="text-gray-500 shrink-0">Per portion</span>
-                      <span className="text-white font-semibold ml-1 shrink-0">{formatCurrency(recipe.costPerPortion)}</span>
+                      <span className="text-zinc-700 mx-3 shrink-0">|</span>
+                      <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Per portion</span>
+                      <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{formatCurrency(recipe.costPerPortion)}</span>
                     </>
                   )}
                 </>

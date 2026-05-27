@@ -19,6 +19,7 @@ const config: Config = {
         ink:         '#09090b',
         'ink-2':     '#27272a',
         'ink-3':     '#71717a',
+        'ink-4':     '#a1a1aa',
         // Borders
         line:        '#e4e4e7',
         'line-2':    '#d4d4d8',

@@ -1,12 +1,11 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, X, UtensilsCrossed, Search, Pencil, Check } from 'lucide-react'
+import { X, UtensilsCrossed, Search, Pencil, Check } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
-import { rcHex } from '@/lib/rc-colors'
 
 export default function MenuPage() {
   return (
@@ -154,52 +153,59 @@ function MenuPageInner() {
     await loadCategories()
   }
 
-  const activePill  = 'bg-gold text-white shadow-sm'
-  const inactivePill = 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+  const activePill  = 'bg-ink text-paper border border-ink'
+  const inactivePill = 'bg-paper border border-line text-ink-2 hover:border-ink-3'
 
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── TOP BAR ── */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-2 mr-auto">
-          <UtensilsCrossed size={18} className="text-gold" />
-          <h1 className="text-lg font-bold text-gray-900">Menu</h1>
+      {/* ── HEADER ── */}
+      <div className="flex items-end justify-between gap-6 mb-2">
+        <div>
+          <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] mb-1.5 flex items-center gap-2">
+            <UtensilsCrossed size={12} />
+            LIBRARY / MENU
+          </div>
+          <h1 className="text-[28px] sm:text-[32px] font-semibold text-ink tracking-[-0.04em] leading-none">Menu</h1>
+          <p className="text-[13px] text-ink-3 mt-1.5">
+            <span className="font-medium text-ink">{recipes.length} {recipes.length === 1 ? 'dish' : 'dishes'}</span>
+            {activeRc && <> · <span className="font-mono text-[11px]">{activeRc.name}</span></>}
+          </p>
         </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="relative hidden md:block">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+            <input
+              value={searchInput}
+              onChange={e => {
+                setSearchInput(e.target.value)
+                clearTimeout(searchDebounce.current)
+                searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
+              }}
+              placeholder="Search dishes…"
+              className="w-52 pl-9 pr-4 py-2 text-[13px] border border-line rounded-[9px] bg-paper text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-all focus:w-64"
+            />
+            {searchInput && (
+              <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2">
+                <X size={13} />
+              </button>
+            )}
+          </div>
 
-        {/* Desktop search */}
-        <div className="relative hidden md:block">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <input
-            value={searchInput}
-            onChange={e => {
-              setSearchInput(e.target.value)
-              clearTimeout(searchDebounce.current)
-              searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
-            }}
-            placeholder="Search dishes…"
-            className="w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-all focus:w-64"
-          />
-          {searchInput && (
-            <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
-              <X size={13} />
-            </button>
-          )}
+          <button
+            onClick={() => setShowNewForm(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors"
+          >
+            <span className="text-gold font-semibold">+</span>
+            <span className="hidden sm:inline">New dish</span>
+            <span className="sm:hidden">New</span>
+          </button>
         </div>
-
-        <button
-          onClick={() => setShowNewForm(true)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white bg-gold hover:bg-[#a88930] transition-colors"
-        >
-          <Plus size={15} />
-          <span className="hidden sm:inline">New Dish</span>
-          <span className="sm:hidden">New</span>
-        </button>
       </div>
 
       {/* ── MOBILE SEARCH ── */}
       <div className="md:hidden relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
         <input
           value={searchInput}
           onChange={e => {
@@ -208,23 +214,24 @@ function MenuPageInner() {
             searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
           }}
           placeholder="Search dishes…"
-          className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gold"
+          className="w-full pl-9 pr-9 py-2.5 text-[13px] border border-line rounded-[9px] bg-paper text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3"
         />
         {searchInput && (
-          <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+          <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2">
             <X size={13} />
           </button>
         )}
       </div>
 
       {/* ── CATEGORY FILTER PILLS + edit button ── */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <button
           onClick={() => setActiveCatId(null)}
-          className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${activeCatId === null ? activePill : inactivePill}`}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-colors ${activeCatId === null ? activePill : inactivePill}`}
         >
+          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activeCatId === null ? '#fafaf9' : '#a1a1aa' }} />
           All
-          <span className={`ml-1.5 text-xs ${activeCatId === null ? 'opacity-70' : 'text-gray-400'}`}>
+          <span className={`font-mono text-[10.5px] ${activeCatId === null ? 'opacity-60' : 'text-ink-3'}`}>
             {recipes.length}
           </span>
         </button>
@@ -236,21 +243,21 @@ function MenuPageInner() {
             <button
               key={cat.id}
               onClick={() => setActiveCatId(isActive ? null : cat.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${isActive ? activePill : inactivePill}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-colors ${isActive ? activePill : inactivePill}`}
             >
               <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: isActive ? 'rgba(255,255,255,0.6)' : (cat.color ?? '#94a3b8') }}
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ background: cat.color ?? '#a1a1aa' }}
               />
               {cat.name}
-              <span className={`text-xs ${isActive ? 'opacity-70' : 'text-gray-400'}`}>{count}</span>
+              <span className={`font-mono text-[10.5px] ${isActive ? 'opacity-60' : 'text-ink-3'}`}>{count}</span>
             </button>
           )
         })}
 
         <button
           onClick={() => setShowCatManager(true)}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-gray-200 hover:border-gray-300 transition-all ml-auto"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] font-mono text-[11px] text-ink-3 hover:text-ink-2 hover:bg-bg-2 border border-line transition-colors ml-auto"
         >
           <Pencil size={10} />
           <span className="hidden sm:inline">Edit</span>
@@ -259,22 +266,22 @@ function MenuPageInner() {
 
       {/* ── SECONDARY TOOLBAR ── */}
       <div className="flex items-center justify-between -mt-2">
-        <p className="text-xs text-gray-400">
+        <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase">
           {activeCatId
-            ? <>Filtering by <span className="font-medium text-gray-600">{typeCats.find(c => c.id === activeCatId)?.name}</span> · {displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'}</>
-            : <>{displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} total</>
+            ? <>{displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} · {typeCats.find(c => c.id === activeCatId)?.name}</>
+            : <>{displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} · click any row to edit</>
           }
         </p>
         <button
           onClick={() => setShowInactive(s => !s)}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] font-mono text-[11px] font-medium transition-colors ${
             showInactive
-              ? 'bg-gray-100 text-gray-700 border border-gray-300'
-              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-transparent'
+              ? 'bg-bg-2 text-ink-2 border border-line'
+              : 'text-ink-3 hover:text-ink-2 hover:bg-bg-2 border border-transparent'
           }`}
         >
-          <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-gray-600 border-gray-600' : 'border-gray-300'}`}>
-            {showInactive && <span className="text-white" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
+          <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-ink border-ink' : 'border-line-2'}`}>
+            {showInactive && <span className="text-paper" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
           </span>
           Inactive
         </button>
@@ -285,41 +292,41 @@ function MenuPageInner() {
 
         {/* New dish form */}
         {showNewForm && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4">
+          <div className="bg-paper rounded-xl border border-line p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-gray-800">New Menu Dish</h3>
-              <button onClick={() => setShowNewForm(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+              <h3 className="font-semibold text-[15px] text-ink tracking-[-0.02em]">New menu dish</h3>
+              <button onClick={() => setShowNewForm(false)} className="text-ink-4 hover:text-ink-2"><X size={16} /></button>
             </div>
             <form onSubmit={handleCreate} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Name *</label>
+                  <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">Name *</label>
                   <input
                     required
                     value={newForm.name}
                     onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] text-ink focus:outline-none focus:border-ink-3"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Category *</label>
+                  <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">Category *</label>
                   <select
                     required
                     value={newForm.categoryId}
                     onChange={e => setNewForm(f => ({ ...f, categoryId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] text-ink bg-paper focus:outline-none focus:border-ink-3"
                   >
                     <option value="">Select…</option>
                     {typeCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Revenue Center *</label>
+                  <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">Revenue center *</label>
                   <select
                     required
                     value={newForm.revenueCenterId}
                     onChange={e => setNewForm(f => ({ ...f, revenueCenterId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                    className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] text-ink bg-paper focus:outline-none focus:border-ink-3"
                   >
                     <option value="">Select…</option>
                     {revenueCenters.filter(rc => rc.isActive).map(rc => (
@@ -328,9 +335,9 @@ function MenuPageInner() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                  <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">
                     Portions per batch *
-                    <span className="ml-1 font-normal text-gray-400">(usually 1)</span>
+                    <span className="ml-1.5 font-mono text-[10.5px] font-normal text-ink-3">usually 1</span>
                   </label>
                   <div className="flex gap-1">
                     <input
@@ -341,13 +348,13 @@ function MenuPageInner() {
                       placeholder="1"
                       value={newForm.baseYieldQty}
                       onChange={e => setNewForm(f => ({ ...f, baseYieldQty: e.target.value }))}
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                      className="flex-1 border border-line rounded-[9px] px-2.5 py-2 text-[13px] text-ink focus:outline-none focus:border-ink-3"
                     />
                     <select
                       required
                       value={newForm.yieldUnit}
                       onChange={e => setNewForm(f => ({ ...f, yieldUnit: e.target.value }))}
-                      className="w-28 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                      className="w-28 border border-line rounded-[9px] px-2.5 py-2 text-[13px] text-ink bg-paper focus:outline-none focus:border-ink-3"
                     >
                       <option value="">Unit…</option>
                       <option value="portion">portion</option>
@@ -363,9 +370,9 @@ function MenuPageInner() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Menu Price ($)</label>
+                  <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">Menu price ($)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                    <span className="absolute left-3 top-2 font-mono text-[13px] text-ink-3">$</span>
                     <input
                       type="number"
                       min="0"
@@ -373,16 +380,16 @@ function MenuPageInner() {
                       placeholder="0.00"
                       value={newForm.menuPrice}
                       onChange={e => setNewForm(f => ({ ...f, menuPrice: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                      className="w-full border border-line rounded-[9px] pl-7 pr-3 py-2 text-[13px] text-ink focus:outline-none focus:border-ink-3"
                     />
                   </div>
                 </div>
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="flex-1 bg-gold text-white py-2 rounded-lg text-sm font-medium hover:bg-[#a88930]">
+                <button type="submit" className="flex-1 bg-ink text-paper py-2 rounded-[9px] text-[13px] font-semibold hover:bg-ink-2 transition-colors">
                   Create
                 </button>
-                <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+                <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-line rounded-[9px] text-[13px] text-ink-2 hover:bg-bg-2 transition-colors">
                   Cancel
                 </button>
               </div>
@@ -393,33 +400,33 @@ function MenuPageInner() {
         {/* Dish list */}
         {displayRecipes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <UtensilsCrossed size={40} className="text-gray-200 mb-3" />
-            <p className="text-gray-400 text-sm">
+            <UtensilsCrossed size={40} className="text-ink-4 mb-3" />
+            <p className="text-ink-3 text-[13px]">
               {searchInput ? `No dishes match "${searchInput}"` : 'No dishes yet'}
             </p>
             {!searchInput && (
-              <button onClick={() => setShowNewForm(true)} className="mt-3 text-sm text-gold hover:text-gold">
+              <button onClick={() => setShowNewForm(true)} className="mt-3 font-mono text-[11px] text-gold-2 hover:text-gold">
                 Create your first dish →
               </button>
             )}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-50">
-            <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 text-xs font-medium text-gray-400">
+          <div className="bg-paper rounded-xl border border-line overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">
               {/* Select-all checkbox */}
               <button
                 onClick={handleSelectAll}
-                className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                className={`shrink-0 w-4 h-4 rounded-[4px] border-[1.5px] flex items-center justify-center transition-colors ${
                   allVisibleSelected
-                    ? 'border-blue-500 bg-blue-500'
+                    ? 'border-ink bg-ink'
                     : selectedIds.size > 0
-                    ? 'border-blue-400 bg-blue-100'
-                    : 'border-gray-300 hover:border-blue-400 bg-white'
+                    ? 'border-ink bg-bg-2'
+                    : 'border-line-2 hover:border-ink-3 bg-paper'
                 }`}
               >
-                {allVisibleSelected && <Check size={11} className="text-white" strokeWidth={3} />}
+                {allVisibleSelected && <Check size={10} className="text-paper" strokeWidth={3} />}
                 {!allVisibleSelected && selectedIds.size > 0 && (
-                  <span className="w-2 h-0.5 bg-blue-500 rounded-full" />
+                  <span className="w-1.5 h-0.5 bg-ink rounded-full" />
                 )}
               </button>
               <span className="flex-1">Name</span>
@@ -455,23 +462,23 @@ function MenuPageInner() {
       {bulkConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => setBulkConfirm(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+          <div className="relative bg-paper rounded-2xl shadow-2xl border border-line p-6 w-full max-w-sm">
             {bulkConfirm === 'deactivate' ? (
               <>
-                <h3 className="text-base font-bold text-gray-900 mb-1">Deactivate {selectedIds.size} {selectedIds.size === 1 ? 'dish' : 'dishes'}?</h3>
-                <p className="text-sm text-gray-500 mb-5">
+                <h3 className="text-[15px] font-semibold text-ink tracking-[-0.02em] mb-1">Deactivate {selectedIds.size} {selectedIds.size === 1 ? 'dish' : 'dishes'}?</h3>
+                <p className="text-[13px] text-ink-3 mb-5">
                   They will be hidden from the active menu. You can reactivate them at any time by enabling &quot;Show inactive&quot;.
                 </p>
                 <div className="flex gap-2">
                   <button
                     onClick={handleBulkDeactivate}
-                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                    className="flex-1 bg-ink hover:bg-ink-2 text-paper py-2.5 rounded-[10px] text-[13px] font-semibold transition-colors"
                   >
                     Deactivate
                   </button>
                   <button
                     onClick={() => setBulkConfirm(null)}
-                    className="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+                    className="flex-1 border border-line text-ink-2 py-2.5 rounded-[10px] text-[13px] font-medium hover:bg-bg-2 transition-colors"
                   >
                     Cancel
                   </button>
@@ -479,20 +486,20 @@ function MenuPageInner() {
               </>
             ) : (
               <>
-                <h3 className="text-base font-bold text-gray-900 mb-1">Delete {selectedIds.size} {selectedIds.size === 1 ? 'dish' : 'dishes'}?</h3>
-                <p className="text-sm text-gray-500 mb-5">
+                <h3 className="text-[15px] font-semibold text-ink tracking-[-0.02em] mb-1">Delete {selectedIds.size} {selectedIds.size === 1 ? 'dish' : 'dishes'}?</h3>
+                <p className="text-[13px] text-ink-3 mb-5">
                   This is permanent and cannot be undone. All ingredients and costing data will be lost.
                 </p>
                 <div className="flex gap-2">
                   <button
                     onClick={handleBulkDelete}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-paper py-2.5 rounded-[10px] text-[13px] font-semibold transition-colors"
                   >
                     Delete permanently
                   </button>
                   <button
                     onClick={() => setBulkConfirm(null)}
-                    className="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+                    className="flex-1 border border-line text-ink-2 py-2.5 rounded-[10px] text-[13px] font-medium hover:bg-bg-2 transition-colors"
                   >
                     Cancel
                   </button>
