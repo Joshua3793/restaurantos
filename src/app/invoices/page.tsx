@@ -11,7 +11,12 @@ import { useNotifications } from '@/contexts/NotificationContext'
 import { isNative } from '@/lib/capacitor'
 import { useNativeScan } from '@/hooks/useNativeScan'
 
-const InvoiceDrawer = dynamic(
+const InvoiceDrawer = dynamic<{
+  sessionId: string | null
+  onClose: () => void
+  onApproveOrReject: () => void
+  allSessions?: SessionSummary[]
+}>(
   () => import('@/components/invoices/v2/InvoiceReviewDrawer').then(m => ({ default: m.InvoiceReviewDrawer })),
   { ssr: false, loading: () => null }
 )
