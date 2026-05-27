@@ -162,6 +162,8 @@ export default function CountPage() {
   const [editCountedBy, setEditCountedBy] = useState('')
   const [editDate,      setEditDate]      = useState('')
   const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
+  const [sessionFilter, setSessionFilter] = useState<'all' | 'in_progress' | 'finalized' | 'full' | 'spot'>('all')
+  const [sessionSearch, setSessionSearch] = useState('')
 
   // ── Offline state ─────────────────────────────────────────────────────────
   const [isOffline,      setIsOffline]      = useState(false)
