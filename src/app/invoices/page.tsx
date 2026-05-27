@@ -215,6 +215,7 @@ export default function InvoicesPage() {
         sessionId={selectedSessionId}
         onClose={() => setSelectedSessionId(null)}
         onApproveOrReject={handleApproveOrReject}
+        allSessions={sessions}
       />
       {showUpload && (
         <InvoiceUploadModal
