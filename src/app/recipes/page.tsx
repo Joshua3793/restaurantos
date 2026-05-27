@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { X, BookOpen, Search, Pencil, Link2, Check } from 'lucide-react'
+import { X, BookOpen, Search, Link2, Check, Download, SlidersHorizontal } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { useDrawer } from '@/contexts/DrawerContext'
@@ -24,6 +24,8 @@ function RecipesInner() {
   const [search, setSearch]                 = useState('')
   const searchDebounce = useRef<ReturnType<typeof setTimeout>>()
   const [showInactive, setShowInactive]     = useState(false)
+  const [sortMode, setSortMode]             = useState<'az' | 'cost' | 'usage'>('az')
+  const [viewMode, setViewMode]             = useState<'list' | 'grid'>('list')
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
   const [showNewForm, setShowNewForm]       = useState(false)
   const [showCatManager, setShowCatManager] = useState(false)
@@ -49,7 +51,12 @@ function RecipesInner() {
     setRecipes(Array.isArray(data) ? data : [])
   }, [showInactive, search])
 
-  const displayRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
+  const baseRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
+  const displayRecipes = [...baseRecipes].sort((a, b) => {
+    if (sortMode === 'cost')  return b.totalCost - a.totalCost
+    if (sortMode === 'usage') return (b.usedInCount ?? 0) - (a.usedInCount ?? 0)
+    return a.name.localeCompare(b.name)
+  })
 
   useEffect(() => { loadCategories() }, [loadCategories])
   useEffect(() => { loadRecipes() }, [loadRecipes])
@@ -141,32 +148,56 @@ function RecipesInner() {
   const activePill  = 'bg-ink text-paper border border-ink'
   const inactivePill = 'bg-paper border border-line text-ink-2 hover:border-ink-3'
 
+  const sortLabel = sortMode === 'az' ? 'A–Z' : sortMode === 'cost' ? 'Cost' : 'Usage'
+
   return (
     <div className="flex flex-col gap-4">
 
+      {/* ── SUB-NAV TABS ── */}
+      <nav className="flex items-stretch border-b border-line -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 h-12">
+        <button className="flex items-center gap-2 px-4 text-[13.5px] font-medium text-ink border-b-2 border-gold tracking-[-0.005em]">
+          <BookOpen size={14} />
+          Recipe Book
+        </button>
+        <button
+          onClick={() => setShowCatManager(true)}
+          className="flex items-center gap-2 px-4 text-[13.5px] font-medium text-ink-3 hover:text-ink border-b-2 border-transparent transition-colors tracking-[-0.005em]"
+        >
+          <SlidersHorizontal size={13} />
+          Categories
+        </button>
+        <div className="ml-auto flex items-center">
+          <span className="font-mono text-[10.5px] text-ink-3 bg-bg-2 border border-line rounded-[6px] px-2 py-0.5">⌘ K</span>
+        </div>
+      </nav>
+
       {/* ── HEADER ── */}
-      <div className="flex items-end justify-between gap-6 mb-2">
+      <div className="flex items-end justify-between gap-6 mb-1">
         <div>
           <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] mb-1.5 flex items-center gap-2">
             <BookOpen size={12} />
             LIBRARY / RECIPES
           </div>
           <h1 className="text-[28px] sm:text-[32px] font-semibold text-ink tracking-[-0.04em] leading-none">Recipe Book</h1>
-          <p className="text-[13px] text-ink-3 mt-1.5">
+          <p className="text-[13px] text-ink-3 mt-2">
             <span className="font-medium text-ink">{recipes.length} {recipes.length === 1 ? 'recipe' : 'recipes'}</span>
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <div className="relative hidden md:block">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-            <input value={searchInput} onChange={e => {
-                setSearchInput(e.target.value)
-                clearTimeout(searchDebounce.current)
-                searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
-              }} placeholder="Search recipes…"
-              className="w-52 pl-9 pr-4 py-2 text-[13px] border border-line rounded-[9px] bg-paper text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-all focus:w-64" />
-            {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2"><X size={13} /></button>}
-          </div>
+          <button
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors"
+            title="Export recipes (coming soon)"
+          >
+            <Download size={13} className="text-ink-3" />
+            Export
+          </button>
+          <button
+            onClick={() => setShowCatManager(true)}
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors"
+          >
+            <SlidersHorizontal size={13} className="text-ink-3" />
+            Edit categories
+          </button>
           <button onClick={() => setShowNewForm(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors">
             <span className="text-gold font-semibold">+</span>
@@ -176,16 +207,34 @@ function RecipesInner() {
         </div>
       </div>
 
-      {/* ── MOBILE SEARCH ── */}
-      <div className="md:hidden relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-        <input value={searchInput} onChange={e => {
-            setSearchInput(e.target.value)
-            clearTimeout(searchDebounce.current)
-            searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
-          }} placeholder="Search recipes…"
-          className="w-full pl-9 pr-9 py-2.5 text-[13px] border border-line rounded-[9px] bg-paper text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3" />
-        {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2"><X size={13} /></button>}
+      {/* ── TOOLBAR: search + sort + view ── */}
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+          <input value={searchInput} onChange={e => {
+              setSearchInput(e.target.value)
+              clearTimeout(searchDebounce.current)
+              searchDebounce.current = setTimeout(() => setSearch(e.target.value), 350)
+            }} placeholder="Search recipes, ingredients, categories…"
+            className="w-full pl-9 pr-9 py-2.5 text-[13px] border border-line rounded-[9px] bg-paper text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors" />
+          {searchInput && <button onClick={() => { setSearchInput(''); clearTimeout(searchDebounce.current); setSearch('') }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2"><X size={13} /></button>}
+        </div>
+        <div className="flex bg-paper border border-line rounded-[9px] p-[3px]">
+          {(['az', 'cost', 'usage'] as const).map(m => (
+            <button key={m} onClick={() => setSortMode(m)}
+              className={`px-3 py-[5px] font-mono text-[11px] rounded-[6px] transition-colors ${sortMode === m ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'}`}>
+              {m === 'az' ? 'A–Z' : m === 'cost' ? 'Cost' : 'Usage'}
+            </button>
+          ))}
+        </div>
+        <div className="flex bg-paper border border-line rounded-[9px] p-[3px]">
+          {(['list', 'grid'] as const).map(v => (
+            <button key={v} onClick={() => setViewMode(v)}
+              className={`px-3 py-[5px] font-mono text-[11px] rounded-[6px] transition-colors ${viewMode === v ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'}`}>
+              {v === 'list' ? 'List' : 'Grid'}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── CATEGORY FILTER PILLS ── */}
@@ -207,27 +256,24 @@ function RecipesInner() {
             </button>
           )
         })}
-        <button onClick={() => setShowCatManager(true)}
-          className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] font-mono text-[11px] text-ink-3 hover:text-ink-2 hover:bg-bg-2 border border-line transition-colors">
-          <Pencil size={10} />
-          Edit
-        </button>
       </div>
 
-      {/* ── SECONDARY TOOLBAR ── */}
-      <div className="flex items-center justify-between -mt-2">
+      {/* ── SHOWING ROW ── */}
+      <div className="flex items-center justify-between -mt-1">
         <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase">
-          {activeCatId
-            ? <>{displayRecipes.length} {displayRecipes.length === 1 ? 'recipe' : 'recipes'} · {typeCats.find(c => c.id === activeCatId)?.name}</>
-            : <>{displayRecipes.length} {displayRecipes.length === 1 ? 'recipe' : 'recipes'} · click any row to edit</>}
+          {displayRecipes.length} {displayRecipes.length === 1 ? 'recipe' : 'recipes'} · {sortLabel}
+          {activeCatId && <> · {typeCats.find(c => c.id === activeCatId)?.name}</>}
+          {!activeCatId && <> · click any row to edit</>}
         </p>
-        <button onClick={() => setShowInactive(s => !s)}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] font-mono text-[11px] font-medium transition-colors ${showInactive ? 'bg-bg-2 text-ink-2 border border-line' : 'text-ink-3 hover:text-ink-2 hover:bg-bg-2 border border-transparent'}`}>
-          <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${showInactive ? 'bg-ink border-ink' : 'border-line-2'}`}>
-            {showInactive && <span className="text-paper" style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
-          </span>
-          Inactive
-        </button>
+        <label className="flex items-center gap-2 font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={!showInactive}
+            onChange={() => setShowInactive(s => !s)}
+            className="w-3.5 h-3.5 accent-ink cursor-pointer"
+          />
+          Active only
+        </label>
       </div>
 
       {/* ── MAIN CONTENT ── */}
