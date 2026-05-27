@@ -35,14 +35,13 @@ const navGroups: NavGroup[] = [
     items: [
       { href: '/',      label: 'Pass',  icon: Sun,          exact: true },
       { href: '/prep',  label: 'Prep',  icon: ChefHat },
-      { href: '/count', label: 'Count', icon: ClipboardList },
+      { href: '/inventory/count', label: 'Count', icon: ClipboardList },
     ],
   },
   {
     label: 'INBOX',
     items: [
-      { href: '/invoices', label: 'Invoices',     icon: FileText,  badgeKey: 'invoicesReview' },
-      { href: '/invoices', label: 'Price alerts', icon: TrendingUp, badgeKey: 'priceAlerts' },
+      { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
     ],
   },
   {
@@ -77,7 +76,7 @@ const mobileLeft: NavItem[] = [
   { href: '/prep', label: 'Prep', icon: ChefHat },
 ]
 const mobileRight: NavItem[] = [
-  { href: '/count',    label: 'Count',    icon: ClipboardList },
+  { href: '/inventory/count', label: 'Count', icon: ClipboardList },
   { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
 ]
 
