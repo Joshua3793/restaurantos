@@ -344,6 +344,20 @@ export default function CountPage() {
     }, {} as Record<string, Line[]>)
   }, [filteredLines, catFilter, searchQuery])
 
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(s => {
+      if (sessionFilter === 'in_progress') return s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW'
+      if (sessionFilter === 'finalized')   return s.status === 'FINALIZED'
+      if (sessionFilter === 'full')        return s.type === 'FULL'
+      if (sessionFilter === 'spot')        return s.type === 'PARTIAL'
+      return true
+    }).filter(s => {
+      if (!sessionSearch.trim()) return true
+      const q = sessionSearch.toLowerCase()
+      return (s.label ?? '').toLowerCase().includes(q) || s.countedBy.toLowerCase().includes(q)
+    })
+  }, [sessions, sessionFilter, sessionSearch])
+
   // ── Actions ───────────────────────────────────────────────────────────────
   const openSession = async (s: Session, target: View) => {
     const full = await loadSession(s.id)
@@ -814,338 +828,508 @@ export default function CountPage() {
   // ════════════════════════════════════════════════════════════════════════════
   // VIEW A — SESSION LIST
   // ════════════════════════════════════════════════════════════════════════════
-  if (view === 'list') return (
-    <div className="max-w-4xl">
-      {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+  if (view === 'list') {
+    const lastFinalized  = sessions.find(s => s.status === 'FINALIZED')
+    const inProgressSess = sessions.find(s => s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW')
+    const nextCountDate  = (() => {
+      const d = new Date()
+      if (lastFinalized) {
+        const last = new Date(lastFinalized.sessionDate)
+        d.setTime(last.getTime())
+        d.setDate(d.getDate() + 7)
+      }
+      return d
+    })()
+    const isOverdue    = nextCountDate <= new Date()
+    const nextDateStr  = nextCountDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()
+    const overdueDays  = isOverdue ? Math.floor((Date.now() - nextCountDate.getTime()) / 86_400_000) : 0
+    const inProgCounts = inProgressSess?.counts ?? { total: 0, counted: 0, skipped: 0 }
+    const inProgPct    = inProgCounts.total > 0 ? (inProgCounts.counted / inProgCounts.total) * 100 : 0
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Track inventory accuracy and COGS by counting your stock regularly.</p>
-        </div>
-        <button
-          onClick={() => setView('new')}
-          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
-        >
-          <Plus size={16} /> Start Count
-        </button>
-      </div>
+    const sessionFilterChips: { key: typeof sessionFilter; label: string }[] = [
+      { key: 'all',         label: `All · ${sessions.length}` },
+      { key: 'in_progress', label: `In progress · ${sessions.filter(s => s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW').length}` },
+      { key: 'finalized',   label: `Finalized · ${sessions.filter(s => s.status === 'FINALIZED').length}` },
+      { key: 'full',        label: `Full counts · ${sessions.filter(s => s.type === 'FULL').length}` },
+      { key: 'spot',        label: `Spot counts · ${sessions.filter(s => s.type === 'PARTIAL').length}` },
+    ]
 
-      {/* Session list */}
-      {sessions.length === 0 ? (
-        <div className="text-center py-20 text-gray-400">
-          <ClipboardList size={44} className="mx-auto mb-4 opacity-30" />
-          <p className="font-semibold text-gray-700 text-base">No count sessions yet</p>
-          <p className="text-sm mt-1 mb-5">Regular stock counts keep your inventory accurate and food costs on target.</p>
-          <button
-            onClick={() => setView('new')}
-            className="inline-flex items-center gap-2 bg-gold text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-[#a88930] transition-colors"
-          >
-            <Plus size={16} /> Start First Count
-          </button>
-        </div>
-      ) : (
-        <>
-        {/* Mobile session list */}
-        <div className="flex sm:hidden flex-col gap-2">
-          {sessions.map(s => {
-            const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
-            const isUpdating = s.status === 'UPDATING'
-            const handleCardTap = () => {
-              setSessionMenuId(null)
-              if (s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') openSession(s, 'count')
-              else if (s.status === 'FINALIZED') openSession(s, 'review')
-            }
-            return (
-              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 border-l-4 flex items-stretch"
-                style={{ borderLeftColor: SESSION_ACCENT[s.status] ?? '#d1d5db' }}>
-                {/* Card body — tappable to navigate */}
-                <div
-                  className={`flex-1 min-w-0 px-4 py-3 ${!isUpdating && s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`}
-                  onClick={!isUpdating && s.status !== 'CANCELLED' ? handleCardTap : undefined}
-                >
-                  <div className="flex items-center gap-2 pr-1">
-                    <span className="flex-1 text-sm font-semibold text-gray-900 truncate">
-                      {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
-                    </span>
-                    <StatusBadge status={s.status} />
-                  </div>
-                  <div className="flex items-center justify-between mt-1 gap-2">
-                    <span className="text-xs text-gray-400 truncate">
-                      {fmtDate(s.sessionDate)} · {s.countedBy} · {s.status === 'FINALIZED' ? `${counts.total} items` : `${counts.counted}/${counts.total} items`}
-                    </span>
-                    {s.status === 'IN_PROGRESS'    && <span className="text-xs font-bold text-gold shrink-0">Continue →</span>}
-                    {s.status === 'PENDING_REVIEW' && <span className="text-xs font-bold text-amber-600 shrink-0">Review →</span>}
-                    {s.status === 'FINALIZED'      && <span className="text-xs font-bold text-green-700 shrink-0">Report</span>}
-                    {isUpdating && (
-                      <span className="flex items-center gap-1 text-xs text-violet-600 shrink-0">
-                        <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
-                        Processing…
-                      </span>
-                    )}
-                  </div>
-                  {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 && (
-                    <div className="mt-1">
-                      <span className="text-sm font-semibold text-gray-800">
-                        {formatCurrency(Number(s.totalCountedValue))}
-                      </span>
-                      <span className="text-xs text-gray-400 ml-1">total value</span>
-                    </div>
-                  )}
-                </div>
-                {/* ⋯ menu trigger — separate flex column so it never overlaps card text */}
-                <div className="relative flex items-center pr-2">
-                  <button
-                    onClick={e => { e.stopPropagation(); setSessionMenuId(sessionMenuId === s.id ? null : s.id) }}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
-                  >
-                    <MoreHorizontal size={16} />
-                  </button>
-                  {sessionMenuId === s.id && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setSessionMenuId(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
-                        <button
-                          onClick={e => { e.stopPropagation(); setSessionMenuId(null); openEditModal(s) }}
-                          className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
-                        >
-                          <Pencil size={13} /> Edit metadata
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); setSessionMenuId(null); handleReopenAndEdit(s) }}
-                          className="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100"
-                        >
-                          <ClipboardList size={13} /> {s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); setSessionMenuId(null); setDeleteTarget(s) }}
-                          className="flex items-center gap-2 w-full px-4 py-3 text-sm text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={13} /> Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <div className="hidden sm:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {/* Table header */}
-          <div className="grid grid-cols-[120px_1fr_80px_110px_110px_160px] gap-3 px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-            <span>Date</span>
-            <span>Session</span>
-            <span>Type</span>
-            <span>Progress</span>
-            <span className="text-right">Value</span>
-            <span className="text-right">Actions</span>
+    return (
+      <div>
+        {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+
+        {/* ── Header ── */}
+        <div className="flex items-start justify-between mb-7 gap-6">
+          <div>
+            <p className="font-mono text-[10.5px] text-ink-3 tracking-wide mb-2">TODAY / COUNT</p>
+            <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Stock count</h1>
+            <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">Track inventory accuracy and COGS by counting your stock regularly.</p>
           </div>
-          <div className="divide-y divide-gray-50">
-          {sessions.map(s => {
-            const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
-            const pct = counts.total > 0 ? Math.round((counts.counted / counts.total) * 100) : 0
-            return (
-              <div key={s.id} className="grid grid-cols-[120px_1fr_80px_110px_110px_160px] gap-3 px-5 py-3.5 items-center hover:bg-gray-50/60 transition-colors">
-                {/* Date */}
-                <div>
-                  <div className="text-sm font-medium text-gray-700">{fmtDate(s.sessionDate)}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{s.countedBy}</div>
-                </div>
-                {/* Label + status */}
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900 truncate">
-                      {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
-                    </span>
-                    <StatusBadge status={s.status} />
-                  </div>
-                  {s.status === 'FINALIZED' && (
-                    <div className="text-xs text-gray-400 mt-0.5">{counts.total} items counted</div>
-                  )}
-                </div>
-                {/* Type */}
-                <div className="text-xs text-gray-500">{s.type === 'FULL' ? 'Full' : 'Partial'}</div>
-                {/* Progress */}
-                <div>
-                  {s.status === 'FINALIZED' ? (
-                    <span className="text-xs text-green-600 font-medium">Complete</span>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-xs text-gray-500">{counts.counted}/{counts.total}</span>
-                        <span className="text-xs text-gray-400">{pct}%</span>
-                      </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full w-full">
-                        <div className="h-1.5 bg-green-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    </>
-                  )}
-                </div>
-                {/* Value */}
-                <div className="text-right">
-                  {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 ? (
-                    <span className="text-sm font-semibold text-gray-800">
-                      {formatCurrency(Number(s.totalCountedValue))}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-gray-300">—</span>
-                  )}
-                </div>
-                {/* Actions */}
-                <div className="flex items-center justify-end gap-1">
-                  {s.status === 'IN_PROGRESS' && (
-                    <button onClick={() => openSession(s, 'count')}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gold hover:bg-[#a88930] transition-colors">
-                      Continue →
-                    </button>
-                  )}
-                  {s.status === 'PENDING_REVIEW' && (
-                    <button onClick={() => openSession(s, 'count')}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors">
-                      Review →
-                    </button>
-                  )}
-                  {s.status === 'UPDATING' && (
-                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-violet-600 bg-violet-50 border border-violet-200">
-                      <span className="w-3 h-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
-                      Updating…
-                    </span>
-                  )}
-                  {s.status === 'FINALIZED' && (
-                    <button onClick={() => openSession(s, 'review')}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors">
-                      Report
-                    </button>
-                  )}
-                  <button onClick={e => { e.stopPropagation(); openEditModal(s) }} title="Edit"
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-blue-500 transition-colors">
-                    <Pencil size={13} />
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
-                    title={s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-amber-500 transition-colors">
-                    <ClipboardList size={13} />
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} title="Delete"
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-red-500 transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-          </div>
-        </div>
-        </>
-      )}
-
-      {/* Count cadence reminder — shown below session list when sessions exist */}
-      {sessions.length > 0 && (() => {
-        const lastFinalized = sessions.find(s => s.status === 'FINALIZED')
-        const nextCountDate = new Date()
-        if (lastFinalized) {
-          const last = new Date(lastFinalized.sessionDate)
-          nextCountDate.setTime(last.getTime())
-          nextCountDate.setDate(nextCountDate.getDate() + 7)
-        }
-        const isOverdue = nextCountDate <= new Date()
-        const dateStr = nextCountDate.toLocaleDateString('en-CA', { weekday: 'long', month: 'short', day: 'numeric' })
-        return (
-          <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-3 ${isOverdue ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'}`}>
-            <div>
-              <p className={`text-xs font-medium ${isOverdue ? 'text-amber-700' : 'text-gray-600'}`}>
-                {isOverdue ? 'Count overdue' : 'Next count recommended'}
-              </p>
-              <p className={`text-sm font-semibold ${isOverdue ? 'text-amber-900' : 'text-gray-700'}`}>{dateStr}</p>
-              <p className="text-xs text-gray-400 mt-0.5">Count weekly for accurate COGS and inventory tracking</p>
-            </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M3 5h18M3 12h18M3 19h12"/></svg>
+              History
+            </button>
+            <button className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              Export reports
+            </button>
             <button
               onClick={() => setView('new')}
-              className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${isOverdue ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-gold text-white hover:bg-[#a88930]'}`}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap"
             >
-              <Plus size={14} /> Start Count
+              <span className="text-gold font-semibold text-base leading-none">+</span>
+              Start count
             </button>
           </div>
-        )
-      })()}
+        </div>
 
-      {/* ── Delete confirmation modal ───────────────────────────────────────── */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                <Trash2 size={18} className="text-red-600" />
+        {sessions.length === 0 ? (
+          <div className="text-center py-20 text-ink-3">
+            <ClipboardList size={40} className="mx-auto mb-4 opacity-20" />
+            <p className="font-semibold text-ink text-base mb-1">No count sessions yet</p>
+            <p className="text-[13.5px] text-ink-3 mb-6">Regular stock counts keep your inventory accurate and food costs on target.</p>
+            <button
+              onClick={() => setView('new')}
+              className="inline-flex items-center gap-2 bg-ink text-paper px-5 py-2.5 rounded-[9px] text-[13px] font-medium hover:bg-ink-2 transition-colors"
+            >
+              <span className="text-gold font-semibold">+</span> Start First Count
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* ── KPI context strip ── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+              {/* Hero: last finalized */}
+              <div className="bg-ink text-paper rounded-xl border border-ink p-[18px] flex flex-col justify-between min-h-[120px] relative">
+                <div className="absolute top-[18px] right-4 flex items-end gap-[3px] h-[18px]">
+                  {[14,11,17,9,13,8,15,18].map((h, i) => (
+                    <span key={i} className="w-[3px] rounded-[1px]" style={{ height: h, background: '#3f3f46' }} />
+                  ))}
+                </div>
+                <div>
+                  <p className="font-mono text-[10.5px] text-[#a1a1aa] tracking-[0.01em]">LAST FINALIZED COUNT</p>
+                  {lastFinalized ? (
+                    <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2">
+                      {formatCurrency(Number(lastFinalized.totalCountedValue)).replace(/(\.\d+)$/, '')}
+                      <sub className="text-[20px] font-medium text-gold align-baseline ml-0.5 tracking-[-0.02em]">
+                        {formatCurrency(Number(lastFinalized.totalCountedValue)).match(/\.\d+$/)?.[0] ?? '.00'}
+                      </sub>
+                    </p>
+                  ) : (
+                    <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2 text-[#52525b]">—</p>
+                  )}
+                </div>
+                <p className="font-mono text-[11px] text-[#a1a1aa] mt-2">
+                  {lastFinalized
+                    ? `${fmtDate(lastFinalized.sessionDate)} · ${lastFinalized.countedBy} · ${lastFinalized.counts?.total ?? 0} items`
+                    : 'No finalized count yet'}
+                </p>
               </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Delete count session?</h3>
-                <p className="text-xs text-gray-500 mt-0.5">&ldquo;{deleteTarget.label || 'Untitled'}&rdquo; — {fmtDate(deleteTarget.sessionDate)}</p>
+
+              {/* In progress */}
+              <div className="bg-paper border border-ink-2 rounded-xl p-[18px] flex flex-col justify-between min-h-[120px] relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-8 h-0.5 bg-gold" />
+                <div>
+                  <p className="font-mono text-[10.5px] text-gold-2 tracking-[0.01em]">IN PROGRESS</p>
+                  {inProgressSess ? (
+                    <>
+                      <div className="flex items-baseline gap-2.5 mt-2">
+                        <span className="text-[28px] font-semibold tracking-[-0.035em] leading-none text-ink">
+                          {inProgCounts.counted}
+                          <small className="text-[16px] font-medium text-ink-3 tracking-[-0.02em]">/{inProgCounts.total}</small>
+                        </span>
+                        <span className="font-mono text-[11px] text-ink-3">{Math.round(inProgPct)}% counted</span>
+                      </div>
+                      <div className="h-1.5 bg-bg-2 rounded-full mt-2.5 overflow-hidden">
+                        <div className="h-1.5 bg-gold rounded-full" style={{ width: `${Math.max(inProgPct, inProgCounts.counted > 0 ? 1.5 : 0)}%` }} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-[28px] font-semibold tracking-[-0.035em] leading-none mt-2 text-ink-4">—</p>
+                  )}
+                </div>
+                <p className="font-mono text-[11px] text-ink-3 mt-2">
+                  {inProgressSess
+                    ? `${inProgressSess.countedBy} · ${fmtDate(inProgressSess.sessionDate)}`
+                    : 'No active session'}
+                </p>
+              </div>
+
+              {/* Next count due */}
+              <div className={`rounded-xl p-[18px] flex flex-col justify-between min-h-[120px] relative ${isOverdue ? 'bg-[#fffbeb] border border-[#fcd34d]' : 'bg-paper border border-line'}`}>
+                {isOverdue && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-gold" />}
+                <div>
+                  <p className={`font-mono text-[10.5px] tracking-[0.01em] ${isOverdue ? 'text-gold-2' : 'text-ink-3'}`}>NEXT COUNT DUE</p>
+                  <p className={`text-[28px] font-semibold tracking-[-0.035em] leading-none mt-2 ${isOverdue ? 'text-gold' : 'text-ink'}`}>
+                    {nextCountDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+                <p className="font-mono text-[11px] mt-2">
+                  {isOverdue
+                    ? <span className="text-gold-2 font-medium">Overdue {overdueDays} day{overdueDays !== 1 ? 's' : ''} · weekly cadence</span>
+                    : <span className="text-ink-3">Weekly cadence</span>}
+                </p>
+              </div>
+
+              {/* Session summary */}
+              <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[120px]">
+                <div>
+                  <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">TOTAL SESSIONS</p>
+                  <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2 text-ink">{sessions.length}</p>
+                </div>
+                <p className="font-mono text-[11px] text-ink-3 mt-2">
+                  {sessions.filter(s => s.status === 'FINALIZED').length} finalized · {sessions.filter(s => s.status === 'IN_PROGRESS').length} active
+                </p>
               </div>
             </div>
-            {deleteTarget.status === 'FINALIZED' && (
-              <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs text-amber-700 mb-3">
-                This session is finalized. Deleting it won&apos;t revert inventory stock levels.
+
+            {/* ── Filter chips ── */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {sessionFilterChips.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setSessionFilter(key)}
+                  className={`font-mono text-[11px] px-3 py-1.5 rounded-full border transition-colors whitespace-nowrap ${
+                    sessionFilter === key
+                      ? 'bg-ink text-paper border-ink'
+                      : 'bg-paper text-ink-2 border-line hover:border-ink-3'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Search + filters ── */}
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search by counter, date, session…"
+                  value={sessionSearch}
+                  onChange={e => setSessionSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2.5 text-[13px] bg-paper border border-line rounded-[9px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors"
+                />
+              </div>
+            </div>
+
+            <p className="font-mono text-[11px] text-ink-3 mb-3 tracking-wide">
+              SHOWING {filteredSessions.length} OF {sessions.length} COUNT{sessions.length !== 1 ? 'S' : ''} · NEWEST FIRST
+            </p>
+
+            {/* ── Mobile list ── */}
+            <div className="flex sm:hidden flex-col gap-2 mb-4">
+              {filteredSessions.map(s => {
+                const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
+                const isUpdating = s.status === 'UPDATING'
+                const handleCardTap = () => {
+                  setSessionMenuId(null)
+                  if (s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') openSession(s, 'count')
+                  else if (s.status === 'FINALIZED') openSession(s, 'review')
+                }
+                return (
+                  <div key={s.id} className="bg-paper rounded-xl border border-line border-l-[3px] flex items-stretch"
+                    style={{ borderLeftColor: SESSION_ACCENT[s.status] ?? '#d4d4d8' }}>
+                    <div
+                      className={`flex-1 min-w-0 px-4 py-3 ${!isUpdating && s.status !== 'CANCELLED' ? 'cursor-pointer' : 'cursor-default'}`}
+                      onClick={!isUpdating && s.status !== 'CANCELLED' ? handleCardTap : undefined}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="flex-1 text-[13.5px] font-medium text-ink truncate tracking-[-0.01em]">
+                          {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
+                        </span>
+                        <StatusBadge status={s.status} />
+                      </div>
+                      <div className="flex items-center justify-between mt-1 gap-2">
+                        <span className="font-mono text-[11px] text-ink-3 truncate">
+                          {fmtDate(s.sessionDate)} · {s.countedBy}
+                        </span>
+                        {s.status === 'IN_PROGRESS'    && <span className="font-mono text-[11px] font-medium text-gold shrink-0">Continue →</span>}
+                        {s.status === 'PENDING_REVIEW' && <span className="font-mono text-[11px] font-medium text-gold-2 shrink-0">Review →</span>}
+                        {s.status === 'FINALIZED'      && <span className="font-mono text-[11px] font-medium text-green-700 shrink-0">Report</span>}
+                        {isUpdating && (
+                          <span className="flex items-center gap-1 font-mono text-[11px] text-violet-600 shrink-0">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                            Processing…
+                          </span>
+                        )}
+                      </div>
+                      {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 && (
+                        <div className="mt-1 font-mono text-[13px] font-semibold text-ink">
+                          {formatCurrency(Number(s.totalCountedValue))}
+                          <span className="font-mono text-[11px] font-normal text-ink-3 ml-1">total value</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="relative flex items-center pr-2">
+                      <button
+                        onClick={e => { e.stopPropagation(); setSessionMenuId(sessionMenuId === s.id ? null : s.id) }}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-ink-4 hover:bg-bg-2"
+                      >
+                        <MoreHorizontal size={15} />
+                      </button>
+                      {sessionMenuId === s.id && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setSessionMenuId(null)} />
+                          <div className="absolute right-0 top-full mt-1 w-48 bg-paper border border-line rounded-xl shadow-lg z-50 overflow-hidden">
+                            <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); openEditModal(s) }}
+                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-ink-2 hover:bg-bg-2 border-b border-line">
+                              <Pencil size={13} /> Edit metadata
+                            </button>
+                            <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); handleReopenAndEdit(s) }}
+                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-ink-2 hover:bg-bg-2 border-b border-line">
+                              <ClipboardList size={13} /> {s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
+                            </button>
+                            <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); setDeleteTarget(s) }}
+                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-red-500 hover:bg-red-50">
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* ── Desktop table ── */}
+            <div className="hidden sm:block bg-paper border border-line rounded-xl overflow-hidden mb-5">
+              <div className="grid grid-cols-[100px_1.6fr_0.7fr_1.4fr_1fr_220px] px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
+                <span>DATE</span>
+                <span>SESSION</span>
+                <span>TYPE</span>
+                <span>PROGRESS</span>
+                <span className="text-right">VALUE</span>
+                <span className="text-right">ACTIONS</span>
+              </div>
+              <div>
+                {filteredSessions.length === 0 ? (
+                  <div className="px-[18px] py-10 text-center font-mono text-[11px] text-ink-4">NO SESSIONS MATCH THIS FILTER</div>
+                ) : filteredSessions.map((s, idx) => {
+                  const counts  = s.counts ?? { total: 0, counted: 0, skipped: 0 }
+                  const pct     = counts.total > 0 ? Math.round((counts.counted / counts.total) * 100) : 0
+                  const isLast  = idx === filteredSessions.length - 1
+                  return (
+                    <div key={s.id}
+                      className={`grid grid-cols-[100px_1.6fr_0.7fr_1.4fr_1fr_220px] px-[18px] py-4 items-center hover:bg-bg-2/60 transition-colors ${isLast ? '' : 'border-b border-line'}`}
+                    >
+                      {/* Date */}
+                      <div>
+                        <div className="font-mono text-[13px] text-ink tracking-[-0.01em]">{fmtDate(s.sessionDate)}</div>
+                        <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{s.countedBy}</div>
+                      </div>
+                      {/* Session label + status */}
+                      <div className="min-w-0 pr-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[13.5px] font-medium text-ink tracking-[-0.01em] truncate">
+                            {s.label || (s.type === 'FULL' ? 'Full count' : 'Partial count')}
+                          </span>
+                          <StatusBadge status={s.status} />
+                        </div>
+                        {s.status !== 'IN_PROGRESS' && s.status !== 'PENDING_REVIEW' && (
+                          <div className="font-mono text-[11px] text-ink-3 mt-0.5">{counts.total} items</div>
+                        )}
+                        {(s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') && (
+                          <div className="font-mono text-[11px] text-ink-3 mt-0.5">started {fmtDate(s.startedAt)}</div>
+                        )}
+                      </div>
+                      {/* Type */}
+                      <div className="font-mono text-[13px] text-ink-2 tracking-[-0.01em]">{s.type === 'FULL' ? 'Full' : 'Partial'}</div>
+                      {/* Progress */}
+                      <div>
+                        {s.status === 'FINALIZED' ? (
+                          <>
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-mono text-[13px] font-medium text-ink tracking-[-0.01em]">{counts.total} / {counts.total}</span>
+                              <span className="font-mono text-[11px] text-green-700">complete</span>
+                            </div>
+                            <div className="h-[5px] bg-bg-2 rounded-full mt-1.5 w-4/5 overflow-hidden">
+                              <div className="h-[5px] bg-green-500 rounded-full" style={{ width: '100%' }} />
+                            </div>
+                          </>
+                        ) : s.status === 'UPDATING' ? (
+                          <span className="font-mono text-[11px] text-violet-600">Processing…</span>
+                        ) : (
+                          <>
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-mono text-[13px] font-medium text-ink tracking-[-0.01em]">{counts.counted} / {counts.total}</span>
+                              <span className="font-mono text-[11px] text-gold">{pct}%</span>
+                            </div>
+                            <div className="h-[5px] bg-bg-2 rounded-full mt-1.5 w-4/5 overflow-hidden">
+                              <div className="h-[5px] bg-gold rounded-full" style={{ width: `${Math.max(pct, counts.counted > 0 ? 1.5 : 0)}%` }} />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      {/* Value */}
+                      <div className="text-right">
+                        {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 ? (
+                          <>
+                            <div className="font-mono text-[14px] font-semibold text-ink tracking-[-0.015em]">
+                              {formatCurrency(Number(s.totalCountedValue))}
+                            </div>
+                            <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{counts.total} lines</div>
+                          </>
+                        ) : (
+                          <span className="font-mono text-[13px] text-ink-4">—</span>
+                        )}
+                      </div>
+                      {/* Actions */}
+                      <div className="flex items-center gap-1.5 justify-end">
+                        {(s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') && (
+                          <button
+                            onClick={() => openSession(s, 'count')}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-[8px] bg-ink text-paper text-[12.5px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap"
+                          >
+                            Continue <span className="text-gold">→</span>
+                          </button>
+                        )}
+                        {s.status === 'UPDATING' && (
+                          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] font-mono text-[11px] text-violet-600 bg-violet-50 border border-violet-200">
+                            <span className="w-3 h-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                            Updating…
+                          </span>
+                        )}
+                        {s.status === 'FINALIZED' && (
+                          <button
+                            onClick={() => openSession(s, 'review')}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] border border-line bg-paper text-[12.5px] font-medium text-ink-2 hover:border-ink-3 transition-colors whitespace-nowrap"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                            Report
+                          </button>
+                        )}
+                        <button onClick={e => { e.stopPropagation(); openEditModal(s) }} title="Edit"
+                          className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-colors">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
+                          title={s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
+                          className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-colors">
+                          <ClipboardList size={13} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} title="Delete"
+                          className="p-1.5 rounded-lg text-ink-4 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ── Overdue callout ── */}
+            {isOverdue && (
+              <div className="flex items-center gap-5 bg-[#fffbeb] border border-[#fcd34d] rounded-xl px-[22px] py-[18px] mb-5">
+                <div className="w-9 h-9 rounded-[10px] bg-gold-soft border border-[#fcd34d] flex items-center justify-center shrink-0">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono text-[10.5px] text-gold-2 tracking-[0.02em] font-semibold">COUNT OVERDUE · {nextDateStr}</p>
+                  <p className="text-[14px] text-amber-900 mt-1 tracking-[-0.01em]">
+                    Weekly count is <strong>{overdueDays} day{overdueDays !== 1 ? 's' : ''} late</strong>. COGS calculations are drifting from actuals — start a new count to re-anchor.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setView('new')}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-gold text-white text-[13px] font-medium hover:bg-gold-2 transition-colors shrink-0 whitespace-nowrap"
+                >
+                  <span className="text-[#fef3c7] font-semibold">+</span>
+                  Start count now
+                </button>
               </div>
             )}
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setDeleteTarget(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                Cancel
-              </button>
-              <button onClick={handleDeleteSession} disabled={deleting}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60">
-                {deleting ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── Edit session metadata modal ────────────────────────────────────── */}
-      {editTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Edit session details</h3>
-              <button onClick={() => setEditTarget(null)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
-                <X size={16} />
-              </button>
+            {/* ── Footer note ── */}
+            <div className="flex justify-between font-mono text-[10.5px] text-ink-3 tracking-wide">
+              <span>
+                SHOWING {filteredSessions.length} SESSION{filteredSessions.length !== 1 ? 'S' : ''} · {sessions.filter(s => s.status === 'IN_PROGRESS').length} IN PROGRESS · {sessions.filter(s => s.status === 'FINALIZED').length} FINALIZED
+              </span>
+              <span>WEEKLY CADENCE</span>
             </div>
-            <form onSubmit={handleEditSession} className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Label</label>
-                <input value={editLabel} onChange={e => setEditLabel(e.target.value)}
-                  placeholder="e.g. Full count Apr 12"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+          </>
+        )}
+
+        {/* ── Delete confirmation modal ── */}
+        {deleteTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="bg-paper rounded-2xl shadow-xl w-full max-w-sm p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} className="text-red-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-ink">Delete count session?</h3>
+                  <p className="text-xs text-ink-3 mt-0.5">&ldquo;{deleteTarget.label || 'Untitled'}&rdquo; — {fmtDate(deleteTarget.sessionDate)}</p>
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Counted by</label>
-                <input value={editCountedBy} onChange={e => setEditCountedBy(e.target.value)} required
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
-                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setEditTarget(null)}
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              {deleteTarget.status === 'FINALIZED' && (
+                <div className="bg-[#fffbeb] border border-[#fcd34d] rounded-lg px-3 py-2 text-xs text-gold-2 mb-3">
+                  This session is finalized. Deleting it won&apos;t revert inventory stock levels.
+                </div>
+              )}
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => setDeleteTarget(null)}
+                  className="flex-1 px-4 py-2.5 rounded-[9px] border border-line text-[13px] font-medium text-ink-2 hover:border-ink-3 transition-colors">
                   Cancel
                 </button>
-                <button type="submit"
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700">
-                  Save
+                <button onClick={handleDeleteSession} disabled={deleting}
+                  className="flex-1 px-4 py-2.5 rounded-[9px] bg-red-600 text-white text-[13px] font-medium hover:bg-red-700 disabled:opacity-60 transition-colors">
+                  {deleting ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
+        )}
+
+        {/* ── Edit session metadata modal ── */}
+        {editTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="bg-paper rounded-2xl shadow-xl w-full max-w-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-ink">Edit session details</h3>
+                <button onClick={() => setEditTarget(null)} className="p-1 rounded-lg hover:bg-bg-2 text-ink-3">
+                  <X size={16} />
+                </button>
+              </div>
+              <form onSubmit={handleEditSession} className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-medium text-ink-3 block mb-1 uppercase tracking-wide">Label</label>
+                  <input value={editLabel} onChange={e => setEditLabel(e.target.value)}
+                    placeholder="e.g. Full count Apr 12"
+                    className="w-full border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink focus:outline-none focus:border-ink-3 transition-colors" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-ink-3 block mb-1 uppercase tracking-wide">Counted by</label>
+                  <input value={editCountedBy} onChange={e => setEditCountedBy(e.target.value)} required
+                    className="w-full border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink focus:outline-none focus:border-ink-3 transition-colors" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-ink-3 block mb-1 uppercase tracking-wide">Date</label>
+                  <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                    className="w-full border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink focus:outline-none focus:border-ink-3 transition-colors" />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button type="button" onClick={() => setEditTarget(null)}
+                    className="flex-1 px-4 py-2.5 rounded-[9px] border border-line text-[13px] font-medium text-ink-2 hover:border-ink-3 transition-colors">
+                    Cancel
+                  </button>
+                  <button type="submit"
+                    className="flex-1 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors">
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // ════════════════════════════════════════════════════════════════════════════
   // VIEW B — COUNT MODE
