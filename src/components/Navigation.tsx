@@ -88,6 +88,38 @@ export function Navigation() {
   )
 }
 
+// ── User pill helpers (sidebar footer) ──────────────────────────────────────
+
+function userInitials(name?: string | null, email?: string | null) {
+  const base = (name || email || '').trim()
+  if (!base) return '··'
+  const parts = base.split(/\s+/).slice(0, 2)
+  return parts.map(p => p[0]?.toUpperCase() ?? '').join('') || base.slice(0, 2).toUpperCase()
+}
+
+function UserAvatar() {
+  const { user } = useUser()
+  const initials = userInitials(user?.name, user?.email)
+  return (
+    <div className="w-7 h-7 rounded-full flex items-center justify-center font-semibold text-[11.5px] text-ink shrink-0"
+      style={{ background: 'linear-gradient(135deg, #d97706, #b45309)' }}>
+      {initials}
+    </div>
+  )
+}
+
+function UserName() {
+  const { user } = useUser()
+  const display = user?.name || user?.email?.split('@')[0] || 'You'
+  return <span className="truncate">{display}</span>
+}
+
+function TenantName() {
+  const { activeRc, revenueCenters } = useRc()
+  const name = activeRc?.name ?? (revenueCenters.length > 0 ? 'All revenue centers' : 'Fergie’s')
+  return <span className="truncate">{name.toLowerCase()}</span>
+}
+
 function NavigationInner() {
   const pathname  = usePathname()
   const router    = useRouter()
@@ -135,113 +167,113 @@ function NavigationInner() {
 
   return (
     <>
-      {/* ── Desktop Sidebar ─────────────────────────────────────── */}
+      {/* ── Desktop Sidebar (v2) ─────────────────────────────────── */}
       <aside
-        className="hidden md:flex flex-col w-[240px] min-h-screen fixed left-0 top-0 z-40"
-        style={{ background: '#09090b', borderRight: '1px solid rgba(255,255,255,0.08)' }}
+        className="hidden md:flex flex-col w-[240px] min-h-screen fixed left-0 top-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300"
+        style={{ background: '#09090b' }}
       >
-        {/* Wordmark + bell */}
-        <div className="px-4 pt-5 pb-4 flex items-center justify-between gap-2">
-          <Image
-            src="/logo-wordmark.png" alt="Controla OS" width={176} height={52}
-            className="shrink-0 object-contain object-left"
-            style={{ height: 52, width: 176, maxWidth: 176 }}
-          />
-          <div className="[&>div>button]:text-white/30 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/5 rounded-lg shrink-0">
+        {/* Brand + bell */}
+        <div className="flex items-center justify-between px-1.5 pb-3">
+          <Link href="/" className="flex items-center gap-[9px] text-[14px] font-semibold tracking-[-0.02em] text-[#fafaf9]">
+            <span className="relative inline-block w-5 h-5 rounded-[6px] bg-paper">
+              <span className="absolute inset-1 rounded-[3px] bg-gold" />
+            </span>
+            Controla OS
+          </Link>
+          <div className="[&>div>button]:text-zinc-500 [&>div>button:hover]:text-white">
             <AlertsBell />
           </div>
         </div>
 
-        {/* RC selector */}
-        <div className="px-3 pb-3">
+        {/* Workspace switcher pill (RC selector) */}
+        <div className="-mx-0.5">
           <RcSelector />
         </div>
 
         {/* Nav groups */}
-        <nav className="flex-1 px-3 overflow-y-auto pb-2 space-y-4">
-          {navGroups.map((group, gi) => {
+        <nav className="flex-1 overflow-y-auto -mx-0.5 px-0.5 flex flex-col gap-[6px]">
+          {navGroups.map(group => {
             const visibleItems = group.items.filter(i => !i.adminOnly || role === 'ADMIN')
             return (
-              <div key={group.label}>
-                {gi > 0 && (
-                  <div className="mb-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
-                )}
-                <p className="px-3 mb-1 text-[10px] font-semibold tracking-widest"
-                  style={{ color: 'rgba(255,255,255,0.22)' }}>
+              <div key={group.label} className="flex flex-col gap-[2px]">
+                <p className="font-mono text-[10px] text-zinc-600 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
                   {group.label}
                 </p>
-                <div className="space-y-0.5">
-                  {visibleItems.map(item => {
-                    const active = isActive(item)
-                    const badge  = getBadge(item.badgeKey)
-                    const { href, label, icon: Icon } = item
-                    return (
-                      <Link
-                        key={`${href}-${label}`}
-                        href={href}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 ${
-                          active
-                            ? 'bg-white text-gray-900 shadow-[0_0_24px_rgba(201,168,76,0.18)]'
-                            : 'text-white/40 hover:text-white/80 hover:bg-white/5'
-                        }`}
-                      >
-                        <Icon size={15} color={active ? '#111' : undefined} />
-                        <span className="flex-1">{label}</span>
-                        {badge > 0 && (
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none ${
-                            active
-                              ? 'bg-gold text-[#111]'
-                              : 'bg-gold/20 text-gold'
-                          }`}>
-                            {badge > 99 ? '99+' : badge}
-                          </span>
-                        )}
-                      </Link>
-                    )
-                  })}
-                </div>
+                {visibleItems.map(item => {
+                  const active = isActive(item)
+                  const badge  = getBadge(item.badgeKey)
+                  const { href, label, icon: Icon } = item
+                  return (
+                    <Link
+                      key={`${href}-${label}`}
+                      href={href}
+                      className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
+                        active
+                          ? 'bg-paper text-ink'
+                          : 'text-zinc-300 hover:bg-[#18181b] hover:text-zinc-50'
+                      }`}
+                    >
+                      <span className={active ? 'text-ink' : 'text-zinc-500 group-hover:text-zinc-300'}>
+                        <Icon size={16} />
+                      </span>
+                      <span className="flex-1">{label}</span>
+                      {badge > 0 && (
+                        <span className={`font-mono text-[10px] px-[6px] py-[1px] rounded-full font-semibold leading-none tracking-normal ${
+                          active ? 'bg-gold text-ink' : 'bg-gold text-ink'
+                        }`}>
+                          {badge > 99 ? '99+' : badge}
+                        </span>
+                      )}
+                    </Link>
+                  )
+                })}
               </div>
             )
           })}
 
-          {/* Setup — demoted, rendered smaller */}
-          <div>
-            <div className="mb-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
-            <p className="px-3 mb-1 text-[10px] font-semibold tracking-widest"
-              style={{ color: 'rgba(255,255,255,0.15)' }}>
+          {/* Setup group */}
+          <div className="flex flex-col gap-[2px]">
+            <p className="font-mono text-[10px] text-zinc-600 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
               SETUP
             </p>
-            <div className="space-y-0.5">
-              {visibleSetupItems.map(item => {
-                const active = isActive(item)
-                const { href, label, icon: Icon } = item
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[12px] font-medium transition-all duration-150 ${
-                      active
-                        ? 'bg-white/10 text-white/80'
-                        : 'text-white/25 hover:text-white/50 hover:bg-white/5'
-                    }`}
-                  >
-                    <Icon size={13} />
-                    {label}
-                  </Link>
-                )
-              })}
-            </div>
+            {visibleSetupItems.map(item => {
+              const active = isActive(item)
+              const { href, label, icon: Icon } = item
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
+                    active
+                      ? 'bg-paper text-ink'
+                      : 'text-zinc-300 hover:bg-[#18181b] hover:text-zinc-50'
+                  }`}
+                >
+                  <span className={active ? 'text-ink' : 'text-zinc-500 group-hover:text-zinc-300'}>
+                    <Icon size={16} />
+                  </span>
+                  {label}
+                </Link>
+              )
+            })}
           </div>
         </nav>
 
-        {/* Footer */}
-        <div className="px-3 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        {/* User pill footer */}
+        <div className="flex items-center gap-[10px] px-[10px] py-2 rounded-[10px] bg-[#18181b] border border-[#27272a]">
+          <UserAvatar />
+          <div className="min-w-0 flex-1 text-[12.5px] leading-tight text-[#fafaf9] font-medium truncate">
+            <UserName />
+            <small className="block font-mono text-[10.5px] text-zinc-500 font-normal tracking-normal mt-0.5">
+              <TenantName />
+            </small>
+          </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-[13px] text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors"
+            title="Log out"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
           >
-            <LogOut size={16} />
-            Log Out
+            <LogOut size={14} />
           </button>
         </div>
       </aside>

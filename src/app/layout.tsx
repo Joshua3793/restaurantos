@@ -5,6 +5,7 @@ import './globals.css'
 import { Navigation } from '@/components/Navigation'
 import { MobileRcBar } from '@/components/navigation/MobileRcBar'
 import { GlobalSearch } from '@/components/GlobalSearch'
+import { CostChromeGate } from '@/components/layout/CostChromeGate'
 import { RcProvider } from '@/contexts/RevenueCenterContext'
 import { AiChat } from '@/components/AiChat'
 import { UserProvider } from '@/contexts/UserContext'
@@ -45,8 +46,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Navigation />
           <MobileRcBar />
           <GlobalSearch />
-          <main className="md:ml-[240px] pb-20 md:pb-0 mobile-content-top md:pt-0 min-h-screen bg-[#fafaf9]">
-            <div className="p-4 md:p-6 max-w-7xl mx-auto">
+          <main className="md:ml-[240px] pb-20 md:pb-0 mobile-content-top md:pt-0 min-h-screen bg-[#fafaf9] flex flex-col">
+            <CostChromeGate />
+            <div className="flex-1 p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
               {children}
             </div>
           </main>
