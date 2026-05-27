@@ -79,22 +79,29 @@ export interface Recipe {
   baseIngredientId: string | null
 }
 
-/** Compute baker's percentages relative to a base (reference) ingredient. Weight only. */
+/** Compute baker's percentages relative to a base (reference) ingredient.
+ *  Weight and volume both included; volume uses 1 ml = 1 g approximation.
+ *  Count / each ingredients are excluded (return null). */
 function computeAutoPercents(
   ingredients: IngredientWithCost[],
   baseIngId: string
 ): Record<string, number | null> {
   const base = ingredients.find(i => i.id === baseIngId)
-  if (!base || getUnitGroup(base.unit) !== 'Weight') return {}
-  const baseGrams = convertQty(Number(base.qtyBase), base.unit, 'g')
-  if (baseGrams <= 0) return {}
+  if (!base) return {}
+  const toGrams = (qty: number, unit: string): number | null => {
+    const group = getUnitGroup(unit)
+    if (group === 'Weight') return convertQty(qty, unit, 'g')
+    if (group === 'Volume') return convertQty(qty, unit, 'ml') // 1 ml ≈ 1 g
+    return null
+  }
+  const baseGrams = toGrams(Number(base.qtyBase), base.unit)
+  if (baseGrams === null || baseGrams <= 0) return {}
   return Object.fromEntries(
     ingredients.map(ing => {
       if (ing.id === baseIngId) return [ing.id, 100]
-      if (getUnitGroup(ing.unit) !== 'Weight') return [ing.id, null]
-      const grams = convertQty(Number(ing.qtyBase), ing.unit, 'g')
-      const pct = Math.round((grams / baseGrams) * 1000) / 10
-      return [ing.id, pct]
+      const grams = toGrams(Number(ing.qtyBase), ing.unit)
+      if (grams === null) return [ing.id, null]
+      return [ing.id, Math.round((grams / baseGrams) * 1000) / 10]
     })
   )
 }
@@ -860,7 +867,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             ) : autoPercent !== null ? (
               <span className="text-xs font-semibold text-indigo-600">{autoPercent}%</span>
             ) : (
-              <span className="text-xs text-gray-300" title="Different unit type — no baker's % for volume or count">—</span>
+              <span className="text-xs text-gray-300" title="Count ingredient — no baker's % for each/piece/serve">—</span>
             )
           ) : editingPct ? (
             <input type="number" value={pct} onChange={e => setPct(e.target.value)} onBlur={savePct}
@@ -1381,7 +1388,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             {baseIsSet && baseIngName && (
               <div className="flex items-center gap-1.5 mb-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 text-xs text-amber-700">
                 <Star size={10} className="fill-amber-500 text-amber-500 shrink-0" />
-                <span>Baker&apos;s %: relative to <span className="font-semibold">{baseIngName}</span> (100%) — weight ingredients only</span>
+                <span>Baker&apos;s %: relative to <span className="font-semibold">{baseIngName}</span> (100%) — volume treated as 1 ml = 1 g</span>
               </div>
             )}
             {!baseIsSet && (
