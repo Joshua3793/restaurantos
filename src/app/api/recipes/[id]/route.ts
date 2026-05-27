@@ -10,7 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
-  const { name, categoryId, baseYieldQty, yieldUnit, portionSize, portionUnit, menuPrice, notes, isActive } = body
+  const { name, categoryId, baseYieldQty, yieldUnit, portionSize, portionUnit, menuPrice, notes, isActive, baseIngredientId } = body
 
   await prisma.recipe.update({
     where: { id: params.id },
@@ -24,6 +24,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(menuPrice !== undefined ? { menuPrice: menuPrice ? parseFloat(menuPrice) : null } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(isActive !== undefined ? { isActive } : {}),
+      ...(baseIngredientId !== undefined ? { baseIngredientId: baseIngredientId ?? null } : {}),
     },
   })
 

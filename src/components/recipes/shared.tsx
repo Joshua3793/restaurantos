@@ -7,7 +7,7 @@ import { UOM_GROUPS, getUnitGroup, convertQty } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
-  Link2, Package, ExternalLink, Printer,
+  Link2, Package, ExternalLink, Printer, Star,
 } from 'lucide-react'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
@@ -76,6 +76,27 @@ export interface Recipe {
   foodCostPct: number | null
   usedInCount?: number
   allergens?: string[]
+  baseIngredientId: string | null
+}
+
+/** Compute baker's percentages relative to a base (reference) ingredient. Weight only. */
+function computeAutoPercents(
+  ingredients: IngredientWithCost[],
+  baseIngId: string
+): Record<string, number | null> {
+  const base = ingredients.find(i => i.id === baseIngId)
+  if (!base || getUnitGroup(base.unit) !== 'Weight') return {}
+  const baseGrams = convertQty(Number(base.qtyBase), base.unit, 'g')
+  if (baseGrams <= 0) return {}
+  return Object.fromEntries(
+    ingredients.map(ing => {
+      if (ing.id === baseIngId) return [ing.id, 100]
+      if (getUnitGroup(ing.unit) !== 'Weight') return [ing.id, null]
+      const grams = convertQty(Number(ing.qtyBase), ing.unit, 'g')
+      const pct = Math.round((grams / baseGrams) * 1000) / 10
+      return [ing.id, pct]
+    })
+  )
 }
 
 interface IngredientSearchResult {
@@ -718,7 +739,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
 }
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
-const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick }: {
+const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase }: {
   ing: IngredientWithCost
   scaleFactor: number
   canMoveUp: boolean
@@ -729,6 +750,10 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   onMoveDown: () => void
   onSubstitute: (ingId: string, item: IngredientSearchResult) => void
   onInventoryClick?: (inventoryItemId: string) => void
+  isBase: boolean
+  baseIsSet: boolean
+  autoPercent: number | null
+  onSetBase: () => void
 }) {
   const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
@@ -802,6 +827,15 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
         </div>
 
         <div className="col-span-3 flex items-center gap-1.5 min-w-0">
+          <button
+            onClick={onSetBase}
+            title={isBase ? "Remove baker's % reference" : "Set as 100% reference for baker's percentages"}
+            className={`shrink-0 leading-none transition-colors ${
+              isBase ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400 group-hover:text-gray-300'
+            }`}
+          >
+            <Star size={10} fill={isBase ? 'currentColor' : 'none'} />
+          </button>
           {ing.ingredientType === 'recipe'
             ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
             : <Package size={11} className="text-blue-500 shrink-0" />
@@ -820,7 +854,15 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
         </div>
 
         <div className="col-span-1 text-center">
-          {editingPct ? (
+          {baseIsSet ? (
+            isBase ? (
+              <span className="text-xs font-bold text-amber-500">100%</span>
+            ) : autoPercent !== null ? (
+              <span className="text-xs font-semibold text-indigo-600">{autoPercent}%</span>
+            ) : (
+              <span className="text-xs text-gray-300" title="Different unit type — no baker's % for volume or count">—</span>
+            )
+          ) : editingPct ? (
             <input type="number" value={pct} onChange={e => setPct(e.target.value)} onBlur={savePct}
               onKeyDown={e => e.key === 'Enter' && savePct()} placeholder="0"
               className="w-full text-center border border-blue-300 rounded px-0.5 py-0.5 text-xs text-gray-900 focus:outline-none" autoFocus />
@@ -976,6 +1018,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     }
   }
 
+  const setBaseIngredient = (ingId: string) => {
+    const newBaseId = recipe?.baseIngredientId === ingId ? null : ingId
+    patchRecipe({ baseIngredientId: newBaseId })
+  }
+
   const addIngredient = async (item: IngredientSearchResult) => {
     // Close search immediately — don't wait for server
     setShowSearch(false); setSearchQ(''); setSearchResults([])
@@ -1119,6 +1166,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const isMenu = recipe.type === 'MENU'
   const scaledTotal = recipe.totalCost * sf
   const baseCostPerUnit = recipe.baseYieldQty > 0 ? recipe.totalCost / recipe.baseYieldQty : 0
+
+  // Baker's % — auto-compute ratios relative to the marked base ingredient
+  const baseIngId = recipe.baseIngredientId ?? null
+  const autoPercents = baseIngId ? computeAutoPercents(recipe.ingredients, baseIngId) : {}
+  const baseIsSet = baseIngId !== null && Object.keys(autoPercents).length > 0
+  const baseIngName = baseIsSet ? recipe.ingredients.find(i => i.id === baseIngId)?.ingredientName : null
   const menuFoodCostPct = isMenu && recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null
   const margin = recipe.menuPrice !== null ? recipe.menuPrice - recipe.totalCost : null
 
@@ -1325,10 +1378,22 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             <div className="text-sm font-semibold text-gray-700 mb-2">
               Ingredients {sf !== 1 && <span className="text-blue-500 font-normal text-xs ml-1">scaled ×{sf}</span>}
             </div>
+            {baseIsSet && baseIngName && (
+              <div className="flex items-center gap-1.5 mb-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 text-xs text-amber-700">
+                <Star size={10} className="fill-amber-500 text-amber-500 shrink-0" />
+                <span>Baker&apos;s %: relative to <span className="font-semibold">{baseIngName}</span> (100%) — weight ingredients only</span>
+              </div>
+            )}
+            {!baseIsSet && (
+              <div className="flex items-center gap-1.5 mb-2 text-xs text-gray-400">
+                <Star size={10} className="shrink-0" />
+                <span>Click <Star size={9} className="inline" /> on any ingredient to set it as the baker&apos;s 100% reference</span>
+              </div>
+            )}
             <div className="border border-gray-100 rounded-t-xl overflow-hidden">
               <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 text-xs font-medium text-gray-500">
                 <div className="col-span-4">Ingredient</div>
-                <div className="col-span-1 text-center">%</div>
+                <div className="col-span-1 text-center" title={baseIsSet && baseIngName ? `Baker's % relative to ${baseIngName}` : 'Baker\'s %'}>%</div>
                 <div className="col-span-2 text-right">Qty</div>
                 <div className="col-span-2">Unit</div>
                 <div className="col-span-2 text-right">Line cost</div>
@@ -1341,6 +1406,10 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   onUpdate={updateIngredient}
                   onDelete={deleteIngredient}
                   onInventoryClick={id => setQuickEditItemId(id)}
+                  isBase={baseIngId === ing.id}
+                  baseIsSet={baseIsSet}
+                  autoPercent={autoPercents[ing.id] ?? null}
+                  onSetBase={() => setBaseIngredient(ing.id)}
                   onMoveUp={() => {
                     const prev = recipe.ingredients[idx - 1]
                     // Optimistic: swap immediately

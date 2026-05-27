@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
       yieldUnit: recipe.yieldUnit,
       portionSize: recipe.portionSize !== null ? Number(recipe.portionSize) : null,
       portionUnit: recipe.portionUnit,
+      baseIngredientId: recipe.baseIngredientId ?? null,
       menuPrice: recipe.menuPrice !== null ? Number(recipe.menuPrice) : null,
       isActive: recipe.isActive,
       notes: recipe.notes,

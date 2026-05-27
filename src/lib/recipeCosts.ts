@@ -46,6 +46,7 @@ export interface RecipeWithCost {
   costPerPortion: number | null
   foodCostPct: number | null
   allergens: string[]
+  baseIngredientId: string | null
 }
 
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
@@ -210,6 +211,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     costPerPortion,
     foodCostPct,
     allergens,
+    baseIngredientId: recipe.baseIngredientId ?? null,
   }
 }
 
