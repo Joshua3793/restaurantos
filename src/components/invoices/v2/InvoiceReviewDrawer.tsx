@@ -5,14 +5,14 @@
 import {
   useState, useEffect, useCallback, useMemo, useRef,
 } from 'react'
-import { X, Check, Loader2, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag } from 'lucide-react'
+import { X, Check, Loader2, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag, Link2 } from 'lucide-react'
 import { DrawerContext, type DrawerContextValue } from './context'
 import { LineItemCard } from './card'
 import { ChipRow, ReconcileBanner, type ReconcileResult } from './composites'
 import { ImageViewerV2, type BBox } from './ImageViewer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
-import type { Session, ScanItem } from '@/components/invoices/types'
+import type { Session, ScanItem, SessionSummary } from '@/components/invoices/types'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import {
@@ -214,10 +214,12 @@ export function InvoiceReviewDrawer({
   sessionId,
   onClose,
   onApproveOrReject,
+  allSessions = [],
 }: {
   sessionId: string | null
   onClose: () => void
   onApproveOrReject: () => void
+  allSessions?: SessionSummary[]
 }) {
   const { revenueCenters } = useRc()
 
@@ -228,12 +230,39 @@ export function InvoiceReviewDrawer({
   const [approving,   setApproving]   = useState(false)
   const [approved,    setApproved]    = useState(false)
 
+  // ── Supplier linking ────────────────────────────────────────────────────────
+  const [linkedSupplierId,  setLinkedSupplierId]  = useState<string | null>(null)
+  const [supplierComboOpen, setSupplierComboOpen] = useState(false)
+  const [supplierSearch,    setSupplierSearch]    = useState('')
+  const [allSuppliers, setAllSuppliers] = useState<Array<{ id: string; name: string }>>([])
+
+  const loadSuppliers = useCallback(async () => {
+    if (allSuppliers.length > 0) return
+    try {
+      const data = await fetch('/api/suppliers').then(r => r.ok ? r.json() : [])
+      setAllSuppliers(Array.isArray(data) ? data : (data.suppliers ?? []))
+    } catch {}
+  }, [allSuppliers.length])
+
+  const handleLinkSupplier = useCallback(async (supplierId: string) => {
+    if (!session) return
+    setLinkedSupplierId(supplierId)
+    setSupplierComboOpen(false)
+    setSupplierSearch('')
+    await fetch(`/api/invoices/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supplierId }),
+    })
+  }, [session])
+
   const fetchSession = useCallback(async (id: string) => {
     setLoading(true)
     try {
       const res  = await fetch(`/api/invoices/sessions/${id}`)
       const data = await res.json()
       setSession(data)
+      setLinkedSupplierId(data.supplierId ?? null)
     } finally {
       setLoading(false)
     }
@@ -316,6 +345,20 @@ export function InvoiceReviewDrawer({
   }, [effectiveLines, activeFilters, sortMode])
 
   const filterCounts = useMemo(() => getFilterCounts(effectiveLines), [effectiveLines])
+
+  // ── Duplicate detection ─────────────────────────────────────────────────────
+  const duplicateSessions = useMemo(() => {
+    if (!session?.invoiceNumber) return []
+    return allSessions.filter(s =>
+      s.id !== session.id && s.invoiceNumber === session.invoiceNumber
+    )
+  }, [session, allSessions])
+
+  // ── Supplier lookup ─────────────────────────────────────────────────────────
+  const linkedSupplier = useMemo(
+    () => allSuppliers.find(s => s.id === linkedSupplierId) ?? null,
+    [allSuppliers, linkedSupplierId],
+  )
 
   // ── Context helpers ─────────────────────────────────────────────────────────
   const getEffectiveLine = useCallback((id: string): ScanItem => {
@@ -624,6 +667,85 @@ export function InvoiceReviewDrawer({
                   sortMode={sortMode}
                   onSort={setSortMode}
                 />
+
+                {/* ── Duplicate invoice warning ──────────────────────── */}
+                {duplicateSessions.length > 0 && (
+                  <div className="mx-[14px] mt-2 flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertTriangle size={13} className="text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-[12px] text-red-700 leading-snug">
+                      <span className="font-semibold">Possible duplicate.</span>{' '}
+                      Invoice #{session.invoiceNumber} was already scanned
+                      {duplicateSessions[0].invoiceDate ? ` on ${duplicateSessions[0].invoiceDate}` : ''}
+                      {duplicateSessions[0].supplierName ? ` from ${duplicateSessions[0].supplierName}` : ''}{' '}
+                      <span className={`font-semibold ${
+                        duplicateSessions[0].status === 'APPROVED' ? 'text-green-700' :
+                        duplicateSessions[0].status === 'REJECTED' ? 'text-red-700' : 'text-amber-700'
+                      }`}>({duplicateSessions[0].status.toLowerCase()})</span>.
+                      {' '}Review carefully before approving.
+                    </p>
+                  </div>
+                )}
+
+                {/* ── Supplier link banner ───────────────────────────────── */}
+                <div className="mx-[14px] mt-2">
+                  {linkedSupplierId && linkedSupplier ? (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg">
+                      <Link2 size={12} className="text-stone-400 shrink-0" />
+                      <span className="text-[12px] text-stone-700 flex-1 truncate font-medium">{linkedSupplier.name}</span>
+                      <span className="text-[10px] text-stone-400">auto-matched</span>
+                      <button
+                        onClick={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
+                        className="text-[11px] text-gold hover:text-amber-700 font-medium flex items-center gap-0.5 shrink-0"
+                      >
+                        Change <ChevronDown size={11} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                      <AlertTriangle size={12} className="text-amber-500 shrink-0" />
+                      <p className="text-[12px] text-stone-700 flex-1 min-w-0 truncate">
+                        {session.supplierName
+                          ? <><span className="font-mono font-semibold">&ldquo;{session.supplierName}&rdquo;</span> — not linked to a supplier</>
+                          : 'No supplier detected'}
+                      </p>
+                      <button
+                        onClick={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
+                        className="text-[11px] font-semibold text-gold hover:text-amber-700 flex items-center gap-0.5 shrink-0"
+                      >
+                        Link <ChevronDown size={11} />
+                      </button>
+                    </div>
+                  )}
+
+                  {supplierComboOpen && (
+                    <div className="mt-1 bg-white border border-stone-200 rounded-lg shadow-lg overflow-hidden z-10 relative">
+                      <input
+                        autoFocus
+                        value={supplierSearch}
+                        onChange={e => setSupplierSearch(e.target.value)}
+                        placeholder="Search suppliers…"
+                        className="w-full px-3 py-2 text-[13px] border-b border-stone-100 focus:outline-none"
+                      />
+                      <div className="max-h-44 overflow-y-auto">
+                        {allSuppliers
+                          .filter(s => s.name.toLowerCase().includes(supplierSearch.toLowerCase()))
+                          .map(s => (
+                            <button
+                              key={s.id}
+                              onClick={() => handleLinkSupplier(s.id)}
+                              className="w-full text-left px-3 py-2 text-[13px] hover:bg-amber-50 transition-colors"
+                            >
+                              <span className="font-medium text-stone-900">{s.name}</span>
+                            </button>
+                          ))
+                        }
+                        {allSuppliers.filter(s => s.name.toLowerCase().includes(supplierSearch.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-3 text-[12px] text-stone-400">No suppliers found</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Line item list */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-[14px] py-[10px]">
