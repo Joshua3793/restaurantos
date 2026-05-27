@@ -1,11 +1,8 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { ChevronRight, AlertCircle, X, Plus, Check, BookOpen, Play, SkipForward, RotateCcw } from 'lucide-react'
+import { ChevronRight, AlertCircle, X, Check, BookOpen, Play, SkipForward, RotateCcw } from 'lucide-react'
 import {
   PREP_PRIORITY_META,
-  PREP_STATUS_META,
-  PREP_PRIORITY_ORDER,
-  type PrepPriority,
 } from '@/lib/prep-utils'
 import type { PrepItemRich } from './types'
 import { RecipeViewModal } from './RecipeViewModal'
@@ -16,35 +13,24 @@ interface Props {
   onStatusChange: (itemId: string, status: string, actualQty?: number) => void
   onPriorityChange: (itemId: string, priority: string) => void
   onDelete: (itemId: string) => void
-  onScheduleToggle?: (itemId: string, logId: string | null) => void
-  planMode?: boolean
+  onToggleOnList?: (itemId: string, newValue: boolean) => void
   showReason?: boolean
 }
 
 function getAttentionReason(item: PrepItemRich): string | null {
   if (item.manualPriorityOverride) return null
-  const { onHand, parLevel, minThreshold, targetToday, unit } = item
+  const { onHand, parLevel, targetToday, unit } = item
   const fmt = (n: number) => n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)
   if (onHand <= 0 && parLevel > 0) return `Out of stock — par level is ${fmt(parLevel)} ${unit}`
   if (targetToday !== null && onHand < targetToday) return `Below today's target (have ${fmt(onHand)}, need ${fmt(targetToday)} ${unit})`
   if (onHand < parLevel) return `Below par level (have ${fmt(onHand)}, par ${fmt(parLevel)} ${unit})`
-  if (minThreshold > 0 && onHand < minThreshold) return `Low stock — ${fmt(onHand)} ${unit} left (threshold ${fmt(minThreshold)})`
   return null
 }
-
-const PLAN_CHIPS: Array<{ value: string; label: string; activeClass: string; inactiveClass: string }> = [
-  { value: '',             label: 'Auto',  activeClass: 'bg-gray-200 text-gray-700 border-gray-300',    inactiveClass: 'bg-white text-gray-400 border-gray-200 hover:border-gray-300' },
-  { value: 'LATER',        label: 'Later', activeClass: 'bg-gray-100 text-gray-500 border-gray-300',    inactiveClass: 'bg-white text-gray-400 border-gray-200 hover:border-gray-300' },
-  { value: 'LOW_STOCK',    label: 'Low',   activeClass: 'bg-amber-100 text-amber-700 border-amber-300', inactiveClass: 'bg-white text-gray-400 border-gray-200 hover:border-amber-200' },
-  { value: 'NEEDED_TODAY', label: 'Today', activeClass: 'bg-orange-100 text-orange-700 border-orange-300', inactiveClass: 'bg-white text-gray-400 border-gray-200 hover:border-orange-200' },
-  { value: '911',          label: '911',   activeClass: 'bg-red-100 text-red-700 border-red-400 font-bold', inactiveClass: 'bg-white text-gray-400 border-gray-200 hover:border-red-300' },
-]
 
 // Priority frame: colored left border + subtle bg tint
 const PRIORITY_FRAME: Record<string, { border: string; bg: string }> = {
   '911':          { border: 'border-l-[4px] border-l-red-500',    bg: 'bg-red-50/40' },
   'NEEDED_TODAY': { border: 'border-l-[4px] border-l-orange-400', bg: 'bg-orange-50/40' },
-  'LOW_STOCK':    { border: 'border-l-[4px] border-l-amber-400',  bg: 'bg-amber-50/30' },
   'LATER':        { border: 'border-l-[4px] border-l-gray-200',   bg: '' },
 }
 
@@ -54,7 +40,7 @@ function getPriorityFrame(priority: string) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, onDelete, onScheduleToggle, planMode = false, showReason = false }: Props) {
+export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, onDelete, onToggleOnList, showReason = false }: Props) {
   const [confirmingDone, setConfirmingDone]     = useState(false)
   const [confirmQty, setConfirmQty]             = useState('')
   const [pendingStatus, setPendingStatus]       = useState<'DONE' | 'PARTIAL'>('DONE')
@@ -96,114 +82,6 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Escape') setConfirmingDone(false)
     if (e.key === 'Enter')  handleConfirm()
-  }
-
-  // ── PLAN MODE ───────────────────────────────────────────────────────────────
-  if (planMode) {
-    const logStatus       = item.todayLog?.status ?? null
-    const currentOverride = item.manualPriorityOverride ?? ''
-    const isAtPar         = item.onHand >= item.parLevel
-      && !item.manualPriorityOverride
-      && item.priority !== '911'
-      && item.priority !== 'NEEDED_TODAY'
-
-    // Only allow un-scheduling items that haven't been started yet
-    const canToggle = !logStatus || logStatus === 'NOT_STARTED'
-
-    const toggleClass = (() => {
-      if (!logStatus)                  return 'border-gray-300 text-transparent hover:border-blue-400'
-      if (logStatus === 'DONE')        return 'bg-green-500 border-green-500 text-white'
-      if (logStatus === 'PARTIAL')     return 'bg-yellow-400 border-yellow-400 text-white'
-      if (logStatus === 'IN_PROGRESS') return 'bg-gold/100 border-gold text-white'
-      if (logStatus === 'SKIPPED')     return 'bg-gray-300 border-gray-300 text-white'
-      return 'bg-blue-200 border-blue-300 text-gold' // NOT_STARTED (scheduled)
-    })()
-
-    const toggleIcon = (() => {
-      if (!logStatus)                  return <Plus size={12} />
-      if (logStatus === 'DONE')        return <Check size={12} strokeWidth={3} />
-      if (logStatus === 'PARTIAL')     return <span className="text-[10px] font-bold leading-none">◐</span>
-      if (logStatus === 'IN_PROGRESS') return <Play size={10} fill="currentColor" />
-      if (logStatus === 'SKIPPED')     return <SkipForward size={10} />
-      return <Check size={12} strokeWidth={3} /> // NOT_STARTED
-    })()
-
-    const toggleTitle = (() => {
-      if (!logStatus)                  return 'Add to today'
-      if (logStatus === 'NOT_STARTED') return 'Remove from today'
-      return `${logStatus.replace(/_/g, ' ').toLowerCase()} — manage in Today tab`
-    })()
-
-    const statusLabel = (() => {
-      if (logStatus === 'DONE')        return <span className="text-[10px] font-semibold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full">Done</span>
-      if (logStatus === 'PARTIAL')     return <span className="text-[10px] font-semibold text-yellow-700 bg-yellow-100 px-1.5 py-0.5 rounded-full">Partial</span>
-      if (logStatus === 'IN_PROGRESS') return <span className="text-[10px] font-semibold text-gold bg-gold/15 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-gold/100 animate-pulse" />In Progress</span>
-      if (logStatus === 'SKIPPED')     return <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Skipped</span>
-      if (logStatus === 'NOT_STARTED') return <span className="text-[10px] font-semibold text-gold bg-gold/10 px-1.5 py-0.5 rounded-full">Scheduled</span>
-      return null
-    })()
-
-    return (
-      <div className={`px-3 py-2.5 border-b border-gray-50 transition-all ${frame.border} ${frame.bg} ${logStatus === 'DONE' || logStatus === 'SKIPPED' ? 'opacity-60' : ''}`}>
-
-        {/* Row 1: toggle + name + arrow */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={e => {
-              e.stopPropagation()
-              if (canToggle) onScheduleToggle?.(item.id, item.todayLog?.id ?? null)
-            }}
-            className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${toggleClass} ${!canToggle ? 'cursor-default' : ''}`}
-            title={toggleTitle}
-          >
-            {toggleIcon}
-          </button>
-
-          <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-            <div className={`text-sm font-semibold truncate flex items-center gap-1.5 ${logStatus === 'DONE' || logStatus === 'SKIPPED' ? 'text-gray-400' : 'text-gray-800'}`}>
-              <span className={logStatus === 'DONE' ? 'line-through' : ''}>{item.name}</span>
-              {statusLabel}
-            </div>
-            {showReason && (() => {
-              const reason = getAttentionReason(item)
-              return reason ? <div className="text-xs text-orange-600 truncate">{reason}</div> : null
-            })()}
-            {!showReason && item.notes && <div className="text-xs text-amber-700 truncate">{item.notes}</div>}
-          </div>
-
-          <button onClick={onClick} className="shrink-0 text-gray-300 hover:text-gray-500">
-            <ChevronRight size={15} />
-          </button>
-        </div>
-
-        {/* Row 2: stock + station badge + priority chips */}
-        <div className="flex items-center gap-2 mt-1.5 pl-9">
-          <span className="shrink-0 text-xs text-gray-400">
-            {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}
-            <span className="text-gray-300">/{item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}</span>
-          </span>
-          {item.station?.trim() && (
-            <span className="shrink-0 text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full max-w-[8rem] truncate">
-              {item.station.trim()}
-            </span>
-          )}
-
-          <div className="flex items-center gap-1 ml-auto" onClick={e => e.stopPropagation()}>
-            {PLAN_CHIPS.map(chip => (
-              <button
-                key={chip.value || 'auto'}
-                onClick={() => { if (chip.value !== currentOverride) onPriorityChange(item.id, chip.value) }}
-                className={`px-1.5 py-0.5 rounded-full text-xs border transition-colors ${
-                  currentOverride === chip.value ? chip.activeClass : chip.inactiveClass
-                }`}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
   }
 
   // ── TODAY MODE ──────────────────────────────────────────────────────────────
@@ -357,8 +235,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
                 ◐ Partial
               </button>
               <button
-                onClick={() => onStatusChange(item.id, 'SKIPPED')}
+                onClick={() => onToggleOnList?.(item.id, false)}
                 className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-gray-400 border border-gray-200 hover:bg-gray-100 transition-colors"
+                title="Remove from today's list"
               >
                 <SkipForward size={10} />
               </button>

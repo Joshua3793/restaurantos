@@ -16,7 +16,7 @@ interface Props {
 const BLANK = {
   name: '', linkedRecipeId: '', linkedInventoryItemId: '',
   category: 'MISC', station: '',
-  parLevel: '', unit: 'batch', minThreshold: '',
+  parLevel: '', unit: 'batch',
   targetToday: '', shelfLifeDays: '', estimatedPrepTime: '', notes: '',
   manualPriorityOverride: '',
 }
@@ -65,7 +65,6 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
         station:               item.station               ?? '',
         parLevel:              String(item.parLevel),
         unit:                  item.unit,
-        minThreshold:          String(item.minThreshold),
         targetToday:           item.targetToday != null ? String(item.targetToday) : '',
         shelfLifeDays:         item.shelfLifeDays != null ? String(item.shelfLifeDays) : '',
         estimatedPrepTime:     item.estimatedPrepTime != null ? (() => { const d = minutesToDisplay(item.estimatedPrepTime!); setPrepTimeUnit(d.unit); return d.value })() : '',
@@ -93,7 +92,6 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
       station:               form.station               || null,
       parLevel:              form.parLevel    ? parseFloat(form.parLevel)    : 0,
       unit:                  form.unit,
-      minThreshold:          form.minThreshold ? parseFloat(form.minThreshold) : 0,
       targetToday:           form.targetToday  ? parseFloat(form.targetToday)  : null,
       shelfLifeDays:         form.shelfLifeDays ? parseInt(form.shelfLifeDays, 10) : null,
       estimatedPrepTime:     form.estimatedPrepTime ? Math.round(parseFloat(form.estimatedPrepTime) * TIME_UNIT_TO_MINUTES[prepTimeUnit]) : null,
@@ -156,15 +154,10 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
             </select>
           ))}
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             {field('Par Level', (
               <input className={inputCls} type="number" min="0" step="0.1"
                 value={form.parLevel} onChange={e => set('parLevel', e.target.value)} placeholder="0" />
-            ))}
-            {field('Min Threshold', (
-              <input className={inputCls} type="number" min="0" step="0.1"
-                value={form.minThreshold} onChange={e => set('minThreshold', e.target.value)} placeholder="0"
-                title="Early warning — set above par level" />
             ))}
             {field('Unit', (
               <select className={inputCls + ' bg-white'} value={form.unit} onChange={e => set('unit', e.target.value)}>

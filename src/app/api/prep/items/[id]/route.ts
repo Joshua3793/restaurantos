@@ -96,6 +96,7 @@ export async function PUT(
       ...(body.notes                  !== undefined && { notes: body.notes || null }),
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
       ...(body.isActive               !== undefined && { isActive: body.isActive }),
+      ...(body.isOnList               !== undefined && { isOnList: body.isOnList }),
     },
   })
 

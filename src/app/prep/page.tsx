@@ -2,52 +2,49 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
-import { ChefHat, Plus, RefreshCw, Search, Settings, BookOpen, SlidersHorizontal, WifiOff, RefreshCcw, History } from 'lucide-react'
+import {
+  ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
+  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle,
+} from 'lucide-react'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
-const PrepDetailPanel  = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
-const PrepItemForm     = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
+const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
+const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
-  const [items,      setItems]      = useState<PrepItemRich[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [generating, setGenerating] = useState(false)
-  const [selected,   setSelected]   = useState<PrepItemRich | null>(null)
-  const [editing,    setEditing]    = useState<PrepItemRich | null>(null)
-  const [showAdd,    setShowAdd]    = useState(false)
+  const [items,        setItems]        = useState<PrepItemRich[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [generating,   setGenerating]   = useState(false)
+  const [selected,     setSelected]     = useState<PrepItemRich | null>(null)
+  const [editing,      setEditing]      = useState<PrepItemRich | null>(null)
+  const [showAdd,      setShowAdd]      = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [syncing,    setSyncing]    = useState(false)
-  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  const [actionError,  setActionError]  = useState<string | null>(null)
+  const [syncing,      setSyncing]      = useState(false)
+  const [syncResult,   setSyncResult]   = useState<{ created: number; updated: number; skipped: number } | null>(null)
   const [isOffline,      setIsOffline]      = useState(false)
   const [offlineSyncing, setOfflineSyncing] = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
-  const [planSort,   setPlanSort]   = useState<'az' | 'category' | 'station'>('category')
-  const [planView,   setPlanView]   = useState<'all' | 'need-attention' | 'pending'>('all')
+
+  // View state
+  const [viewMode,      setViewMode]      = useState<'today' | 'smartprep' | 'history'>('today')
+  const [smartPrepView, setSmartPrepView] = useState<'urgency' | 'category' | 'station'>('urgency')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
 
-  // Prevent duplicate concurrent status mutations per item
-  const pendingItems = useRef<Set<string>>(new Set())
-  // Prevent auto-generate from re-firing after the initial attempt
-  const hasAttemptedGenerate = useRef(false)
-
-  // Filters
+  // Filters (used in Smart Prep and Today)
   const [search,         setSearch]         = useState('')
-  const [filterPriority, setFilterPriority] = useState('ALL')
-  const [filterStatus,   setFilterStatus]   = useState('ALL')
   const [filterCategory, setFilterCategory] = useState('ALL')
   const [filterStation,  setFilterStation]  = useState<'ALL' | 'UNASSIGNED' | (string & {})>('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
-  const [viewMode,       setViewMode]       = useState<'today' | 'plan' | 'history'>('today')
 
-  // Settings — station list for filter dropdown and plan grouping
+  // Settings — station list for Smart Prep grouping and filter dropdown
   const [stations, setStations] = useState<string[]>([])
 
   // History tab state
@@ -60,6 +57,9 @@ export default function PrepPage() {
   }>>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
+  // Prevent duplicate concurrent status mutations per item
+  const pendingItems = useRef<Set<string>>(new Set())
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -67,9 +67,9 @@ export default function PrepPage() {
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      const items = Array.isArray(data) ? data : []
-      setItems(items)
-      savePrepCache(items)
+      const fetched = Array.isArray(data) ? data : []
+      setItems(fetched)
+      savePrepCache(fetched)
       setIsOffline(false)
       setCacheAge(null)
     } catch (e) {
@@ -97,7 +97,7 @@ export default function PrepPage() {
         const data = await res.json()
         setStations((data.stations ?? []).filter(Boolean))
       }
-    } catch { /* silent degradation — stations stays [] */ }
+    } catch { /* silent degradation */ }
   }, [])
 
   // Reset station filter if the selected station no longer exists in settings
@@ -112,7 +112,6 @@ export default function PrepPage() {
   }, [stations, filterStation])
 
   useEffect(() => {
-    // Initialise offline state and any pending mutations left from a previous session
     setIsOffline(!navigator.onLine)
     setPendingCount(loadQueue().length)
     load()
@@ -152,7 +151,6 @@ export default function PrepPage() {
     }
   }, [load])
 
-  // Manual sync (visible when online with unsent mutations)
   const handleOfflineSync = useCallback(async () => {
     if (isOffline || offlineSyncing) return
     setOfflineSyncing(true)
@@ -175,8 +173,6 @@ export default function PrepPage() {
       .catch(() => setHistoryLoading(false))
   }, [viewMode, historyDate])
 
-  // Auto-generate removed — chef now manually plans the prep list from "Plan Prep List" view
-
   // Auto-refresh every 60 seconds (paused while offline)
   useEffect(() => {
     if (isOffline) return
@@ -184,91 +180,89 @@ export default function PrepPage() {
     return () => clearInterval(id)
   }, [load, isOffline])
 
-  const filtered = useMemo(() => items.filter(item => {
-    if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
-    if (filterPriority !== 'ALL' && item.priority !== filterPriority)     return false
-    if (filterCategory !== 'ALL' && item.category !== filterCategory)     return false
-    if (filterStation === 'UNASSIGNED') {
-      if (item.station && item.station.trim() !== '') return false
-    } else if (filterStation !== 'ALL') {
-      if (item.station !== filterStation) return false
-    }
-
-    if (viewMode === 'plan') {
-      if (planView === 'need-attention') {
-        return !item.manualPriorityOverride &&
-          (item.priority === '911' || item.priority === 'NEEDED_TODAY' || item.priority === 'LOW_STOCK')
-      }
-      if (planView === 'pending') {
-        // Items with no log, or log that is NOT_STARTED or IN_PROGRESS (i.e. not yet finished)
-        const s = item.todayLog?.status
-        return !s || s === 'NOT_STARTED' || s === 'IN_PROGRESS'
-      }
-      return true
-    }
-
-    // Today: only items the chef has added to today's list
-    if (!item.todayLog) return false
-    const s = item.todayLog.status
-    if (filterStatus !== 'ALL' && s !== filterStatus) return false
-    return true
-  }), [items, search, filterPriority, filterCategory, filterStation, filterStatus, viewMode, planView])
-
-  const inProgress  = useMemo(() => items.filter(i => i.todayLog?.status === 'IN_PROGRESS'), [items])
-  const todayItems  = useMemo(() => items.filter(i => i.todayLog != null), [items])
+  // ── Derived data ──────────────────────────────────────────────────────────
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
-  // For plan mode: sorted flat (A-Z) or grouped by category
-  const planSorted = useMemo(() => [...filtered].sort((a, b) => a.name.localeCompare(b.name)), [filtered])
+  // Today tab: persistent list items, sorted by priority then name
+  const todayItems = useMemo(() =>
+    items.filter(i => i.isOnList),
+  [items])
 
-  const planGroups = useMemo(() => {
-    if (viewMode !== 'plan') return null
+  // Priority-change alerts: on-list items that have escalated to Critical but not started
+  const priorityAlerts = useMemo(() =>
+    items.filter(i =>
+      i.isOnList &&
+      i.priority === '911' &&
+      (!i.todayLog || i.todayLog.status === 'NOT_STARTED')
+    ),
+  [items])
 
-    if (planSort === 'category') {
-      const map = new Map<string, typeof filtered>()
-      for (const cat of [...new Set(planSorted.map(i => i.category))].sort()) map.set(cat, [])
-      for (const item of planSorted) map.get(item.category)!.push(item)
-      return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
+  // Smart Prep urgency buckets (all active items)
+  const spCritical    = useMemo(() => items.filter(i => i.priority === '911'),          [items])
+  const spNeeded      = useMemo(() => items.filter(i => i.priority === 'NEEDED_TODAY'), [items])
+  const spLookingGood = useMemo(() => items.filter(i => i.priority === 'LATER'),        [items])
+
+  // Smart Prep — by-category groups (sorted by urgency within each group)
+  const PRIORITY_RANK: Record<string, number> = { '911': 0, 'NEEDED_TODAY': 1, 'LATER': 2 }
+  const spCategoryGroups = useMemo(() => {
+    const sorted = [...items].sort((a, b) => {
+      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+      return pd !== 0 ? pd : a.name.localeCompare(b.name)
+    })
+    const map = new Map<string, PrepItemRich[]>()
+    for (const cat of [...new Set(sorted.map(i => i.category))].sort()) map.set(cat, [])
+    for (const item of sorted) map.get(item.category)!.push(item)
+    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
+
+  // Smart Prep — by-station groups
+  const spStationGroups = useMemo(() => {
+    const sorted = [...items].sort((a, b) => {
+      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+      return pd !== 0 ? pd : a.name.localeCompare(b.name)
+    })
+    const groups: [string, PrepItemRich[]][] = []
+    for (const station of stations) {
+      const rows = sorted.filter(i => i.station === station)
+      if (rows.length > 0) groups.push([station, rows])
     }
+    const unassigned = sorted.filter(i => !i.station || i.station.trim() === '')
+    if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
+    const other = sorted.filter(i => i.station && i.station.trim() !== '' && !stations.includes(i.station))
+    if (other.length > 0) groups.push(['Other', other])
+    return groups.length > 0 ? groups : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, stations])
 
-    if (planSort === 'station') {
-      const groups: [string, typeof filtered][] = []
-      // Named station buckets in settings order
-      for (const station of stations) {
-        const rows = planSorted.filter(i => i.station === station)
-        if (rows.length > 0) groups.push([station, rows])
+  // Today filter (search + optional category/station filters)
+  const filteredToday = useMemo(() => {
+    return todayItems.filter(item => {
+      if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
+      if (filterCategory !== 'ALL' && item.category !== filterCategory) return false
+      if (filterStation === 'UNASSIGNED') {
+        if (item.station && item.station.trim() !== '') return false
+      } else if (filterStation !== 'ALL') {
+        if (item.station !== filterStation) return false
       }
-      // Unassigned bucket (null / empty string)
-      const unassigned = planSorted.filter(i => !i.station || i.station.trim() === '')
-      if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
-      // Other bucket: items with a station value not in the current settings list
-      const other = planSorted.filter(
-        i => i.station && i.station.trim() !== '' && !stations.includes(i.station)
-      )
-      if (other.length > 0) groups.push(['Other', other])
-      return groups.length > 0 ? groups : null
-    }
+      return true
+    })
+  }, [todayItems, search, filterCategory, filterStation])
 
-    return null
-  }, [filtered, planSorted, viewMode, planSort, stations])
-
-  // Keep detail panel in sync with live data — avoids stale snapshot after auto-refresh
+  // Keep detail panel in sync with live data
   const selectedLive = useMemo(
     () => selected ? (items.find(i => i.id === selected.id) ?? selected) : null,
     [selected, items],
   )
 
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
   const handleRefresh = async () => {
     setGenerating(true)
-    try {
-      await load()
-    } catch (e) {
-      console.error('Failed to refresh prep data', e)
-      setActionError('Refresh failed — check your connection and try again.')
-    } finally {
-      setGenerating(false)
-    }
+    try { await load() }
+    catch { setActionError('Refresh failed — check your connection and try again.') }
+    finally { setGenerating(false) }
   }
 
   const handleSync = async () => {
@@ -279,8 +273,7 @@ export default function PrepPage() {
       const data = await res.json()
       setSyncResult(data)
       if (data.created > 0) await load()
-    } catch (e) {
-      console.error('Sync failed', e)
+    } catch {
       setActionError('Sync failed — check your connection and try again.')
     } finally {
       setSyncing(false)
@@ -293,7 +286,6 @@ export default function PrepPage() {
     if (!item) return
     pendingItems.current.add(itemId)
 
-    // Optimistic: update status + clear manual priority when marking done/partial
     const now = new Date().toISOString()
     const completingNow = newStatus === 'DONE' || newStatus === 'PARTIAL'
     setItems(prev => prev.map(i => {
@@ -322,7 +314,6 @@ export default function PrepPage() {
       }
     }))
 
-    // Queue for later sync when offline
     if (!navigator.onLine) {
       enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty })
       setPendingCount(n => n + 1)
@@ -339,7 +330,6 @@ export default function PrepPage() {
           body: JSON.stringify({ prepItemId: itemId }),
         }).then(r => r.json())
         logId = log.id
-        // Swap temp id with real one
         setItems(prev => prev.map(i => {
           if (i.id !== itemId || !i.todayLog) return i
           return { ...i, todayLog: { ...i.todayLog, id: log.id } }
@@ -353,18 +343,15 @@ export default function PrepPage() {
           ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
         }),
       })
-      // No reload needed — state already reflects the change
-    } catch (e) {
-      console.error('Failed to update prep status', e)
+    } catch {
       setActionError('Status update failed — try again.')
-      load() // revert on error
+      load()
     } finally {
       pendingItems.current.delete(itemId)
     }
   }
 
   async function handlePriorityChange(itemId: string, priority: string) {
-    // Optimistic: update override + effective priority immediately
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item
       return {
@@ -386,107 +373,265 @@ export default function PrepPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manualPriorityOverride: priority }),
       })
-      // Only reload when going to Auto — server needs to recalculate effective priority
       if (!priority) load()
-    } catch (e) {
-      console.error('Failed to update priority', e)
+    } catch {
       setActionError('Priority update failed — try again.')
-      load() // revert on error
+      load()
     }
   }
 
   async function handleDelete(itemId: string) {
     try {
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
-      if (selected?.id === itemId) setSelected(null)  // close stale detail panel
+      if (selected?.id === itemId) setSelected(null)
       load()
-    } catch (e) {
-      console.error('Failed to delete prep item', e)
+    } catch {
       setActionError('Delete failed — try again.')
     }
   }
 
-  // Schedule toggle: logId=null → add to today; logId=string → remove from today
-  async function handleScheduleToggle(itemId: string, logId: string | null) {
-    // Optimistic: flip todayLog immediately so UI responds without waiting for the server
-    const now = new Date().toISOString()
-    setItems(prev => prev.map(item => {
-      if (item.id !== itemId) return item
-      if (logId) {
-        return { ...item, todayLog: null }
-      }
-      return {
-        ...item,
-        todayLog: {
-          id: `_opt_${itemId}`,
-          prepItemId: itemId,
-          logDate: now.split('T')[0],
-          status: 'NOT_STARTED',
-          requiredQty: null,
-          actualPrepQty: null,
-          assignedTo: null,
-          dueTime: null,
-          note: null,
-          blockedReason: null,
-          inventoryAdjusted: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      }
-    }))
+  // Toggle isOnList: add to list (true) or remove from list (false)
+  async function handleToggleOnList(itemId: string, newValue: boolean) {
+    // Optimistic update
+    setItems(prev => prev.map(i =>
+      i.id === itemId ? { ...i, isOnList: newValue } : i
+    ))
 
     if (!navigator.onLine) {
-      if (logId) {
-        enqueueMutation({ type: 'schedule_remove', itemId, logId })
-      } else {
-        enqueueMutation({ type: 'schedule_add', itemId })
-      }
+      enqueueMutation({ type: 'isOnList_toggle', itemId, isOnList: newValue })
       setPendingCount(n => n + 1)
       return
     }
 
     try {
-      if (logId) {
-        // _opt_ prefix means the log was never persisted — nothing to delete on the server
-        if (!logId.startsWith('_opt_')) {
-          const res = await fetch(`/api/prep/logs/${logId}`, { method: 'DELETE' })
-          if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
-        }
-      } else {
-        const log = await fetch('/api/prep/logs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prepItemId: itemId }),
-        }).then(r => r.json())
-
-        if (log.id) {
-          // Check if the user already unmarked while the POST was in flight
-          let userAlreadyUnmarked = false
-          setItems(prev => prev.map(item => {
-            if (item.id !== itemId) return item
-            if (!item.todayLog) {
-              // User unmarked — don't restore todayLog, but we need to clean up the DB record
-              userAlreadyUnmarked = true
-              return item
-            }
-            return { ...item, todayLog: { ...item.todayLog, id: log.id } }
-          }))
-          // If user toggled off while POST was in flight, delete the record we just created
-          if (userAlreadyUnmarked) {
-            fetch(`/api/prep/logs/${log.id}`, { method: 'DELETE' }).catch(() => {})
-          }
+      await fetch(`/api/prep/items/${itemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isOnList: newValue }),
+      })
+      // When removing from list, log SKIPPED for today so it shows in History
+      if (!newValue) {
+        const existingLog = items.find(i => i.id === itemId)?.todayLog
+        if (!existingLog || existingLog.status === 'NOT_STARTED') {
+          await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: itemId, status: 'SKIPPED' }),
+          }).catch(() => {}) // non-critical — don't fail the whole operation
         }
       }
-    } catch (e) {
-      console.error('Failed to toggle schedule', e)
-      setActionError('Could not update today\'s list — try again.')
-      load() // revert on error
+    } catch {
+      setActionError('Could not update list — try again.')
+      load()
     }
   }
 
-  const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
+  // Bulk add all items of a given priority to the list
+  async function handleAddAll(priority: '911' | 'NEEDED_TODAY') {
+    const targets = items.filter(i => i.priority === priority && !i.isOnList)
+    if (targets.length === 0) return
+    // Optimistic: flip all at once
+    setItems(prev => prev.map(i =>
+      targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i
+    ))
+    await Promise.all(targets.map(i =>
+      fetch(`/api/prep/items/${i.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isOnList: true }),
+      })
+    ))
+  }
 
-  const activeFilterCount = [filterPriority !== 'ALL', filterStatus !== 'ALL', filterCategory !== 'ALL', filterStation !== 'ALL'].filter(Boolean).length
+  // ── Render helpers ────────────────────────────────────────────────────────
+
+  const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
+  const activeFilterCount = [filterCategory !== 'ALL', filterStation !== 'ALL'].filter(Boolean).length
+
+  const STATION_EMOJI: Record<string, string> = {
+    'Cold': '❄',
+    'Hot': '🔥',
+    'Pastry': '🥐',
+    'Butchery': '🔪',
+    'Garde Manger': '🥗',
+  }
+
+  // ── Smart Prep item card (shared across urgency/category/station views) ──
+  function SmartPrepCard({ item }: { item: PrepItemRich }) {
+    const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
+    const barColor = item.priority === '911' ? 'bg-red-400' : item.priority === 'NEEDED_TODAY' ? 'bg-orange-400' : 'bg-green-400'
+    const suggestColor = item.priority === '911' ? 'text-red-600' : item.priority === 'NEEDED_TODAY' ? 'text-orange-600' : 'text-green-600'
+    const isAdded = item.isOnList
+
+    return (
+      <div className="px-4 py-4 border-b border-gray-50 last:border-0">
+        {/* Name row */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold text-gray-800">{item.name}</span>
+              {item.manualPriorityOverride && (
+                <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Override</span>
+              )}
+            </div>
+            <div className="text-[11px] text-gray-400 flex items-center gap-1.5 mt-0.5">
+              <span>{item.category}</span>
+              {item.station && (
+                <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{item.station}</span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => handleToggleOnList(item.id, !isAdded)}
+            className={`btn-action shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              isAdded
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-gray-800 text-white hover:bg-gray-700'
+            }`}
+          >
+            {isAdded ? '✓ On List' : '+ Add'}
+          </button>
+        </div>
+
+        {/* Stock bar */}
+        <div className="flex items-center gap-2 mb-1">
+          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${stockPct}%` }} />
+          </div>
+          <span className="text-[11px] text-gray-500 shrink-0 font-medium">
+            {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
+          </span>
+        </div>
+
+        {/* Suggestion */}
+        {item.priority !== 'LATER' ? (
+          item.manualPriorityOverride ? (
+            <p className="text-xs text-gray-400 mb-2.5 line-through">
+              {item.suggestedQty > 0 ? `System suggests → Make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'System suggests → review stock'}
+            </p>
+          ) : (
+            <p className={`text-xs font-semibold mb-2.5 ${suggestColor}`}>
+              System suggests → {item.suggestedQty > 0 ? `Make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
+            </p>
+          )
+        ) : (
+          <p className="text-xs text-green-600 font-medium mb-2.5">At or above par — looking good</p>
+        )}
+
+        {/* Priority override pills */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] text-gray-400">{item.priority === 'LATER' ? 'If adding:' : 'Override:'}</span>
+          {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
+            const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed Today', 'LATER': 'Later' }
+            const activeStyles: Record<string, string> = {
+              '911': 'bg-red-100 text-red-700 border-red-300',
+              'NEEDED_TODAY': 'bg-orange-100 text-orange-700 border-orange-300',
+              'LATER': 'bg-gray-100 text-gray-600 border-gray-300',
+            }
+            const isActive = (item.manualPriorityOverride ?? item.priority) === p
+            return (
+              <button
+                key={p}
+                onClick={() => handlePriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
+                className={`pill text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
+                  isActive ? `${activeStyles[p]} font-semibold` : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                {labels[p]}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Smart Prep grouped table row (category / station views) ───────────────
+  function SmartPrepTableRow({ item }: { item: PrepItemRich }) {
+    const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
+    const dotColor = item.priority === '911' ? 'bg-red-500' : item.priority === 'NEEDED_TODAY' ? 'bg-orange-400' : 'bg-green-400'
+    const borderColor = item.priority === '911' ? 'border-l-red-500' : item.priority === 'NEEDED_TODAY' ? 'border-l-orange-400' : 'border-l-green-400'
+    const hoverBg = item.priority === '911' ? 'hover:bg-red-50/20' : item.priority === 'NEEDED_TODAY' ? 'hover:bg-orange-50/20' : 'hover:bg-green-50/10'
+    const isAdded = item.isOnList
+
+    const labels: Record<string, string>     = { '911': 'Critical', 'NEEDED_TODAY': 'Needed Today', 'LATER': 'Looking Good' }
+    const badgeStyles: Record<string, string> = {
+      '911': 'bg-red-100 text-red-700',
+      'NEEDED_TODAY': 'bg-orange-100 text-orange-700',
+      'LATER': 'bg-green-100 text-green-700',
+    }
+
+    return (
+      <div className={`grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 ${borderColor} ${hoverBg} transition-colors`}>
+        <span className={`w-2 h-2 rounded-full ${dotColor} inline-block shrink-0`} />
+        <div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold text-gray-800">{item.name}</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeStyles[item.priority]}`}>{labels[item.priority]}</span>
+            {item.station && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{item.station}</span>}
+            {item.manualPriorityOverride && <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Override</span>}
+            {isAdded && <span className="text-[10px] text-gray-400 italic">on list</span>}
+          </div>
+          <div className="text-xs text-gray-400 mt-0.5">
+            {item.priority !== 'LATER' && !item.manualPriorityOverride
+              ? `System suggests → ${item.suggestedQty > 0 ? `Make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}`
+              : item.priority === 'LATER' ? 'At or above par' : 'Chef override active'
+            }
+          </div>
+        </div>
+        <div>
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${dotColor}`} style={{ width: `${stockPct}%` }} />
+          </div>
+        </div>
+        <div className="text-sm text-gray-600 font-medium">
+          {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
+        </div>
+        <div className={`text-sm font-semibold ${item.priority === '911' ? 'text-red-600' : item.priority === 'NEEDED_TODAY' ? 'text-orange-600' : 'text-gray-400'}`}>
+          {item.priority !== 'LATER' && item.suggestedQty > 0
+            ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}`
+            : '—'
+          }
+        </div>
+        <div className="flex items-center gap-1">
+          {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
+            const chipLabels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed', 'LATER': 'Later' }
+            const activeStyles: Record<string, string> = {
+              '911': 'bg-red-100 text-red-700 border-red-300',
+              'NEEDED_TODAY': 'bg-orange-100 text-orange-700 border-orange-300',
+              'LATER': 'bg-gray-100 text-gray-600 border-gray-300',
+            }
+            const isActive = (item.manualPriorityOverride ?? item.priority) === p
+            return (
+              <button
+                key={p}
+                onClick={() => handlePriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
+                className={`pill text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  isActive ? `${activeStyles[p]} font-semibold` : 'bg-white text-gray-400 border-gray-200'
+                }`}
+              >
+                {chipLabels[p]}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex justify-end">
+          <button
+            onClick={() => handleToggleOnList(item.id, !isAdded)}
+            className={`btn-action px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              isAdded
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-gray-800 text-white hover:bg-gray-700'
+            }`}
+          >
+            {isAdded ? '✓ On List' : '+ Add'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Page JSX ──────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-3 md:space-y-5">
@@ -525,64 +670,50 @@ export default function PrepPage() {
           </div>
         </div>
 
-        {/* View tabs */}
+        {/* Mobile view tabs */}
         <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
-          {(['today', 'plan', 'history'] as const).map(m => (
+          {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
               className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-              {m === 'today' ? 'Today' : m === 'plan' ? 'Plan' : <><History size={12} /> History</>}
+              {m === 'today' ? <>Today {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
 
-        {/* KPI strip */}
+        {/* Mobile KPI strip (Today only) */}
         {viewMode === 'today' && (
           <div className="mt-2">
-            <PrepKpiStrip items={todayItems} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
+            <PrepKpiStrip items={todayItems} />
           </div>
         )}
 
         {/* Search + filter toggle */}
-        <div className="flex gap-2 mt-3">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
-              placeholder="Search prep items…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+        {viewMode !== 'history' && (
+          <div className="flex gap-2 mt-3">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
+                placeholder="Search prep items…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <button
+              onClick={() => setShowMobileFilters(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                showMobileFilters || activeFilterCount > 0
+                  ? 'border-blue-300 bg-gold/10 text-gold'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}>
+              <SlidersHorizontal size={15} />
+              {activeFilterCount > 0 ? <span className="bg-gold text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
+            </button>
           </div>
-          <button
-            onClick={() => setShowMobileFilters(v => !v)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
-              showMobileFilters || activeFilterCount > 0
-                ? 'border-blue-300 bg-gold/10 text-gold'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}>
-            <SlidersHorizontal size={15} />
-            {activeFilterCount > 0 ? <span className="bg-gold text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
-          </button>
-        </div>
+        )}
 
-        {/* Collapsible filters */}
         {showMobileFilters && (
           <div className="mt-2 bg-white border border-gray-100 rounded-xl p-3 space-y-2">
-            <select className={selCls + ' w-full'} value={filterPriority} onChange={e => setFilterPriority(e.target.value)}>
-              <option value="ALL">All Priorities</option>
-              <option value="911">911</option>
-              <option value="NEEDED_TODAY">Needed Today</option>
-              <option value="LOW_STOCK">Low Stock</option>
-              <option value="LATER">Later</option>
-            </select>
-            {viewMode === 'today' && (
-              <select className={selCls + ' w-full'} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                <option value="ALL">All Statuses</option>
-                {['NOT_STARTED','IN_PROGRESS','DONE','PARTIAL','BLOCKED','SKIPPED'].map(s => (
-                  <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
-            )}
             <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -597,8 +728,9 @@ export default function PrepPage() {
       </div>
 
       {/* ── Desktop Header ── */}
-      <div className="hidden md:block space-y-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="hidden md:block space-y-4">
+        {/* Top bar */}
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <ChefHat size={24} className="text-gold" /> Prep List
@@ -607,7 +739,26 @@ export default function PrepPage() {
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+
+          {/* Desktop tabs — centered */}
+          <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+            <button onClick={() => setViewMode('today')} id="dtab-today"
+              className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${viewMode === 'today' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+              Today
+              {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}
+            </button>
+            <button onClick={() => setViewMode('smartprep')} id="dtab-smartprep"
+              className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${viewMode === 'smartprep' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+              Smart Prep
+              {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}
+            </button>
+            <button onClick={() => setViewMode('history')} id="dtab-history"
+              className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors ${viewMode === 'history' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+              History
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
             <button onClick={() => setShowSettings(true)}
               className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
               <Settings size={14} /> Settings
@@ -628,73 +779,10 @@ export default function PrepPage() {
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Action error banner */}
-      {actionError && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-          <span>{actionError}</span>
-          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
-        </div>
-      )}
-
-      {/* Offline / pending-sync banner */}
-      {(isOffline || pendingCount > 0) && (
-        <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
-          isOffline
-            ? 'bg-amber-50 border-amber-200 text-amber-800'
-            : 'bg-gold/10 border-gold/30 text-blue-800'
-        }`}>
-          <div className="flex items-center gap-2 min-w-0">
-            <WifiOff size={14} className="shrink-0" />
-            <span className="truncate">
-              {offlineSyncing
-                ? 'Syncing changes…'
-                : isOffline
-                  ? `Offline${cacheAge !== null ? ` — data from ${cacheAge < 1 ? 'just now' : `${cacheAge}m ago`}` : ''}`
-                  : 'Back online'}
-            </span>
-            {pendingCount > 0 && !offlineSyncing && (
-              <span className="font-semibold shrink-0">
-                · {pendingCount} change{pendingCount !== 1 ? 's' : ''} pending
-              </span>
-            )}
-          </div>
-          {pendingCount > 0 && !isOffline && !offlineSyncing && (
-            <button
-              onClick={handleOfflineSync}
-              className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-900"
-            >
-              <RefreshCcw size={12} /> Sync now
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Sync result banner */}
-      {syncResult && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
-          <span>
-            {(syncResult.created > 0 || syncResult.updated > 0)
-              ? <>
-                  ✓{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}
-                  {syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}
-                  {syncResult.created > 0 && <> Set par levels on new items to start tracking them.</>}
-                </>
-              : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
-            }
-          </span>
-          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green-500 hover:text-green-700">✕</button>
-        </div>
-      )}
-
-      {/* ── Desktop KPI strip + filters ── */}
-      <div className="hidden md:block space-y-5">
-        {viewMode === 'today' && (
-          <PrepKpiStrip items={todayItems} onFilterPriority={p => setFilterPriority(prev => prev === p ? 'ALL' : p)} />
-        )}
-        <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
+        {/* Desktop filter bar (Today + Smart Prep only) */}
+        {viewMode !== 'history' && (
+          <div className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 min-w-48">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -704,19 +792,6 @@ export default function PrepPage() {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            <select className={selCls} value={filterPriority} onChange={e => setFilterPriority(e.target.value)}>
-              <option value="ALL">All Priorities</option>
-              <option value="911">911</option>
-              <option value="NEEDED_TODAY">Needed Today</option>
-              <option value="LOW_STOCK">Low Stock</option>
-              <option value="LATER">Later</option>
-            </select>
-            <select className={selCls} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="ALL">All Statuses</option>
-              {['NOT_STARTED','IN_PROGRESS','DONE','PARTIAL','BLOCKED','SKIPPED'].map(s => (
-                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-              ))}
-            </select>
             <select className={selCls} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -726,116 +801,307 @@ export default function PrepPage() {
               <option value="UNASSIGNED">Unassigned</option>
               {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-          </div>
-          <div className="flex items-center gap-4 text-sm flex-wrap">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600 ml-auto">
               <input type="checkbox" checked={activeOnly}
                 onChange={e => setActiveOnly(e.target.checked)}
                 className="rounded text-gold" />
-              <span className="text-gray-600">Active only</span>
+              Active only
             </label>
-            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-              {(['today', 'plan', 'history'] as const).map(m => (
-                <button key={m} onClick={() => setViewMode(m)}
-                  className={`px-3 py-1 text-xs rounded-md transition-colors flex items-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
-                  {m === 'history' && <History size={11} />}
-                  {m === 'today' ? 'Today' : m === 'plan' ? 'Plan Prep List' : 'History'}
+          </div>
+        )}
+      </div>
+
+      {/* ── System banners ── */}
+      {actionError && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+        </div>
+      )}
+
+      {(isOffline || pendingCount > 0) && (
+        <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
+          isOffline ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gold/10 border-gold/30 text-blue-800'
+        }`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <WifiOff size={14} className="shrink-0" />
+            <span className="truncate">
+              {offlineSyncing ? 'Syncing changes…' : isOffline ? `Offline${cacheAge !== null ? ` — data from ${cacheAge < 1 ? 'just now' : `${cacheAge}m ago`}` : ''}` : 'Back online'}
+            </span>
+            {pendingCount > 0 && !offlineSyncing && (
+              <span className="font-semibold shrink-0">· {pendingCount} change{pendingCount !== 1 ? 's' : ''} pending</span>
+            )}
+          </div>
+          {pendingCount > 0 && !isOffline && !offlineSyncing && (
+            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-900">
+              <RefreshCcw size={12} /> Sync now
+            </button>
+          )}
+        </div>
+      )}
+
+      {syncResult && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
+          <span>
+            {(syncResult.created > 0 || syncResult.updated > 0)
+              ? <>{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}{syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}</>
+              : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
+            }
+          </span>
+          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green-500 hover:text-green-700">✕</button>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          TODAY TAB
+      ══════════════════════════════════════════════════════ */}
+      {viewMode === 'today' && (
+        <div className="space-y-4">
+
+          {/* Desktop KPI strip */}
+          <div className="hidden md:block">
+            <PrepKpiStrip items={todayItems} />
+          </div>
+
+          {/* Priority-change alert */}
+          {priorityAlerts.length > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-orange-800">Stock changed since scheduling</p>
+                <p className="text-sm text-orange-700 mt-0.5">
+                  {priorityAlerts.length === 1
+                    ? <><strong>{priorityAlerts[0].name}</strong> is now Critical — theoretical stock at or below 0.</>
+                    : <><strong>{priorityAlerts.map(i => i.name).join(', ')}</strong> — now Critical, stock depleted.</>
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
+            </div>
+          ) : todayItems.length === 0 ? (
+            <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
+              <ChefHat size={32} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500 text-sm">Nothing on today&apos;s list yet.</p>
+              <p className="text-xs text-gray-400 mt-2">
+                Go to{' '}
+                <button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">
+                  Smart Prep
+                </button>
+                {' '}and add items to your list.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Today list */}
+              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+                {filteredToday.map(item => (
+                  <PrepItemRow
+                    key={item.id}
+                    item={item}
+                    onClick={() => setSelected(item)}
+                    onStatusChange={handleStatusChange}
+                    onPriorityChange={handlePriorityChange}
+                    onDelete={handleDelete}
+                    onToggleOnList={handleToggleOnList}
+                  />
+                ))}
+              </div>
+              <p className="text-center text-xs text-gray-400">
+                This list carries over each day — items stay until marked done or removed.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          SMART PREP TAB
+      ══════════════════════════════════════════════════════ */}
+      {viewMode === 'smartprep' && (
+        <div className="space-y-4">
+          {/* Header row: info banner + view toggle */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-amber-600 shrink-0">📊</span>
+              <p className="text-sm text-amber-800">
+                Suggestions based on <strong>theoretical stock</strong> from sales, wastage &amp; invoices. Resets at each stock count.
+              </p>
+            </div>
+            {/* Desktop view toggle */}
+            <div className="hidden md:flex bg-gray-100 rounded-xl p-1 gap-0.5 shrink-0">
+              {(['urgency', 'category', 'station'] as const).map(v => (
+                <button key={v} onClick={() => setSmartPrepView(v)}
+                  className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors capitalize ${smartPrepView === v ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+                  By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
                 </button>
               ))}
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Currently Making — only in Today view */}
-      {inProgress.length > 0 && viewMode === 'today' && !loading && (
-        <div className="bg-gold/10 border border-gold/30 rounded-xl overflow-hidden">
-          <div className="px-4 py-2 flex items-center gap-2 border-b border-blue-100">
-            <span className="text-xs font-semibold text-gold uppercase tracking-wide">Currently Making</span>
-            <span className="text-xs text-blue-500">{inProgress.length} in progress</span>
-          </div>
-          <div className="divide-y divide-blue-50">
-            {inProgress.map(item => (
-              <PrepItemRow key={item.id} item={item}
-                onClick={() => setSelected(item)}
-                onStatusChange={handleStatusChange}
-                onPriorityChange={handlePriorityChange}
-                onDelete={handleDelete}
-                planMode={false} />
+          {/* Mobile view toggle */}
+          <div className="md:hidden flex bg-gray-100 rounded-xl p-1 gap-0.5">
+            {(['urgency', 'category', 'station'] as const).map(v => (
+              <button key={v} onClick={() => setSmartPrepView(v)}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${smartPrepView === v ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
+                By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
+              </button>
             ))}
           </div>
-        </div>
-      )}
 
-      {/* Plan Prep List controls */}
-      {viewMode === 'plan' && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 space-y-2.5">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            {/* Sub-view toggle: All / Pending / Need Attention */}
-            <div className="flex items-center gap-1 bg-indigo-100 rounded-lg p-0.5">
-              <button
-                onClick={() => setPlanView('all')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${planView === 'all' ? 'bg-white text-indigo-800 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
-              >
-                All Items
-              </button>
-              <button
-                onClick={() => setPlanView('pending')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'pending' ? 'bg-white text-gold shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
-              >
-                Pending
-                {(() => {
-                  const n = items.filter(i => { const s = i.todayLog?.status; return !s || s === 'NOT_STARTED' || s === 'IN_PROGRESS' }).length
-                  return n > 0 ? (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'pending' ? 'bg-gold/15 text-gold' : 'bg-indigo-200 text-indigo-600'}`}>{n}</span>
-                  ) : null
-                })()}
-              </button>
-              <button
-                onClick={() => setPlanView('need-attention')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${planView === 'need-attention' ? 'bg-white text-orange-700 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'}`}
-              >
-                Low Stock
-                {items.filter(i => !i.manualPriorityOverride && (i.priority === '911' || i.priority === 'NEEDED_TODAY' || i.priority === 'LOW_STOCK')).length > 0 && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${planView === 'need-attention' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-200 text-indigo-600'}`}>
-                    {items.filter(i => !i.manualPriorityOverride && (i.priority === '911' || i.priority === 'NEEDED_TODAY' || i.priority === 'LOW_STOCK')).length}
-                  </span>
-                )}
-              </button>
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
             </div>
+          ) : (
+            <>
+              {/* ── BY URGENCY ── */}
+              {smartPrepView === 'urgency' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
 
-            {/* Sort toggle: A–Z / By Category / By Station — only in All Items view */}
-            {planView === 'all' && (
-              <div className="flex items-center gap-1 bg-indigo-100 rounded-lg p-0.5">
-                {([['az', 'A – Z'], ['category', 'By Category'], ['station', 'By Station']] as const).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    onClick={() => setPlanSort(mode)}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                      planSort === mode ? 'bg-white text-indigo-800 shadow-sm' : 'text-indigo-500 hover:text-indigo-700'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                  {/* Critical column */}
+                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500" />
+                        <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Critical</span>
+                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length}</span>
+                      </div>
+                      {spCritical.some(i => !i.isOnList) && (
+                        <button onClick={() => handleAddAll('911')}
+                          className="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-full transition-colors">
+                          Add All
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">Stock depleted — make now</p>
+                    {spCritical.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-xs text-gray-400">No critical items 🎉</div>
+                    ) : (
+                      spCritical.map(item => <SmartPrepCard key={item.id} item={item} />)
+                    )}
+                  </div>
 
-          <p className="text-xs text-indigo-600">
-            {planView === 'need-attention'
-              ? 'Items the system flagged based on stock levels. Tap ○ to add to today\'s list.'
-              : planView === 'pending'
-              ? 'Items not yet done today — unscheduled or in progress. Add what\'s still needed.'
-              : 'Tap ○ to add items to today\'s list. Use priority chips to flag urgency.'}
-          </p>
+                  {/* Needed Today column */}
+                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-orange-400" />
+                        <span className="text-xs font-bold text-orange-700 uppercase tracking-wide">Needed Today</span>
+                        <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-semibold">{spNeeded.length}</span>
+                      </div>
+                      {spNeeded.some(i => !i.isOnList) && (
+                        <button onClick={() => handleAddAll('NEEDED_TODAY')}
+                          className="text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 px-3 py-1 rounded-full transition-colors">
+                          Add All
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">Below par — should be prepped today</p>
+                    {spNeeded.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-xs text-gray-400">No items below par</div>
+                    ) : (
+                      spNeeded.map(item => <SmartPrepCard key={item.id} item={item} />)
+                    )}
+                  </div>
+
+                  {/* Looking Good column */}
+                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-400" />
+                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Looking Good</span>
+                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">{spLookingGood.length}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">At or above par — add manually if needed</p>
+                    {spLookingGood.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-xs text-gray-400">No items</div>
+                    ) : (
+                      spLookingGood.map(item => <SmartPrepCard key={item.id} item={item} />)
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── BY CATEGORY ── */}
+              {smartPrepView === 'category' && (
+                <div className="space-y-4">
+                  {spCategoryGroups.map(([cat, rows]) => (
+                    <div key={cat} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                      <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">{cat}</span>
+                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">{rows.length} items</span>
+                      </div>
+                      {/* Desktop table header */}
+                      <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                        <div /> <div>Item</div> <div>Stock vs Par</div> <div>Theoretical</div> <div>Make</div> <div>Override</div> <div className="text-right">Action</div>
+                      </div>
+                      {/* Desktop rows */}
+                      <div className="hidden md:block">
+                        {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
+                      </div>
+                      {/* Mobile cards */}
+                      <div className="md:hidden">
+                        {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── BY STATION ── */}
+              {smartPrepView === 'station' && (
+                <div className="space-y-4">
+                  {(spStationGroups ?? []).map(([station, rows]) => {
+                    const emoji = STATION_EMOJI[station] ?? '🍽'
+                    const criticalCount = rows.filter(i => i.priority === '911').length
+                    const stationBg = station === 'Cold' ? 'bg-blue-50 border-blue-100' : station === 'Hot' ? 'bg-orange-50 border-orange-100' : station === 'Pastry' ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'
+                    const stationText = station === 'Cold' ? 'text-blue-700' : station === 'Hot' ? 'text-orange-700' : station === 'Pastry' ? 'text-amber-700' : 'text-gray-700'
+                    return (
+                      <div key={station} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                        <div className={`px-5 py-3 border-b flex items-center gap-3 ${stationBg}`}>
+                          <span className={`text-xs font-bold uppercase tracking-wide ${stationText}`}>{emoji} {station} Station</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${stationText} bg-white/60`}>{rows.length} items</span>
+                          {criticalCount > 0 && <span className="ml-auto text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold">{criticalCount} critical</span>}
+                        </div>
+                        {/* Desktop table header */}
+                        <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                          <div /> <div>Item</div> <div>Stock vs Par</div> <div>Theoretical</div> <div>Make</div> <div>Override</div> <div className="text-right">Action</div>
+                        </div>
+                        <div className="hidden md:block">
+                          {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
+                        </div>
+                        <div className="md:hidden">
+                          {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {(!spStationGroups || spStationGroups.length === 0) && (
+                    <div className="bg-white border border-gray-100 rounded-xl py-12 text-center">
+                      <p className="text-gray-500 text-sm">No stations configured.</p>
+                      <p className="text-xs text-gray-400 mt-1">Add stations in{' '}
+                        <button onClick={() => setShowSettings(true)} className="text-gold hover:underline">Settings</button>.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
-      {/* ── History view ── */}
+      {/* ══════════════════════════════════════════════════════
+          HISTORY TAB
+      ══════════════════════════════════════════════════════ */}
       {viewMode === 'history' && (
         <div className="space-y-4">
-          {/* Date picker */}
           <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 flex-wrap">
             <History size={16} className="text-gray-400 shrink-0" />
             <span className="text-sm font-medium text-gray-700">View date:</span>
@@ -859,7 +1125,7 @@ export default function PrepPage() {
             <div className="bg-white border border-gray-100 rounded-xl py-14 text-center">
               <History size={28} className="mx-auto text-gray-300 mb-3" />
               <p className="text-gray-500 text-sm">No prep was logged on this date.</p>
-              <p className="text-xs text-gray-400 mt-1">Try a different date or check if items were added to today&apos;s list.</p>
+              <p className="text-xs text-gray-400 mt-1">Try a different date.</p>
             </div>
           ) : (() => {
             const STATUS_HIST: Record<string, { label: string; cls: string }> = {
@@ -877,7 +1143,6 @@ export default function PrepPage() {
             const completionRate = total > 0 ? Math.round(((done + partial) / total) * 100) : 0
             return (
               <>
-                {/* Summary strip */}
                 <div className="grid grid-cols-4 gap-3">
                   {[
                     { label: 'Total', value: total, cls: 'text-gray-800' },
@@ -898,7 +1163,6 @@ export default function PrepPage() {
                   </div>
                 )}
 
-                {/* Log table */}
                 <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
                   <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
                     <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Items Logged</span>
@@ -933,97 +1197,6 @@ export default function PrepPage() {
         </div>
       )}
 
-      {/* Main list (Today + Plan modes only) */}
-      {viewMode !== 'history' && (loading ? (
-        <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
-          <ChefHat size={32} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-500 text-sm">
-            {items.length === 0
-              ? 'No prep items yet.'
-              : viewMode === 'plan' && planView === 'need-attention'
-              ? 'No items flagged by the system — stock levels look good.'
-              : viewMode === 'plan' && planView === 'pending'
-              ? 'All items are done or skipped for today. Great work!'
-              : viewMode === 'plan'
-              ? 'No items match your filters.'
-              : 'Nothing on today\'s list yet.'}
-          </p>
-          {viewMode === 'today' && items.length > 0 && !items.some(i => i.todayLog) && (
-            <p className="text-xs text-gray-400 mt-2">
-              Go to <button onClick={() => setViewMode('plan')} className="text-blue-500 hover:underline">Plan Prep List</button> and tap ○ next to each item you want to prep today.
-            </p>
-          )}
-          {items.length === 0 && (
-            <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-gold hover:text-gold">
-              Add your first prep item →
-            </button>
-          )}
-        </div>
-      ) : viewMode === 'plan' && planGroups ? (
-        /* ── Plan mode — Grouped (By Category or By Station) ── */
-        <div className="space-y-4">
-          {planGroups.map(([cat, rows]) => (
-            <div key={cat} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{cat}</span>
-                <span className="text-xs text-gray-400">{rows.length}</span>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {rows.map(item => (
-                  <PrepItemRow
-                    key={item.id}
-                    item={item}
-                    onClick={() => setSelected(item)}
-                    onStatusChange={handleStatusChange}
-                    onPriorityChange={handlePriorityChange}
-                    onDelete={handleDelete}
-                    onScheduleToggle={handleScheduleToggle}
-                    planMode
-                    showReason={planView === 'need-attention'}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : viewMode === 'plan' ? (
-        /* ── Plan mode — A-Z ── */
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
-          {planSorted.map(item => (
-            <PrepItemRow
-              key={item.id}
-              item={item}
-              onClick={() => setSelected(item)}
-              onStatusChange={handleStatusChange}
-              onPriorityChange={handlePriorityChange}
-              onDelete={handleDelete}
-              onScheduleToggle={handleScheduleToggle}
-              planMode
-              showReason={planView === 'need-attention'}
-            />
-          ))}
-        </div>
-      ) : (
-        /* ── Today / Needs Action mode ── */
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
-          {filtered.map(item => (
-            <PrepItemRow
-              key={item.id}
-              item={item}
-              onClick={() => setSelected(item)}
-              onStatusChange={handleStatusChange}
-              onPriorityChange={handlePriorityChange}
-              onDelete={handleDelete}
-              planMode={false}
-            />
-          ))}
-        </div>
-      ))}
-
       {/* Detail panel */}
       {selectedLive && (
         <PrepDetailPanel
@@ -1034,15 +1207,10 @@ export default function PrepPage() {
         />
       )}
 
-      {/* Add form */}
       {showAdd && (
-        <PrepItemForm
-          onClose={() => setShowAdd(false)}
-          onSaved={load}
-        />
+        <PrepItemForm onClose={() => setShowAdd(false)} onSaved={load} />
       )}
 
-      {/* Edit form */}
       {editing && (
         <PrepItemForm
           item={editing}
@@ -1051,7 +1219,6 @@ export default function PrepPage() {
         />
       )}
 
-      {/* Settings modal */}
       {showSettings && (
         <PrepSettingsModal
           onClose={() => setShowSettings(false)}

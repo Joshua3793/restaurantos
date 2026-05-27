@@ -1,6 +1,6 @@
-export type PrepPriority = '911' | 'NEEDED_TODAY' | 'LOW_STOCK' | 'LATER'
+export type PrepPriority = '911' | 'NEEDED_TODAY' | 'LATER'
 
-export const PREP_PRIORITY_ORDER: PrepPriority[] = ['911', 'NEEDED_TODAY', 'LOW_STOCK', 'LATER']
+export const PREP_PRIORITY_ORDER: PrepPriority[] = ['911', 'NEEDED_TODAY', 'LATER']
 
 export const PREP_PRIORITY_META: Record<PrepPriority, {
   label: string
@@ -11,7 +11,7 @@ export const PREP_PRIORITY_META: Record<PrepPriority, {
   emoji: string
 }> = {
   '911': {
-    label: '911',
+    label: 'Critical',
     emoji: '🔴',
     badgeClass: 'bg-red-100 text-red-700 font-bold',
     borderClass: 'border-l-4 border-red-500',
@@ -26,21 +26,13 @@ export const PREP_PRIORITY_META: Record<PrepPriority, {
     bgClass: 'bg-orange-50',
     headingClass: 'text-orange-700',
   },
-  'LOW_STOCK': {
-    label: 'Low Stock',
-    emoji: '🟡',
-    badgeClass: 'bg-amber-100 text-amber-700',
-    borderClass: 'border-l-4 border-amber-400',
-    bgClass: 'bg-amber-50',
-    headingClass: 'text-amber-700',
-  },
   'LATER': {
-    label: 'Optional / Later',
-    emoji: '⚪',
-    badgeClass: 'bg-gray-100 text-gray-500',
-    borderClass: '',
+    label: 'Looking Good',
+    emoji: '🟢',
+    badgeClass: 'bg-green-100 text-green-700',
+    borderClass: 'border-l-4 border-green-400',
     bgClass: 'bg-white',
-    headingClass: 'text-gray-500',
+    headingClass: 'text-green-700',
   },
 }
 
@@ -59,12 +51,12 @@ export const PREP_STATIONS   = ['Cold', 'Hot', 'Pastry', 'Butchery', 'Garde Mang
 /**
  * Compute the priority for a prep item.
  * manualOverride wins unconditionally.
- * minThreshold is the EARLY WARNING level — set above parLevel.
+ * _minThreshold is deprecated — kept for call-site compat during transition, ignored.
  */
 export function computePriority(
   onHand: number,
   parLevel: number,
-  minThreshold: number,
+  _minThreshold: number,
   targetToday: number | null,
   manualOverride: string | null,
 ): PrepPriority {
@@ -72,7 +64,6 @@ export function computePriority(
   if (onHand <= 0 && parLevel > 0) return '911'
   if (targetToday !== null && onHand < targetToday) return '911'
   if (onHand < parLevel) return 'NEEDED_TODAY'
-  if (minThreshold > 0 && onHand < minThreshold) return 'LOW_STOCK'
   return 'LATER'
 }
 

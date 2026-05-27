@@ -89,6 +89,7 @@ export async function GET(req: NextRequest) {
       notes: item.notes,
       manualPriorityOverride: item.manualPriorityOverride,
       isActive: item.isActive,
+      isOnList: item.isOnList,
       linkedRecipeId: item.linkedRecipeId,
       linkedRecipe: item.linkedRecipe
         ? {

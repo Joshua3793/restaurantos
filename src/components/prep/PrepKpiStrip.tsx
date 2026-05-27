@@ -3,15 +3,14 @@ import type { PrepItemRich } from './types'
 
 interface Props {
   items: PrepItemRich[]
-  onFilterPriority: (p: string) => void
+  onFilterPriority?: (p: string) => void
 }
 
 export function PrepKpiStrip({ items, onFilterPriority }: Props) {
   const total       = items.length
   const isComplete  = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-  const urgent      = items.filter(i => i.priority === '911'          && !isComplete(i)).length
+  const critical    = items.filter(i => i.priority === '911'          && !isComplete(i)).length
   const neededToday = items.filter(i => i.priority === 'NEEDED_TODAY' && !isComplete(i)).length
-  const lowStock    = items.filter(i => i.priority === 'LOW_STOCK'    && !isComplete(i)).length
   const done        = items.filter(i => i.todayLog?.status === 'DONE').length
   const blocked     = items.filter(i => i.isBlocked || i.todayLog?.status === 'BLOCKED').length
 
@@ -31,19 +30,23 @@ export function PrepKpiStrip({ items, onFilterPriority }: Props) {
 
   return (
     <div className="flex items-center gap-4 text-sm flex-wrap">
-      {urgent > 0 && (
-        <button onClick={() => onFilterPriority('911')} className="font-semibold text-red-600 hover:underline cursor-pointer">
-          {urgent} × 911
+      <span className="text-gray-500">
+        <span className="font-semibold text-gray-800">{total}</span> on list
+      </span>
+      {critical > 0 && (
+        <button
+          onClick={() => onFilterPriority?.('911')}
+          className={`font-semibold text-red-600 ${onFilterPriority ? 'hover:underline cursor-pointer' : 'cursor-default'}`}
+        >
+          {critical} × Critical
         </button>
       )}
       {neededToday > 0 && (
-        <button onClick={() => onFilterPriority('NEEDED_TODAY')} className="font-semibold text-orange-600 hover:underline cursor-pointer">
+        <button
+          onClick={() => onFilterPriority?.('NEEDED_TODAY')}
+          className={`font-semibold text-orange-600 ${onFilterPriority ? 'hover:underline cursor-pointer' : 'cursor-default'}`}
+        >
           {neededToday} needed today
-        </button>
-      )}
-      {lowStock > 0 && (
-        <button onClick={() => onFilterPriority('LOW_STOCK')} className="text-amber-600 hover:underline cursor-pointer">
-          {lowStock} low stock
         </button>
       )}
       <span className="text-gray-400">{done} / {total} done</span>

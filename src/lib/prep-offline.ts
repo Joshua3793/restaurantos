@@ -6,14 +6,15 @@ const QUEUE_KEY = 'prep_queue_v1'
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface OfflineMutation {
-  id:       string
-  ts:       number
-  type:     'schedule_add' | 'schedule_remove' | 'status' | 'priority'
-  itemId:   string
-  logId?:   string | null   // null or '_opt_<itemId>' = not yet on server
-  status?:  string
+  id:         string
+  ts:         number
+  type:       'isOnList_toggle' | 'status' | 'priority'
+  itemId:     string
+  isOnList?:  boolean         // for isOnList_toggle
+  logId?:     string | null   // null or '_opt_<itemId>' = not yet on server (status type)
+  status?:    string
   actualQty?: number
-  priority?: string
+  priority?:  string
 }
 
 // ── Cache ──────────────────────────────────────────────────────────────────────
@@ -64,20 +65,24 @@ export function clearQueue(): void {
 // Schedule add/remove are kept in order (they're intentional distinct ops).
 
 function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
+  const lastIsOnList = new Map<string, OfflineMutation>()
   const lastStatus   = new Map<string, OfflineMutation>()
   const lastPriority = new Map<string, OfflineMutation>()
   for (const m of queue) {
-    if (m.type === 'status')   lastStatus.set(m.itemId, m)
-    if (m.type === 'priority') lastPriority.set(m.itemId, m)
+    if (m.type === 'isOnList_toggle') lastIsOnList.set(m.itemId, m)
+    if (m.type === 'status')          lastStatus.set(m.itemId, m)
+    if (m.type === 'priority')        lastPriority.set(m.itemId, m)
   }
 
+  const seenIsOnList = new Set<string>()
   const seenStatus   = new Set<string>()
   const seenPriority = new Set<string>()
   const result: OfflineMutation[] = []
 
   for (const m of queue) {
-    if (m.type === 'schedule_add' || m.type === 'schedule_remove') {
+    if (m.type === 'isOnList_toggle' && lastIsOnList.get(m.itemId) === m && !seenIsOnList.has(m.itemId)) {
       result.push(m)
+      seenIsOnList.add(m.itemId)
     } else if (m.type === 'status' && lastStatus.get(m.itemId) === m && !seenStatus.has(m.itemId)) {
       result.push(m)
       seenStatus.add(m.itemId)
@@ -97,33 +102,21 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
   if (queue.length === 0) return { synced: 0, failed: 0 }
 
   const deduped = deduplicateQueue(queue)
-  // Maps '_opt_<itemId>' → real server log ID (populated as we create logs)
-  const idMap = new Map<string, string>()
   let synced = 0
   let failed = 0
 
   for (const m of deduped) {
     try {
-      if (m.type === 'schedule_add') {
-        const log = await fetch('/api/prep/logs', {
-          method: 'POST',
+      if (m.type === 'isOnList_toggle') {
+        await fetch(`/api/prep/items/${m.itemId}`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prepItemId: m.itemId }),
-        }).then(r => r.json())
-        if (log.id) idMap.set(`_opt_${m.itemId}`, log.id)
-        synced++
-
-      } else if (m.type === 'schedule_remove') {
-        // Skip if log was never persisted (created & removed fully offline)
-        if (m.logId && !m.logId.startsWith('_opt_')) {
-          await fetch(`/api/prep/logs/${m.logId}`, { method: 'DELETE' })
-        }
+          body: JSON.stringify({ isOnList: m.isOnList }),
+        })
         synced++
 
       } else if (m.type === 'status') {
         let logId = m.logId
-        // Resolve temp ID to real one (from a schedule_add that just ran)
-        if (logId?.startsWith('_opt_')) logId = idMap.get(logId) ?? null
 
         // If we still have no real ID, create the log first
         if (!logId) {

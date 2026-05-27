@@ -40,6 +40,7 @@ export interface PrepItemRich {
   notes: string | null
   manualPriorityOverride: string | null
   isActive: boolean
+  isOnList: boolean
   linkedRecipeId: string | null
   linkedRecipe: {
     id: string

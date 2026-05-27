@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prep List — Redesign Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { theme: { extend: { colors: { gold: '#B8960C' } } } }</script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; }
+    .pill { transition: all 0.15s; cursor: pointer; user-select: none; }
+    .pill:active { transform: scale(0.95); }
+    .btn-action { transition: all 0.12s; }
+    .btn-action:active { transform: scale(0.96); }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:translateY(0); } }
+    .row-enter { animation: fadeIn 0.18s ease; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ════════════════════════════════════════════════════════
+     DESKTOP LAYOUT  (hidden on mobile)
+════════════════════════════════════════════════════════ -->
+<div class="hidden lg:flex flex-col min-h-screen">
+
+  <!-- Desktop Header -->
+  <div class="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-20">
+    <div class="flex items-center gap-3">
+      <span class="text-xl">🍳</span>
+      <div>
+        <h1 class="text-lg font-bold text-gray-900">Prep List</h1>
+        <p class="text-xs text-gray-400">Monday, 26 May 2026</p>
+      </div>
+    </div>
+    <!-- Desktop Tabs -->
+    <div class="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+      <button onclick="deskSwitchTab('today')" id="dtab-today" class="px-5 py-2 text-sm font-semibold rounded-lg bg-white shadow text-gray-800 transition-colors">
+        Today <span class="ml-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">3</span>
+      </button>
+      <button onclick="deskSwitchTab('smartprep')" id="dtab-smartprep" class="px-5 py-2 text-sm font-semibold rounded-lg text-gray-500 transition-colors hover:text-gray-700">
+        Smart Prep <span id="dsp-badge" class="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">4</span>
+      </button>
+      <button onclick="deskSwitchTab('history')" id="dtab-history" class="px-5 py-2 text-sm font-semibold rounded-lg text-gray-500 transition-colors hover:text-gray-700">
+        History
+      </button>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">⚙ Settings</button>
+      <button class="flex items-center gap-2 px-4 py-2 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-semibold">+ Add Item</button>
+    </div>
+  </div>
+
+  <!-- ── DESKTOP TODAY ── -->
+  <div id="dview-today" class="flex-1 px-8 py-6 space-y-5">
+
+    <!-- KPI Strip -->
+    <div class="grid grid-cols-5 gap-4">
+      <div class="bg-white rounded-xl p-4 border border-gray-100 text-center">
+        <div class="text-2xl font-bold text-gray-800">5</div>
+        <div class="text-xs text-gray-400 mt-0.5">On List</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border border-gray-100 text-center">
+        <div class="text-2xl font-bold text-red-600">1</div>
+        <div class="text-xs text-gray-400 mt-0.5">Critical</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border border-gray-100 text-center">
+        <div class="text-2xl font-bold text-orange-500">2</div>
+        <div class="text-xs text-gray-400 mt-0.5">Needed Today</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border border-gray-100 text-center">
+        <div class="text-2xl font-bold text-green-600">1</div>
+        <div class="text-xs text-gray-400 mt-0.5">Done</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border border-gray-100 text-center">
+        <div class="text-2xl font-bold text-gray-400">1</div>
+        <div class="text-xs text-gray-400 mt-0.5">Removed</div>
+      </div>
+    </div>
+
+    <!-- Priority change alert -->
+    <div id="dalert" class="bg-orange-50 border border-orange-200 rounded-xl px-5 py-3 flex items-center gap-3">
+      <span class="text-orange-500 shrink-0">⚠</span>
+      <div class="flex-1">
+        <span class="text-sm font-semibold text-orange-800">Stock changed since scheduling — </span>
+        <span class="text-sm text-orange-700"><strong>Hollandaise</strong> was Needed Today, theoretical stock now at 0. Priority updated to Critical.</span>
+      </div>
+      <button onclick="document.getElementById('dalert').remove()" class="text-orange-400 hover:text-orange-600 shrink-0 text-lg leading-none">×</button>
+    </div>
+
+    <!-- Today Table -->
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <!-- Table header -->
+      <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_180px] gap-4 items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <div></div>
+        <div>Item</div>
+        <div>Stock vs Par</div>
+        <div>Theoretical</div>
+        <div>Make</div>
+        <div class="text-right">Actions</div>
+      </div>
+
+      <!-- Row: Hollandaise — Critical, In Progress -->
+      <div id="drow-hollandaise" class="grid grid-cols-[20px_2fr_1fr_120px_1fr_180px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 bg-red-50/20 hover:bg-red-50/40 transition-colors">
+        <div><span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span></div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-800">Hollandaise</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span>
+            <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block"></span>In Progress</span>
+          </div>
+          <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">Sauce <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">Hot</span></div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-red-400 rounded-full" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-600 font-medium">0 / 8 L</div>
+        <div class="text-sm font-semibold text-red-600">8 L</div>
+        <div class="flex items-center justify-end gap-1.5">
+          <button onclick="dMarkDone('hollandaise')" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100">✓ Done</button>
+          <button onclick="dMarkPartial('hollandaise')" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100">◐ Partial</button>
+          <button onclick="dSkip('hollandaise')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50">Skip</button>
+        </div>
+      </div>
+
+      <!-- Row: Biscuits — Needed Today, Not Started -->
+      <div id="drow-biscuits" class="grid grid-cols-[20px_2fr_1fr_120px_1fr_180px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-orange-400 bg-orange-50/10 hover:bg-orange-50/30 transition-colors">
+        <div><span class="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block"></span></div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-800">Biscuits</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span>
+          </div>
+          <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">Bakery <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">Pastry</span></div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-orange-400 rounded-full" style="width:40%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-600 font-medium">20 / 50 kg</div>
+        <div class="text-sm font-semibold text-orange-600">30 kg</div>
+        <div class="flex items-center justify-end gap-1.5">
+          <button onclick="dMarkStart('biscuits')" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">▶ Start</button>
+          <button onclick="dMarkDone('biscuits')" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100">✓ Done</button>
+          <button onclick="dSkip('biscuits')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50">Skip</button>
+        </div>
+      </div>
+
+      <!-- Row: Caesar Dressing — Critical (manual), Not Started -->
+      <div id="drow-caesar" class="grid grid-cols-[20px_2fr_1fr_120px_1fr_180px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 bg-red-50/20 hover:bg-red-50/40 transition-colors">
+        <div><span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span></div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-800">Caesar Dressing</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span>
+            <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Manual</span>
+          </div>
+          <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">Dressing · Event tonight <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">Cold</span></div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-orange-400 rounded-full" style="width:20%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-600 font-medium">2 / 10 L</div>
+        <div class="text-sm font-semibold text-red-600">8 L</div>
+        <div class="flex items-center justify-end gap-1.5">
+          <button onclick="dMarkStart('caesar')" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">▶ Start</button>
+          <button onclick="dMarkDone('caesar')" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100">✓ Done</button>
+          <button onclick="dSkip('caesar')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50">Skip</button>
+        </div>
+      </div>
+
+      <!-- Row: Burger Sauce — Done -->
+      <div id="drow-burgersauce" class="grid grid-cols-[20px_2fr_1fr_120px_1fr_180px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-green-500 bg-green-50/30 opacity-70">
+        <div><span class="w-5 h-5 rounded-full bg-green-600 flex items-center justify-center inline-flex"><span class="text-white text-[10px] font-bold">✓</span></span></div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-green-900 line-through">Burger Sauce</span>
+            <span class="text-xs text-green-700 font-semibold">Done</span>
+          </div>
+          <div class="text-xs text-green-600 mt-0.5 flex items-center gap-1.5">Completed this session <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">Cold</span></div>
+        </div>
+        <div><div class="flex-1 h-1.5 bg-green-200 rounded-full"><div class="h-full bg-green-500 rounded-full" style="width:100%"></div></div></div>
+        <div class="text-sm text-gray-400">5 / 5 L</div>
+        <div class="text-sm text-green-700 font-semibold">5 L made</div>
+        <div class="flex items-center justify-end">
+          <button onclick="dReset('burgersauce')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-green-600 border border-green-200 hover:bg-green-100">↩ Reset</button>
+        </div>
+      </div>
+
+      <!-- Row: Tzatziki — Removed -->
+      <div id="drow-tzatziki" class="grid grid-cols-[20px_2fr_1fr_120px_1fr_180px] gap-4 items-center px-5 py-3 border-l-4 border-l-gray-200 opacity-40">
+        <div></div>
+        <div>
+          <span class="text-sm text-gray-400 line-through">Tzatziki</span>
+          <span class="ml-2 text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Removed from list</span>
+        </div>
+        <div></div>
+        <div class="text-sm text-gray-300">2 / 8 kg</div>
+        <div></div>
+        <div class="flex justify-end">
+          <button class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-500 border border-gray-200 hover:bg-gray-50">↩ Restore</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-center text-xs text-gray-400">This list carries over each day — items stay until marked done or removed.</p>
+  </div>
+
+  <!-- ── DESKTOP SMART PREP ── -->
+  <div id="dview-smartprep" class="flex-1 px-8 py-6 hidden">
+    <div class="flex items-center justify-between mb-5 gap-4">
+      <div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-center gap-2 flex-1">
+        <span>📊</span>
+        <p class="text-sm text-amber-800">Suggestions based on <strong>theoretical stock</strong> from sales, wastage &amp; invoices. Resets at each stock count.</p>
+      </div>
+      <!-- View toggle -->
+      <div class="flex bg-gray-100 rounded-xl p-1 gap-0.5 shrink-0">
+        <button onclick="dSetSpView('urgency')" id="dsp-urgency-btn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-white shadow text-gray-800 transition-colors">By Urgency</button>
+        <button onclick="dSetSpView('category')" id="dsp-category-btn" class="px-4 py-2 text-sm font-semibold rounded-lg text-gray-500 transition-colors hover:text-gray-700">By Category</button>
+        <button onclick="dSetSpView('station')" id="dsp-station-btn" class="px-4 py-2 text-sm font-semibold rounded-lg text-gray-500 transition-colors hover:text-gray-700">By Station</button>
+      </div>
+    </div>
+
+    <!-- Three-column urgency layout -->
+    <div id="dsp-urgency-view">
+    <div class="grid grid-cols-3 gap-5 items-start">
+
+      <!-- CRITICAL column -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-red-500"></span>
+            <span class="text-xs font-bold text-red-700 uppercase tracking-wide">Critical</span>
+          </div>
+          <button onclick="dAddAllCritical()" class="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-full">Add All</button>
+        </div>
+        <p class="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">Stock depleted — make now</p>
+
+        <!-- Focaccia -->
+        <div class="px-4 py-4 border-b border-gray-50" id="dsp-focaccia">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-800">Focaccia</div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Bakery <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Pastry</span></div>
+            </div>
+            <button onclick="dAddItem('focaccia')" id="dadd-focaccia" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-red-400 rounded-full" style="width:0%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">0 / 20 loaves</span>
+          </div>
+          <p class="text-xs text-red-600 font-semibold mb-2.5">System suggests → Make 20 loaves</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">Override:</span>
+            <button onclick="dSetPriority('focaccia','critical')" id="dpill-focaccia-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button onclick="dSetPriority('focaccia','needed')" id="dpill-focaccia-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button>
+            <button onclick="dSetPriority('focaccia','later')" id="dpill-focaccia-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+        </div>
+
+        <!-- Aioli -->
+        <div class="px-4 py-4" id="dsp-aioli">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-800">Aioli</div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Sauce <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div>
+            </div>
+            <button onclick="dAddItem('aioli')" id="dadd-aioli" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-red-400 rounded-full" style="width:0%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">0 / 4 kg</span>
+          </div>
+          <p class="text-xs text-red-600 font-semibold mb-2.5">System suggests → Make 4 kg</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">Override:</span>
+            <button onclick="dSetPriority('aioli','critical')" id="dpill-aioli-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button onclick="dSetPriority('aioli','needed')" id="dpill-aioli-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button>
+            <button onclick="dSetPriority('aioli','later')" id="dpill-aioli-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- NEEDED TODAY column -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-orange-400"></span>
+            <span class="text-xs font-bold text-orange-700 uppercase tracking-wide">Needed Today</span>
+          </div>
+          <button onclick="dAddAllNeeded()" class="text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 px-3 py-1 rounded-full">Add All</button>
+        </div>
+        <p class="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">Below par — should be prepped today</p>
+
+        <!-- Chimichurri -->
+        <div class="px-4 py-4 border-b border-gray-50" id="dsp-chimichurri">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-800">Chimichurri</div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Sauce <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div>
+            </div>
+            <button onclick="dAddItem('chimichurri')" id="dadd-chimichurri" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-orange-400 rounded-full" style="width:35%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">3.5 / 10 L</span>
+          </div>
+          <p class="text-xs text-orange-600 font-semibold mb-2.5">System suggests → Make 6.5 L</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">Override:</span>
+            <button onclick="dSetPriority('chimichurri','critical')" id="dpill-chimichurri-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('chimichurri','needed')" id="dpill-chimichurri-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed Today</button>
+            <button onclick="dSetPriority('chimichurri','later')" id="dpill-chimichurri-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+        </div>
+
+        <!-- Tzatziki — overridden to Later -->
+        <div class="px-4 py-4" id="dsp-tzatziki">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <div class="text-sm font-semibold text-gray-800">Tzatziki</div>
+                <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Overridden</span>
+              </div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Sauce <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div>
+            </div>
+            <button onclick="dAddItem('tzatziki')" id="dadd-tzatziki" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-orange-400 rounded-full" style="width:25%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">2 / 8 kg</span>
+          </div>
+          <p class="text-xs text-gray-400 mb-1 line-through">System suggests → Make 6 kg</p>
+          <p class="text-xs text-gray-500 mb-2.5">Chef override: Later</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">Override:</span>
+            <button onclick="dSetPriority('tzatziki','critical')" id="dpill-tzatziki-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('tzatziki','needed')" id="dpill-tzatziki-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button>
+            <button onclick="dSetPriority('tzatziki','later')" id="dpill-tzatziki-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOOKING GOOD column -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-400"></span>
+            <span class="text-xs font-bold text-gray-500 uppercase tracking-wide">Looking Good</span>
+          </div>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">3</span>
+        </div>
+        <p class="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">At or above par — add manually if needed</p>
+
+        <!-- Garlic Butter -->
+        <div class="px-4 py-4 border-b border-gray-50">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-700">Garlic Butter</div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Sauce <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span></div>
+            </div>
+            <button onclick="dAddItem('garlicbutter')" id="dadd-garlicbutter" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-green-400 rounded-full" style="width:100%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">5 / 5 kg</span>
+          </div>
+          <p class="text-xs text-green-600 font-medium mb-2.5">At par — looking good</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">If adding:</span>
+            <button onclick="dSetPriority('garlicbutter','critical')" id="dpill-garlicbutter-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('garlicbutter','needed')" id="dpill-garlicbutter-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button>
+            <button onclick="dSetPriority('garlicbutter','later')" id="dpill-garlicbutter-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+        </div>
+
+        <!-- Bechamel -->
+        <div class="px-4 py-4 border-b border-gray-50">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-700">Bechamel</div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Sauce <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span></div>
+            </div>
+            <button onclick="dAddItem('bechamel')" id="dadd-bechamel" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-green-500 rounded-full" style="width:100%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">13 / 10 L</span>
+          </div>
+          <p class="text-xs text-green-700 font-medium mb-2.5">Above par — well stocked</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">If adding:</span>
+            <button onclick="dSetPriority('bechamel','critical')" id="dpill-bechamel-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('bechamel','needed')" id="dpill-bechamel-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button>
+            <button onclick="dSetPriority('bechamel','later')" id="dpill-bechamel-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+        </div>
+
+        <!-- Vinaigrette -->
+        <div class="px-4 py-4">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <div class="text-sm font-semibold text-gray-700">Vinaigrette</div>
+              <div class="text-[10px] text-gray-400 flex items-center gap-1">Dressing <span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div>
+            </div>
+            <button onclick="dAddItem('vinaigrette')" id="dadd-vinaigrette" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 shrink-0">+ Add</button>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-green-400 rounded-full" style="width:80%"></div>
+            </div>
+            <span class="text-[11px] text-gray-500 shrink-0 font-medium">4 / 5 L</span>
+          </div>
+          <p class="text-xs text-green-600 font-medium mb-2.5">Close to par — looking fine</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400">If adding:</span>
+            <button onclick="dSetPriority('vinaigrette','critical')" id="dpill-vinaigrette-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('vinaigrette','needed')" id="dpill-vinaigrette-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button>
+            <button onclick="dSetPriority('vinaigrette','later')" id="dpill-vinaigrette-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div><!-- end urgency view -->
+
+    <!-- ── Category view (hidden by default) ── -->
+    <div id="dsp-category-view" class="hidden space-y-4">
+
+      <!-- BAKERY -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wide">Bakery</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">2 items</span>
+        </div>
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+          <div></div><div>Item</div><div>Stock vs Par</div><div>Theoretical</div><div>Make</div><div>Override</div><div class="text-right">Action</div>
+        </div>
+        <!-- Focaccia — Critical -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Focaccia</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Pastry</span></div><div class="text-xs text-red-600 mt-0.5">System suggests → Make 20 loaves</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">0 / 20 loaves</div>
+          <div class="text-sm font-semibold text-red-600">20 loaves</div>
+          <div class="flex items-center gap-1">
+            <button onclick="dSetPriority('cat-focaccia','critical')" id="dpill-cat-focaccia-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button onclick="dSetPriority('cat-focaccia','needed')" id="dpill-cat-focaccia-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button onclick="dSetPriority('cat-focaccia','later')" id="dpill-cat-focaccia-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('cat-focaccia')" id="dadd-cat-focaccia" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Biscuits — Needed Today -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-l-4 border-l-orange-400 hover:bg-orange-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Biscuits</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Pastry</span><span class="text-[10px] text-gray-400 italic">already on list</span></div><div class="text-xs text-orange-600 mt-0.5">System suggests → Make 30 kg</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:40%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">20 / 50 kg</div>
+          <div class="text-sm font-semibold text-orange-600">30 kg</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white">✓ On List</button></div>
+        </div>
+      </div>
+
+      <!-- SAUCE -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wide">Sauce</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">4 items</span>
+        </div>
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+          <div></div><div>Item</div><div>Stock vs Par</div><div>Theoretical</div><div>Make</div><div>Override</div><div class="text-right">Action</div>
+        </div>
+        <!-- Aioli — Critical -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Aioli</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div><div class="text-xs text-red-600 mt-0.5">System suggests → Make 4 kg</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">0 / 4 kg</div>
+          <div class="text-sm font-semibold text-red-600">4 kg</div>
+          <div class="flex items-center gap-1">
+            <button onclick="dSetPriority('cat-aioli','critical')" id="dpill-cat-aioli-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button onclick="dSetPriority('cat-aioli','needed')" id="dpill-cat-aioli-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button onclick="dSetPriority('cat-aioli','later')" id="dpill-cat-aioli-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('cat-aioli')" id="dadd-cat-aioli" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Chimichurri — Needed Today -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-orange-400 hover:bg-orange-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Chimichurri</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div><div class="text-xs text-orange-600 mt-0.5">System suggests → Make 6.5 L</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:35%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">3.5 / 10 L</div>
+          <div class="text-sm font-semibold text-orange-600">6.5 L</div>
+          <div class="flex items-center gap-1">
+            <button onclick="dSetPriority('cat-chimichurri','critical')" id="dpill-cat-chimichurri-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('cat-chimichurri','needed')" id="dpill-cat-chimichurri-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed</button>
+            <button onclick="dSetPriority('cat-chimichurri','later')" id="dpill-cat-chimichurri-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('cat-chimichurri')" id="dadd-cat-chimichurri" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Garlic Butter — Looking Good -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-green-400 hover:bg-green-50/10 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-700">Garlic Butter</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span></div><div class="text-xs text-green-600 mt-0.5">At par — no action needed</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:100%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">5 / 5 kg</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button onclick="dSetPriority('cat-garlicbutter','critical')" id="dpill-cat-garlicbutter-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('cat-garlicbutter','needed')" id="dpill-cat-garlicbutter-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button onclick="dSetPriority('cat-garlicbutter','later')" id="dpill-cat-garlicbutter-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('cat-garlicbutter')" id="dadd-cat-garlicbutter" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">+ Add</button></div>
+        </div>
+        <!-- Bechamel — Looking Good -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-l-4 border-l-green-400 hover:bg-green-50/10 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-700">Bechamel</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span></div><div class="text-xs text-green-600 mt-0.5">Above par — well stocked</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-500 rounded-full" style="width:100%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">13 / 10 L</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button onclick="dSetPriority('cat-bechamel','critical')" id="dpill-cat-bechamel-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('cat-bechamel','needed')" id="dpill-cat-bechamel-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button onclick="dSetPriority('cat-bechamel','later')" id="dpill-cat-bechamel-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('cat-bechamel')" id="dadd-cat-bechamel" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">+ Add</button></div>
+        </div>
+      </div>
+
+      <!-- DRESSING -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wide">Dressing</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">2 items</span>
+        </div>
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+          <div></div><div>Item</div><div>Stock vs Par</div><div>Theoretical</div><div>Make</div><div>Override</div><div class="text-right">Action</div>
+        </div>
+        <!-- Caesar Dressing — Critical (manual, already on list) -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Caesar Dressing</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Manual</span><span class="text-[10px] text-gray-400 italic">already on list</span></div><div class="text-xs text-orange-600 mt-0.5">Event tonight — make 8 L</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:20%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">2 / 10 L</div>
+          <div class="text-sm font-semibold text-red-600">8 L</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white">✓ On List</button></div>
+        </div>
+        <!-- Vinaigrette — Looking Good -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-l-4 border-l-green-400 hover:bg-green-50/10 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-700">Vinaigrette</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div><div class="text-xs text-green-600 mt-0.5">Close to par — looking fine</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:80%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">4 / 5 L</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button onclick="dSetPriority('cat-vinaigrette','critical')" id="dpill-cat-vinaigrette-critical" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button onclick="dSetPriority('cat-vinaigrette','needed')" id="dpill-cat-vinaigrette-needed" class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button onclick="dSetPriority('cat-vinaigrette','later')" id="dpill-cat-vinaigrette-later" class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('cat-vinaigrette')" id="dadd-cat-vinaigrette" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">+ Add</button></div>
+        </div>
+      </div>
+
+    </div><!-- end category view -->
+
+    <!-- ── Station view (hidden by default) ── -->
+    <div id="dsp-station-view" class="hidden space-y-4">
+
+      <!-- COLD STATION -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-3">
+          <span class="text-xs font-bold text-blue-700 uppercase tracking-wide">❄ Cold Station</span>
+          <span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">5 items</span>
+        </div>
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+          <div></div><div>Item</div><div>Stock vs Par</div><div>Theoretical</div><div>Make</div><div>Override</div><div class="text-right">Action</div>
+        </div>
+        <!-- Aioli — Critical -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Aioli</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span></div><div class="text-xs text-red-600 mt-0.5">System suggests → Make 4 kg</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">0 / 4 kg</div>
+          <div class="text-sm font-semibold text-red-600">4 kg</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-aioli')" id="dadd-st-aioli" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Caesar Dressing — Critical, manual, on list -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Caesar Dressing</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Manual</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="text-xs text-orange-600 mt-0.5">Event tonight — make 8 L</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:20%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">2 / 10 L</div>
+          <div class="text-sm font-semibold text-red-600">8 L</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white">✓ On List</button></div>
+        </div>
+        <!-- Chimichurri — Needed Today -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-orange-400 hover:bg-orange-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Chimichurri</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span></div><div class="text-xs text-orange-600 mt-0.5">System suggests → Make 6.5 L</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:35%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">3.5 / 10 L</div>
+          <div class="text-sm font-semibold text-orange-600">6.5 L</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-chimichurri')" id="dadd-st-chimichurri" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Tzatziki — Needed Today, overridden Later -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-orange-400 hover:bg-orange-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Tzatziki</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Overridden</span></div><div class="text-xs text-gray-400 mt-0.5 line-through">System suggests → Make 6 kg</div><div class="text-xs text-gray-500 mt-0.5">Chef override: Later</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:25%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">2 / 8 kg</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-tzatziki')" id="dadd-st-tzatziki" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Vinaigrette — Looking Good -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-l-4 border-l-green-400 hover:bg-green-50/10 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-700">Vinaigrette</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="text-xs text-green-600 mt-0.5">Close to par — looking fine</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:80%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">4 / 5 L</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-vinaigrette')" id="dadd-st-vinaigrette" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">+ Add</button></div>
+        </div>
+      </div>
+
+      <!-- HOT STATION -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 bg-orange-50 border-b border-orange-100 flex items-center gap-3">
+          <span class="text-xs font-bold text-orange-700 uppercase tracking-wide">🔥 Hot Station</span>
+          <span class="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-semibold">3 items</span>
+        </div>
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+          <div></div><div>Item</div><div>Stock vs Par</div><div>Theoretical</div><div>Make</div><div>Override</div><div class="text-right">Action</div>
+        </div>
+        <!-- Hollandaise — Critical, on list -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Hollandaise</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="text-xs text-red-600 mt-0.5">System suggests → Make 8 L</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">0 / 8 L</div>
+          <div class="text-sm font-semibold text-red-600">8 L</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white">✓ On List</button></div>
+        </div>
+        <!-- Garlic Butter — Looking Good -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-green-400 hover:bg-green-50/10 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-700">Garlic Butter</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="text-xs text-green-600 mt-0.5">At par — no action needed</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:100%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">5 / 5 kg</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-garlicbutter')" id="dadd-st-garlicbutter" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">+ Add</button></div>
+        </div>
+        <!-- Bechamel — Looking Good -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-l-4 border-l-green-400 hover:bg-green-50/10 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-700">Bechamel</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="text-xs text-green-600 mt-0.5">Above par — well stocked</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-500 rounded-full" style="width:100%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">13 / 10 L</div>
+          <div class="text-sm text-gray-400">—</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-bechamel')" id="dadd-st-bechamel" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">+ Add</button></div>
+        </div>
+      </div>
+
+      <!-- PASTRY STATION -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-3">
+          <span class="text-xs font-bold text-amber-700 uppercase tracking-wide">🥐 Pastry Station</span>
+          <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">2 items</span>
+        </div>
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+          <div></div><div>Item</div><div>Stock vs Par</div><div>Theoretical</div><div>Make</div><div>Override</div><div class="text-right">Action</div>
+        </div>
+        <!-- Focaccia — Critical -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 border-l-red-500 hover:bg-red-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Focaccia</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span></div><div class="text-xs text-red-600 mt-0.5">System suggests → Make 20 loaves</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">0 / 20 loaves</div>
+          <div class="text-sm font-semibold text-red-600">20 loaves</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button onclick="dAddItem('st-focaccia')" id="dadd-st-focaccia" class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700">+ Add</button></div>
+        </div>
+        <!-- Biscuits — Needed Today, on list -->
+        <div class="grid grid-cols-[20px_2fr_1fr_120px_1fr_200px_120px] gap-4 items-center px-5 py-3.5 border-l-4 border-l-orange-400 hover:bg-orange-50/20 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+          <div><div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-800">Biscuits</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] text-gray-400 italic">already on list</span></div><div class="text-xs text-orange-600 mt-0.5">System suggests → Make 30 kg</div></div>
+          <div><div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:40%"></div></div></div>
+          <div class="text-sm text-gray-600 font-medium">20 / 50 kg</div>
+          <div class="text-sm font-semibold text-orange-600">30 kg</div>
+          <div class="flex items-center gap-1">
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed</button>
+            <button class="pill text-[10px] px-2 py-0.5 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button>
+          </div>
+          <div class="flex justify-end"><button class="btn-action px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white">✓ On List</button></div>
+        </div>
+      </div>
+
+    </div><!-- end station view -->
+
+  </div>
+
+  <!-- ── DESKTOP HISTORY ── -->
+  <div id="dview-history" class="flex-1 px-8 py-6 hidden">
+    <div class="max-w-2xl">
+      <div class="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 mb-4">
+        <span class="text-gray-400">📅</span>
+        <span class="text-sm font-medium text-gray-700">View date:</span>
+        <input type="date" value="2026-05-25" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+      </div>
+      <div class="grid grid-cols-4 gap-4 mb-4">
+        <div class="bg-white rounded-xl p-4 text-center border border-gray-100"><div class="text-2xl font-bold text-gray-800">7</div><div class="text-xs text-gray-400">Total</div></div>
+        <div class="bg-white rounded-xl p-4 text-center border border-gray-100"><div class="text-2xl font-bold text-green-600">5</div><div class="text-xs text-gray-400">Done</div></div>
+        <div class="bg-white rounded-xl p-4 text-center border border-gray-100"><div class="text-2xl font-bold text-amber-500">1</div><div class="text-xs text-gray-400">Partial</div></div>
+        <div class="bg-white rounded-xl p-4 text-center border border-gray-100"><div class="text-2xl font-bold text-gray-400">1</div><div class="text-xs text-gray-400">Skipped</div></div>
+      </div>
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          <div>Item</div><div>Qty Made</div><div class="text-right">Status</div>
+        </div>
+        <div class="divide-y divide-gray-50">
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Hollandaise</div><div class="text-sm text-gray-600">8 L</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Done</span></div></div>
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Biscuits</div><div class="text-sm text-gray-600">40 kg</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Done</span></div></div>
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Caesar Dressing</div><div class="text-sm text-gray-600">6 L</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Partial</span></div></div>
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Chimichurri</div><div class="text-sm text-gray-600">10 L</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Done</span></div></div>
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Aioli</div><div class="text-sm text-gray-600">4 kg</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Done</span></div></div>
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Focaccia</div><div class="text-sm text-gray-600">18 loaves</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Done</span></div></div>
+          <div class="grid grid-cols-[2fr_1fr_1fr] px-5 py-3 items-center"><div class="text-sm font-medium text-gray-800">Tzatziki</div><div class="text-sm text-gray-300">—</div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">Skipped</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MOBILE LAYOUT  (hidden on desktop)
+════════════════════════════════════════════════════════ -->
+<div class="lg:hidden max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col">
+  <div class="bg-white border-b border-gray-100 px-4 pt-5 pb-3 sticky top-0 z-20">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h1 class="text-lg font-bold text-gray-900 flex items-center gap-1.5"><span>🍳</span> Prep List</h1>
+        <p class="text-xs text-gray-400">Monday, 26 May 2026</p>
+      </div>
+      <div class="flex gap-1.5">
+        <button class="p-2 rounded-lg border border-gray-200 text-gray-500 text-sm">⚙</button>
+        <button class="p-2 rounded-lg bg-amber-500 text-white text-sm font-bold">+</button>
+      </div>
+    </div>
+    <div class="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+      <button onclick="switchTab('today')" id="tab-today" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-white shadow text-gray-800">Today <span class="ml-1 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">3</span></button>
+      <button onclick="switchTab('smartprep')" id="tab-smartprep" class="flex-1 py-2 text-xs font-semibold rounded-lg text-gray-500">Smart Prep <span id="mbadge" class="ml-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">4</span></button>
+      <button onclick="switchTab('history')" id="tab-history" class="flex-1 py-2 text-xs font-semibold rounded-lg text-gray-500">History</button>
+    </div>
+  </div>
+
+  <!-- Mobile Today -->
+  <div id="view-today" class="flex-1 px-3 py-3 space-y-2">
+    <div class="grid grid-cols-4 gap-2">
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-gray-800">5</div><div class="text-[10px] text-gray-400">Total</div></div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-amber-500">3</div><div class="text-[10px] text-gray-400">Pending</div></div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-green-600">1</div><div class="text-[10px] text-gray-400">Done</div></div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-gray-400">1</div><div class="text-[10px] text-gray-400">Removed</div></div>
+    </div>
+    <div class="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2.5 flex items-start gap-2">
+      <span class="text-orange-500 mt-0.5 shrink-0">⚠</span>
+      <div class="flex-1 min-w-0"><p class="text-xs font-semibold text-orange-800">Stock changed since scheduling</p><p class="text-xs text-orange-600 mt-0.5"><strong>Hollandaise</strong> was Needed Today — now at 0. Priority updated to Critical.</p></div>
+      <button class="text-orange-400 text-xs shrink-0">✕</button>
+    </div>
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div class="border-b border-gray-50 border-l-4 border-l-red-500 bg-red-50/30 px-3 py-2.5">
+        <div class="flex items-center gap-2"><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">Critical</span><span class="text-sm font-semibold text-gray-800">Hollandaise</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span><span class="flex-1"></span><span class="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block"></span>In Progress</span></div>
+        <div class="mt-1.5"><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0">0 / 8 L</span></div><p class="text-xs text-red-600 font-medium">Make 8 L — stock depleted</p></div>
+        <div class="flex gap-1.5 mt-2"><button class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200">✓ Done</button><button class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200">◐ Partial</button><button class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200">Skip</button></div>
+      </div>
+      <div class="border-b border-gray-50 border-l-4 border-l-orange-400 bg-orange-50/20 px-3 py-2.5">
+        <div class="flex items-center gap-2"><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 shrink-0">Needed Today</span><span class="text-sm font-semibold text-gray-800">Biscuits</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Pastry</span><span class="flex-1"></span><span class="text-[10px] text-gray-400">Not started</span></div>
+        <div class="mt-1.5"><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:40%"></div></div><span class="text-[11px] text-gray-500 shrink-0">20 / 50 kg</span></div><p class="text-xs text-orange-600 font-medium">Make 30 kg — below par</p></div>
+        <div class="flex gap-1.5 mt-2"><button class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">▶ Start</button><button class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200">✓ Done</button><button class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200">Skip</button></div>
+      </div>
+      <div class="border-b border-gray-50 border-l-4 border-l-red-500 bg-red-50/20 px-3 py-2.5">
+        <div class="flex items-center gap-2"><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">Critical</span><span class="text-sm font-semibold text-gray-800">Caesar Dressing</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span><span class="flex-1"></span><span class="text-[10px] text-amber-600 flex items-center gap-1">✎ Manual</span></div>
+        <div class="mt-1.5"><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:20%"></div></div><span class="text-[11px] text-gray-500 shrink-0">2 / 10 L</span></div><p class="text-xs text-orange-600 font-medium">Make 8 L — event tonight</p></div>
+        <div class="flex gap-1.5 mt-2"><button class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">▶ Start</button><button class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200">✓ Done</button><button class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200">Skip</button></div>
+      </div>
+      <div class="border-b border-gray-50 border-l-4 border-l-green-500 bg-green-50/40 opacity-70 px-3 py-2.5">
+        <div class="flex items-center gap-2"><span class="w-5 h-5 rounded-full bg-green-600 flex items-center justify-center shrink-0"><span class="text-white text-[10px] font-bold">✓</span></span><span class="text-sm font-semibold text-green-900 line-through">Burger Sauce</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span><span class="flex-1"></span><span class="text-xs text-green-700 font-semibold">Done — 5 L</span></div>
+        <div class="mt-1 pl-7"><button class="btn-action px-3 py-1 rounded-lg text-xs text-green-600 border border-green-200">↩ Reset</button></div>
+      </div>
+      <div class="border-l-4 border-l-gray-200 opacity-50 px-3 py-2.5">
+        <div class="flex items-center gap-2"><span class="text-sm font-semibold text-gray-400 flex-1 line-through">Tzatziki</span><span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Removed</span></div>
+        <div class="mt-1"><button class="btn-action px-3 py-1 rounded-lg text-xs text-gray-500 border border-gray-200">↩ Restore</button></div>
+      </div>
+    </div>
+    <p class="text-center text-xs text-gray-400 py-1">List carries over daily — stays until done or removed.</p>
+  </div>
+
+  <!-- Mobile Smart Prep -->
+  <div id="view-smartprep" class="flex-1 px-3 py-3 space-y-3 hidden">
+    <div class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5"><p class="text-xs text-amber-800 font-medium">📊 Based on theoretical stock from sales, wastage &amp; invoices.</p></div>
+    <!-- Mobile view toggle -->
+    <div class="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+      <button onclick="mSetSpView('urgency')" id="msp-urgency-btn" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-white shadow text-gray-800">By Urgency</button>
+      <button onclick="mSetSpView('category')" id="msp-category-btn" class="flex-1 py-2 text-xs font-semibold rounded-lg text-gray-500">By Category</button>
+      <button onclick="mSetSpView('station')" id="msp-station-btn" class="flex-1 py-2 text-xs font-semibold rounded-lg text-gray-500">By Station</button>
+    </div>
+    <div id="msp-urgency-view" class="space-y-3">
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div class="px-3 py-2.5 bg-red-50 border-b border-red-100 flex items-center justify-between"><div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-xs font-bold text-red-700 uppercase tracking-wide">Critical</span><span class="text-xs text-red-500">Stock depleted</span></div><button class="text-xs font-semibold text-white bg-red-500 px-3 py-1 rounded-full">Add All</button></div>
+      <div class="px-3 py-3 border-b border-gray-50">
+        <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-800">Focaccia</span><span class="text-[10px] text-gray-400">Bakery</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Pastry</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">0 / 20 loaves</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 20 loaves</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+      </div>
+      <div class="px-3 py-3">
+        <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-800">Aioli</span><span class="text-[10px] text-gray-400">Sauce</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">0 / 4 kg</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 4 kg</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+      </div>
+    </div>
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div class="px-3 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center justify-between"><div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-orange-400"></span><span class="text-xs font-bold text-orange-700 uppercase tracking-wide">Needed Today</span><span class="text-xs text-orange-500">Below par</span></div><button class="text-xs font-semibold text-white bg-orange-400 px-3 py-1 rounded-full">Add All</button></div>
+      <div class="px-3 py-3 border-b border-gray-50">
+        <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-800">Chimichurri</span><span class="text-[10px] text-gray-400">Sauce</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:35%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">3.5 / 10 L</span></div><p class="text-xs text-orange-600 font-semibold mb-2">System suggests → Make 6.5 L</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+      </div>
+      <div class="px-3 py-3">
+        <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-800">Tzatziki</span><span class="text-[10px] text-gray-400">Sauce</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Overridden</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:25%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">2 / 8 kg</span></div><p class="text-xs text-gray-400 mb-1 line-through">System suggests → Make 6 kg</p><p class="text-xs text-gray-500 mb-2">Chef override: Later</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+      </div>
+    </div>
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <button onclick="document.getElementById('mlg').classList.toggle('hidden'); this.querySelector('span').textContent = document.getElementById('mlg').classList.contains('hidden') ? '▸' : '▾'" class="w-full px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between"><div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-green-400"></span><span class="text-xs font-bold text-gray-500 uppercase tracking-wide">Looking Good</span><span class="text-xs text-gray-400">At or above par</span><span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">3</span></div><span class="text-gray-400 text-sm">▸</span></button>
+      <div id="mlg" class="hidden">
+        <div class="px-3 py-2.5 border-b border-gray-50 text-xs text-gray-400 italic">At or above par — add if you have an event or know something the system doesn't.</div>
+        <div class="px-3 py-3 border-b border-gray-50"><div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-700">Garlic Butter</span><span class="text-[10px] text-gray-400">Sauce</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:100%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">5 / 5 kg</span></div><p class="text-xs text-green-600 font-medium mb-2">At par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div></div>
+        <div class="px-3 py-3 border-b border-gray-50"><div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-700">Bechamel</span><span class="text-[10px] text-gray-400">Sauce</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-500 rounded-full" style="width:100%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">13 / 10 L</span></div><p class="text-xs text-green-700 font-medium mb-2">Above par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div></div>
+        <div class="px-3 py-3"><div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1.5"><span class="text-sm font-semibold text-gray-700">Vinaigrette</span><span class="text-[10px] text-gray-400">Dressing</span><span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Cold</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:80%"></div></div><span class="text-[11px] text-gray-500 shrink-0 font-medium">4 / 5 L</span></div><p class="text-xs text-green-600 font-medium mb-2">Close to par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div></div>
+      </div>
+    </div>
+    </div><!-- end urgency view -->
+
+    <!-- Mobile Category View -->
+    <div id="msp-category-view" class="space-y-3 hidden">
+
+      <!-- BAKERY -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wide">Bakery</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">2</span>
+        </div>
+        <!-- Focaccia -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-800">Focaccia</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0">0 / 20 loaves</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 20 loaves</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Biscuits — already on list -->
+        <div class="px-3 py-3 border-l-4 border-l-orange-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-800">Biscuits</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:40%"></div></div><span class="text-[11px] text-gray-500 shrink-0">20 / 50 kg</span></div><p class="text-xs text-orange-600 font-semibold mb-2">System suggests → Make 30 kg</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1">✓ On List</button></div>
+        </div>
+      </div>
+
+      <!-- SAUCE -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wide">Sauce</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">4</span>
+        </div>
+        <!-- Aioli — Critical -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-800">Aioli</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0">0 / 4 kg</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 4 kg</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Chimichurri — Needed Today -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-orange-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-800">Chimichurri</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:35%"></div></div><span class="text-[11px] text-gray-500 shrink-0">3.5 / 10 L</span></div><p class="text-xs text-orange-600 font-semibold mb-2">System suggests → Make 6.5 L</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Garlic Butter — Looking Good -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-green-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-700">Garlic Butter</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:100%"></div></div><span class="text-[11px] text-gray-500 shrink-0">5 / 5 kg</span></div><p class="text-xs text-green-600 font-medium mb-2">At par — no action needed</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div>
+        </div>
+        <!-- Bechamel — Looking Good -->
+        <div class="px-3 py-3 border-l-4 border-l-green-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-700">Bechamel</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-500 rounded-full" style="width:100%"></div></div><span class="text-[11px] text-gray-500 shrink-0">13 / 10 L</span></div><p class="text-xs text-green-700 font-medium mb-2">Above par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div>
+        </div>
+      </div>
+
+      <!-- DRESSING -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wide">Dressing</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">2</span>
+        </div>
+        <!-- Caesar — Critical, manual, on list -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="text-sm font-semibold text-gray-800">Caesar Dressing</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Manual</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:20%"></div></div><span class="text-[11px] text-gray-500 shrink-0">2 / 10 L</span></div><p class="text-xs text-orange-600 font-semibold mb-2">Event tonight — Make 8 L</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1">✓ On List</button></div>
+        </div>
+        <!-- Vinaigrette — Looking Good -->
+        <div class="px-3 py-3 border-l-4 border-l-green-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-700">Vinaigrette</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:80%"></div></div><span class="text-[11px] text-gray-500 shrink-0">4 / 5 L</span></div><p class="text-xs text-green-600 font-medium mb-2">Close to par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div>
+        </div>
+      </div>
+
+    </div><!-- end mobile category view -->
+
+    <!-- Mobile Station View -->
+    <div id="msp-station-view" class="space-y-3 hidden">
+
+      <!-- COLD STATION -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-3 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+          <span class="text-xs font-bold text-blue-700 uppercase tracking-wide">❄ Cold Station</span>
+          <span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">5</span>
+        </div>
+        <!-- Aioli — Critical -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="text-sm font-semibold text-gray-800">Aioli</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0">0 / 4 kg</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 4 kg</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Caesar Dressing — Critical, manual, on list -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="text-sm font-semibold text-gray-800">Caesar Dressing</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Manual</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:20%"></div></div><span class="text-[11px] text-gray-500 shrink-0">2 / 10 L</span></div><p class="text-xs text-orange-600 font-semibold mb-2">Event tonight — Make 8 L</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1">✓ On List</button></div>
+        </div>
+        <!-- Chimichurri — Needed Today -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-orange-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-800">Chimichurri</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:35%"></div></div><span class="text-[11px] text-gray-500 shrink-0">3.5 / 10 L</span></div><p class="text-xs text-orange-600 font-semibold mb-2">System suggests → Make 6.5 L</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Tzatziki — overridden Later -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-orange-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="text-sm font-semibold text-gray-800">Tzatziki</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Overridden</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:25%"></div></div><span class="text-[11px] text-gray-500 shrink-0">2 / 8 kg</span></div><p class="text-xs text-gray-400 mb-1 line-through">System suggests → Make 6 kg</p><p class="text-xs text-gray-500 mb-2">Chef override: Later</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Vinaigrette — Looking Good -->
+        <div class="px-3 py-3 border-l-4 border-l-green-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-700">Vinaigrette</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:80%"></div></div><span class="text-[11px] text-gray-500 shrink-0">4 / 5 L</span></div><p class="text-xs text-green-600 font-medium mb-2">Close to par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div>
+        </div>
+      </div>
+
+      <!-- HOT STATION -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-3 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center gap-2">
+          <span class="text-xs font-bold text-orange-700 uppercase tracking-wide">🔥 Hot Station</span>
+          <span class="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-semibold">3</span>
+        </div>
+        <!-- Hollandaise — Critical, on list -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="text-sm font-semibold text-gray-800">Hollandaise</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0">0 / 8 L</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 8 L</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1">✓ On List</button></div>
+        </div>
+        <!-- Garlic Butter — Looking Good -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-green-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-700">Garlic Butter</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-400 rounded-full" style="width:100%"></div></div><span class="text-[11px] text-gray-500 shrink-0">5 / 5 kg</span></div><p class="text-xs text-green-600 font-medium mb-2">At par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div>
+        </div>
+        <!-- Bechamel — Looking Good -->
+        <div class="px-3 py-3 border-l-4 border-l-green-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-700">Bechamel</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Looking Good</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-green-500 rounded-full" style="width:100%"></div></div><span class="text-[11px] text-gray-500 shrink-0">13 / 10 L</span></div><p class="text-xs text-green-700 font-medium mb-2">Above par</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">If adding:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 mt-1">+ Add</button></div>
+        </div>
+      </div>
+
+      <!-- PASTRY STATION -->
+      <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div class="px-3 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+          <span class="text-xs font-bold text-amber-700 uppercase tracking-wide">🥐 Pastry Station</span>
+          <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">2</span>
+        </div>
+        <!-- Focaccia — Critical -->
+        <div class="px-3 py-3 border-b border-gray-50 border-l-4 border-l-red-500">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold text-gray-800">Focaccia</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Critical</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-red-400 rounded-full" style="width:0%"></div></div><span class="text-[11px] text-gray-500 shrink-0">0 / 20 loaves</span></div><p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 20 loaves</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white mt-1">+ Add</button></div>
+        </div>
+        <!-- Biscuits — Needed Today, on list -->
+        <div class="px-3 py-3 border-l-4 border-l-orange-400">
+          <div class="flex items-start justify-between gap-2"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="text-sm font-semibold text-gray-800">Biscuits</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Needed Today</span><span class="text-[10px] text-gray-400 italic">on list</span></div><div class="flex items-center gap-2 mb-1"><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-orange-400 rounded-full" style="width:40%"></div></div><span class="text-[11px] text-gray-500 shrink-0">20 / 50 kg</span></div><p class="text-xs text-orange-600 font-semibold mb-2">System suggests → Make 30 kg</p><div class="flex items-center gap-1.5"><span class="text-[10px] text-gray-400">Override:</span><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Critical</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300">Needed Today</button><button class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200">Later</button></div></div><button class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1">✓ On List</button></div>
+        </div>
+      </div>
+
+    </div><!-- end mobile station view -->
+  </div>
+
+  <!-- Mobile History -->
+  <div id="view-history" class="flex-1 px-3 py-3 hidden">
+    <div class="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 mb-3"><span class="text-gray-400">📅</span><input type="date" value="2026-05-25" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm flex-1 focus:outline-none" /></div>
+    <div class="grid grid-cols-4 gap-2 mb-3"><div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-gray-800">7</div><div class="text-[10px] text-gray-400">Total</div></div><div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-green-600">5</div><div class="text-[10px] text-gray-400">Done</div></div><div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-amber-500">1</div><div class="text-[10px] text-gray-400">Partial</div></div><div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-gray-400">1</div><div class="text-[10px] text-gray-400">Skipped</div></div></div>
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+      <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Hollandaise</div><span class="text-sm text-gray-600 font-medium">8 L</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+      <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Biscuits</div><span class="text-sm text-gray-600 font-medium">40 kg</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+      <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Caesar Dressing</div><span class="text-sm text-gray-600 font-medium">6 L</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">Partial</span></div>
+      <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Tzatziki</div><span class="text-sm text-gray-300">—</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">Skipped</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-medium px-4 py-2.5 rounded-full opacity-0 transition-opacity duration-200 z-50 pointer-events-none whitespace-nowrap"></div>
+
+<script>
+  // ── Desktop tab switching ──
+  function deskSwitchTab(tab) {
+    ['today','smartprep','history'].forEach(t => {
+      document.getElementById(`dview-${t}`).classList.add('hidden')
+      const btn = document.getElementById(`dtab-${t}`)
+      btn.classList.remove('bg-white','shadow','text-gray-800')
+      btn.classList.add('text-gray-500')
+    })
+    document.getElementById(`dview-${tab}`).classList.remove('hidden')
+    const active = document.getElementById(`dtab-${tab}`)
+    active.classList.add('bg-white','shadow','text-gray-800')
+    active.classList.remove('text-gray-500')
+  }
+
+  // ── Mobile tab switching ──
+  function switchTab(tab) {
+    ['today','smartprep','history'].forEach(t => {
+      document.getElementById(`view-${t}`).classList.add('hidden')
+      const btn = document.getElementById(`tab-${t}`)
+      btn.classList.remove('bg-white','shadow','text-gray-800')
+      btn.classList.add('text-gray-500')
+    })
+    document.getElementById(`view-${tab}`).classList.remove('hidden')
+    const active = document.getElementById(`tab-${tab}`)
+    active.classList.add('bg-white','shadow','text-gray-800')
+    active.classList.remove('text-gray-500')
+  }
+
+  // ── Desktop Today actions ──
+  function dMarkDone(id) {
+    const row = document.getElementById(`drow-${id}`)
+    if (!row) return
+    row.className = row.className.replace(/border-l-red-500|border-l-orange-400|bg-red-50\/20|bg-orange-50\/10|bg-red-50\/40|bg-orange-50\/30/g,'')
+    row.classList.add('border-l-green-500','bg-green-50/30','opacity-70')
+    showToast('Marked as Done ✓')
+  }
+  function dMarkPartial(id) { showToast('Marked as Partial ◐') }
+  function dMarkStart(id) { showToast('Started ▶') }
+  function dSkip(id) { showToast('Removed from list') }
+  function dReset(id) { showToast('Reset to Not Started') }
+
+  // ── Desktop Smart Prep actions ──
+  const dAdded = new Set()
+  function dAddItem(id) {
+    const btn = document.getElementById(`dadd-${id}`)
+    if (!btn) return
+    if (dAdded.has(id)) {
+      dAdded.delete(id)
+      btn.textContent = '+ Add'
+      btn.className = btn.className.replace('bg-green-600','bg-gray-800')
+      showToast('Removed from Today list')
+    } else {
+      dAdded.add(id)
+      btn.textContent = '✓ Added'
+      btn.className = btn.className.replace('bg-gray-800','bg-green-600')
+      showToast('Added to Today list ✓')
+    }
+  }
+  function dAddAllCritical() { ['focaccia','aioli'].forEach(dAddItem); showToast('All Critical items added ✓') }
+  function dAddAllNeeded()   { ['chimichurri','tzatziki'].forEach(dAddItem); showToast('All Needed Today items added ✓') }
+
+  function dSetPriority(item, level) {
+    const active = { critical:'bg-red-100 text-red-700 border-red-300 font-semibold', needed:'bg-orange-100 text-orange-700 border-orange-300 font-semibold', later:'bg-gray-100 text-gray-600 border-gray-300 font-semibold' }
+    const inactive = 'bg-white text-gray-400 border-gray-200 font-medium'
+    ;['critical','needed','later'].forEach(l => {
+      const btn = document.getElementById(`dpill-${item}-${l}`)
+      if (!btn) return
+      btn.className = `pill text-[10px] px-2 py-0.5 rounded-full border ${l === level ? active[l] : inactive}`
+    })
+    showToast(`Priority: ${level === 'critical' ? 'Critical' : level === 'needed' ? 'Needed Today' : 'Later'}`)
+  }
+
+  // ── Smart Prep view toggles ──
+  function dSetSpView(view) {
+    const views = ['urgency','category','station']
+    views.forEach(v => {
+      document.getElementById(`dsp-${v}-view`).classList.add('hidden')
+      const btn = document.getElementById(`dsp-${v}-btn`)
+      btn.classList.remove('bg-white','shadow','text-gray-800')
+      btn.classList.add('text-gray-500')
+    })
+    document.getElementById(`dsp-${view}-view`).classList.remove('hidden')
+    const active = document.getElementById(`dsp-${view}-btn`)
+    active.classList.add('bg-white','shadow','text-gray-800')
+    active.classList.remove('text-gray-500')
+  }
+
+  function mSetSpView(view) {
+    const views = ['urgency','category','station']
+    views.forEach(v => {
+      document.getElementById(`msp-${v}-view`).classList.add('hidden')
+      const btn = document.getElementById(`msp-${v}-btn`)
+      btn.classList.remove('bg-white','shadow','text-gray-800')
+      btn.classList.add('text-gray-500')
+    })
+    document.getElementById(`msp-${view}-view`).classList.remove('hidden')
+    const active = document.getElementById(`msp-${view}-btn`)
+    active.classList.add('bg-white','shadow','text-gray-800')
+    active.classList.remove('text-gray-500')
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast')
+    t.textContent = msg
+    t.style.opacity = '1'
+    clearTimeout(window._tt)
+    window._tt = setTimeout(() => t.style.opacity = '0', 2000)
+  }
+</script>
+</body>
+</html>
