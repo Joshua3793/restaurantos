@@ -142,7 +142,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">Removed</span>
         </div>
         <button
-          onClick={() => onToggleOnList?.(item.id, true)}
+          onClick={() => onStatusChange(item.id, 'NOT_STARTED')}
           className="mt-1.5 text-xs text-gray-500 border border-gray-200 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors"
         >
           ↩ Restore to list
@@ -320,9 +320,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
                 <Check size={10} strokeWidth={3} /> Done
               </button>
               <button
-                onClick={() => onToggleOnList?.(item.id, false)}
+                onClick={() => onStatusChange(item.id, 'SKIPPED')}
                 className="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50 transition-colors"
-                title="Remove from list"
+                title="Remove from today's list"
               >
                 Skip
               </button>
@@ -344,9 +344,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
                 ◐ Partial
               </button>
               <button
-                onClick={() => onToggleOnList?.(item.id, false)}
+                onClick={() => onStatusChange(item.id, 'SKIPPED')}
                 className="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50 transition-colors"
-                title="Remove from list"
+                title="Remove from today's list"
               >
                 Skip
               </button>
