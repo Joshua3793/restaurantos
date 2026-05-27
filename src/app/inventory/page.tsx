@@ -178,10 +178,10 @@ function isCountedThisWeek(item: InventoryItem) {
 
 function SortIcon({ col, colSort }: { col: ColKey; colSort: { col: ColKey; dir: ColDir } | null }) {
   if (!colSort || colSort.col !== col)
-    return <ChevronsUpDown size={10} className="text-gray-300 ml-0.5 inline-block shrink-0" />
+    return <ChevronsUpDown size={9} className="text-zinc-400 ml-[3px] inline-block shrink-0" />
   return colSort.dir === 'asc'
-    ? <ChevronUp size={10} className="text-gold ml-0.5 inline-block shrink-0" />
-    : <ChevronDown size={10} className="text-gold ml-0.5 inline-block shrink-0" />
+    ? <ChevronUp size={9} className="text-gold ml-[3px] inline-block shrink-0" />
+    : <ChevronDown size={9} className="text-gold ml-[3px] inline-block shrink-0" />
 }
 
 function SortTh({ col, label, colSort, onSort, className = '' }: {
@@ -195,8 +195,8 @@ function SortTh({ col, label, colSort, onSort, className = '' }: {
     <th className={`px-3 py-3 ${className}`}>
       <button
         onClick={() => onSort(col)}
-        className={`inline-flex items-center gap-0.5 text-xs font-medium rounded transition-colors group
-          ${active ? 'text-gold font-semibold' : 'text-gray-500 hover:text-gray-800'}`}
+        className={`inline-flex items-center font-mono text-[10.5px] tracking-[0.01em] rounded transition-colors cursor-pointer
+          ${active ? 'text-gold font-semibold' : 'text-ink-3 hover:text-ink-2'}`}
       >
         {label}
         <SortIcon col={col} colSort={colSort} />
@@ -584,76 +584,79 @@ function InventoryPageInner() {
 
   // Row renderer
   const renderRow = (item: InventoryItem) => {
-    const counted  = isCountedThisWeek(item)
     const itemValue = invValue(item)
+    const stockQty  = displayStock(item)
+    const isOut     = stockQty <= 0
+    const isLow     = !isOut && item.parLevel != null && stockQty < item.parLevel
     return (
       <tr
         key={item.id}
-        className={`hover:bg-gray-50 cursor-pointer border-b border-gray-50 ${!item.isActive ? 'opacity-50' : ''}`}
+        className={`hover:bg-[#fafaf9] cursor-pointer border-b border-line ${!item.isActive ? 'opacity-50' : ''}`}
         onClick={() => setSelected(item)}
       >
-        <td className="pl-4 py-3 pr-2" onClick={e => e.stopPropagation()}>
-          <button onClick={() => toggleCheck(item.id)} className="text-gray-400 hover:text-gold">
+        <td className="pl-4 py-[13px] pr-2" onClick={e => e.stopPropagation()}>
+          <button onClick={() => toggleCheck(item.id)} className="text-zinc-400 hover:text-gold">
             {checkedIds.has(item.id) ? <CheckSquare size={16} className="text-gold" /> : <Square size={16} />}
           </button>
         </td>
-        <td className="px-3 py-3">
-          <div className="font-medium text-gray-800 text-sm">{item.itemName}</div>
-          <AllergenBadges allergens={item.allergens ?? []} size="xs" />
+        <td className="px-3 py-[13px]">
+          <div className="flex flex-col gap-1">
+            <div className="font-medium text-ink text-[13.5px] tracking-[-0.01em]">{item.itemName}</div>
+            <AllergenBadges allergens={item.allergens ?? []} size="xs" />
+          </div>
         </td>
         {sortBy === 'all' && (
-          <td className="px-3 py-3 hidden sm:table-cell">
+          <td className="px-3 py-[13px] hidden sm:table-cell">
             <CategoryBadge category={item.category} />
           </td>
         )}
-        <td className="px-3 py-3 text-sm text-gray-600 hidden md:table-cell">
-          {item.supplier?.name || <span className="text-gray-300">&mdash;</span>}
+        <td className="px-3 py-[13px] hidden md:table-cell">
+          {item.supplier?.name
+            ? <span className="text-[13px] text-ink-2">{item.supplier.name}</span>
+            : <span className="text-[13px] text-zinc-400">&mdash;</span>
+          }
         </td>
-        <td className="px-3 py-3 text-right">
-          <div className="text-sm font-medium text-orange-600">{formatCurrency(parseFloat(String(item.purchasePrice)))}<span className="text-gray-400 font-normal text-xs">/{item.purchaseUnit}</span></div>
-          <div className="text-xs text-gray-400">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
+        <td className="px-3 py-[13px]">
+          <div className="font-mono text-[13px] whitespace-nowrap">
+            <span className="text-gold-2">{formatCurrency(parseFloat(String(item.purchasePrice)))}</span>
+            <span className="text-ink-3 text-[10.5px] ml-1">/{item.purchaseUnit}</span>
+          </div>
+          <div className="font-mono text-[10.5px] text-ink-3 mt-0.5 whitespace-nowrap">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
-        <td className="px-3 py-3 text-right text-sm text-gray-700">
-          {displayStock(item).toFixed(1)}
-          <span className="text-xs text-gray-400 ml-1">{item.countUOM || item.purchaseUnit}</span>
+        <td className="px-3 py-[13px]">
+          <span className="font-mono text-[13px] text-ink-2 whitespace-nowrap">
+            {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUOM || item.purchaseUnit}</small>
+          </span>
         </td>
-        <td className="px-3 py-3 text-right">
-          <span className={`text-sm font-mono font-semibold ${itemValue > 10 ? 'text-gray-800' : 'text-gray-500'}`}>
+        <td className="px-3 py-[13px]">
+          <span className={`font-mono text-[13px] whitespace-nowrap ${itemValue > 0 ? 'text-ink font-medium' : 'text-zinc-400 font-normal'}`}>
             {formatCurrency(itemValue)}
           </span>
         </td>
-        <td className="px-3 py-3 text-center hidden sm:table-cell">
-          <StockStatus stock={displayStock(item)} parLevel={item.parLevel ?? null} />
+        <td className="px-3 py-[13px] hidden sm:table-cell">
+          {isOut
+            ? <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-red-100 text-red-800 font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />Out of stock</span>
+            : isLow
+            ? <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-gold-soft text-gold-2 font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />Low stock</span>
+            : <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-green-100 text-green-800 font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />In stock</span>
+          }
         </td>
-        <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
-          <div className="flex items-center justify-center gap-2">
-            {/* Active / inactive toggle */}
+        <td className="px-3 py-[13px]" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-end gap-2.5">
             <button
               onClick={e => handleToggleActive(e, item)}
               title={item.isActive ? 'Deactivate item' : 'Activate item'}
-              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${item.isActive ? 'bg-green-500' : 'bg-gray-200'}`}
+              className={`relative inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${item.isActive ? 'bg-ink' : 'bg-line-2'}`}
             >
-              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${item.isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+              <span className={`pointer-events-none inline-block h-[14px] w-[14px] transform rounded-full bg-white shadow ring-0 transition duration-200 ${item.isActive ? 'translate-x-[12px]' : 'translate-x-0'}`} />
             </button>
-
-            {/* Delete with inline confirm */}
             {confirmDeleteId === item.id ? (
               <div className="flex items-center gap-1">
-                <button
-                  onClick={e => handleDeleteItem(e, item.id)}
-                  className="text-xs font-medium text-red-600 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50 transition-colors"
-                >Yes</button>
-                <button
-                  onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }}
-                  className="text-xs text-gray-400 hover:text-gray-600 px-1 py-0.5 rounded hover:bg-gray-50 transition-colors"
-                >No</button>
+                <button onClick={e => handleDeleteItem(e, item.id)} className="text-xs font-medium text-red-600 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50 transition-colors">Yes</button>
+                <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }} className="text-xs text-zinc-400 hover:text-ink-2 px-1 py-0.5 rounded hover:bg-bg-2 transition-colors">No</button>
               </div>
             ) : (
-              <button
-                onClick={e => { e.stopPropagation(); setConfirmDeleteId(item.id) }}
-                title="Delete item"
-                className="text-gray-300 hover:text-red-500 transition-colors"
-              >
+              <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(item.id) }} title="Delete item" className="text-zinc-400 hover:text-red-500 transition-colors">
                 <Trash2 size={13} />
               </button>
             )}
@@ -746,44 +749,46 @@ function InventoryPageInner() {
         </button>
       </div>
 
-      {/* Header */}
-      <div className="hidden sm:flex items-center justify-between gap-2 flex-wrap">
+      {/* Desktop header */}
+      <div className="hidden sm:flex items-end justify-between gap-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Master database &middot; weekly stock counting &middot; cost control</p>
+          <div className="font-mono text-[10.5px] text-ink-3 mb-2.5 tracking-[0.01em]">LIBRARY / INVENTORY</div>
+          <h1 className="text-[36px] font-semibold tracking-[-0.04em] text-ink leading-none">Inventory</h1>
+          <p className="text-[13.5px] text-ink-3 tracking-[-0.005em] mt-1.5">Master database · weekly stock counting · cost control</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={syncAllPrepd}
             disabled={syncingPrepd}
             title="Re-sync all PREPD item prices from their recipes"
-            className="flex items-center gap-2 border border-purple-200 bg-purple-50 text-purple-700 px-3 py-2 rounded-lg text-sm hover:bg-purple-100 transition-colors disabled:opacity-50"
+            className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-50"
           >
-            {syncingPrepd ? '⟳ Syncing…' : '⟳ Sync PREPD'}
+            <span className="text-ink-3 text-[13px]">⟳</span>
+            {syncingPrepd ? 'Syncing…' : 'Sync PREPD'}
           </button>
           <button
             onClick={() => { setShowOrderList(true); setOrderQtys({}); setOrderTab('all') }}
-            className="flex items-center gap-2 border border-green-200 bg-green-50 text-green-700 px-3 py-2 rounded-lg text-sm hover:bg-green-100 transition-colors"
+            className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
           >
-            <ShoppingCart size={15} /> Order List
+            <ShoppingCart size={13} className="text-ink-3" /> Order List
           </button>
           <button
             onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
           >
-            <UploadCloud size={15} /> Import
+            <UploadCloud size={13} className="text-ink-3" /> Import
           </button>
           <button
             onClick={() => window.location.href = '/api/inventory/export'}
-            className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
           >
-            <Download size={15} /> Export
+            <Download size={13} className="text-ink-3" /> Export
           </button>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] transition-colors"
+            className="flex items-center gap-[7px] bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors"
           >
-            <Plus size={15} /> Add Item
+            <span className="text-gold font-semibold text-[14px]">+</span> Add Item
           </button>
         </div>
       </div>
@@ -810,24 +815,77 @@ function InventoryPageInner() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {[
-          { label: 'CURRENT STOCK VALUE',  value: formatCurrency(kpis.totalValue), sub: `${kpis.activeCount} active items`, accent: 'text-gold',   alert: false },
-          { label: 'PREVIOUS STOCK VALUE', value: lastCount ? formatCurrency(lastCount.totalCountedValue) : '$0.00', sub: lastCount ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}` : 'No prior count', accent: lastCount ? 'text-purple-600' : 'text-gray-400', alert: false },
-          { label: 'COUNTED THIS WEEK',    value: String(kpis.counted),             sub: `of ${kpis.activeCount} active`,    accent: 'text-green-600',  alert: false },
-          { label: 'NOT YET COUNTED',      value: String(kpis.notCounted),          sub: 'items need counting',              accent: 'text-orange-500', alert: kpis.notCounted > 0 },
-          { label: 'ACTIVE ITEMS',         value: String(kpis.activeCount),         sub: `${kpis.totalCount} total`,         accent: 'text-gray-700',   alert: false },
-        ].map(card => (
-          <div key={card.label} className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm">
-            <div className="flex items-start justify-between gap-1">
-              <div className="text-[10px] font-semibold text-gray-400 tracking-wide leading-tight">{card.label}</div>
-              {card.alert && <AlertCircle size={14} className="text-orange-400 shrink-0" />}
-            </div>
-            <div className={`text-2xl font-bold mt-1 ${card.accent}`}>{card.value}</div>
-            <div className={`text-xs mt-0.5 ${card.alert ? 'text-orange-500 font-medium' : 'text-gray-400'}`}>{card.sub}</div>
+      {/* Desktop KPI row */}
+      <div className="hidden sm:grid gap-3" style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
+        {/* Hero — Current Stock Value */}
+        <div className="bg-ink text-paper rounded-xl border border-ink p-5 flex flex-col justify-between min-h-[128px] relative">
+          <div className="absolute right-4 top-[18px] flex gap-[2px] items-end h-[18px]">
+            {[6,8,12,9,14,11,17,13].map((h, i) => (
+              <span key={i} className="w-[3px] rounded-[1px] inline-block" style={{ height: h, background: '#3f3f46' }} />
+            ))}
           </div>
-        ))}
+          <div>
+            <div className="font-mono text-[10.5px] text-[#a1a1aa] tracking-[0.01em]">CURRENT STOCK VALUE</div>
+            <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2 whitespace-nowrap">
+              {formatCurrency(kpis.totalValue).split('.')[0]}
+              <sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline ml-[1px]">
+                .{formatCurrency(kpis.totalValue).split('.')[1] ?? '00'}
+              </sub>
+            </div>
+          </div>
+          <div className="font-mono text-[11px] text-[#a1a1aa] mt-2">
+            {kpis.activeCount} active items
+          </div>
+        </div>
+
+        {/* Previous Stock Value */}
+        <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px] relative">
+          <div className="absolute top-0 left-0 w-8 h-[2px] bg-line-2 rounded-[1px]" />
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">PREVIOUS STOCK VALUE</div>
+            <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink whitespace-nowrap">
+              {lastCount ? formatCurrency(lastCount.totalCountedValue).split('.')[0] : '$0'}
+              <sub className="font-mono text-[18px] font-medium text-ink-3 tracking-[-0.02em] align-baseline ml-[1px]">
+                .{lastCount ? (formatCurrency(lastCount.totalCountedValue).split('.')[1] ?? '00') : '00'}
+              </sub>
+            </div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">
+            {lastCount
+              ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}`
+              : 'No prior count'}
+          </div>
+        </div>
+
+        {/* Counted This Week */}
+        <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px]">
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">COUNTED THIS WEEK</div>
+            <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink-3">{kpis.counted}</div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">of {kpis.activeCount} active</div>
+        </div>
+
+        {/* Not Yet Counted — alert */}
+        <div className="rounded-xl p-5 flex flex-col justify-between min-h-[128px] relative" style={{ background: '#fffbeb', border: '1px solid #fcd34d' }}>
+          <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-gold" />
+          <div>
+            <div className="font-mono text-[10.5px] text-gold-2 tracking-[0.01em]">NOT YET COUNTED</div>
+            <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-gold-2">{kpis.notCounted}</div>
+          </div>
+          <div className="font-mono text-[11px] text-gold-2 font-medium mt-2">Items need counting</div>
+        </div>
+
+        {/* Active Items */}
+        <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px]">
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">ACTIVE ITEMS</div>
+            <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink">{kpis.activeCount}</div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">
+            {kpis.totalCount} total · <span className="text-ink font-medium">{kpis.totalCount - kpis.activeCount} inactive</span>
+          </div>
+        </div>
       </div>
 
       {/* Mobile controls — Sort & Filter always visible, pills scroll separately */}
@@ -913,53 +971,65 @@ function InventoryPageInner() {
         </div>
       </div>
 
-      {/* Filter Pills */}
+      {/* Desktop filter chips */}
       <div className="hidden sm:flex gap-1.5 flex-wrap">
-        {pills.map(p => (
-          <button
-            key={p.key}
-            onClick={() => setActivePill(p.key)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              activePill === p.key ? 'bg-gold text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
+        {pills.map(p => {
+          const count = p.key === 'all' ? items.length
+            : p.key === 'active' ? kpis.activeCount
+            : p.key === 'inactive' ? (kpis.totalCount - kpis.activeCount)
+            : p.key === 'counted' ? kpis.counted
+            : p.key === 'notCounted' ? kpis.notCounted
+            : p.key === 'outOfStock' ? items.filter(i => effStock(i) <= 0).length
+            : p.key === 'lowStock' ? items.filter(i => i.parLevel != null && displayStock(i) > 0 && displayStock(i) < i.parLevel!).length
+            : items.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01).length
+          return (
+            <button
+              key={p.key}
+              onClick={() => setActivePill(p.key)}
+              className={`font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
+                activePill === p.key
+                  ? 'bg-ink text-paper border border-ink'
+                  : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
+              }`}
+            >
+              {p.label} <span className={activePill === p.key ? 'text-[#a1a1aa]' : 'text-ink-3'}>{count}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Search + Filters */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search items..."
-            className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+            placeholder="Search items, suppliers, SKUs…"
+            className="w-full pl-9 pr-3 py-2 sm:py-[9px] border border-line rounded-[9px] text-[13px] font-[inherit] bg-paper text-ink focus:outline-none placeholder:text-ink-3"
           />
         </div>
-        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-          <option value="">All Categories</option>
+        <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="hidden sm:block border border-line bg-paper rounded-[9px] px-3 py-[9px] text-[13px] text-ink-2 focus:outline-none min-w-[140px]">
+          <option value="">All categories</option>
           {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
-        <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-          <option value="">All Suppliers</option>
+        <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} className="hidden sm:block border border-line bg-paper rounded-[9px] px-3 py-[9px] text-[13px] text-ink-2 focus:outline-none min-w-[140px]">
+          <option value="">All suppliers</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)} className="hidden sm:block border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-          <option value="">All Areas</option>
+        <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)} className="hidden sm:block border border-line bg-paper rounded-[9px] px-3 py-[9px] text-[13px] text-ink-2 focus:outline-none min-w-[120px]">
+          <option value="">All areas</option>
           {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        <div className="hidden sm:flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
+        <div className="hidden sm:flex bg-paper border border-line rounded-[9px] p-[3px] shrink-0">
           {([['category','⊞ Grouped'],['all','≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
             <button
               key={mode}
               onClick={() => setSortBy(mode)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              className={`px-3 py-[6px] rounded-[6px] font-mono text-[11px] transition-colors ${
                 sortBy === mode
-                  ? 'bg-gold text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  ? 'bg-ink text-paper'
+                  : 'text-ink-3 hover:text-ink-2 hover:bg-bg-2'
               }`}
             >
               {label}
@@ -968,7 +1038,9 @@ function InventoryPageInner() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-400">Showing {sortedItems.length} of {items.length} items</div>
+      <div className="font-mono text-[11px] text-ink-3 tracking-[0.01em]">
+        SHOWING {sortedItems.length} OF {items.length} ITEMS · SORTED BY {sortBy === 'category' ? 'CATEGORY → NAME' : colSort ? `${colSort.col.toUpperCase()} ${colSort.dir === 'asc' ? '↑' : '↓'}` : 'NAME'}
+      </div>
 
       {/* needsReview banner */}
       {items.some(i => i.needsReview) && (
@@ -1378,42 +1450,28 @@ function InventoryPageInner() {
         )}
       </div>
 
-      {/* Table */}
-      <div className="hidden sm:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Desktop table */}
+      <div className="hidden sm:block bg-paper border border-line rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="bg-bg-2 border-b border-line">
               <tr>
-                {/* Checkbox */}
-                <th className="pl-4 py-3 pr-2 w-8">
-                  <button onClick={toggleAll} className="text-gray-400 hover:text-gold">
+                <th className="pl-4 py-[10px] pr-2 w-8">
+                  <button onClick={toggleAll} className="text-zinc-400 hover:text-gold">
                     {checkedIds.size === sortedItems.length && sortedItems.length > 0
                       ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
                   </button>
                 </th>
-
-                {/* Item — always sortable */}
                 <SortTh col="item" label="Item" colSort={colSort} onSort={toggleColSort} className="text-left" />
-
-                {/* Category — only visible in flat mode, sortable */}
                 {sortBy === 'all' && (
                   <SortTh col="category" label="Category" colSort={colSort} onSort={toggleColSort} className="text-left hidden sm:table-cell" />
                 )}
-
-                {/* Supplier — sortable, hidden on small screens */}
                 <SortTh col="supplier" label="Supplier" colSort={colSort} onSort={toggleColSort} className="text-left hidden md:table-cell" />
-
-                {/* Purchase Price — sortable */}
-                <SortTh col="price" label="Purchase Price" colSort={colSort} onSort={toggleColSort} className="text-right" />
-
-                {/* Current Stock — sortable */}
-                <SortTh col="stock" label="Current Stock" colSort={colSort} onSort={toggleColSort} className="text-right" />
-
-                {/* Inv Value — sortable */}
-                <SortTh col="value" label="Inv Value" colSort={colSort} onSort={toggleColSort} className="text-right" />
-
-                <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs hidden sm:table-cell">Status</th>
-                <th className="text-center px-3 py-3 font-medium text-gray-500 text-xs w-24">Active</th>
+                <SortTh col="price" label="Purchase price" colSort={colSort} onSort={toggleColSort} className="text-left" />
+                <SortTh col="stock" label="Current stock" colSort={colSort} onSort={toggleColSort} className="text-left" />
+                <SortTh col="value" label="Inv value" colSort={colSort} onSort={toggleColSort} className="text-left" />
+                <th className="px-3 py-[10px] font-mono text-[10.5px] text-ink-3 tracking-[0.01em] hidden sm:table-cell">Status</th>
+                <th className="px-3 py-[10px] font-mono text-[10.5px] text-ink-3 tracking-[0.01em] text-right w-24">Active</th>
               </tr>
             </thead>
             <tbody>
@@ -1425,23 +1483,25 @@ function InventoryPageInner() {
                   return (
                     <React.Fragment key={`group-${cat}`}>
                       <tr
-                        className={`border-y cursor-pointer ${CATEGORY_HEADER[cat] ?? 'bg-gray-50 border-gray-200'}`}
+                        className="cursor-pointer bg-gold-soft border-y border-[#fcd34d]"
                         onClick={() => setCollapsedCats(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n })}
                       >
-                        <td className="pl-4 py-2 pr-2" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => toggleCatGroup(rows)} className="hover:opacity-70">
-                            {allChecked ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
+                        <td className="pl-4 py-[10px] pr-2" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => toggleCatGroup(rows)} className="text-zinc-400 hover:text-gold-2">
+                            {allChecked ? <CheckSquare size={15} className="text-gold-2" /> : <Square size={15} />}
                           </button>
                         </td>
-                        <td className="px-3 py-2" colSpan={6}>
+                        <td className="px-3 py-[10px]" colSpan={6}>
                           <div className="flex items-center gap-2">
-                            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                            <span className="font-semibold text-xs tracking-wider uppercase">{cat}</span>
-                            <span className="text-xs opacity-60">({rows.length} items)</span>
+                            {collapsed
+                              ? <ChevronRight size={10} className="text-gold-2" />
+                              : <ChevronDown size={10} className="text-gold-2" />}
+                            <span className="font-mono text-[11.5px] text-gold-2 font-semibold tracking-[0.02em]">{cat}</span>
+                            <span className="font-mono text-[11px] text-amber-700">· {rows.length} items</span>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-right" colSpan={2}>
-                          <span className="text-xs font-semibold">{formatCurrency(catValue)}</span>
+                        <td className="px-3 py-[10px] text-right" colSpan={2}>
+                          <span className="font-mono text-[12.5px] text-gold-2 font-semibold">{formatCurrency(catValue)}</span>
                         </td>
                       </tr>
                       {!collapsed && rows.map(item => renderRow(item))}
