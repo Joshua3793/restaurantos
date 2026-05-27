@@ -339,18 +339,34 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
           </div>
         )}
 
-        {isMenu && (
-          <div className="hidden sm:flex flex-col items-end gap-0.5 text-right shrink-0">
-            <div className="font-mono text-[13px] text-ink tracking-[-0.01em] flex items-center gap-1.5">
-              <span className="text-ink-3">{formatCurrency(recipe.totalCost)}</span>
-              <span className="text-ink-4">·</span>
-              <span>{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
+        {isMenu && (() => {
+          const fcPct = recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null
+          const fcFill = fcPct === null
+            ? 'bg-ink-4'
+            : fcPct < FOOD_COST_GREEN
+              ? 'bg-green-500'
+              : fcPct <= FOOD_COST_AMBER
+                ? 'bg-gold'
+                : 'bg-red-500'
+          return (
+            <div className="hidden sm:flex flex-col items-end gap-1 text-right shrink-0">
+              <div className="font-mono text-[13px] text-ink tracking-[-0.01em] flex items-center gap-1.5">
+                <span className="text-ink-3">{formatCurrency(recipe.totalCost)}</span>
+                <span className="text-ink-4">·</span>
+                <span>{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
+              </div>
+              <span className={`font-mono text-[11px] font-medium ${foodCostClass(fcPct)}`}>
+                {fcPct !== null ? `${fcPct.toFixed(1)}% food cost` : '—'}
+              </span>
+              {fcPct !== null && (
+                <div className="relative h-1 w-24 bg-bg-2 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${fcFill}`} style={{ width: `${Math.min(100, fcPct)}%` }} />
+                  <div className="absolute top-[-2px] w-px h-2.5 bg-ink" style={{ left: `${FOOD_COST_GREEN}%` }} />
+                </div>
+              )}
             </div>
-            <span className={`font-mono text-[11px] font-medium ${foodCostClass(recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null)}`}>
-              {recipe.menuPrice ? `${((recipe.totalCost / recipe.menuPrice) * 100).toFixed(1)}% food cost` : '—'}
-            </span>
-          </div>
-        )}
+          )
+        })()}
 
         <button
           onClick={e => { e.stopPropagation(); onToggle() }}
@@ -830,12 +846,16 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
     ? UOM_GROUPS.filter(g => g.label === baseUnitGroup)
     : UOM_GROUPS
 
+  const needsQty = ing.ingredientType === 'inventory' && (!ing.qtyBase || ing.qtyBase === 0)
+  const pctValue = isBase ? 100 : (baseIsSet ? autoPercent : (ing.recipePercent ?? null))
+  const pctBarColor = isBase ? 'bg-gold' : 'bg-ink'
+
   return (
-    <div className="border-t border-gray-50">
-      <div className="grid grid-cols-12 gap-2 px-3 py-2 items-center hover:bg-gray-50 group">
+    <div className={`border-t border-line ${needsQty ? 'bg-gold-soft/40' : ''}`}>
+      <div className="grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group">
         <div className="col-span-1 flex flex-col items-center">
-          <button onClick={onMoveUp} disabled={!canMoveUp} className="text-gray-400 hover:text-gray-800 disabled:opacity-0 leading-none transition-colors"><ChevronUp size={13} /></button>
-          <button onClick={onMoveDown} disabled={!canMoveDown} className="text-gray-400 hover:text-gray-800 disabled:opacity-0 leading-none transition-colors"><ChevronDown size={13} /></button>
+          <button onClick={onMoveUp} disabled={!canMoveUp} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronUp size={13} /></button>
+          <button onClick={onMoveDown} disabled={!canMoveDown} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronDown size={13} /></button>
         </div>
 
         <div className="col-span-3 flex items-center gap-1.5 min-w-0">
@@ -843,44 +863,63 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             onClick={onSetBase}
             title={isBase ? "Remove baker's % reference" : "Set as 100% reference for baker's percentages"}
             className={`shrink-0 leading-none transition-colors ${
-              isBase ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400 group-hover:text-gray-300'
+              isBase ? 'text-gold-2' : 'text-ink-4/50 hover:text-gold-2 group-hover:text-ink-4'
             }`}
           >
             <Star size={10} fill={isBase ? 'currentColor' : 'none'} />
           </button>
-          {ing.ingredientType === 'recipe'
-            ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
-            : <Package size={11} className="text-blue-500 shrink-0" />
-          }
-          {ing.ingredientType === 'inventory' && ing.inventoryItemId && onInventoryClick ? (
-            <button
-              onClick={() => onInventoryClick(ing.inventoryItemId!)}
-              className="text-sm text-gray-800 line-clamp-2 break-words leading-snug text-left hover:text-blue-600 hover:underline underline-offset-2 transition-colors"
-              title="Open inventory item"
-            >
-              {ing.ingredientName}
-            </button>
-          ) : (
-            <span className="text-sm text-gray-800 line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
-          )}
+          <span className={`w-5 h-5 rounded-[5px] border border-line flex items-center justify-center shrink-0 ${
+            ing.ingredientType === 'recipe' ? 'bg-green-soft text-gold-2' : 'bg-bg-2 text-ink-3'
+          }`} title={ing.ingredientType === 'recipe' ? 'Sub-recipe' : 'Inventory item'}>
+            {ing.ingredientType === 'recipe'
+              ? <ChefHat size={11} />
+              : <Package size={11} />
+            }
+          </span>
+          <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+            {ing.ingredientType === 'inventory' && ing.inventoryItemId && onInventoryClick ? (
+              <button
+                onClick={() => onInventoryClick(ing.inventoryItemId!)}
+                className="text-[13px] text-ink line-clamp-2 break-words leading-snug text-left hover:text-gold-2 hover:underline underline-offset-2 transition-colors"
+                title="Open inventory item"
+              >
+                {ing.ingredientName}
+              </button>
+            ) : (
+              <span className="text-[13px] text-ink line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
+            )}
+            {ing.ingredientType === 'recipe' && (
+              <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-gold-2 bg-green-soft px-1.5 py-0.5 rounded-[4px]">Recipe</span>
+            )}
+            {needsQty && (
+              <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px]">Needs qty</span>
+            )}
+          </div>
         </div>
 
         <div className="col-span-1 text-center">
           {baseIsSet ? (
-            isBase ? (
-              <span className="text-xs font-bold text-amber-500">100%</span>
-            ) : autoPercent !== null ? (
-              <span className="text-xs font-semibold text-indigo-600">{autoPercent}%</span>
-            ) : (
-              <span className="text-xs text-gray-300" title="Count ingredient — no baker's % for each/piece/serve">—</span>
-            )
+            <div className="flex flex-col items-center gap-0.5">
+              {isBase ? (
+                <span className="font-mono text-[11px] font-bold text-gold-2">100%</span>
+              ) : autoPercent !== null ? (
+                <span className="font-mono text-[11px] font-semibold text-ink-2">{autoPercent}%</span>
+              ) : (
+                <span className="text-[11px] text-ink-4" title="Count ingredient — no baker's % for each/piece/serve">—</span>
+              )}
+              {pctValue !== null && (
+                <div className="w-full h-[3px] bg-bg-2 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${pctBarColor}`} style={{ width: `${Math.min(100, pctValue)}%` }} />
+                </div>
+              )}
+            </div>
           ) : editingPct ? (
             <input type="number" value={pct} onChange={e => setPct(e.target.value)} onBlur={savePct}
               onKeyDown={e => e.key === 'Enter' && savePct()} placeholder="0"
-              className="w-full text-center border border-blue-300 rounded px-0.5 py-0.5 text-xs text-gray-900 focus:outline-none" autoFocus />
+              className="w-full text-center border border-gold rounded px-0.5 py-0.5 text-xs text-ink focus:outline-none" autoFocus />
           ) : (
-            <span onClick={() => setEditingPct(true)} className={`text-xs cursor-pointer rounded px-0.5 ${
-              ing.recipePercent !== null ? 'font-semibold text-indigo-600 hover:text-indigo-800' : 'text-gray-300 hover:text-gray-500'
+            <span onClick={() => setEditingPct(true)} className={`font-mono text-[11px] cursor-pointer rounded px-0.5 ${
+              ing.recipePercent !== null ? 'font-semibold text-ink-2 hover:text-ink' : 'text-ink-4 hover:text-ink-3'
             }`}>
               {ing.recipePercent !== null ? `${ing.recipePercent}%` : '—'}
             </span>
@@ -891,9 +930,9 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           {editingQty ? (
             <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
               onKeyDown={e => e.key === 'Enter' && saveQty()}
-              className="w-full text-right border border-blue-300 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none" autoFocus />
+              className={`w-full text-right border rounded px-1 py-0.5 text-sm text-ink focus:outline-none ${needsQty ? 'border-gold' : 'border-gold'}`} autoFocus />
           ) : (
-            <span onClick={() => setEditingQty(true)} className="text-sm text-gray-800 cursor-pointer hover:text-gold">
+            <span onClick={() => setEditingQty(true)} className={`font-mono text-[13px] cursor-pointer hover:text-gold-2 ${needsQty ? 'text-gold-2' : 'text-ink'}`}>
               {Number(displayQty.toFixed(3)).toString()}
             </span>
           )}
@@ -901,7 +940,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
         <div className="col-span-2">
           <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-            className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
+            className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold">
             {!unitInList && <option value="__custom__">{unit}</option>}
             {compatibleGroups.map(group => (
               <optgroup key={group.label} label={group.label}>
@@ -911,7 +950,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           </select>
         </div>
 
-        <div className="col-span-2 text-right text-sm font-medium text-gray-800">{formatCurrency(displayCost)}</div>
+        <div className="col-span-2 text-right font-mono text-[13px] font-medium text-ink">{formatCurrency(displayCost)}</div>
 
         <div className="col-span-1 flex items-center justify-end gap-1">
           <button
@@ -1234,43 +1273,73 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
           {/* Cost chrome strip — dark ink with gold accent */}
           {recipe.totalCost > 0 && (
-            <div className="bg-ink px-5 py-3 flex items-center gap-1 text-[11.5px] overflow-x-auto">
+            <div className="bg-ink px-5 py-3.5 flex items-center gap-1 text-[11.5px] overflow-x-auto">
               {isMenu ? (
                 <>
-                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Cost</span>
-                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{formatCurrency(recipe.totalCost)}</span>
-                  <span className="text-zinc-700 mx-3 shrink-0">|</span>
-                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Price</span>
-                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-zinc-600 italic">unset</span>}</span>
-                  <span className="text-zinc-700 mx-3 shrink-0">|</span>
-                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Food cost</span>
-                  <span className={`font-mono text-[14px] font-bold ml-1.5 shrink-0 ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-green-400' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-red-400') : 'text-zinc-600'}`}>
-                    {menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}
-                  </span>
+                  <div className="flex flex-col shrink-0">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Cost</span>
+                    <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.totalCost)}</span>
+                  </div>
+                  <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                  <div className="flex flex-col shrink-0">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Price</span>
+                    <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-zinc-600 italic">unset</span>}</span>
+                  </div>
+                  <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                  <div className="flex flex-col shrink-0">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Food cost</span>
+                    <span className={`font-mono text-[16px] font-bold leading-tight ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-green-400' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-red-400') : 'text-zinc-600'}`}>
+                      {menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}
+                    </span>
+                  </div>
+                  {margin !== null && (
+                    <>
+                      <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                      <div className="flex flex-col shrink-0">
+                        <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Margin</span>
+                        <span className={`font-mono text-[16px] font-semibold leading-tight ${margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(margin)}</span>
+                      </div>
+                    </>
+                  )}
                   {menuFoodCostPct !== null && (
-                    <div className="ml-3 relative h-1.5 w-24 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                    <div className="ml-auto relative h-1.5 w-32 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                       <div
                         className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green-500' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-gold' : 'bg-red-500'}`}
                         style={{ width: `${Math.min(100, menuFoodCostPct)}%` }}
                       />
-                      <div className="absolute top-[-2px] w-px h-3 bg-gold" style={{ left: `${FOOD_COST_GREEN}%` }} />
+                      <div className="absolute top-[-3px] w-px h-3.5 bg-gold" style={{ left: `${FOOD_COST_GREEN}%` }} />
                     </div>
                   )}
                 </>
               ) : (
                 <>
-                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Batch</span>
-                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{formatCurrency(recipe.totalCost)}</span>
-                  <span className="text-zinc-700 mx-3 shrink-0">|</span>
-                  <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Per {recipe.yieldUnit}</span>
-                  <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">
-                    {recipe.baseYieldQty > 0 ? formatCurrency(recipe.totalCost / recipe.baseYieldQty) : '—'}
-                  </span>
+                  <div className="flex flex-col shrink-0">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Batch</span>
+                    <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.totalCost)}</span>
+                  </div>
+                  <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                  <div className="flex flex-col shrink-0">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Per {recipe.yieldUnit}</span>
+                    <span className="font-mono text-[16px] font-semibold text-paper leading-tight">
+                      {recipe.baseYieldQty > 0 ? formatCurrency(recipe.totalCost / recipe.baseYieldQty) : '—'}
+                    </span>
+                  </div>
                   {recipe.costPerPortion !== null && (
                     <>
-                      <span className="text-zinc-700 mx-3 shrink-0">|</span>
-                      <span className="font-mono uppercase tracking-[0.06em] text-ink-4 shrink-0">Per portion</span>
-                      <span className="font-mono text-[14px] font-semibold text-paper ml-1.5 shrink-0">{formatCurrency(recipe.costPerPortion)}</span>
+                      <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                      <div className="flex flex-col shrink-0">
+                        <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Per portion</span>
+                        <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.costPerPortion)}</span>
+                      </div>
+                    </>
+                  )}
+                  {recipe.usedInCount !== undefined && recipe.usedInCount > 0 && (
+                    <>
+                      <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                      <div className="flex flex-col shrink-0">
+                        <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Used in</span>
+                        <span className="font-mono text-[16px] font-semibold text-green-400 leading-tight">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
+                      </div>
                     </>
                   )}
                 </>
@@ -1307,24 +1376,24 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">Category</label>
+              <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">Category</label>
               <select value={recipe.categoryId} onChange={e => patchRecipe({ categoryId: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold">
+                className="w-full border border-line rounded-[10px] px-3 py-2 text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold">
                 {categories.filter(c => c.type === recipe.type).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
+              <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">
                 {isMenu ? 'Portions per batch' : 'Base Yield'}
-                {!isMenu && (() => { const f = formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit); const raw = `${recipe.baseYieldQty} ${recipe.yieldUnit}`; return f !== raw ? <span className="ml-1 text-blue-500 font-normal">= {f}</span> : null })()}
+                {!isMenu && (() => { const f = formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit); const raw = `${recipe.baseYieldQty} ${recipe.yieldUnit}`; return f !== raw ? <span className="ml-1 normal-case text-ink-4 tracking-normal"> = {f}</span> : null })()}
               </label>
               <div className="flex gap-1">
                 <input type="number" min="0" step="0.01" defaultValue={recipe.baseYieldQty} onBlur={e => patchRecipe({ baseYieldQty: e.target.value })}
-                  className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="flex-1 border border-line rounded-[10px] px-2 py-2 font-mono text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold" />
                 <select
                   value={recipe.yieldUnit}
                   onChange={e => patchRecipe({ yieldUnit: e.target.value })}
-                  className="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                  className="w-24 border border-line rounded-[10px] px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-paper"
                 >
                   {(isMenu
                     ? ['portion', 'portions', 'serving', 'servings', 'each', 'piece', 'pieces', 'plate', 'bowl']
@@ -1339,28 +1408,28 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   )}
                 </select>
               </div>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="font-mono text-[10.5px] text-ink-4 mt-1.5 tracking-[0.01em]">
                 {isMenu
                   ? 'How many portions this recipe produces (usually 1)'
                   : 'Total quantity produced by this recipe'}
               </p>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
-                Menu Price {!isMenu && <span className="text-gray-300">(optional)</span>}
+              <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">
+                Menu Price {!isMenu && <span className="text-gold-2/60 normal-case tracking-normal">(optional)</span>}
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                <span className="absolute left-3 top-2 text-ink-4 text-sm font-mono">$</span>
                 <input type="number" min="0" step="0.01" defaultValue={recipe.menuPrice ?? ''} placeholder="0.00"
                   onBlur={e => patchRecipe({ menuPrice: e.target.value || null })}
-                  className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full border border-line rounded-[10px] pl-7 pr-3 py-2 font-mono text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
 
             {!isMenu && (
               <div>
-                <label className="text-xs font-medium text-gray-500 block mb-1">
-                  Portion size <span className="text-gray-300">(optional)</span>
+                <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">
+                  Portion size <span className="text-gold-2/60 normal-case tracking-normal">(optional)</span>
                 </label>
                 <div className="flex gap-1">
                   <input
@@ -1368,12 +1437,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                     defaultValue={recipe.portionSize ?? ''}
                     placeholder="e.g. 50"
                     onBlur={e => patchRecipe({ portionSize: e.target.value || null, portionUnit: recipe.portionUnit ?? recipe.yieldUnit })}
-                    className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="flex-1 border border-line rounded-[10px] px-2 py-2 font-mono text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                   <select
                     value={recipe.portionUnit ?? recipe.yieldUnit}
                     onChange={e => patchRecipe({ portionUnit: e.target.value, portionSize: recipe.portionSize ?? null })}
-                    className="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                    className="w-24 border border-line rounded-[10px] px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-paper"
                   >
                     {['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray'].map(u => (
                       <option key={u} value={u}>{u}</option>
@@ -1383,7 +1452,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                     )}
                   </select>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Amount used per dish — sets cost per portion</p>
+                <p className="font-mono text-[10.5px] text-ink-4 mt-1.5 tracking-[0.01em]">Amount used per dish — sets cost per portion</p>
               </div>
             )}
           </div>
@@ -1415,42 +1484,45 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
           </div>
 
           {!isMenu && (
-            <div className="bg-gray-50 rounded-xl p-4">
+            <div className="bg-paper border border-line rounded-[12px] p-5">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-gray-700">Scale Recipe</span>
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">Scale Recipe</span>
                 {sf !== 1 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gold font-semibold">×{sf}</span>
+                    <span className="font-mono text-[11px] text-ink-2"><span className="text-gold-2">×</span>{sf}</span>
                     <button onClick={() => { setShowSaveScale(s => !s); setNewScaleName(`${recipe.name} ×${sf}`) }}
-                      className="text-xs bg-gold text-white px-2.5 py-1 rounded-lg hover:bg-[#a88930]">Save as new</button>
+                      className="font-mono text-[10.5px] uppercase tracking-[0.04em] bg-ink text-paper px-2.5 py-1 rounded-[7px] hover:bg-ink-2">Save as new</button>
                   </div>
                 )}
               </div>
-              <div className="flex gap-2 flex-wrap mb-3">
+              <div className="flex gap-1.5 flex-wrap mb-3">
                 {SCALE_PRESETS.map(p => (
                   <button key={p} onClick={() => { setScaleFactor(p); setCustomScale('') }}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${sf === p ? 'bg-gold text-white' : 'bg-white border border-gray-200 text-gray-700 hover:border-blue-400'}`}>
-                    ×{p}
+                    className={`px-3 py-1.5 rounded-[8px] font-mono text-[12px] font-medium transition-colors ${sf === p ? 'bg-ink text-paper' : 'bg-paper border border-line text-ink-2 hover:border-ink-4'}`}>
+                    <span className={sf === p ? 'text-gold' : 'text-ink-4'}>×</span>{p}
                   </button>
                 ))}
               </div>
               <input type="range" min="0.25" max="10" step="0.25" value={sf}
                 onChange={e => { setScaleFactor(parseFloat(e.target.value)); setCustomScale('') }}
-                className="w-full accent-blue-600 mb-2" />
+                className="w-full accent-ink mb-3" />
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Custom:</span>
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">Custom</span>
                 <input type="number" min="0.1" step="0.1" value={customScale} onChange={e => setCustomScale(e.target.value)}
                   onBlur={() => { const v = parseFloat(customScale); if (!isNaN(v) && v > 0) setScaleFactor(v) }}
                   placeholder="e.g. 2.5"
-                  className="w-20 border border-gray-200 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-gold" />
-                <span className="text-xs text-gray-400">×</span>
+                  className="w-20 border border-line rounded-[7px] px-2 py-1 font-mono text-[12px] text-ink bg-paper focus:outline-none focus:ring-1 focus:ring-gold" />
+                <span className="font-mono text-[11px] text-ink-4">×</span>
+                <span className="ml-auto font-mono text-[11px] text-ink-3">
+                  Current batch: <span className="text-ink-2">{Number((recipe.baseYieldQty * sf).toFixed(3))} {recipe.yieldUnit}</span> · <span className="text-ink-2">{formatCurrency(recipe.totalCost * sf)}</span>
+                </span>
               </div>
               {showSaveScale && (
                 <div className="mt-3 flex gap-2">
                   <input value={newScaleName} onChange={e => setNewScaleName(e.target.value)} placeholder="New recipe name…"
-                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <button onClick={saveScale} className="bg-gold text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#a88930]">Save</button>
-                  <button onClick={() => setShowSaveScale(false)} className="p-1.5 text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                    className="flex-1 border border-line rounded-[8px] px-3 py-1.5 text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <button onClick={saveScale} className="bg-ink text-paper px-3 py-1.5 rounded-[8px] text-sm hover:bg-ink-2">Save</button>
+                  <button onClick={() => setShowSaveScale(false)} className="p-1.5 text-ink-4 hover:text-ink-2"><X size={14} /></button>
                 </div>
               )}
             </div>
@@ -1603,12 +1675,17 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   </div>
                 )}
                 {recipe.menuPrice !== null && (
-                  <div className="pt-1">
-                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="pt-2">
+                    <div className="relative h-2 bg-bg-2 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${foodCostClass(menuFoodCostPct).replace('text-', 'bg-')}`}
                         style={{ width: `${Math.min(100, (recipe.totalCost / recipe.menuPrice) * 100)}%` }} />
+                      <div className="absolute top-[-3px] w-px h-3.5 bg-ink" style={{ left: `${FOOD_COST_GREEN}%` }} />
                     </div>
-                    <div className="flex justify-between text-xs text-gray-400 mt-0.5"><span>Cost</span><span>Price</span></div>
+                    <div className="flex justify-between font-mono text-[10px] uppercase tracking-[0.04em] text-ink-4 mt-1.5">
+                      <span>Cost <span className="text-ink-3">{formatCurrency(recipe.totalCost)}</span></span>
+                      <span className="text-gold-2">Target {FOOD_COST_GREEN}% = {formatCurrency(recipe.menuPrice * FOOD_COST_GREEN / 100)}</span>
+                      <span>Price <span className="text-ink-3">{formatCurrency(recipe.menuPrice)}</span></span>
+                    </div>
                   </div>
                 )}
               </>

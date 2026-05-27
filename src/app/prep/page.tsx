@@ -489,11 +489,11 @@ export default function PrepPage() {
             onClick={() => handleToggleOnList(item.id, !isAdded)}
             className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors ${
               isAdded
-                ? 'bg-green-600 text-paper hover:bg-green-700'
+                ? 'bg-bg-2 text-ink-3 border border-line hover:bg-bg'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
-            {isAdded ? <>✓ On list</> : <><span className="text-gold font-semibold">+</span> Add</>}
+            {isAdded ? <>On list ✓</> : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
 
@@ -556,65 +556,67 @@ export default function PrepPage() {
   // ── Smart Prep grouped table row (category / station views) ───────────────
   function SmartPrepTableRow({ item }: { item: PrepItemRich }) {
     const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
-    const dotColor = item.priority === '911' ? 'bg-red-500' : item.priority === 'NEEDED_TODAY' ? 'bg-orange-400' : 'bg-green-400'
-    const borderColor = item.priority === '911' ? 'border-l-red-500' : item.priority === 'NEEDED_TODAY' ? 'border-l-orange-400' : 'border-l-green-400'
-    const hoverBg = item.priority === '911' ? 'hover:bg-red-50/20' : item.priority === 'NEEDED_TODAY' ? 'hover:bg-orange-50/20' : 'hover:bg-green-50/10'
+    const isCritical = item.priority === '911'
+    const isNeeded = item.priority === 'NEEDED_TODAY'
+    const dotColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
+    const barColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
+    const suggestColor = isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-3'
     const isAdded = item.isOnList
 
-    const labels: Record<string, string>     = { '911': 'Critical', 'NEEDED_TODAY': 'Needed Today', 'LATER': 'Looking Good' }
+    const labels: Record<string, string>     = { '911': 'CRITICAL', 'NEEDED_TODAY': 'NEEDED', 'LATER': 'ON PAR' }
     const badgeStyles: Record<string, string> = {
       '911': 'bg-red-100 text-red-700',
-      'NEEDED_TODAY': 'bg-orange-100 text-orange-700',
+      'NEEDED_TODAY': 'bg-gold-soft text-gold-2',
       'LATER': 'bg-green-100 text-green-700',
     }
 
     return (
-      <div className={`grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 ${borderColor} ${hoverBg} transition-colors`}>
+      <div className="grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-[18px] py-3 border-b border-line last:border-0 hover:bg-bg/60 transition-colors text-[13.5px]">
         <span className={`w-2 h-2 rounded-full ${dotColor} inline-block shrink-0`} />
         <button onClick={() => setSelected(item)} className="text-left hover:opacity-80 transition-opacity min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-semibold text-gray-800">{item.name}</span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeStyles[item.priority]}`}>{labels[item.priority]}</span>
-            {item.station && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{item.station}</span>}
-            {item.manualPriorityOverride && <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Override</span>}
-            {isAdded && <span className="text-[10px] text-gray-400 italic">on list</span>}
+            <span className="text-[13.5px] font-medium text-ink tracking-[-0.01em]">{item.name}</span>
+            <span className={`font-mono text-[9.5px] px-1.5 py-0.5 rounded-[4px] font-semibold tracking-[0.02em] ${badgeStyles[item.priority]}`}>{labels[item.priority]}</span>
+            {item.station && <span className="font-mono text-[9.5px] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded-[4px] font-medium tracking-[0.02em] uppercase">{item.station}</span>}
+            {item.manualPriorityOverride && <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>}
+            {isAdded && <span className="font-mono text-[10px] text-ink-4 italic">on list</span>}
           </div>
-          <div className="text-xs text-gray-400 mt-0.5">
+          <div className={`font-mono text-[10.5px] mt-1 tracking-[0] whitespace-nowrap ${suggestColor}`}>
             {item.priority !== 'LATER' && !item.manualPriorityOverride
-              ? `System suggests → ${item.suggestedQty > 0 ? `Make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}`
+              ? `System suggests → ${item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}`
               : item.priority === 'LATER' ? 'At or above par' : 'Chef override active'
             }
           </div>
         </button>
         <div>
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full ${dotColor}`} style={{ width: `${stockPct}%` }} />
+          <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
           </div>
         </div>
-        <div className="text-sm text-gray-600 font-medium">
+        <div className="font-mono text-[12.5px] text-ink-2 tracking-[-0.01em] whitespace-nowrap">
           {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
         </div>
-        <div className={`text-sm font-semibold ${item.priority === '911' ? 'text-red-600' : item.priority === 'NEEDED_TODAY' ? 'text-orange-600' : 'text-gray-400'}`}>
+        <div className={`font-mono text-[12.5px] font-medium tracking-[-0.01em] ${isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-4'}`}>
           {item.priority !== 'LATER' && item.suggestedQty > 0
             ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}`
             : '—'
           }
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
             const chipLabels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed', 'LATER': 'Later' }
-            const activeStyles: Record<string, string> = {
-              '911': 'bg-red-100 text-red-700 border-red-300',
-              'NEEDED_TODAY': 'bg-orange-100 text-orange-700 border-orange-300',
-              'LATER': 'bg-gray-100 text-gray-600 border-gray-300',
-            }
             const isActive = (item.manualPriorityOverride ?? item.priority) === p
+            const activeCls = p === '911'
+              ? 'bg-red-100 text-red-700 border-red-100'
+              : p === 'NEEDED_TODAY'
+                ? 'bg-gold-soft text-gold-2 border-gold-soft'
+                : 'bg-bg-2 text-ink-2 border-bg-2'
             return (
               <button
                 key={p}
                 onClick={() => handlePriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
-                className={`pill text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                  isActive ? `${activeStyles[p]} font-semibold` : 'bg-white text-gray-400 border-gray-200'
+                className={`font-mono text-[10px] px-2 py-0.5 rounded-full border font-medium tracking-[0] transition-colors ${
+                  isActive ? activeCls : 'bg-paper text-ink-2 border-line hover:border-ink-3'
                 }`}
               >
                 {chipLabels[p]}
@@ -625,13 +627,13 @@ export default function PrepPage() {
         <div className="flex justify-end">
           <button
             onClick={() => handleToggleOnList(item.id, !isAdded)}
-            className={`btn-action px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors ${
               isAdded
-                ? 'bg-green-600 text-white hover:bg-green-700'
-                : 'bg-gray-800 text-white hover:bg-gray-700'
+                ? 'bg-green-600 text-paper hover:bg-green-700'
+                : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
-            {isAdded ? '✓ On List' : '+ Add'}
+            {isAdded ? '✓ On list' : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
       </div>
@@ -794,31 +796,40 @@ export default function PrepPage() {
           </div>
         </div>
 
-        {/* Desktop filter bar (Today + Smart Prep only) */}
-        {viewMode !== 'history' && (
-          <div className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-48">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        {/* Desktop filter bar (Today only — Smart Prep has its own branded tools row) */}
+        {viewMode === 'today' && (
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
               <input
-                className="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full bg-paper border border-line rounded-[9px] pl-9 pr-3 py-2.5 text-[13px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors tracking-[-0.005em]"
                 placeholder="Search prep items…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            <select className={selCls} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-              <option value="ALL">All Categories</option>
+            <select
+              value={filterCategory}
+              onChange={e => setFilterCategory(e.target.value)}
+              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
+            >
+              <option value="ALL">All categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <select className={selCls} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
-              <option value="ALL">All Stations</option>
+            <select
+              value={filterStation}
+              onChange={e => setFilterStation(e.target.value)}
+              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
+            >
+              <option value="ALL">All stations</option>
               <option value="UNASSIGNED">Unassigned</option>
               {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600 ml-auto">
-              <input type="checkbox" checked={activeOnly}
-                onChange={e => setActiveOnly(e.target.checked)}
-                className="rounded text-gold" />
+            <label className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 transition-colors flex items-center gap-2 cursor-pointer tracking-[-0.005em]">
+              <span className={`w-[14px] h-[14px] border-[1.5px] rounded-[3px] grid place-items-center text-[9px] ${activeOnly ? 'bg-ink border-ink text-paper' : 'border-line-2 bg-paper'}`}>
+                {activeOnly && '✓'}
+              </span>
+              <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="hidden" />
               Active only
             </label>
           </div>
@@ -1079,20 +1090,10 @@ export default function PrepPage() {
           </p>
 
           {/* Mobile view toggle */}
-          <div className="md:hidden flex bg-gray-100 rounded-xl p-1 gap-0.5">
+          <div className="md:hidden flex bg-bg-2 rounded-[10px] p-1 gap-0.5 border border-line">
             {(['urgency', 'category', 'station'] as const).map(v => (
               <button key={v} onClick={() => setSmartPrepView(v)}
-                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${smartPrepView === v ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
-                By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
-              </button>
-            ))}
-          </div>
-
-          {/* Mobile view toggle */}
-          <div className="md:hidden flex bg-gray-100 rounded-xl p-1 gap-0.5">
-            {(['urgency', 'category', 'station'] as const).map(v => (
-              <button key={v} onClick={() => setSmartPrepView(v)}
-                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${smartPrepView === v ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
+                className={`flex-1 py-2 font-mono text-[11px] uppercase tracking-[0.04em] rounded-[7px] transition-colors ${smartPrepView === v ? 'bg-paper shadow-sm text-ink' : 'text-ink-3'}`}>
                 By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
               </button>
             ))}
@@ -1208,9 +1209,27 @@ export default function PrepPage() {
                         )}
                       </div>
                     ) : (
-                      <button onClick={() => setLookingGoodOpen(true)} className="flex-1 font-mono text-[11px] text-ink-3 hover:text-ink py-2.5 text-center transition-colors">
-                        {spLookingGood.length > 0 ? `+ ${spLookingGood.length} ITEMS · EXPAND ALL` : 'No items'}
-                      </button>
+                      <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-1.5 overflow-hidden">
+                        {spLookingGood.slice(0, 6).map(item => {
+                          const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
+                          const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
+                          return (
+                            <button key={item.id} onClick={() => setSelected(item)}
+                              className="bg-bg border border-line rounded-lg px-3 py-2 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors text-left">
+                              <span className="text-[12.5px] font-medium text-ink tracking-[-0.01em] truncate min-w-0">{item.name}</span>
+                              <span className="font-mono text-[10.5px] text-green-700 font-medium shrink-0">{label}</span>
+                            </button>
+                          )
+                        })}
+                        {spLookingGood.length > 6 && (
+                          <button onClick={() => setLookingGoodOpen(true)} className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 hover:text-ink py-2 text-center border-t border-line mt-1 pt-2.5 transition-colors">
+                            + {spLookingGood.length - 6} more · expand all
+                          </button>
+                        )}
+                        {spLookingGood.length === 0 && (
+                          <div className="flex-1 flex items-center justify-center text-[12.5px] text-ink-3">No items</div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1218,68 +1237,102 @@ export default function PrepPage() {
 
               {/* ── BY CATEGORY ── */}
               {smartPrepView === 'category' && (
-                <div className="space-y-4">
-                  {spCategoryGroups.map(([cat, rows]) => (
-                    <div key={cat} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                      <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
-                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">{cat}</span>
-                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">{rows.length} items</span>
+                <div className="space-y-3">
+                  {spCategoryGroups.map(([cat, rows]) => {
+                    const criticalCount = rows.filter(i => i.priority === '911').length
+                    const neededCount = rows.filter(i => i.priority === 'NEEDED_TODAY').length
+                    return (
+                      <div key={cat} className="bg-paper border border-line rounded-xl overflow-hidden">
+                        {/* Group header — branded "grow" style (gold-soft for active categories, neutral otherwise) */}
+                        <div className={`grid grid-cols-[1fr_auto] items-center px-[18px] py-2.5 border-b ${criticalCount > 0 || neededCount > 0 ? 'bg-gold-soft border-[#fcd34d]' : 'bg-bg-2 border-line'}`}>
+                          <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
+                            <span className={`font-mono text-[11.5px] tracking-[0.02em] font-semibold ${criticalCount > 0 || neededCount > 0 ? 'text-gold-2' : 'text-ink-2'}`}>{cat.toUpperCase()}</span>
+                            <span className={`font-mono text-[11px] font-normal ${criticalCount > 0 || neededCount > 0 ? 'text-gold-2/80' : 'text-ink-3'}`}>· {rows.length} item{rows.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          {(criticalCount > 0 || neededCount > 0) && (
+                            <div className="flex items-center gap-1.5">
+                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
+                              {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
+                            </div>
+                          )}
+                        </div>
+                        {/* Desktop table header */}
+                        <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
+                          <div /> <div>ITEM</div> <div>STOCK VS PAR</div> <div>ON HAND</div> <div>MAKE</div> <div>OVERRIDE</div> <div className="text-right">ACTION</div>
+                        </div>
+                        {/* Desktop rows */}
+                        <div className="hidden md:block">
+                          {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
+                        </div>
+                        {/* Mobile cards */}
+                        <div className="md:hidden p-3 flex flex-col gap-2">
+                          {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
+                        </div>
                       </div>
-                      {/* Desktop table header */}
-                      <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-                        <div /> <div>Item</div> <div>Stock vs Par</div> <div>Theoretical</div> <div>Make</div> <div>Override</div> <div className="text-right">Action</div>
-                      </div>
-                      {/* Desktop rows */}
-                      <div className="hidden md:block">
-                        {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
-                      </div>
-                      {/* Mobile cards */}
-                      <div className="md:hidden">
-                        {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
               {/* ── BY STATION ── */}
               {smartPrepView === 'station' && (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {(spStationGroups ?? []).map(([station, rows]) => {
                     const emoji = STATION_EMOJI[station] ?? '🍽'
                     const criticalCount = rows.filter(i => i.priority === '911').length
-                    const stationBg = station === 'Cold' ? 'bg-blue-50 border-blue-100' : station === 'Hot' ? 'bg-orange-50 border-orange-100' : station === 'Pastry' ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'
-                    const stationText = station === 'Cold' ? 'text-blue-700' : station === 'Hot' ? 'text-orange-700' : station === 'Pastry' ? 'text-amber-700' : 'text-gray-700'
+                    const neededCount = rows.filter(i => i.priority === 'NEEDED_TODAY').length
+                    const hasUrgent = criticalCount > 0 || neededCount > 0
                     return (
-                      <div key={station} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                        <div className={`px-5 py-3 border-b flex items-center gap-3 ${stationBg}`}>
-                          <span className={`text-xs font-bold uppercase tracking-wide ${stationText}`}>{emoji} {station} Station</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${stationText} bg-white/60`}>{rows.length} items</span>
-                          {criticalCount > 0 && <span className="ml-auto text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold">{criticalCount} critical</span>}
+                      <div key={station} className="bg-paper border border-line rounded-xl overflow-hidden">
+                        {/* Group header */}
+                        <div className={`grid grid-cols-[1fr_auto] items-center px-[18px] py-2.5 border-b ${hasUrgent ? 'bg-gold-soft border-[#fcd34d]' : 'bg-bg-2 border-line'}`}>
+                          <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
+                            <span className="text-[13px]">{emoji}</span>
+                            <span className={`font-mono text-[11.5px] tracking-[0.02em] font-semibold ${hasUrgent ? 'text-gold-2' : 'text-ink-2'}`}>{station.toUpperCase()} STATION</span>
+                            <span className={`font-mono text-[11px] font-normal ${hasUrgent ? 'text-gold-2/80' : 'text-ink-3'}`}>· {rows.length} item{rows.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          {hasUrgent && (
+                            <div className="flex items-center gap-1.5">
+                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
+                              {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
+                            </div>
+                          )}
                         </div>
                         {/* Desktop table header */}
-                        <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-2 bg-gray-50/50 border-b border-gray-100 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-                          <div /> <div>Item</div> <div>Stock vs Par</div> <div>Theoretical</div> <div>Make</div> <div>Override</div> <div className="text-right">Action</div>
+                        <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
+                          <div /> <div>ITEM</div> <div>STOCK VS PAR</div> <div>ON HAND</div> <div>MAKE</div> <div>OVERRIDE</div> <div className="text-right">ACTION</div>
                         </div>
                         <div className="hidden md:block">
                           {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
                         </div>
-                        <div className="md:hidden">
+                        <div className="md:hidden p-3 flex flex-col gap-2">
                           {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
                         </div>
                       </div>
                     )
                   })}
                   {(!spStationGroups || spStationGroups.length === 0) && (
-                    <div className="bg-white border border-gray-100 rounded-xl py-12 text-center">
-                      <p className="text-gray-500 text-sm">No stations configured.</p>
-                      <p className="text-xs text-gray-400 mt-1">Add stations in{' '}
-                        <button onClick={() => setShowSettings(true)} className="text-gold hover:underline">Settings</button>.
+                    <div className="bg-paper border border-line rounded-xl py-14 text-center">
+                      <p className="text-[13.5px] text-ink-2 font-medium">No stations configured.</p>
+                      <p className="font-mono text-[11px] text-ink-3 mt-1.5 tracking-[0]">
+                        Add stations in{' '}
+                        <button onClick={() => setShowSettings(true)} className="text-gold-2 hover:underline font-medium">Settings</button>.
                       </p>
                     </div>
                   )}
                 </div>
               )}
+
+              {/* Footer hints */}
+              <div className="hidden md:flex justify-between font-mono text-[10.5px] text-ink-3 tracking-[0.02em] pt-2">
+                <span>
+                  SUGGESTIONS REFRESH WITH EACH COUNT · {spCritical.length} CRITICAL · {spNeeded.length} NEEDED · {spLookingGood.length} ON PAR
+                </span>
+                <span>
+                  <kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘R</kbd> REFRESH ·{' '}
+                  <kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘N</kbd> NEW PREP ITEM
+                </span>
+              </div>
             </>
           )}
         </div>

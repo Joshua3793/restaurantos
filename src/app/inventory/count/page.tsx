@@ -102,6 +102,25 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function fmtClock(d?: string | null) {
+  if (!d) return '—'
+  return new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function relTime(sessionDate: string, startedAt?: string | null) {
+  const ref = new Date(sessionDate)
+  const now = new Date()
+  const days = Math.floor((now.getTime() - ref.getTime()) / 86_400_000)
+  if (days <= 0) return `Today${startedAt ? ` · ${fmtClock(startedAt)}` : ''}`
+  if (days === 1) return 'Yesterday'
+  return `${days}d ago`
+}
+
+function durationMin(start: string, end: string) {
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  return Math.max(0, Math.round(ms / 60_000))
+}
+
 const SESSION_ACCENT: Record<string, string> = {
   IN_PROGRESS:    '#3b82f6',
   PENDING_REVIEW: '#f59e0b',
@@ -126,18 +145,19 @@ function Toast({ msg, onDone }: { msg: string; onDone: () => void }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    IN_PROGRESS:    'bg-gold/15 text-gold',
-    PENDING_REVIEW: 'bg-amber-100 text-amber-700',
+    IN_PROGRESS:    'bg-gold-soft text-gold-2',
+    PENDING_REVIEW: 'bg-gold-soft text-gold-2',
     UPDATING:       'bg-violet-100 text-violet-700',
-    FINALIZED:      'bg-green-100 text-green-700',
-    CANCELLED:      'bg-gray-100 text-gray-500',
+    FINALIZED:      'bg-green-soft text-green-text',
+    CANCELLED:      'bg-bg-2 text-ink-3',
   }
   const labels: Record<string, string> = {
     IN_PROGRESS: 'In progress', PENDING_REVIEW: 'Pending review',
     UPDATING: 'Updating changes', FINALIZED: 'Finalized', CANCELLED: 'Cancelled',
   }
   return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
+    <span className={`inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.04em] font-medium px-2 py-0.5 rounded-full ${map[status] ?? 'bg-bg-2 text-ink-3'}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       {labels[status] ?? status}
     </span>
   )
@@ -1121,7 +1141,7 @@ export default function CountPage() {
                       {/* Date */}
                       <div>
                         <div className="font-mono text-[13px] text-ink tracking-[-0.01em]">{fmtDate(s.sessionDate)}</div>
-                        <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{s.countedBy}</div>
+                        <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{relTime(s.sessionDate, s.startedAt)}</div>
                       </div>
                       {/* Session label + status */}
                       <div className="min-w-0 pr-3">
@@ -1131,12 +1151,14 @@ export default function CountPage() {
                           </span>
                           <StatusBadge status={s.status} />
                         </div>
-                        {s.status !== 'IN_PROGRESS' && s.status !== 'PENDING_REVIEW' && (
-                          <div className="font-mono text-[11px] text-ink-3 mt-0.5">{counts.total} items</div>
-                        )}
-                        {(s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW') && (
-                          <div className="font-mono text-[11px] text-ink-3 mt-0.5">started {fmtDate(s.startedAt)}</div>
-                        )}
+                        <div className="font-mono text-[11px] text-ink-3 mt-0.5">
+                          <b className="font-medium text-ink-2">{s.countedBy}</b>
+                          {s.status === 'FINALIZED' && s.finalizedAt && s.startedAt
+                            ? ` · ${durationMin(s.startedAt, s.finalizedAt)} min duration`
+                            : s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW'
+                              ? ` · started ${fmtClock(s.startedAt)}`
+                              : ` · ${counts.total} items`}
+                        </div>
                       </div>
                       {/* Type */}
                       <div className="font-mono text-[13px] text-ink-2 tracking-[-0.01em]">{s.type === 'FULL' ? 'Full' : 'Partial'}</div>
@@ -1251,7 +1273,7 @@ export default function CountPage() {
               <span>
                 SHOWING {filteredSessions.length} SESSION{filteredSessions.length !== 1 ? 'S' : ''} · {sessions.filter(s => s.status === 'IN_PROGRESS').length} IN PROGRESS · {sessions.filter(s => s.status === 'FINALIZED').length} FINALIZED
               </span>
-              <span>WEEKLY CADENCE</span>
+              <span>WEEKLY CADENCE · <kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘N</kbd> FOR NEW COUNT</span>
             </div>
           </>
         )}

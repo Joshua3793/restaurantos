@@ -68,17 +68,6 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
   price: 'desc', stock: 'desc', value: 'desc',
 }
 
-const CATEGORY_HEADER: Record<string, string> = {
-  BREAD: 'bg-amber-50 border-amber-200 text-amber-800',
-  DAIRY: 'bg-gold/10 border-gold/30 text-blue-800',
-  DRY:   'bg-yellow-50 border-yellow-200 text-yellow-800',
-  FISH:  'bg-cyan-50 border-cyan-200 text-cyan-800',
-  MEAT:  'bg-red-50 border-red-200 text-red-800',
-  PREPD: 'bg-purple-50 border-purple-200 text-purple-800',
-  PROD:  'bg-green-50 border-green-200 text-green-800',
-  CHM:   'bg-gray-100 border-gray-300 text-gray-700',
-}
-
 const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
   purchaseUnit: 'case', qtyPerPurchaseUnit: '1', purchasePrice: '0',
@@ -666,38 +655,26 @@ function InventoryPageInner() {
     )
   }
 
-  // Category accent colors for mobile rows
-  const CAT_DOT: Record<string, string> = {
-    BREAD: 'bg-amber-400',
-    DAIRY: 'bg-blue-400',
-    DRY:   'bg-yellow-400',
-    FISH:  'bg-cyan-400',
-    MEAT:  'bg-red-400',
-    PREPD: 'bg-purple-400',
-    PROD:  'bg-green-400',
-    CHM:   'bg-gray-400',
-  }
-
   const renderMobileRow = (item: InventoryItem) => {
     const inStock = effStock(item) > 0
     return (
       <div
         key={`m-${item.id}`}
         onClick={() => setSelected(item)}
-        className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-50 cursor-pointer active:bg-gray-50 transition-colors ${
-          !inStock ? 'bg-orange-50/40' : ''
+        className={`flex items-center gap-3 px-3 py-2.5 border-b border-line cursor-pointer active:bg-bg transition-colors ${
+          !inStock ? 'bg-gold-soft/40' : ''
         } ${!item.isActive ? 'opacity-50' : ''}`}
       >
-        {/* Category accent stripe */}
-        <div className={`w-1 h-10 rounded-full shrink-0 ${CAT_DOT[item.category] ?? 'bg-gray-300'}`} />
+        {/* Category accent stripe — unified gold accent */}
+        <div className={`w-1 h-10 rounded-full shrink-0 ${inStock ? 'bg-line-2' : 'bg-gold'}`} />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-gray-900 truncate">{item.itemName}</div>
+          <div className="text-[14px] font-medium text-ink tracking-[-0.01em] truncate">{item.itemName}</div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className={`text-[11px] font-medium ${inStock ? 'text-gray-400' : 'text-orange-500'}`}>
+            <span className={`font-mono text-[10.5px] ${inStock ? 'text-ink-3' : 'text-gold-2 font-semibold'}`}>
               {displayStock(item).toFixed(1)} {item.countUOM || item.baseUnit}
-              {!inStock && ' · out'}
+              {!inStock && ' · OUT'}
             </span>
-            {item.supplier && <span className="text-[10px] text-gray-300">· {item.supplier.name}</span>}
+            {item.supplier && <span className="font-mono text-[10px] text-ink-4">· {item.supplier.name}</span>}
           </div>
           {item.allergens && item.allergens.length > 0 && (
             <div className="mt-0.5">
@@ -706,12 +683,12 @@ function InventoryPageInner() {
           )}
         </div>
         <div className="text-right shrink-0">
-          <div className="text-sm font-semibold text-gray-800">
+          <div className="font-mono text-[13px] font-medium text-ink">
             {formatCurrency(parseFloat(String(item.purchasePrice)))}
           </div>
-          <div className="text-[10px] text-gray-400">/{item.purchaseUnit}</div>
+          <div className="font-mono text-[10px] text-ink-4">/{item.purchaseUnit}</div>
         </div>
-        <ChevronRight size={14} className="text-gray-300 shrink-0" />
+        <ChevronRight size={14} className="text-ink-4 shrink-0" />
       </div>
     )
   }
@@ -732,20 +709,20 @@ function InventoryPageInner() {
       {/* Mobile header */}
       <div className="flex sm:hidden items-center gap-2">
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold text-gray-900 leading-tight">Inventory</h1>
-          <p className="text-xs text-gray-400">{items.length} items</p>
+          <h1 className="text-[22px] font-semibold text-ink tracking-[-0.03em] leading-tight">Inventory</h1>
+          <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">{items.length} items</p>
         </div>
         <button
           onClick={() => { setShowOrderList(true); setOrderQtys({}); setOrderTab('all') }}
-          className="flex items-center justify-center w-9 h-9 bg-green-50 border border-green-200 text-green-700 rounded-xl"
+          className="flex items-center justify-center w-9 h-9 bg-paper border border-line text-ink-2 rounded-[9px]"
         >
           <ShoppingCart size={16} />
         </button>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 bg-gold text-white px-3 h-9 rounded-xl text-sm font-semibold"
+          className="flex items-center gap-1.5 bg-ink text-paper px-3 h-9 rounded-[9px] text-[13px] font-medium"
         >
-          <Plus size={15} /> Add
+          <span className="text-gold font-semibold">+</span> Add
         </button>
       </div>
 
@@ -795,23 +772,25 @@ function InventoryPageInner() {
 
       {/* Mobile KPI strip */}
       <div className="flex sm:hidden gap-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-        <div className="flex-shrink-0 bg-gold/10 rounded-xl px-3 py-2.5 min-w-[110px]">
-          <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">Stock Value</div>
-          <div className="text-lg font-extrabold text-gold mt-0.5">{formatCurrency(kpis.totalValue)}</div>
-        </div>
-        <div className="flex-shrink-0 bg-green-50 rounded-xl px-3 py-2.5 min-w-[100px]">
-          <div className="text-[9px] font-bold text-green-600 uppercase tracking-wide">Counted</div>
-          <div className="text-lg font-extrabold text-green-700 mt-0.5">
-            {kpis.counted} <span className="text-xs font-medium text-green-400">/ {kpis.activeCount}</span>
+        <div className="flex-shrink-0 bg-ink text-paper rounded-[12px] px-3 py-2.5 min-w-[140px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-4">Stock Value</div>
+          <div className="font-mono text-[18px] font-semibold text-paper mt-0.5 tracking-[-0.02em]">
+            {(() => { const [d,c] = formatCurrency(kpis.totalValue).split('.'); return <>{d}<span className="text-gold">.{c ?? '00'}</span></> })()}
           </div>
         </div>
-        <div className="flex-shrink-0 bg-orange-50 rounded-xl px-3 py-2.5 min-w-[100px]">
-          <div className="text-[9px] font-bold text-orange-500 uppercase tracking-wide">Uncounted</div>
-          <div className="text-lg font-extrabold text-orange-600 mt-0.5">{kpis.notCounted}</div>
+        <div className="flex-shrink-0 bg-paper border border-line rounded-[12px] px-3 py-2.5 min-w-[100px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">Counted</div>
+          <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">
+            {kpis.counted}<span className="text-[12px] font-normal text-ink-4"> / {kpis.activeCount}</span>
+          </div>
         </div>
-        <div className="flex-shrink-0 bg-gray-50 rounded-xl px-3 py-2.5 min-w-[80px]">
-          <div className="text-[9px] font-bold text-gray-500 uppercase tracking-wide">Active</div>
-          <div className="text-lg font-extrabold text-gray-700 mt-0.5">{kpis.activeCount}</div>
+        <div className="flex-shrink-0 bg-gold-soft border border-[#fcd34d] rounded-[12px] px-3 py-2.5 min-w-[100px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-gold-2">Uncounted</div>
+          <div className="font-mono text-[18px] font-semibold text-gold-2 mt-0.5 tracking-[-0.02em]">{kpis.notCounted}</div>
+        </div>
+        <div className="flex-shrink-0 bg-paper border border-line rounded-[12px] px-3 py-2.5 min-w-[80px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">Active</div>
+          <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">{kpis.activeCount}</div>
         </div>
       </div>
 
@@ -932,7 +911,7 @@ function InventoryPageInner() {
           <button
             onClick={() => setShowImport(true)}
             title="Import CSV"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
           >
             <UploadCloud size={11} /> Import
           </button>
@@ -940,7 +919,7 @@ function InventoryPageInner() {
           <button
             onClick={() => { window.location.href = '/api/inventory/export' }}
             title="Export CSV"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
           >
             <Download size={11} /> CSV
           </button>
@@ -949,9 +928,9 @@ function InventoryPageInner() {
             onClick={syncAllPrepd}
             disabled={syncingPrepd}
             title="Re-sync all PREPD item prices from their recipes"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-purple-200 bg-purple-50 text-purple-700 transition-colors hover:bg-purple-100 disabled:opacity-50"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3 disabled:opacity-50"
           >
-            {syncingPrepd ? <Loader2 size={11} className="animate-spin" /> : <span className="text-[11px]">⟳</span>}
+            {syncingPrepd ? <Loader2 size={11} className="animate-spin" /> : <span className="text-[11px] text-ink-3">⟳</span>}
             PREPD
           </button>
         </div>
@@ -961,8 +940,8 @@ function InventoryPageInner() {
             <button
               key={p.key}
               onClick={() => setActivePill(p.key)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                activePill === p.key ? 'bg-gold text-white' : 'bg-gray-100 text-gray-600'
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-[0.04em] transition-colors ${
+                activePill === p.key ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-2 border border-line'
               }`}
             >
               {p.label}
@@ -1063,14 +1042,14 @@ function InventoryPageInner() {
       {checkedIds.size > 0 && (
         <div className="fixed bottom-16 md:bottom-4 left-0 right-0 z-40 px-3 pointer-events-none">
           <div className="max-w-5xl mx-auto pointer-events-auto">
-            <div className="bg-white border border-gold/30 rounded-xl px-4 py-3 shadow-xl flex flex-wrap items-center gap-2 ring-1 ring-blue-100">
-              <span className="text-sm font-semibold text-gold shrink-0">{checkedIds.size} selected</span>
+            <div className="bg-ink border border-ink rounded-[12px] px-4 py-3 shadow-2xl flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[11px] uppercase tracking-[0.04em] text-paper shrink-0"><span className="text-gold font-semibold">{checkedIds.size}</span> selected</span>
               <div className="flex gap-2 flex-wrap flex-1">
-                <button onClick={() => executeBulk('activate')}   className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700">Activate</button>
-                <button onClick={() => executeBulk('deactivate')} className="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600">Deactivate</button>
+                <button onClick={() => executeBulk('activate')}   className="px-3 py-1.5 bg-paper text-ink text-xs rounded-[8px] hover:bg-bg font-medium">Activate</button>
+                <button onClick={() => executeBulk('deactivate')} className="px-3 py-1.5 bg-zinc-800 text-paper text-xs rounded-[8px] hover:bg-zinc-700 border border-zinc-700">Deactivate</button>
                 <button
                   onClick={() => setShowBulkAllergen(true)}
-                  className="px-3 py-1.5 bg-white border border-gray-200 text-xs rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                  className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
                 >
                   Assign Allergens
                 </button>
@@ -1078,7 +1057,7 @@ function InventoryPageInner() {
                 <div className="relative">
                   <button
                     onClick={() => { setBulkAction('setCategory'); setShowBulkMenu(v => bulkAction === 'setCategory' ? !v : true) }}
-                    className="px-3 py-1.5 bg-white border border-gray-200 text-xs rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
                   >
                     Assign Category <ChevronDown size={12} />
                   </button>
@@ -1094,7 +1073,7 @@ function InventoryPageInner() {
                 <div className="relative">
                   <button
                     onClick={() => { setBulkAction('setSupplier'); setShowBulkMenu(v => bulkAction === 'setSupplier' ? !v : true) }}
-                    className="px-3 py-1.5 bg-white border border-gray-200 text-xs rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
                   >
                     Assign Supplier <ChevronDown size={12} />
                   </button>
@@ -1110,7 +1089,7 @@ function InventoryPageInner() {
                 <div className="relative">
                   <button
                     onClick={() => { setBulkAction('setStorageArea'); setShowBulkMenu(v => bulkAction === 'setStorageArea' ? !v : true) }}
-                    className="px-3 py-1.5 bg-white border border-gray-200 text-xs rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
                   >
                     Assign Area <ChevronDown size={12} />
                   </button>
@@ -1126,11 +1105,11 @@ function InventoryPageInner() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 font-medium"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs rounded-[8px] hover:bg-red-700 font-medium"
                 >
                   <Trash2 size={12} /> Delete
                 </button>
-                <button onClick={() => { setCheckedIds(new Set()); setShowBulkMenu(false) }} className="text-xs text-gray-400 hover:text-gray-600 px-1">✕</button>
+                <button onClick={() => { setCheckedIds(new Set()); setShowBulkMenu(false) }} className="text-xs text-ink-4 hover:text-paper px-1">✕</button>
               </div>
             </div>
           </div>
@@ -1418,25 +1397,26 @@ function InventoryPageInner() {
       )}
 
       {/* Mobile list */}
-      <div className="block sm:hidden bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="block sm:hidden bg-paper rounded-[12px] border border-line overflow-hidden">
         {categoryGroups ? (
           categoryGroups.map(([cat, rows]) => {
             const catValue = rows.reduce((s, i) => s + invValue(i), 0)
             const collapsed = collapsedCats.has(cat)
+            const belowPar = rows.filter(r => r.parLevel != null && displayStock(r) < (r.parLevel ?? 0)).length
             return (
               <React.Fragment key={`mg-${cat}`}>
                 <div
-                  className={`flex items-center justify-between px-4 py-2 cursor-pointer border-y ${CATEGORY_HEADER[cat] ?? 'bg-gray-50 border-gray-200'}`}
+                  className="flex items-center justify-between px-4 py-2 cursor-pointer border-y bg-gold-soft border-[#fcd34d]/60 text-gold-2"
                   onClick={() => setCollapsedCats(prev => {
                     const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n
                   })}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                    <span className="text-xs font-bold uppercase tracking-wider">{cat}</span>
-                    <span className="text-xs opacity-60">({rows.length})</span>
+                    <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.06em]">{cat}</span>
+                    <span className="font-mono text-[10.5px] text-gold-2/80">· {rows.length} items{belowPar > 0 ? ` · ${belowPar} below par` : ''}</span>
                   </div>
-                  <span className="text-xs font-semibold">{formatCurrency(catValue)}</span>
+                  <span className="font-mono text-[12px] font-semibold">{formatCurrency(catValue)}</span>
                 </div>
                 {!collapsed && rows.map(item => renderMobileRow(item))}
               </React.Fragment>
@@ -1446,7 +1426,7 @@ function InventoryPageInner() {
           sortedItems.map(item => renderMobileRow(item))
         )}
         {sortedItems.length === 0 && (
-          <div className="text-center py-12 text-gray-400 text-sm">No items found</div>
+          <div className="text-center py-12 font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">No items found</div>
         )}
       </div>
 
