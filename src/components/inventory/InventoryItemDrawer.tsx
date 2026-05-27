@@ -585,7 +585,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                             parseFloat(editForm.qtyPerPurchaseUnit) || 0,
                             editForm.qtyUOM,
                             editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-                            parseFloat(editForm.packSize) || 1,
+                            parseFloat(editForm.packSize) || 0,
                             editForm.packUOM,
                           )
                           return (
@@ -631,16 +631,21 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     </label>
                     <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                      {getCountableUoms({
-                        baseUnit: deriveBaseUnit(editForm.qtyUOM, editForm.packUOM, parseFloat(editForm.packSize) || 0),
-                        purchaseUnit: editForm.purchaseUnit,
-                        qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
-                        qtyUOM: editForm.qtyUOM,
-                        innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-                        packSize: parseFloat(editForm.packSize) || 0,
-                        packUOM: editForm.packUOM,
-                        countUOM: editForm.countUOM,
-                      }).map(u => <option key={u.label} value={u.label}>{u.label}{u.hint ? ` — ${u.hint}` : ''}</option>)}
+                      {(() => {
+                        const rawPs = parseFloat(editForm.packSize) || 0
+                        const hasWpe = rawPs > 0
+                        const effPu = hasWpe ? editForm.packUOM : 'each'
+                        return getCountableUoms({
+                          baseUnit: deriveBaseUnit(editForm.qtyUOM, effPu, rawPs),
+                          purchaseUnit: editForm.purchaseUnit,
+                          qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
+                          qtyUOM: editForm.qtyUOM,
+                          innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
+                          packSize: rawPs,
+                          packUOM: effPu,
+                          countUOM: editForm.countUOM,
+                        }).map(u => <option key={u.label} value={u.label}>{u.label}{u.hint ? ` — ${u.hint}` : ''}</option>)
+                      })()}
                     </select>
                   </div>
                   <div>
@@ -680,14 +685,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 {/* Auto-calculated preview */}
                 {(() => {
                   const isPrep = !!item.recipe
-                  const pp  = parseFloat(editForm.purchasePrice) || 0
-                  const qty = parseFloat(editForm.qtyPerPurchaseUnit) || 1
-                  const ps  = parseFloat(editForm.packSize) || 1
-                  const pu  = editForm.packUOM
-                  const cu  = editForm.countUOM
-                  const qu  = editForm.qtyUOM ?? 'each'
-                  const iq  = editForm.innerQty ? parseFloat(editForm.innerQty) : null
-                  const bu  = isPrep ? (item.baseUnit ?? deriveBaseUnit(qu, pu)) : deriveBaseUnit(qu, pu, parseFloat(editForm.packSize) || 0)
+                  const pp     = parseFloat(editForm.purchasePrice) || 0
+                  const qty    = parseFloat(editForm.qtyPerPurchaseUnit) || 1
+                  const rawPs  = parseFloat(editForm.packSize) || 0
+                  const hasWpe = rawPs > 0
+                  const ps     = hasWpe ? rawPs : 1                       // 1 for math (avoid ÷0)
+                  const pu     = hasWpe ? editForm.packUOM : 'each'       // 'each' when no weight
+                  const cu     = editForm.countUOM
+                  const qu     = editForm.qtyUOM ?? 'each'
+                  const iq     = editForm.innerQty ? parseFloat(editForm.innerQty) : null
+                  const bu     = isPrep ? (item.baseUnit ?? deriveBaseUnit(qu, pu)) : deriveBaseUnit(qu, pu, rawPs)
                   const ppbu = isPrep
                     ? parseFloat(String(item.pricePerBaseUnit ?? 0))
                     : calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, editForm.priceType === 'UOM' ? 'UOM' : 'CASE')
@@ -750,7 +757,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     ] : [
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage Area',   item.storageArea?.name || '—'],
-                      ['Purchase',       buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, Number(item.packSize ?? 1), item.packUOM ?? 'each')],
+                      ['Purchase',       buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, item.baseUnit === 'each' ? 0 : Number(item.packSize ?? 0), item.packUOM ?? 'each')],
                       ['Purchase Price', formatCurrency(parseFloat(String(item.purchasePrice)))],
                       ['Count UOM',      item.countUOM ?? 'each'],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),

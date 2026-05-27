@@ -47,9 +47,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const pp    = parseFloat(purchasePrice)  || 0
   const qty   = parseFloat(qtyPerPurchaseUnit) || 1
   const rawPs = parseFloat(packSize)  // NaN when blank
-  const ps    = rawPs > 0 ? rawPs : 1  // default 1 for price math (avoid ÷0)
-  const pu    = packUOM  ?? 'each'
-  const cu    = countUOM ?? 'each'
+  const hasWeightPerEach = rawPs > 0
+  const ps    = hasWeightPerEach ? rawPs : 1  // default 1 for price math (avoid ÷0)
+  // When no weight-per-each was entered, normalize packUOM to 'each' so the data
+  // is unambiguous downstream (buildPurchaseDescription, getCountableUoms, etc.)
+  const pu    = hasWeightPerEach ? (packUOM ?? 'each') : 'each'
+  const cu    = hasWeightPerEach ? (countUOM ?? 'each') : 'each'
   const qu    = qtyUOM ?? 'each'
   const iq    = innerQty != null ? Number(innerQty) : null
   const existingPriceType = (before?.priceType === 'UOM' ? 'UOM' : 'CASE') as 'CASE' | 'UOM'
@@ -58,8 +61,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // Save using standard purchase formula first
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
-  // Pass rawPs so deriveBaseUnit returns 'each' when no weight-per-each was entered
-  const baseUnit         = deriveBaseUnit(qu, pu, rawPs > 0 ? rawPs : 0)
+  const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
 
   await prisma.inventoryItem.update({
     where: { id: params.id },

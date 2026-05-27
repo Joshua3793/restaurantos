@@ -101,15 +101,17 @@ export async function POST(req: NextRequest) {
   const pp    = parseFloat(purchasePrice)
   const qty   = parseFloat(qtyPerPurchaseUnit)
   const rawPs = parseFloat(packSize ?? '')
-  const ps    = rawPs > 0 ? rawPs : 1
-  const pu    = packUOM  ?? 'each'
-  const cu    = countUOM ?? 'each'
+  const hasWeightPerEach = rawPs > 0
+  const ps    = hasWeightPerEach ? rawPs : 1
+  // Force packUOM/countUOM to 'each' when no weight-per-each entered
+  const pu    = hasWeightPerEach ? (packUOM ?? 'each') : 'each'
+  const cu    = hasWeightPerEach ? (countUOM ?? 'each') : 'each'
   const qu    = qtyUOM ?? 'each'
   const iq    = innerQty != null ? Number(innerQty) : null
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
-  const baseUnit         = deriveBaseUnit(qu, pu, rawPs > 0 ? rawPs : 0)
+  const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,

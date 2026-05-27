@@ -87,21 +87,25 @@ function computeAutoPercents(
   baseIngId: string
 ): Record<string, number | null> {
   const base = ingredients.find(i => i.id === baseIngId)
-  if (!base) return {}
-  const toGrams = (qty: number, unit: string): number | null => {
+  if (!base) {
+    console.warn('[baker%] base ingredient not found in list, id=', baseIngId, 'ids=', ingredients.map(i => i.id))
+    return {}
+  }
+  const toGrams = (qty: number, unit: string | null | undefined): number | null => {
+    if (!unit) return null
     const group = getUnitGroup(unit)
     if (group === 'Weight') return convertQty(qty, unit, 'g')
     if (group === 'Volume') return convertQty(qty, unit, 'ml') // 1 ml ≈ 1 g
     return null
   }
   const baseGrams = toGrams(Number(base.qtyBase), base.unit)
+  console.log('[baker%] base=', base.ingredientName, 'unit=', JSON.stringify(base.unit), 'qtyBase=', base.qtyBase, 'baseGrams=', baseGrams)
   if (baseGrams === null || baseGrams <= 0) return {}
   return Object.fromEntries(
     ingredients.map(ing => {
       if (ing.id === baseIngId) return [ing.id, 100]
       const grams = toGrams(Number(ing.qtyBase), ing.unit)
-      if (grams === null) return [ing.id, null]
-      return [ing.id, Math.round((grams / baseGrams) * 1000) / 10]
+      return [ing.id, grams === null ? null : Math.round((grams / baseGrams) * 1000) / 10]
     })
   )
 }
