@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prep List — Redesign Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            gold: '#B8960C',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
+    .tab-active { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .pill { transition: all 0.15s; cursor: pointer; user-select: none; }
+    .pill:active { transform: scale(0.95); }
+    .row-enter { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    .progress-bar { transition: width 0.4s ease; }
+    .section-collapse { overflow: hidden; transition: max-height 0.3s ease; }
+    .btn-action { transition: all 0.15s; }
+    .btn-action:active { transform: scale(0.95); }
+    ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<div class="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col">
+
+  <!-- ── Header ── -->
+  <div class="bg-white border-b border-gray-100 px-4 pt-5 pb-3 sticky top-0 z-20">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h1 class="text-lg font-bold text-gray-900 flex items-center gap-1.5">
+          <span>🍳</span> Prep List
+        </h1>
+        <p class="text-xs text-gray-400">Monday, 26 May 2026</p>
+      </div>
+      <div class="flex gap-1.5">
+        <button class="p-2 rounded-lg border border-gray-200 text-gray-500 text-sm">⚙</button>
+        <button onclick="showAddItem()" class="p-2 rounded-lg bg-amber-500 text-white text-sm font-bold">+</button>
+      </div>
+    </div>
+    <!-- Tabs -->
+    <div class="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+      <button onclick="switchTab('today')" id="tab-today" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-colors tab-active text-gray-800">
+        Today
+        <span id="today-badge" class="ml-1 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">3</span>
+      </button>
+      <button onclick="switchTab('smartprep')" id="tab-smartprep" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-colors text-gray-500">
+        Smart Prep
+        <span id="smartprep-badge" class="ml-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">2</span>
+      </button>
+      <button onclick="switchTab('history')" id="tab-history" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-colors text-gray-500">
+        History
+      </button>
+    </div>
+  </div>
+
+  <!-- ── TODAY TAB ── -->
+  <div id="view-today" class="flex-1 px-3 py-3 space-y-2">
+
+    <!-- KPI strip -->
+    <div class="grid grid-cols-4 gap-2">
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+        <div class="text-lg font-bold text-gray-800" id="kpi-total">5</div>
+        <div class="text-[10px] text-gray-400">Total</div>
+      </div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+        <div class="text-lg font-bold text-amber-500" id="kpi-pending">3</div>
+        <div class="text-[10px] text-gray-400">Pending</div>
+      </div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+        <div class="text-lg font-bold text-green-600" id="kpi-done">1</div>
+        <div class="text-[10px] text-gray-400">Done</div>
+      </div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+        <div class="text-lg font-bold text-gray-400" id="kpi-skipped">1</div>
+        <div class="text-[10px] text-gray-400">Skipped</div>
+      </div>
+    </div>
+
+    <!-- Priority change suggestion banner -->
+    <div id="priority-alert" class="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2.5 flex items-start gap-2">
+      <span class="text-orange-500 mt-0.5 shrink-0">⚠</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-xs font-semibold text-orange-800">Stock changed since scheduling</p>
+        <p class="text-xs text-orange-600 mt-0.5"><strong>Hollandaise</strong> was Needed Today — theoretical stock now at 0. Consider upgrading priority.</p>
+      </div>
+      <button onclick="dismissAlert()" class="text-orange-400 hover:text-orange-600 text-xs shrink-0">✕</button>
+    </div>
+
+    <!-- Today list -->
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden" id="today-list">
+
+      <!-- Item: Hollandaise — In Progress, Critical (system changed) -->
+      <div id="today-hollandaise" class="border-b border-gray-50 border-l-4 border-l-red-500 bg-red-50/30">
+        <div class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">Critical</span>
+            <span class="text-sm font-semibold text-gray-800 flex-1">Hollandaise</span>
+            <span class="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block"></span> In Progress
+            </span>
+          </div>
+          <div class="mt-1.5 pl-0">
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-red-400 rounded-full" style="width:0%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0">0 / 8 L</span>
+            </div>
+            <p class="text-xs text-red-600 font-medium">Make 8 L — stock depleted</p>
+          </div>
+          <div class="flex gap-1.5 mt-2">
+            <button onclick="markDone('hollandaise')" class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100">✓ Done</button>
+            <button onclick="markPartial('hollandaise')" class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100">◐ Partial</button>
+            <button onclick="skipItem('hollandaise')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50" title="Remove from list">Skip</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item: Biscuits — Not Started, Needed Today -->
+      <div id="today-biscuits" class="border-b border-gray-50 border-l-4 border-l-orange-400 bg-orange-50/20">
+        <div class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 shrink-0">Needed Today</span>
+            <span class="text-sm font-semibold text-gray-800 flex-1">Biscuits</span>
+            <span class="text-[10px] text-gray-400">Not started</span>
+          </div>
+          <div class="mt-1.5">
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-orange-400 rounded-full" style="width:40%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0">20 / 50 kg</span>
+            </div>
+            <p class="text-xs text-orange-600 font-medium">Make 30 kg — below par</p>
+          </div>
+          <div class="flex gap-1.5 mt-2">
+            <button onclick="markStart('biscuits')" class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">▶ Start</button>
+            <button onclick="markDone('biscuits')" class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100">✓ Done</button>
+            <button onclick="skipItem('biscuits')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50">Skip</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item: Caesar Dressing — Not Started, Needed Today (manually set Critical) -->
+      <div id="today-caesar" class="border-b border-gray-50 border-l-4 border-l-red-500 bg-red-50/20">
+        <div class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">Critical</span>
+            <span class="text-sm font-semibold text-gray-800 flex-1">Caesar Dressing</span>
+            <span class="text-[10px] text-gray-400 flex items-center gap-1">
+              <span class="text-amber-500">✎</span> Manual
+            </span>
+          </div>
+          <div class="mt-1.5">
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-orange-400 rounded-full" style="width:20%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0">2 / 10 L</span>
+            </div>
+            <p class="text-xs text-orange-600 font-medium">Make 8 L — event tonight, manually flagged critical</p>
+          </div>
+          <div class="flex gap-1.5 mt-2">
+            <button onclick="markStart('caesar')" class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">▶ Start</button>
+            <button onclick="markDone('caesar')" class="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100">✓ Done</button>
+            <button onclick="skipItem('caesar')" class="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50">Skip</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item: Burger Sauce — Done -->
+      <div id="today-burgersauce" class="border-b border-gray-50 border-l-4 border-l-green-500 bg-green-50/40 opacity-70">
+        <div class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-green-600 flex items-center justify-center shrink-0">
+              <span class="text-white text-[10px] font-bold">✓</span>
+            </span>
+            <span class="text-sm font-semibold text-green-900 flex-1 line-through">Burger Sauce</span>
+            <span class="text-xs text-green-700 font-semibold">Done — 5 L</span>
+          </div>
+          <div class="mt-1 pl-7">
+            <span class="text-xs text-green-600">Completed this session</span>
+          </div>
+          <div class="flex gap-1.5 mt-2 pl-7">
+            <button onclick="resetItem('burgersauce')" class="btn-action px-3 py-1 rounded-lg text-xs text-green-600 border border-green-200 hover:bg-green-100">↩ Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item: Tzatziki — Skipped -->
+      <div id="today-tzatziki" class="border-l-4 border-l-gray-200 opacity-50">
+        <div class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-400 flex-1 line-through">Tzatziki</span>
+            <span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Removed from list</span>
+          </div>
+          <div class="flex gap-1.5 mt-1.5">
+            <button onclick="restoreItem('tzatziki')" class="btn-action px-3 py-1 rounded-lg text-xs text-gray-500 border border-gray-200 hover:bg-gray-100">↩ Restore to list</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="text-center text-xs text-gray-400 py-2">This list carries over each day — items stay until marked done or removed.</p>
+  </div>
+
+  <!-- ── SMART PREP TAB ── -->
+  <div id="view-smartprep" class="flex-1 px-3 py-3 space-y-3 hidden">
+
+    <div class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+      <p class="text-xs text-amber-800 font-medium">📊 Based on theoretical stock from sales, wastage &amp; invoices. Reset at each stock count.</p>
+    </div>
+
+    <!-- CRITICAL SECTION -->
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div class="px-3 py-2.5 bg-red-50 border-b border-red-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
+          <span class="text-xs font-bold text-red-700 uppercase tracking-wide">Critical</span>
+          <span class="text-xs text-red-500">Stock depleted</span>
+        </div>
+        <button onclick="addAllSection('critical')" class="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-full transition-colors">Add All</button>
+      </div>
+
+      <!-- Critical item: Focaccia -->
+      <div id="sp-focaccia" class="px-3 py-3 border-b border-gray-50">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-semibold text-gray-800">Focaccia</span>
+              <span class="text-[10px] text-gray-400">Bakery</span>
+            </div>
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-red-400 rounded-full" style="width:0%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0 font-medium">0 / 20 loaves</span>
+            </div>
+            <p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 20 loaves</p>
+            <!-- Priority pills -->
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-gray-400">Override:</span>
+              <button onclick="setPriority('focaccia','critical')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300" id="pill-focaccia-critical">Critical</button>
+              <button onclick="setPriority('focaccia','needed')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-focaccia-needed">Needed Today</button>
+              <button onclick="setPriority('focaccia','later')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-focaccia-later">Later</button>
+            </div>
+          </div>
+          <button onclick="addToList('focaccia')" id="add-focaccia" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 mt-1">+ Add</button>
+        </div>
+      </div>
+
+      <!-- Critical item: Aioli -->
+      <div id="sp-aioli" class="px-3 py-3">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-semibold text-gray-800">Aioli</span>
+              <span class="text-[10px] text-gray-400">Sauce</span>
+            </div>
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-red-400 rounded-full" style="width:0%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0 font-medium">0 / 4 kg</span>
+            </div>
+            <p class="text-xs text-red-600 font-semibold mb-2">System suggests → Make 4 kg</p>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-gray-400">Override:</span>
+              <button onclick="setPriority('aioli','critical')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300" id="pill-aioli-critical">Critical</button>
+              <button onclick="setPriority('aioli','needed')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-aioli-needed">Needed Today</button>
+              <button onclick="setPriority('aioli','later')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-aioli-later">Later</button>
+            </div>
+          </div>
+          <button onclick="addToList('aioli')" id="add-aioli" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 mt-1">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEEDED TODAY SECTION -->
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div class="px-3 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-orange-400 shrink-0"></span>
+          <span class="text-xs font-bold text-orange-700 uppercase tracking-wide">Needed Today</span>
+          <span class="text-xs text-orange-500">Below par level</span>
+        </div>
+        <button onclick="addAllSection('needed')" class="text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 px-3 py-1 rounded-full transition-colors">Add All</button>
+      </div>
+
+      <!-- Needed Today: Chimichurri -->
+      <div id="sp-chimichurri" class="px-3 py-3 border-b border-gray-50">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-semibold text-gray-800">Chimichurri</span>
+              <span class="text-[10px] text-gray-400">Sauce</span>
+            </div>
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-orange-400 rounded-full" style="width:35%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0 font-medium">3.5 / 10 L</span>
+            </div>
+            <p class="text-xs text-orange-600 font-semibold mb-2">System suggests → Make 6.5 L</p>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-gray-400">Override:</span>
+              <button onclick="setPriority('chimichurri','critical')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-chimichurri-critical">Critical</button>
+              <button onclick="setPriority('chimichurri','needed')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300" id="pill-chimichurri-needed">Needed Today</button>
+              <button onclick="setPriority('chimichurri','later')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-chimichurri-later">Later</button>
+            </div>
+          </div>
+          <button onclick="addToList('chimichurri')" id="add-chimichurri" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 mt-1">+ Add</button>
+        </div>
+      </div>
+
+      <!-- Needed Today: Tzatziki — manually set to Later -->
+      <div id="sp-tzatziki2" class="px-3 py-3">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-semibold text-gray-800">Tzatziki</span>
+              <span class="text-[10px] text-gray-400">Sauce</span>
+              <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">✎ Overridden</span>
+            </div>
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="progress-bar h-full bg-orange-400 rounded-full" style="width:25%"></div>
+              </div>
+              <span class="text-[11px] text-gray-500 shrink-0 font-medium">2 / 8 kg</span>
+            </div>
+            <p class="text-xs text-gray-400 mb-2 line-through">System suggests → Make 6 kg</p>
+            <p class="text-xs text-gray-500 mb-2">Chef override: Later</p>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-gray-400">Override:</span>
+              <button onclick="setPriority('tzatziki2','critical')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-tzatziki2-critical">Critical</button>
+              <button onclick="setPriority('tzatziki2','needed')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200" id="pill-tzatziki2-needed">Needed Today</button>
+              <button onclick="setPriority('tzatziki2','later')" class="pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300" id="pill-tzatziki2-later">Later</button>
+            </div>
+          </div>
+          <button onclick="addToList('tzatziki2')" id="add-tzatziki2" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 mt-1">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOOKING GOOD SECTION (collapsible) -->
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <button onclick="toggleLookingGood()" class="w-full px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span>
+          <span class="text-xs font-bold text-gray-500 uppercase tracking-wide">Looking Good</span>
+          <span class="text-xs text-gray-400">At or above par</span>
+          <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">3</span>
+        </div>
+        <span id="lookinggood-arrow" class="text-gray-400 text-sm">▸</span>
+      </button>
+      <div id="lookinggood-body" class="hidden">
+        <div class="px-3 py-2.5 border-b border-gray-50 text-xs text-gray-400 italic">
+          These items are at or above par. Add manually if you have an event or know something the system doesn't.
+        </div>
+
+        <!-- At par: Garlic Butter -->
+        <div class="px-3 py-3 border-b border-gray-50">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-semibold text-gray-700">Garlic Butter</span>
+                <span class="text-[10px] text-gray-400">Sauce</span>
+              </div>
+              <div class="flex items-center gap-2 mb-1">
+                <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div class="progress-bar h-full bg-green-400 rounded-full" style="width:100%"></div>
+                </div>
+                <span class="text-[11px] text-gray-500 shrink-0 font-medium">5 / 5 kg</span>
+              </div>
+              <p class="text-xs text-green-600 font-medium">At par — no action needed</p>
+            </div>
+            <button onclick="addToList('garlicbutter')" id="add-garlicbutter" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 mt-1">+ Add</button>
+          </div>
+        </div>
+
+        <!-- Above par: Bechamel -->
+        <div class="px-3 py-3 border-b border-gray-50">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-semibold text-gray-700">Bechamel</span>
+                <span class="text-[10px] text-gray-400">Sauce</span>
+              </div>
+              <div class="flex items-center gap-2 mb-1">
+                <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div class="progress-bar h-full bg-green-500 rounded-full" style="width:130%;max-width:100%"></div>
+                </div>
+                <span class="text-[11px] text-gray-500 shrink-0 font-medium">13 / 10 L</span>
+              </div>
+              <p class="text-xs text-green-700 font-medium">Above par — well stocked</p>
+            </div>
+            <button onclick="addToList('bechamel')" id="add-bechamel" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 mt-1">+ Add</button>
+          </div>
+        </div>
+
+        <!-- At par: Vinaigrette -->
+        <div class="px-3 py-3">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-semibold text-gray-700">Vinaigrette</span>
+                <span class="text-[10px] text-gray-400">Dressing</span>
+              </div>
+              <div class="flex items-center gap-2 mb-1">
+                <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div class="progress-bar h-full bg-green-400 rounded-full" style="width:80%"></div>
+                </div>
+                <span class="text-[11px] text-gray-500 shrink-0 font-medium">4 / 5 L</span>
+              </div>
+              <p class="text-xs text-green-600 font-medium">Close to par — looking fine</p>
+            </div>
+            <button onclick="addToList('vinaigrette')" id="add-vinaigrette" class="btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 mt-1">+ Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HISTORY TAB ── -->
+  <div id="view-history" class="flex-1 px-3 py-3 hidden">
+    <div class="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 mb-3">
+      <span class="text-gray-400">📅</span>
+      <input type="date" value="2026-05-25" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm flex-1 focus:outline-none" />
+    </div>
+    <div class="grid grid-cols-4 gap-2 mb-3">
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-gray-800">7</div><div class="text-[10px] text-gray-400">Total</div></div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-green-600">5</div><div class="text-[10px] text-gray-400">Done</div></div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-amber-500">1</div><div class="text-[10px] text-gray-400">Partial</div></div>
+      <div class="bg-white rounded-xl p-2.5 text-center border border-gray-100"><div class="text-lg font-bold text-gray-400">1</div><div class="text-[10px] text-gray-400">Skipped</div></div>
+    </div>
+    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div class="px-4 py-2 bg-gray-50 border-b border-gray-100">
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sunday 25 May</span>
+      </div>
+      <div class="divide-y divide-gray-50">
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Hollandaise</div><span class="text-sm text-gray-600 font-medium">8 L</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Biscuits</div><span class="text-sm text-gray-600 font-medium">40 kg</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Caesar Dressing</div><span class="text-sm text-gray-600 font-medium">6 L</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">Partial</span></div>
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Chimichurri</div><span class="text-sm text-gray-600 font-medium">10 L</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Aioli</div><span class="text-sm text-gray-600 font-medium">4 kg</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Focaccia</div><span class="text-sm text-gray-600 font-medium">18 loaves</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Done</span></div>
+        <div class="px-4 py-3 flex items-center gap-3"><div class="flex-1 text-sm font-medium text-gray-800">Tzatziki</div><span class="text-sm text-gray-500">—</span><span class="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">Skipped</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast notification -->
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-medium px-4 py-2.5 rounded-full opacity-0 transition-opacity duration-200 z-50 pointer-events-none whitespace-nowrap"></div>
+
+<script>
+  // ── State ──
+  const addedItems = new Set()
+  let alertDismissed = false
+
+  // ── Tab switching ──
+  function switchTab(tab) {
+    ['today','smartprep','history'].forEach(t => {
+      document.getElementById(`view-${t}`).classList.add('hidden')
+      const btn = document.getElementById(`tab-${t}`)
+      btn.classList.remove('tab-active','text-gray-800')
+      btn.classList.add('text-gray-500')
+    })
+    document.getElementById(`view-${tab}`).classList.remove('hidden')
+    const active = document.getElementById(`tab-${tab}`)
+    active.classList.add('tab-active','text-gray-800')
+    active.classList.remove('text-gray-500')
+    updateKpis()
+  }
+
+  // ── KPI update ──
+  function updateKpis() {
+    const rows = document.querySelectorAll('#today-list > div:not(.hidden)')
+    const done = document.querySelectorAll('#today-list > div [class*="line-through"]').length
+    const skipped = document.querySelectorAll('#today-list > div [class*="opacity-50"]').length
+    document.getElementById('kpi-total').textContent = rows.length
+    document.getElementById('kpi-done').textContent = done
+    document.getElementById('kpi-pending').textContent = Math.max(0, rows.length - done - skipped)
+    document.getElementById('kpi-skipped').textContent = skipped
+  }
+
+  // ── Today actions ──
+  function markDone(id) {
+    const row = document.getElementById(`today-${id}`)
+    if (!row) return
+    row.className = 'border-b border-gray-50 border-l-4 border-l-green-500 bg-green-50/40 opacity-70'
+    row.innerHTML = `
+      <div class="px-3 py-2.5">
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-green-600 flex items-center justify-center shrink-0"><span class="text-white text-[10px] font-bold">✓</span></span>
+          <span class="text-sm font-semibold text-green-900 flex-1 line-through">${id.charAt(0).toUpperCase()+id.slice(1).replace(/([A-Z])/g,' $1')}</span>
+          <span class="text-xs text-green-700 font-semibold">Done</span>
+        </div>
+        <div class="mt-1 pl-7 flex gap-1.5">
+          <button onclick="resetItem('${id}')" class="btn-action px-3 py-1 rounded-lg text-xs text-green-600 border border-green-200 hover:bg-green-100">↩ Reset</button>
+        </div>
+      </div>`
+    showToast('Marked as Done ✓')
+    updateKpis()
+  }
+
+  function markStart(id) {
+    const row = document.getElementById(`today-${id}`)
+    if (!row) { return }
+    const badge = row.querySelector('[class*="Not started"]') || row.querySelector('span.text-gray-400')
+    if (badge) { badge.textContent = '' }
+    const statusSpan = row.querySelector('.text-\\[10px\\].text-gray-400')
+    if (statusSpan) {
+      statusSpan.className = 'text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1'
+      statusSpan.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block"></span> In Progress'
+    }
+    const startBtn = row.querySelector('button[onclick*="markStart"]')
+    if (startBtn) startBtn.remove()
+    showToast('Started ▶')
+  }
+
+  function markPartial(id) {
+    const row = document.getElementById(`today-${id}`)
+    if (!row) return
+    row.className = 'border-b border-gray-50 border-l-4 border-l-yellow-400 bg-yellow-50/40 opacity-70'
+    row.innerHTML = `
+      <div class="px-3 py-2.5">
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-yellow-500 flex items-center justify-center shrink-0"><span class="text-white text-[10px] font-bold">◐</span></span>
+          <span class="text-sm font-semibold text-yellow-900 flex-1">Hollandaise</span>
+          <span class="text-xs text-yellow-700 font-semibold">Partial</span>
+        </div>
+        <div class="mt-1 pl-7 flex gap-1.5">
+          <button onclick="resetItem('${id}')" class="btn-action px-3 py-1 rounded-lg text-xs text-yellow-600 border border-yellow-200 hover:bg-yellow-100">↩ Reset</button>
+        </div>
+      </div>`
+    showToast('Marked as Partial ◐')
+    updateKpis()
+  }
+
+  function skipItem(id) {
+    const row = document.getElementById(`today-${id}`)
+    if (!row) return
+    const nameEl = row.querySelector('.text-sm.font-semibold')
+    const name = nameEl ? nameEl.textContent.trim() : id
+    row.className = 'border-l-4 border-l-gray-200 opacity-50'
+    row.innerHTML = `
+      <div class="px-3 py-2.5">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-gray-400 flex-1 line-through">${name}</span>
+          <span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Removed from list</span>
+        </div>
+        <div class="flex gap-1.5 mt-1.5">
+          <button onclick="restoreItem('${id}')" class="btn-action px-3 py-1 rounded-lg text-xs text-gray-500 border border-gray-200 hover:bg-gray-100">↩ Restore to list</button>
+        </div>
+      </div>`
+    showToast('Removed from list')
+    updateKpis()
+  }
+
+  function restoreItem(id) {
+    showToast('Restored to list ↩')
+    updateKpis()
+  }
+
+  function resetItem(id) {
+    showToast('Reset to Not Started')
+    updateKpis()
+  }
+
+  function dismissAlert() {
+    document.getElementById('priority-alert').style.display = 'none'
+  }
+
+  // ── Smart Prep actions ──
+  function addToList(id) {
+    const btn = document.getElementById(`add-${id}`)
+    if (!btn) return
+    if (addedItems.has(id)) {
+      addedItems.delete(id)
+      btn.textContent = '+ Add'
+      btn.className = 'btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-white hover:bg-gray-700 mt-1'
+      showToast('Removed from Today list')
+    } else {
+      addedItems.add(id)
+      btn.textContent = '✓ Added'
+      btn.className = 'btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1'
+      showToast('Added to Today list ✓')
+    }
+    updateSmartPrepBadge()
+  }
+
+  function addAllSection(section) {
+    const ids = section === 'critical' ? ['focaccia','aioli'] : ['chimichurri','tzatziki2']
+    let added = 0
+    ids.forEach(id => {
+      if (!addedItems.has(id)) {
+        addedItems.add(id)
+        const btn = document.getElementById(`add-${id}`)
+        if (btn) {
+          btn.textContent = '✓ Added'
+          btn.className = 'btn-action shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-600 text-white mt-1'
+        }
+        added++
+      }
+    })
+    showToast(`Added ${added} item${added !== 1 ? 's' : ''} to Today ✓`)
+    updateSmartPrepBadge()
+  }
+
+  function setPriority(itemId, level) {
+    const levels = ['critical','needed','later']
+    const activeClasses = {
+      critical: 'pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-red-100 text-red-700 border-red-300',
+      needed:   'pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-orange-100 text-orange-700 border-orange-300',
+      later:    'pill text-[10px] px-2.5 py-1 rounded-full border font-semibold bg-gray-100 text-gray-600 border-gray-300',
+    }
+    const inactiveClass = 'pill text-[10px] px-2.5 py-1 rounded-full border font-medium bg-white text-gray-400 border-gray-200'
+    levels.forEach(l => {
+      const btn = document.getElementById(`pill-${itemId}-${l}`)
+      if (btn) btn.className = l === level ? activeClasses[l] : inactiveClass
+    })
+    showToast(`Priority set to ${level === 'critical' ? 'Critical' : level === 'needed' ? 'Needed Today' : 'Later'}`)
+  }
+
+  function toggleLookingGood() {
+    const body = document.getElementById('lookinggood-body')
+    const arrow = document.getElementById('lookinggood-arrow')
+    body.classList.toggle('hidden')
+    arrow.textContent = body.classList.contains('hidden') ? '▸' : '▾'
+  }
+
+  function updateSmartPrepBadge() {
+    const badge = document.getElementById('smartprep-badge')
+    const remaining = 4 - addedItems.size
+    if (remaining <= 0) { badge.style.display = 'none' }
+    else { badge.style.display = ''; badge.textContent = remaining }
+  }
+
+  function showAddItem() { showToast('Add Item form would open here') }
+
+  // ── Toast ──
+  function showToast(msg) {
+    const t = document.getElementById('toast')
+    t.textContent = msg
+    t.style.opacity = '1'
+    clearTimeout(window._toastTimer)
+    window._toastTimer = setTimeout(() => { t.style.opacity = '0' }, 2000)
+  }
+</script>
+</body>
+</html>
