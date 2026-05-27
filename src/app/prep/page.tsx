@@ -467,7 +467,7 @@ export default function PrepPage() {
       <div className="px-4 py-4 border-b border-gray-50 last:border-0">
         {/* Name row */}
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div>
+          <button onClick={() => setSelected(item)} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-sm font-semibold text-gray-800">{item.name}</span>
               {item.manualPriorityOverride && (
@@ -480,7 +480,7 @@ export default function PrepPage() {
                 <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{item.station}</span>
               )}
             </div>
-          </div>
+          </button>
           <button
             onClick={() => handleToggleOnList(item.id, !isAdded)}
             className={`btn-action shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
@@ -564,7 +564,7 @@ export default function PrepPage() {
     return (
       <div className={`grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-5 py-3.5 border-b border-gray-50 border-l-4 ${borderColor} ${hoverBg} transition-colors`}>
         <span className={`w-2 h-2 rounded-full ${dotColor} inline-block shrink-0`} />
-        <div>
+        <button onClick={() => setSelected(item)} className="text-left hover:opacity-80 transition-opacity min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-semibold text-gray-800">{item.name}</span>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeStyles[item.priority]}`}>{labels[item.priority]}</span>
@@ -578,7 +578,7 @@ export default function PrepPage() {
               : item.priority === 'LATER' ? 'At or above par' : 'Chef override active'
             }
           </div>
-        </div>
+        </button>
         <div>
           <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div className={`h-full rounded-full ${dotColor}`} style={{ width: `${stockPct}%` }} />
