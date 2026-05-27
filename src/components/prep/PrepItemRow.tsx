@@ -144,7 +144,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
     })()
 
     return (
-      <div className={`px-3 py-2.5 border-b border-gray-50 transition-all ${frame.border} ${frame.bg} ${isAtPar && !logStatus ? 'opacity-40 hover:opacity-100' : ''} ${logStatus === 'DONE' || logStatus === 'SKIPPED' ? 'opacity-60' : ''}`}>
+      <div className={`px-3 py-2.5 border-b border-gray-50 transition-all ${frame.border} ${frame.bg} ${logStatus === 'DONE' || logStatus === 'SKIPPED' ? 'opacity-60' : ''}`}>
 
         {/* Row 1: toggle + name + arrow */}
         <div className="flex items-center gap-2">
