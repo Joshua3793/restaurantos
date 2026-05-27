@@ -5,17 +5,42 @@ import { NextResponse, type NextRequest } from 'next/server'
 const PUBLIC_PREFIXES = ['/login', '/auth']
 
 // Routes that require ADMIN role
-const ADMIN_PREFIXES = ['/settings']
+const ADMIN_PREFIXES = ['/settings', '/setup']
 
 // Routes that require MANAGER or ADMIN role
-const MANAGER_PREFIXES = ['/reports']
+const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals']
+
+// v2 redesign: 301 redirects from old URLs to new IA.
+// Order: longest match first.
+const REDIRECTS: Array<[string, string]> = [
+  ['/inventory/count',         '/count'],
+  ['/inventory/storage-areas', '/setup/storage-areas'],
+  ['/inventory/categories',    '/setup/categories'],
+  ['/revenue-centers',         '/setup/revenue-centers'],
+  ['/suppliers',               '/setup/suppliers'],
+  ['/settings/users',          '/setup/users'],
+  ['/settings/revenue-centers','/setup/revenue-centers'],
+  ['/settings',                '/setup'],
+  ['/reports/theoretical-usage','/variance'],
+  ['/reports/signals',         '/signals'],
+  ['/reports',                 '/cost'],
+]
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { pathname, search } = request.nextUrl
 
   // Always allow public routes
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next()
+  }
+
+  // v2 IA redirects — fire BEFORE auth so external bookmarks land in the right place,
+  // then the new URL goes through auth as usual.
+  for (const [from, to] of REDIRECTS) {
+    if (pathname === from || pathname.startsWith(from + '/')) {
+      const rest = pathname.slice(from.length)
+      return NextResponse.redirect(new URL(to + rest + search, request.url), 308)
+    }
   }
 
   let response = NextResponse.next({ request })

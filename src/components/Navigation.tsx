@@ -33,9 +33,9 @@ const navGroups: NavGroup[] = [
   {
     label: 'TODAY',
     items: [
-      { href: '/',      label: 'Pass',  icon: Sun,          exact: true },
+      { href: '/pass',  label: 'Pass',  icon: Sun },
       { href: '/prep',  label: 'Prep',  icon: ChefHat },
-      { href: '/inventory/count', label: 'Count', icon: ClipboardList },
+      { href: '/count', label: 'Count', icon: ClipboardList },
     ],
   },
   {
@@ -55,9 +55,9 @@ const navGroups: NavGroup[] = [
   {
     label: 'INSIGHTS',
     items: [
-      { href: '/reports',                   label: 'Cost',     icon: BarChart3, exact: true },
-      { href: '/reports/theoretical-usage', label: 'Variance', icon: Activity },
-      { href: '/reports/signals',           label: 'Signals',  icon: Zap },
+      { href: '/cost',     label: 'Cost',     icon: BarChart3 },
+      { href: '/variance', label: 'Variance', icon: Activity },
+      { href: '/signals',  label: 'Signals',  icon: Zap },
       { href: '/sales',                     label: 'Sales',    icon: ShoppingBag },
       { href: '/wastage',                   label: 'Wastage',  icon: Trash2 },
     ],
@@ -65,18 +65,18 @@ const navGroups: NavGroup[] = [
 ]
 
 const setupItems: NavItem[] = [
-  { href: '/suppliers',       label: 'Suppliers',        icon: Truck },
-  { href: '/revenue-centers', label: 'Revenue centers',  icon: Building2 },
-  { href: '/settings',        label: 'Settings',         icon: Settings, adminOnly: true },
+  { href: '/setup',                label: 'Setup',           icon: Settings, exact: true, adminOnly: true },
+  { href: '/setup/suppliers',      label: 'Suppliers',       icon: Truck },
+  { href: '/setup/revenue-centers',label: 'Revenue centers', icon: Building2 },
 ]
 
 // Mobile bottom tabs — 2 left, center Pages button, 2 right
 const mobileLeft: NavItem[] = [
-  { href: '/',     label: 'Pass', icon: Sun,    exact: true },
+  { href: '/pass', label: 'Pass', icon: Sun },
   { href: '/prep', label: 'Prep', icon: ChefHat },
 ]
 const mobileRight: NavItem[] = [
-  { href: '/inventory/count', label: 'Count', icon: ClipboardList },
+  { href: '/count', label: 'Count', icon: ClipboardList },
   { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
 ]
 

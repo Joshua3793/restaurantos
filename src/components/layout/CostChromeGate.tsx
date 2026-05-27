@@ -13,11 +13,9 @@ const SPINE_ROUTES = [
   '/prep',
   '/count',
   '/inventory',
-  '/inventory/count',
   '/recipes',
   '/menu',
   '/invoices',
-  '/reports',
   '/cost',
   '/variance',
   '/signals',
@@ -29,10 +27,7 @@ const HIDDEN_PREFIXES = [
   '/login',
   '/auth',
   '/setup',
-  '/settings',
-  '/suppliers',
-  '/revenue-centers',
-  '/storage-areas',
+  '/settings', // legacy; middleware redirects but cover it just in case
 ]
 
 export function CostChromeGate() {
