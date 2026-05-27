@@ -5,22 +5,34 @@
 /* ── Brand design tokens ───────────────────────────────────────────────────── */
 :root {
   --background: #ffffff;
-  --foreground: #0f0f0f;
-  /* Gold: 201 168 76 = #c9a84c — used via Tailwind as rgb(var(--gold) / alpha) */
-  --gold: 201 168 76;
-  --gold-hex: #c9a84c;
-  --gold-dark: #a88930;
+  --foreground: #09090b;
+  /* Gold — amber accent (Implementation.html §01) */
+  --gold: 217 119 6;        /* #d97706 as RGB for legacy rgb(var(--gold)/alpha) usage */
+  --gold-hex: #d97706;
+  --gold-dark: #b45309;     /* gold-2: text-safe amber on light backgrounds */
+  --gold-soft: #fef3c7;
+  /* Ink scale */
+  --ink: #09090b;
+  --ink-2: #27272a;
+  --ink-3: #71717a;
+  /* Borders */
+  --line: #e4e4e7;
+  --line-2: #d4d4d8;
+  /* Surfaces */
+  --bg: #fafaf9;
+  --bg-2: #f4f4f5;
   /* Override Tailwind's global focus ring → brand gold */
-  --tw-ring-color: rgb(201 168 76 / 0.45);
+  --tw-ring-color: rgb(217 119 6 / 0.45);
 }
 
 /* ── Base ──────────────────────────────────────────────────────────────────── */
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: var(--font-inter, 'Inter', system-ui, -apple-system, sans-serif);
+  font-family: var(--font-geist-sans, 'Geist', system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'ss01', 'cv11';
 }
 
 /* ── Scrollbar — subtle, premium ──────────────────────────────────────────── */
@@ -30,7 +42,7 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
 /* ── Selection color ───────────────────────────────────────────────────────── */
-::selection { background: rgb(201 168 76 / 0.2); }
+::selection { background: rgb(217 119 6 / 0.2); }
 
 /* ── Animations ────────────────────────────────────────────────────────────── */
 @keyframes slide-up {
@@ -57,6 +69,16 @@ body {
   .mobile-content-top {
     padding-top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
   }
+}
+
+/* ── Design system primitives (Implementation.html §04) ───────────────────── */
+@layer components {
+  /* Card surfaces */
+  .ui-card       { @apply bg-paper border border-line rounded-lg p-4; }
+  .ui-card-dense { @apply bg-paper border border-line rounded-md px-3 py-2.5; }
+  /* Type utilities */
+  .ui-label { @apply font-mono text-label uppercase tracking-[0.08em] text-ink-3; }
+  .ui-meta  { @apply font-mono text-[10.5px] text-ink-3; }
 }
 
 /* ── Text balance ──────────────────────────────────────────────────────────── */

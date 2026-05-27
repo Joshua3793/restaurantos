@@ -7,7 +7,7 @@ import { UOM_GROUPS, getUnitGroup, convertQty } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
-  Link2, Package, ExternalLink, Printer, Star,
+  Link2, Package, ExternalLink, Printer, Star, Share2,
 } from 'lucide-react'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
@@ -75,6 +75,7 @@ export interface Recipe {
   costPerPortion: number | null
   foodCostPct: number | null
   usedInCount?: number
+  usedInRecipes?: Array<{ id: string; name: string; type: string }>
   allergens?: string[]
   baseIngredientId: string | null
 }
@@ -1191,42 +1192,90 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
     <div className="fixed inset-0 z-[60] flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={handleClose} />
       <div className="w-full md:w-[640px] bg-white h-full overflow-y-auto flex flex-col shadow-2xl">
-        <div
-          className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10"
-          style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
-        >
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600"><ArrowLeft size={20} /></button>
-          <div className="flex-1 min-w-0">
-            <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-lg font-bold text-gray-900" />
-            <div className="flex items-center gap-2 mt-0.5">
+        <div className="sticky top-0 bg-white z-10">
+          {/* Title bar */}
+          <div
+            className="border-b border-gray-100 px-5 py-4 flex items-center gap-3"
+            style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+          >
+            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600"><ArrowLeft size={20} /></button>
+            <div className="flex-1 min-w-0">
+              <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-lg font-bold text-gray-900" />
+              <div className="flex items-center gap-2 mt-0.5">
+                {isMenu ? (
+                  <span className="text-xs text-gold bg-gold/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <UtensilsCrossed size={10} /> Menu
+                  </span>
+                ) : (
+                  <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <BookOpen size={10} /> Recipe
+                  </span>
+                )}
+                {recipe.inventoryItemId && (
+                  <a href={`/inventory?highlight=${recipe.inventoryItemId}`}
+                    className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full flex items-center gap-1 hover:bg-emerald-100 transition-colors"
+                    onClick={e => e.stopPropagation()}
+                    title="View in Inventory">
+                    <Link2 size={9} /> Synced to Inventory <ExternalLink size={8} />
+                  </a>
+                )}
+              </div>
+            </div>
+            {saving && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />}
+            <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}>
+              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+            <button onClick={() => setShowPrint(true)} title="Print recipe card"
+              className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
+              <Printer size={18} />
+            </button>
+          </div>
+
+          {/* Cost chrome strip */}
+          {recipe.totalCost > 0 && (
+            <div className="bg-gray-950 px-5 py-2.5 flex items-center gap-1 text-xs overflow-x-auto">
               {isMenu ? (
-                <span className="text-xs text-gold bg-gold/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <UtensilsCrossed size={10} /> Menu
-                </span>
+                <>
+                  <span className="text-gray-500 shrink-0">Cost</span>
+                  <span className="text-white font-semibold ml-1 shrink-0">{formatCurrency(recipe.totalCost)}</span>
+                  <span className="text-gray-700 mx-2 shrink-0">·</span>
+                  <span className="text-gray-500 shrink-0">Price</span>
+                  <span className="text-white font-semibold ml-1 shrink-0">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-gray-600 italic">unset</span>}</span>
+                  <span className="text-gray-700 mx-2 shrink-0">·</span>
+                  <span className="text-gray-500 shrink-0">Food cost</span>
+                  <span className={`font-bold ml-1 shrink-0 ${menuFoodCostPct !== null ? foodCostClass(menuFoodCostPct).replace('text-green-600', 'text-green-400').replace('text-red-600', 'text-red-400').replace('text-amber-500', 'text-amber-400') : 'text-gray-600'}`}>
+                    {menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}
+                  </span>
+                  {menuFoodCostPct !== null && (
+                    <div className="ml-3 h-1.5 w-20 bg-gray-800 rounded-full overflow-hidden shrink-0">
+                      <div
+                        className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green-500' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-amber-400' : 'bg-red-500'}`}
+                        style={{ width: `${Math.min(100, menuFoodCostPct)}%` }}
+                      />
+                    </div>
+                  )}
+                </>
               ) : (
-                <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <BookOpen size={10} /> Recipe
-                </span>
-              )}
-              {recipe.inventoryItemId && (
-                <a href={`/inventory?highlight=${recipe.inventoryItemId}`}
-                  className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full flex items-center gap-1 hover:bg-emerald-100 transition-colors"
-                  onClick={e => e.stopPropagation()}
-                  title="View in Inventory">
-                  <Link2 size={9} /> Synced to Inventory <ExternalLink size={8} />
-                </a>
+                <>
+                  <span className="text-gray-500 shrink-0">Batch</span>
+                  <span className="text-white font-semibold ml-1 shrink-0">{formatCurrency(recipe.totalCost)}</span>
+                  <span className="text-gray-700 mx-2 shrink-0">·</span>
+                  <span className="text-gray-500 shrink-0">Per {recipe.yieldUnit}</span>
+                  <span className="text-white font-semibold ml-1 shrink-0">
+                    {recipe.baseYieldQty > 0 ? formatCurrency(recipe.totalCost / recipe.baseYieldQty) : '—'}
+                  </span>
+                  {recipe.costPerPortion !== null && (
+                    <>
+                      <span className="text-gray-700 mx-2 shrink-0">·</span>
+                      <span className="text-gray-500 shrink-0">Per portion</span>
+                      <span className="text-white font-semibold ml-1 shrink-0">{formatCurrency(recipe.costPerPortion)}</span>
+                    </>
+                  )}
+                </>
               )}
             </div>
-          </div>
-          {saving && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />}
-          <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-gray-200'}`}>
-            <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${recipe.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
-          <button onClick={() => setShowPrint(true)} title="Print recipe card"
-            className="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
-            <Printer size={18} />
-          </button>
+          )}
         </div>
         {showPrint && typeof document !== 'undefined' && createPortal(
           <RecipePrintModal recipe={recipe} onClose={() => setShowPrint(false)} />,
@@ -1234,6 +1283,27 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
         )}
 
         <div className="p-5 space-y-5">
+
+          {/* Dependency banner — PREP recipes used by other recipes */}
+          {!isMenu && recipe.usedInRecipes && recipe.usedInRecipes.length > 0 && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <Share2 size={14} className="text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-amber-800 mb-1.5">
+                  Used in {recipe.usedInRecipes.length} {recipe.usedInRecipes.length === 1 ? 'recipe' : 'recipes'} — ingredient changes here will reprice them
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {recipe.usedInRecipes.map(r => (
+                    <span key={r.id} className="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      {r.type === 'MENU' ? <UtensilsCrossed size={8} /> : <BookOpen size={8} />}
+                      {r.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">Category</label>

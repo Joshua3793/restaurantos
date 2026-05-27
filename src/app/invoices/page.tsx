@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
 import { InvoiceList } from '@/components/invoices/InvoiceList'
+import { InboxView } from '@/components/invoices/InboxView'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
@@ -28,6 +29,7 @@ export default function InvoicesPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
+  const [view, setView] = useState<'inbox' | 'history'>('inbox')
 
   // Track previous statuses to detect PROCESSING → REVIEW / APPROVING → APPROVED transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
@@ -158,23 +160,41 @@ export default function InvoicesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
-      <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Invoices</h1>
-      </div>
-      <InvoiceKpiStrip
-        refreshKey={kpiRefreshKey}
-        activeRcId={activeRcId}
-        isDefault={activeRc?.isDefault ?? false}
-      />
-      <InvoiceList
-        sessions={sessions}
-        onSelect={setSelectedSessionId}
-        onUploadClick={() => setShowUpload(true)}
-        onScanClick={isNative() ? triggerScan : undefined}
-        onDelete={handleDelete}
-        onBulkDelete={handleBulkDelete}
-        onRetry={handleRetry}
-      />
+      {view === 'inbox' ? (
+        <InboxView
+          sessions={sessions}
+          onSelectSession={setSelectedSessionId}
+          onUploadClick={() => setShowUpload(true)}
+          onScanClick={isNative() ? triggerScan : undefined}
+          onSwitchToHistory={() => setView('history')}
+        />
+      ) : (
+        <>
+          <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0 flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Invoice History</h1>
+            <button
+              onClick={() => setView('inbox')}
+              className="ml-auto text-xs text-gold hover:underline font-medium"
+            >
+              ← Back to Inbox
+            </button>
+          </div>
+          <InvoiceKpiStrip
+            refreshKey={kpiRefreshKey}
+            activeRcId={activeRcId}
+            isDefault={activeRc?.isDefault ?? false}
+          />
+          <InvoiceList
+            sessions={sessions}
+            onSelect={setSelectedSessionId}
+            onUploadClick={() => setShowUpload(true)}
+            onScanClick={isNative() ? triggerScan : undefined}
+            onDelete={handleDelete}
+            onBulkDelete={handleBulkDelete}
+            onRetry={handleRetry}
+          />
+        </>
+      )}
       {scanError && (
         <button
           onClick={clearError}

@@ -5,7 +5,16 @@ import { fetchRecipeWithCost, syncPrepToInventory } from '@/lib/recipeCosts'
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const recipe = await fetchRecipeWithCost(params.id)
   if (!recipe) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(recipe)
+
+  const upstream = await prisma.recipeIngredient.findMany({
+    where: { linkedRecipeId: params.id },
+    select: { recipe: { select: { id: true, name: true, type: true } } },
+  })
+  const usedInRecipes = upstream
+    .map(u => u.recipe)
+    .filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i)
+
+  return NextResponse.json({ ...recipe, usedInRecipes })
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {

@@ -24,6 +24,7 @@
     "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "^3.5.0",
     "exceljs": "^4.4.0",
+    "geist": "^1.7.1",
     "lucide-react": "^1.7.0",
     "next": "14.2.35",
     "pdf-lib": "^1.17.1",

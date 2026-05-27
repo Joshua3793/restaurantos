@@ -34,9 +34,10 @@ export default function PrepPage() {
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
 
   // View state
-  const [viewMode,      setViewMode]      = useState<'today' | 'smartprep' | 'history'>('today')
-  const [smartPrepView, setSmartPrepView] = useState<'urgency' | 'category' | 'station'>('urgency')
+  const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
+  const [smartPrepView,     setSmartPrepView]     = useState<'urgency' | 'category' | 'station'>('urgency')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const [lookingGoodOpen,   setLookingGoodOpen]   = useState(false)
 
   // Filters (used in Smart Prep and Today)
   const [search,         setSearch]         = useState('')
@@ -675,7 +676,7 @@ export default function PrepPage() {
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
               className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-              {m === 'today' ? <>Today {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
@@ -744,7 +745,7 @@ export default function PrepPage() {
           <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
             <button onClick={() => setViewMode('today')} id="dtab-today"
               className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${viewMode === 'today' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
-              Today
+              To Do
               {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}
             </button>
             <button onClick={() => setViewMode('smartprep')} id="dtab-smartprep"
@@ -1009,20 +1010,33 @@ export default function PrepPage() {
                     )}
                   </div>
 
-                  {/* Looking Good column */}
+                  {/* Looking Good column — collapsible */}
                   <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                    <button
+                      onClick={() => setLookingGoodOpen(v => !v)}
+                      className="w-full px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between hover:bg-gray-100/70 transition-colors"
+                    >
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-green-400" />
                         <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Looking Good</span>
                         <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">{spLookingGood.length}</span>
                       </div>
-                    </div>
-                    <p className="text-xs text-gray-400 px-4 py-2 border-b border-gray-50">At or above par — add manually if needed</p>
-                    {spLookingGood.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-xs text-gray-400">No items</div>
-                    ) : (
-                      spLookingGood.map(item => <SmartPrepCard key={item.id} item={item} />)
+                      <span className="text-gray-400 text-sm">{lookingGoodOpen ? '▾' : '▸'}</span>
+                    </button>
+                    {lookingGoodOpen && (
+                      <>
+                        <p className="text-xs text-gray-400 italic px-4 py-2 border-b border-gray-50">
+                          At or above par. Add manually if you have an event or know something the system doesn&apos;t.
+                        </p>
+                        {spLookingGood.length === 0 ? (
+                          <div className="px-4 py-8 text-center text-xs text-gray-400">No items</div>
+                        ) : (
+                          spLookingGood.map(item => <SmartPrepCard key={item.id} item={item} />)
+                        )}
+                      </>
+                    )}
+                    {!lookingGoodOpen && spLookingGood.length === 0 && (
+                      <div className="px-4 py-4 text-center text-xs text-gray-400">No items</div>
                     )}
                   </div>
                 </div>

@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 import { formatCurrency } from '@/lib/utils'
-import { TrendingDown, AlertTriangle, Info } from 'lucide-react'
+import { TrendingDown, AlertTriangle, Info, ClipboardList, ArrowRight } from 'lucide-react'
+import Link from 'next/link'
 
 interface Row {
   id: string
@@ -171,6 +172,29 @@ export default function TheoreticalUsagePage() {
           * Theoretical usage is calculated from sales × recipe ingredient quantities. Positive gap = more consumed than expected (waste/theft/portioning errors). Negative gap = less consumed (over-counting or no sales data).
         </p>
       )}
+
+      {/* ── Next action CTA ─────────────────────────────────── */}
+      <div className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 bg-white">
+        <div className="w-9 h-9 rounded-lg bg-gray-900 flex items-center justify-center shrink-0">
+          <ClipboardList size={16} className="text-gold" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-gray-900">
+            {meta?.hasActual
+              ? 'Variance calculated — schedule your next count'
+              : 'No actual data yet — run a stock count to see real variance'}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Counts reconcile theoretical usage against what's physically on the shelf.
+          </p>
+        </div>
+        <Link
+          href="/count"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gray-900 text-gold text-xs font-semibold hover:bg-gray-700 transition-colors shrink-0"
+        >
+          Go to Count <ArrowRight size={12} />
+        </Link>
+      </div>
     </div>
   )
 }

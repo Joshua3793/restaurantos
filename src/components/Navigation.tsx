@@ -2,11 +2,12 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState, Suspense } from 'react'
+import { useState, Suspense, useEffect } from 'react'
 import {
-  LayoutDashboard, Package, FileText, Trash2, BarChart3,
+  Sun, Package, FileText, Trash2, BarChart3,
   BookOpen, UtensilsCrossed, LayoutGrid,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
+  ClipboardList, Activity, Building2, Zap,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
@@ -18,76 +19,66 @@ type NavItem = {
   href: string
   label: string
   icon: React.ComponentType<{ size?: number | string; color?: string }>
-  dividerBefore?: boolean
-  adminOnly?: boolean
-  /** When true, only highlight this item on an exact pathname match (no prefix matching). */
   exact?: boolean
+  adminOnly?: boolean
+  badgeKey?: 'invoicesReview' | 'priceAlerts'
 }
 
-// ── Sidebar nav groups ────────────────────────────────────────────────────────
-const navItems: NavItem[] = [
-  // Group 1 — Core operations
-  { href: '/',          label: 'Dashboard',    icon: LayoutDashboard },
-  { href: '/inventory', label: 'Inventory',    icon: Package },
-  { href: '/invoices',  label: 'Invoices',     icon: FileText },
-  { href: '/suppliers', label: 'Suppliers',    icon: Truck },
-  // Group 2 — Kitchen
-  { href: '/prep',      label: 'Prep List',    icon: ChefHat,        dividerBefore: true },
-  { href: '/recipes',   label: 'Recipe Book',  icon: BookOpen },
-  { href: '/menu',      label: 'Menu',         icon: UtensilsCrossed },
-  // Group 3 — Analytics
-  { href: '/sales',                      label: 'Sales',        icon: ShoppingBag,  dividerBefore: true },
-  { href: '/wastage',                    label: 'Wastage',      icon: Trash2 },
-  { href: '/reports/theoretical-usage', label: 'Usage',        icon: TrendingUp },
-  { href: '/reports',                    label: 'Reports',      icon: BarChart3,  exact: true },
-  // Group 4 — Admin
-  { href: '/settings',  label: 'Settings',     icon: Settings,     dividerBefore: true, adminOnly: true },
-]
+type NavGroup = {
+  label: string
+  items: NavItem[]
+}
 
-// ── Mobile bottom primary (4 flanking tabs — center slot is the Pages button) ─
-const mobileLeft: NavItem[] = [
-  { href: '/',          label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/inventory', label: 'Inventory', icon: Package },
-]
-const mobileRight: NavItem[] = [
-  { href: '/prep',     label: 'Prep',     icon: ChefHat },
-  { href: '/invoices', label: 'Invoices', icon: FileText },
-]
-
-// ── Mobile Pages drawer — mirrors the desktop sidebar groups ──────────────────
-const mobilePagesGroups = [
+const navGroups: NavGroup[] = [
   {
-    label: 'Core',
+    label: 'TODAY',
     items: [
-      { href: '/',           label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/inventory',  label: 'Inventory', icon: Package },
-      { href: '/invoices',   label: 'Invoices',  icon: FileText },
-      { href: '/suppliers',  label: 'Suppliers', icon: Truck },
-    ] as NavItem[],
+      { href: '/',      label: 'Pass',  icon: Sun,          exact: true },
+      { href: '/prep',  label: 'Prep',  icon: ChefHat },
+      { href: '/count', label: 'Count', icon: ClipboardList },
+    ],
   },
   {
-    label: 'Kitchen',
+    label: 'INBOX',
     items: [
-      { href: '/prep',     label: 'Prep List',    icon: ChefHat },
-      { href: '/recipes',  label: 'Recipe Book',  icon: BookOpen },
-      { href: '/menu',     label: 'Menu',         icon: UtensilsCrossed },
-    ] as NavItem[],
+      { href: '/invoices', label: 'Invoices',     icon: FileText,  badgeKey: 'invoicesReview' },
+      { href: '/invoices', label: 'Price alerts', icon: TrendingUp, badgeKey: 'priceAlerts' },
+    ],
   },
   {
-    label: 'Analytics',
+    label: 'LIBRARY',
     items: [
+      { href: '/inventory', label: 'Inventory', icon: Package },
+      { href: '/recipes',   label: 'Recipes',   icon: BookOpen },
+      { href: '/menu',      label: 'Menu',       icon: UtensilsCrossed },
+    ],
+  },
+  {
+    label: 'INSIGHTS',
+    items: [
+      { href: '/reports',                   label: 'Cost',     icon: BarChart3, exact: true },
+      { href: '/reports/theoretical-usage', label: 'Variance', icon: Activity },
+      { href: '/reports/signals',           label: 'Signals',  icon: Zap },
       { href: '/sales',                     label: 'Sales',    icon: ShoppingBag },
       { href: '/wastage',                   label: 'Wastage',  icon: Trash2 },
-      { href: '/reports/theoretical-usage', label: 'Usage',    icon: TrendingUp },
-      { href: '/reports',                   label: 'Reports',  icon: BarChart3,  exact: true },
-    ] as NavItem[],
+    ],
   },
-  {
-    label: 'Admin',
-    items: [
-      { href: '/settings', label: 'Settings', icon: Settings, adminOnly: true },
-    ] as NavItem[],
-  },
+]
+
+const setupItems: NavItem[] = [
+  { href: '/suppliers',       label: 'Suppliers',        icon: Truck },
+  { href: '/revenue-centers', label: 'Revenue centers',  icon: Building2 },
+  { href: '/settings',        label: 'Settings',         icon: Settings, adminOnly: true },
+]
+
+// Mobile bottom tabs — 2 left, center Pages button, 2 right
+const mobileLeft: NavItem[] = [
+  { href: '/',     label: 'Pass', icon: Sun,    exact: true },
+  { href: '/prep', label: 'Prep', icon: ChefHat },
+]
+const mobileRight: NavItem[] = [
+  { href: '/count',    label: 'Count',    icon: ClipboardList },
+  { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
 ]
 
 export function Navigation() {
@@ -102,11 +93,33 @@ function NavigationInner() {
   const pathname  = usePathname()
   const router    = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [inboxCounts, setInboxCounts] = useState({ invoicesReview: 0, priceAlerts: 0 })
   useRc()
-  const { role }  = useUser()
+  const { role } = useUser()
 
-  const isActive = (item: { href: string; exact?: boolean }) =>
+  // Poll inbox badge counts
+  useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        const data = await fetch('/api/invoices/kpis').then(r => r.ok ? r.json() : null)
+        if (data) {
+          setInboxCounts({
+            invoicesReview: data.awaitingApprovalCount ?? 0,
+            priceAlerts: data.priceAlertCount ?? 0,
+          })
+        }
+      } catch {}
+    }
+    fetchCounts()
+    const interval = setInterval(fetchCounts, 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const isActive = (item: Pick<NavItem, 'href' | 'exact'>) =>
     pathname === item.href || (!item.exact && item.href !== '/' && pathname.startsWith(item.href + '/'))
+
+  const getBadge = (key?: NavItem['badgeKey']) =>
+    key ? inboxCounts[key] : 0
 
   async function handleLogout() {
     const supabase = createClient()
@@ -114,59 +127,112 @@ function NavigationInner() {
     router.push('/login')
   }
 
-  const visibleNavItems = navItems.filter(item => !item.adminOnly || role === 'ADMIN')
-
-  // Pages button is "active" when the current route isn't one of the 4 flanking tabs
+  const visibleSetupItems = setupItems.filter(i => !i.adminOnly || role === 'ADMIN')
+  const allNavItems = navGroups.flatMap(g => g.items)
   const flankingHrefs = new Set([...mobileLeft, ...mobileRight].map(i => i.href))
-  const moreIsActive = ![...flankingHrefs].some(href =>
+  const moreIsActive = !([...flankingHrefs]).some(href =>
     pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
   )
 
   return (
     <>
-      {/* ── Desktop Sidebar ────────────────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-[240px] min-h-screen fixed left-0 top-0 z-40"
-        style={{ background: '#09090b', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
-
-        {/* Wordmark */}
+      {/* ── Desktop Sidebar ─────────────────────────────────────── */}
+      <aside
+        className="hidden md:flex flex-col w-[240px] min-h-screen fixed left-0 top-0 z-40"
+        style={{ background: '#09090b', borderRight: '1px solid rgba(255,255,255,0.08)' }}
+      >
+        {/* Wordmark + bell */}
         <div className="px-4 pt-5 pb-4 flex items-center justify-between gap-2">
-          <Image src="/logo-wordmark.png" alt="Controla OS" width={176} height={52}
+          <Image
+            src="/logo-wordmark.png" alt="Controla OS" width={176} height={52}
             className="shrink-0 object-contain object-left"
-            style={{ height: 52, width: 176, maxWidth: 176 }} />
+            style={{ height: 52, width: 176, maxWidth: 176 }}
+          />
           <div className="[&>div>button]:text-white/30 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/5 rounded-lg shrink-0">
             <AlertsBell />
           </div>
         </div>
 
         {/* RC selector */}
-        <div className="px-3 pb-2">
+        <div className="px-3 pb-3">
           <RcSelector />
         </div>
 
-        {/* Nav items */}
-        <nav className="flex-1 px-3 py-2 overflow-y-auto space-y-0.5">
-          {visibleNavItems.map(item => {
-            const active = isActive(item)
-            const { href, label, icon: Icon } = item
+        {/* Nav groups */}
+        <nav className="flex-1 px-3 overflow-y-auto pb-2 space-y-4">
+          {navGroups.map((group, gi) => {
+            const visibleItems = group.items.filter(i => !i.adminOnly || role === 'ADMIN')
             return (
-              <div key={href}>
-                {item.dividerBefore && (
-                  <div className="my-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+              <div key={group.label}>
+                {gi > 0 && (
+                  <div className="mb-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
                 )}
-                <Link
-                  href={href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 ${
-                    active
-                      ? 'bg-white text-gray-900 shadow-[0_0_24px_rgba(201,168,76,0.18)]'
-                      : 'text-white/40 hover:text-white/80 hover:bg-white/5'
-                  }`}
-                >
-                  <Icon size={16} color={active ? '#111' : undefined} />
-                  {label}
-                </Link>
+                <p className="px-3 mb-1 text-[10px] font-semibold tracking-widest"
+                  style={{ color: 'rgba(255,255,255,0.22)' }}>
+                  {group.label}
+                </p>
+                <div className="space-y-0.5">
+                  {visibleItems.map(item => {
+                    const active = isActive(item)
+                    const badge  = getBadge(item.badgeKey)
+                    const { href, label, icon: Icon } = item
+                    return (
+                      <Link
+                        key={`${href}-${label}`}
+                        href={href}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 ${
+                          active
+                            ? 'bg-white text-gray-900 shadow-[0_0_24px_rgba(201,168,76,0.18)]'
+                            : 'text-white/40 hover:text-white/80 hover:bg-white/5'
+                        }`}
+                      >
+                        <Icon size={15} color={active ? '#111' : undefined} />
+                        <span className="flex-1">{label}</span>
+                        {badge > 0 && (
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none ${
+                            active
+                              ? 'bg-gold text-[#111]'
+                              : 'bg-gold/20 text-gold'
+                          }`}>
+                            {badge > 99 ? '99+' : badge}
+                          </span>
+                        )}
+                      </Link>
+                    )
+                  })}
+                </div>
               </div>
             )
           })}
+
+          {/* Setup — demoted, rendered smaller */}
+          <div>
+            <div className="mb-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+            <p className="px-3 mb-1 text-[10px] font-semibold tracking-widest"
+              style={{ color: 'rgba(255,255,255,0.15)' }}>
+              SETUP
+            </p>
+            <div className="space-y-0.5">
+              {visibleSetupItems.map(item => {
+                const active = isActive(item)
+                const { href, label, icon: Icon } = item
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[12px] font-medium transition-all duration-150 ${
+                      active
+                        ? 'bg-white/10 text-white/80'
+                        : 'text-white/25 hover:text-white/50 hover:bg-white/5'
+                    }`}
+                  >
+                    <Icon size={13} />
+                    {label}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
         </nav>
 
         {/* Footer */}
@@ -181,11 +247,9 @@ function NavigationInner() {
         </div>
       </aside>
 
-      {/* ── Mobile Bottom Tab Bar ──────────────────────────────────────── */}
+      {/* ── Mobile Bottom Tab Bar ──────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 pb-safe">
-        {/* Raised center button sits above the bar */}
         <div className="relative flex items-end">
-          {/* Bar background — extends through the safe-area inset so there's no gap */}
           <div
             className="absolute inset-x-0 bg-white border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)]"
             style={{
@@ -194,7 +258,6 @@ function NavigationInner() {
             }}
           />
 
-          {/* Left two tabs */}
           {mobileLeft.map(item => {
             const active = isActive(item)
             const { href, label, icon: Icon } = item
@@ -210,13 +273,11 @@ function NavigationInner() {
             )
           })}
 
-          {/* Center Pages button — raised */}
+          {/* Center Pages button */}
           <button
             onClick={() => setMoreOpen(true)}
             className="relative flex-1 flex flex-col items-center pb-2"
-            style={{ marginBottom: 0 }}
           >
-            {/* Raised pill */}
             <div className={`-mt-5 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-colors ${
               moreIsActive ? 'bg-gray-700' : 'bg-gray-900'
             }`}>
@@ -227,17 +288,24 @@ function NavigationInner() {
             </span>
           </button>
 
-          {/* Right two tabs */}
           {mobileRight.map(item => {
             const active = isActive(item)
+            const badge  = getBadge(item.badgeKey)
             const { href, label, icon: Icon } = item
             return (
-              <Link key={href} href={href}
+              <Link key={`mob-${href}-${label}`} href={href}
                 className={`relative flex-1 flex flex-col items-center pt-2 pb-2 gap-0.5 transition-colors ${
                   active ? 'text-gold' : 'text-gray-400'
                 }`}
               >
-                <Icon size={22} />
+                <div className="relative">
+                  <Icon size={22} />
+                  {badge > 0 && (
+                    <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-gold text-[#111] text-[8px] font-bold rounded-full flex items-center justify-center leading-none">
+                      {badge > 9 ? '9+' : badge}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[10px]">{label}</span>
               </Link>
             )
@@ -245,11 +313,13 @@ function NavigationInner() {
         </div>
       </nav>
 
-      {/* ── Pages Drawer (full-screen, sidebar style) ──────────────────── */}
+      {/* ── Mobile Pages Drawer ────────────────────────────────── */}
       {moreOpen && (
         <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white">
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 pb-4 border-b border-gray-100 pt-safe" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.25rem)' }}>
+          <div
+            className="flex items-center justify-between px-5 pb-4 border-b border-gray-100"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.25rem)' }}
+          >
             <div>
               <h2 className="text-base font-bold text-gray-900">All Pages</h2>
               <p className="text-xs text-gray-400 mt-0.5">CONTROLA OS</p>
@@ -262,13 +332,9 @@ function NavigationInner() {
             </button>
           </div>
 
-          {/* Nav groups — sidebar style */}
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
-            {mobilePagesGroups.map(group => {
-              const visibleItems = group.items.filter(
-                item => !item.adminOnly || role === 'ADMIN'
-              )
-              if (visibleItems.length === 0) return null
+            {navGroups.map(group => {
+              const visibleItems = group.items.filter(i => !i.adminOnly || role === 'ADMIN')
               return (
                 <div key={group.label}>
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1 px-3">
@@ -277,10 +343,11 @@ function NavigationInner() {
                   <div className="space-y-0.5">
                     {visibleItems.map(item => {
                       const active = isActive(item)
+                      const badge  = getBadge(item.badgeKey)
                       const { href, label, icon: Icon } = item
                       return (
                         <Link
-                          key={href}
+                          key={`drawer-${href}-${label}`}
                           href={href}
                           onClick={() => setMoreOpen(false)}
                           style={active ? {
@@ -295,7 +362,12 @@ function NavigationInner() {
                           }`}
                         >
                           <Icon size={18} color={active ? '#1f2937' : '#9ca3af'} />
-                          {label}
+                          <span className="flex-1">{label}</span>
+                          {badge > 0 && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gold/20 text-amber-700 min-w-[18px] text-center leading-none">
+                              {badge > 99 ? '99+' : badge}
+                            </span>
+                          )}
                         </Link>
                       )
                     })}
@@ -303,9 +375,36 @@ function NavigationInner() {
                 </div>
               )
             })}
+
+            {/* Setup group in drawer */}
+            <div>
+              <p className="text-[10px] font-semibold text-gray-300 uppercase tracking-widest mb-1 px-3">
+                SETUP
+              </p>
+              <div className="space-y-0.5">
+                {visibleSetupItems.map(item => {
+                  const active = isActive(item)
+                  const { href, label, icon: Icon } = item
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      onClick={() => setMoreOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors opacity-60 ${
+                        active
+                          ? 'text-gray-900 font-medium opacity-100'
+                          : 'text-gray-500 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Icon size={16} color="#9ca3af" />
+                      {label}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
           </div>
 
-          {/* Footer — log out + version */}
           <div className="border-t border-gray-100 px-3 py-3 pb-safe space-y-1">
             <button
               onClick={() => { setMoreOpen(false); handleLogout() }}
@@ -321,3 +420,8 @@ function NavigationInner() {
     </>
   )
 }
+
+// Keep the previous flat navItems export in case anything imports from here
+// (AlertsBell, breadcrumbs, etc.) — remove once confirmed nothing uses it.
+const _allNavItems = navGroups.flatMap(g => g.items)
+export { _allNavItems as navItems }
