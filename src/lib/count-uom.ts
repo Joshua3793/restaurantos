@@ -124,15 +124,15 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
     uoms.push({ label: 'each', toBase: 1 })
   }
 
-  // Weight/volume options
-  if (base === 'g') {
+  // Weight/volume options — only when item actually has a weight/volume per each
+  if (base === 'g' && hasItemWeight) {
     uoms.push(
       { label: 'kg', toBase: 1000, hint: '1,000 g' },
       { label: 'g',  toBase: 1 },
       { label: 'lb', toBase: 453.592, hint: '454 g' },
     )
   }
-  if (base === 'ml') {
+  if (base === 'ml' && hasItemWeight) {
     uoms.push(
       { label: 'l',  toBase: 1000, hint: '1,000 ml' },
       { label: 'ml', toBase: 1 },

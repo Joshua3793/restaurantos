@@ -231,7 +231,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
           purchaseUnit: normalizePurchaseUnit(normalized.purchaseUnit),
           qtyPerPurchaseUnit: String(normalized.qtyPerPurchaseUnit),
           purchasePrice: String(normalized.purchasePrice),
-          packSize: (Number(normalized.packSize ?? 1) === 1 && ['each', ''].includes(normalized.packUOM ?? 'each')) ? '' : String(normalized.packSize ?? 1),
+          packSize: (Number(normalized.packSize ?? 1) === 1 && (normalized.baseUnit === 'each' || ['each', ''].includes(normalized.packUOM ?? 'each'))) ? '' : String(normalized.packSize ?? 1),
           packUOM: normalized.packUOM ?? 'each',
           countUOM: normalized.countUOM ?? 'each',
           qtyUOM: normalized.qtyUOM ?? 'each',
@@ -259,7 +259,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       purchaseUnit: normalizePurchaseUnit(item.purchaseUnit),
       qtyPerPurchaseUnit: String(item.qtyPerPurchaseUnit),
       purchasePrice: String(item.purchasePrice),
-      packSize: (Number(item.packSize ?? 1) === 1 && ['each', ''].includes(item.packUOM ?? 'each')) ? '' : String(item.packSize ?? 1),
+      packSize: (Number(item.packSize ?? 1) === 1 && (item.baseUnit === 'each' || ['each', ''].includes(item.packUOM ?? 'each'))) ? '' : String(item.packSize ?? 1),
       packUOM: item.packUOM ?? 'each',
       countUOM: item.countUOM ?? 'each',
       qtyUOM: item.qtyUOM ?? 'each',
@@ -503,7 +503,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                                 className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.qtyUOM} onChange={e => setEditForm(f => {
                                   const newQtyUOM = e.target.value
-                                  const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 1, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
+                                  const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM, parseFloat(f.packSize) || 0), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 0, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
                                   return { ...f, qtyUOM: newQtyUOM, innerQty: newQtyUOM === 'pack' ? f.innerQty : '', countUOM: opts.includes(f.countUOM) ? f.countUOM : opts[0] }
                                 })}
                                 className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
@@ -555,8 +555,18 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                               <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                             </label>
                             <div className="flex">
-                              <input type="number" step="any" min="0" value={editForm.packSize === '1' ? '' : editForm.packSize}
-                                onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value || '1' }))}
+                              <input type="number" step="any" min="0" value={editForm.packSize}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  // When weight is cleared, reset countUOM to 'each' (weight options disappear)
+                                  const newPs = parseFloat(val) || 0
+                                  const wasWeight = parseFloat(editForm.packSize) > 0
+                                  setEditForm(f => ({
+                                    ...f,
+                                    packSize: val,
+                                    countUOM: wasWeight && newPs <= 0 ? 'each' : f.countUOM,
+                                  }))
+                                }}
                                 placeholder="e.g. 290"
                                 className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
@@ -622,12 +632,12 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                       {getCountableUoms({
-                        baseUnit: deriveBaseUnit(editForm.qtyUOM, editForm.packUOM),
+                        baseUnit: deriveBaseUnit(editForm.qtyUOM, editForm.packUOM, parseFloat(editForm.packSize) || 0),
                         purchaseUnit: editForm.purchaseUnit,
                         qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
                         qtyUOM: editForm.qtyUOM,
                         innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-                        packSize: parseFloat(editForm.packSize) || 1,
+                        packSize: parseFloat(editForm.packSize) || 0,
                         packUOM: editForm.packUOM,
                         countUOM: editForm.countUOM,
                       }).map(u => <option key={u.label} value={u.label}>{u.label}{u.hint ? ` — ${u.hint}` : ''}</option>)}
@@ -677,7 +687,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   const cu  = editForm.countUOM
                   const qu  = editForm.qtyUOM ?? 'each'
                   const iq  = editForm.innerQty ? parseFloat(editForm.innerQty) : null
-                  const bu  = isPrep ? (item.baseUnit ?? deriveBaseUnit(qu, pu)) : deriveBaseUnit(qu, pu)
+                  const bu  = isPrep ? (item.baseUnit ?? deriveBaseUnit(qu, pu)) : deriveBaseUnit(qu, pu, parseFloat(editForm.packSize) || 0)
                   const ppbu = isPrep
                     ? parseFloat(String(item.pricePerBaseUnit ?? 0))
                     : calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, editForm.priceType === 'UOM' ? 'UOM' : 'CASE')

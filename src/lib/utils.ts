@@ -78,13 +78,15 @@ export function calcPricePerBaseUnit(
 }
 
 /** Derive the base unit (g / ml / each) from qtyUOM and packUOM */
-export function deriveBaseUnit(qtyUOM: string, packUOM: string): string {
+export function deriveBaseUnit(qtyUOM: string, packUOM: string, packSize?: number): string {
   const q = qtyUOM?.toLowerCase() ?? ''
   const p = packUOM?.toLowerCase() ?? ''
   const weightUnits = ['g', 'mg', 'kg', 'lb', 'oz']
   const volumeUnits = ['ml', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
   if (weightUnits.includes(q)) return 'g'
   if (volumeUnits.includes(q)) return 'ml'
+  // Only infer base unit from packUOM when an actual weight/volume per-each was entered
+  if (packSize !== undefined && packSize <= 0) return 'each'
   if (weightUnits.includes(p)) return 'g'
   if (volumeUnits.includes(p)) return 'ml'
   return 'each'
