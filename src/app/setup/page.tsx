@@ -19,8 +19,8 @@ const cards: Card[] = [
   { href: '/setup/storage-areas',   label: 'Storage areas',    icon: MapPin,   description: 'Walk-ins, dry storage, bar. Drives count routing.',               built: true },
   { href: '/setup/categories',      label: 'Categories',       icon: Tag,      description: 'Inventory and recipe categories, accent colors.',                 built: true },
   { href: '/setup/users',           label: 'Users & roles',    icon: Users,    description: 'Invite teammates; ADMIN / MANAGER / STAFF.',                      built: true },
-  { href: '/setup/uom',             label: 'UOM & conversions',icon: Ruler,    description: 'Unit-of-measure groups, custom conversions, inspector.',          built: false },
-  { href: '/setup/general',         label: 'General',          icon: Bell,     description: 'Email digest schedule, notifications, brand.',                    built: false },
+  { href: '/setup/uom',             label: 'UOM & conversions',icon: Ruler,    description: 'Unit-of-measure groups, custom conversions, inspector.',          built: true },
+  { href: '/setup/general',         label: 'General',          icon: Bell,     description: 'Email digest schedule, notifications, brand.',                    built: true },
 ]
 
 export default function SetupPage() {
