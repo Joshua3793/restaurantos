@@ -557,3 +557,38 @@ model ChatMessage {
 
   @@index([conversationId])
 }
+
+// v2 Signals engine — "what should I do?" recommendations.
+// Produced by /api/signals/refresh (rule evaluator); user actions
+// (apply, snooze, dismiss) write back here.
+model Signal {
+  id          String   @id @default(cuid())
+  // Stable per-instance fingerprint so re-runs don't duplicate rows
+  // for the same underlying condition. Format: rule:scope:hash.
+  fingerprint String   @unique
+  // Rule key from src/lib/signals/rules.ts
+  rule        String
+  // Severity: 'critical' | 'warn' | 'info'
+  severity    String   @default("info")
+  // Human title shown on the card
+  title       String
+  // One-sentence body
+  body        String
+  // Verb on the primary CTA button (mock principle 06)
+  verbLabel   String
+  // Where the CTA points
+  verbHref    String
+  // Estimated $ impact — used for sort
+  impactValue Decimal? @default(0)
+  // Optional related entity IDs for joins later
+  itemId      String?
+  recipeId    String?
+  // State
+  status      String   @default("OPEN") // OPEN | APPLIED | SNOOZED | DISMISSED
+  snoozeUntil DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, severity])
+  @@index([fingerprint])
+}

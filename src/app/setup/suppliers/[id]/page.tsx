@@ -22,7 +22,7 @@ export default function SupplierDetailPage({ params }: { params: { id: string } 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this supplier? Inventory items will be unlinked.')) return
     await fetch(`/api/suppliers/${id}`, { method: 'DELETE' })
-    router.push('/suppliers')
+    router.push('/setup/suppliers')
   }
 
   return (
@@ -30,7 +30,7 @@ export default function SupplierDetailPage({ params }: { params: { id: string } 
       {/* Back button */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 shrink-0 bg-white">
         <button
-          onClick={() => router.push('/suppliers')}
+          onClick={() => router.push('/setup/suppliers')}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700"
         >
           <ArrowLeft size={16} /> Suppliers

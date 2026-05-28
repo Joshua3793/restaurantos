@@ -74,6 +74,11 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
+  // Exceptions: unmatched scan items in REVIEW sessions
+  const exceptionsCount = await prisma.invoiceScanItem.count({
+    where: { matchedItemId: null, session: { status: 'REVIEW' } },
+  })
+
   const weekSpend = Number(weekAgg._sum.total ?? 0)
   const prevWeekSpend = Number(prevWeekAgg._sum.total ?? 0)
   const weekSpendChangePct = prevWeekSpend === 0
@@ -98,6 +103,7 @@ export async function GET(req: NextRequest) {
     monthInvoiceCount: monthCount,
     priceAlertCount,
     awaitingApprovalCount: awaitingCount,
+    exceptionsCount,
     topCategories,
   }, {
     headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
