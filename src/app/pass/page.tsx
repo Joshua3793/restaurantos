@@ -1,413 +1,524 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { formatCurrency } from '@/lib/utils'
+import {
+  AlertTriangle, Mail, Activity, Zap, Clock,
+  ArrowRight, ClipboardList,
+} from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
-import {
-  ArrowRight, FileText, TrendingUp, AlertTriangle,
-  ChefHat, Activity, Clock,
-} from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { SubNav } from '@/components/layout/SubNav'
+import { PageHead } from '@/components/layout/PageHead'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 
 interface DashboardData {
   totalInventoryValue: number
   weeklyWastageCost: number
   outOfStockCount: number
-  outOfStockItems: Array<{ id: string; itemName: string; category: string }>
+  outOfStockItems: Array<{ id: string; itemName: string; category: string; lastValue: number }>
   estimatedFoodCostPct: number
-  foodCostLabel: string
+  weeklyRevenue: number
+  weeklyPurchaseCost: number
 }
 
-interface InboxCounts {
+interface KPIs {
   awaitingApprovalCount: number
   priceAlertCount: number
+  recentApprovalsCount: number
+}
+
+interface CostChromeData {
+  foodCostPct: number | null
+  targetPct: number
+  variance7d: number | null
+  onHand: number
 }
 
 interface PrepItem {
   id: string
   name: string
-  priority: 'NEEDED_TODAY' | '911' | 'LATER'
-  suggestedQty: number
+  category: string
   unit: string
-  station: string | null
   onHand: number
-  todayLog: object | null
+  parLevel: number
+  priority: '911' | 'NEEDED_TODAY' | 'LATER'
+  suggestedQty: number
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function getGreeting() {
-  const h = new Date().getHours()
-  if (h < 12) return 'Good morning'
-  if (h < 17) return 'Good afternoon'
-  return 'Good evening'
+interface CountSession {
+  id: string
+  label: string
+  sessionDate: string
+  startedAt: string
+  finalizedAt: string | null
+  countedBy: string
+  status: string
 }
 
-function useLiveClock() {
-  const [now, setNow] = useState(new Date())
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60_000)
-    return () => clearInterval(t)
-  }, [])
-  return now
+interface AttnItem {
+  id: string
+  kind: 'price' | 'invoice' | 'variance' | 'count'
+  icon: typeof AlertTriangle
+  iconTint: 'red' | 'amber' | 'blue' | 'green'
+  title: React.ReactNode
+  meta: string
+  cost: { value: string; sub: string; tint?: 'bad' | 'warn' | 'ok' }
+  ctaHref: string
+  ctaLabel: string
 }
 
-const PRIORITY_LABEL: Record<PrepItem['priority'], string> = {
-  '911': '911',
-  NEEDED_TODAY: 'today',
-  LATER: 'later',
-}
-const PRIORITY_COLOR: Record<PrepItem['priority'], string> = {
-  '911': 'text-red-600 bg-red-50 border-red-200',
-  NEEDED_TODAY: 'text-amber-700 bg-amber-50 border-amber-200',
-  LATER: 'text-gray-500 bg-gray-50 border-gray-200',
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Page ────────────────────────────────────────────────────────────────────
 
 export default function PassPage() {
-  const now = useLiveClock()
-  const { activeRcId, activeRc } = useRc()
   const { user } = useUser()
-
-  const [dash, setDash]   = useState<DashboardData | null>(null)
-  const [inbox, setInbox] = useState<InboxCounts | null>(null)
-  const [prep, setPrep]   = useState<PrepItem[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const firstName = user?.name?.split(' ')[0] ?? null
-
-  const fetchAll = useCallback(async () => {
-    const p = new URLSearchParams()
-    if (activeRcId) {
-      p.set('rcId', activeRcId)
-      if (activeRc?.isDefault) p.set('isDefault', 'true')
-    }
-
-    const [dashRes, inboxRes, prepRes] = await Promise.allSettled([
-      fetch(`/api/reports/dashboard?${p}`).then(r => r.ok ? r.json() : null),
-      fetch('/api/invoices/kpis').then(r => r.ok ? r.json() : null),
-      fetch('/api/prep/items?active=true').then(r => r.ok ? r.json() : null),
-    ])
-
-    if (dashRes.status === 'fulfilled' && dashRes.value && !dashRes.value.error) {
-      setDash(dashRes.value)
-    }
-    if (inboxRes.status === 'fulfilled' && inboxRes.value) {
-      setInbox(inboxRes.value)
-    }
-    if (prepRes.status === 'fulfilled' && Array.isArray(prepRes.value)) {
-      setPrep(prepRes.value)
-    }
-    setLoading(false)
-  }, [activeRcId, activeRc])
+  const { activeRcId, activeRc } = useRc()
+  const isDefaultActive = activeRc?.isDefault ?? false
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  const [chrome, setChrome] = useState<CostChromeData | null>(null)
+  const [inboxKpis, setInboxKpis] = useState<KPIs | null>(null)
+  const [prepItems, setPrepItems] = useState<PrepItem[]>([])
+  const [countSessions, setCountSessions] = useState<CountSession[]>([])
+  const [priceAlertCount, setPriceAlertCount] = useState<number>(0)
 
   useEffect(() => {
-    fetchAll()
-    const interval = setInterval(fetchAll, 60_000)
-    return () => clearInterval(interval)
-  }, [fetchAll])
+    let cancelled = false
+    const load = async () => {
+      try {
+        const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''
+        const [d, c, k, p, s, a] = await Promise.all([
+          fetch(`/api/reports/dashboard${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch('/api/prep/items', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+          fetch('/api/count/sessions', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+          fetch('/api/invoices/alerts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { priceAlerts: [] }),
+        ])
+        if (cancelled) return
+        if (d) setDashboard(d)
+        if (c) setChrome(c)
+        if (k) setInboxKpis(k)
+        if (Array.isArray(p)) setPrepItems(p)
+        if (Array.isArray(s)) setCountSessions(s)
+        if (a?.priceAlerts) setPriceAlertCount(a.priceAlerts.length)
+      } catch { /* swallow */ }
+    }
+    load()
+    const t = setInterval(load, 60_000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [activeRcId, isDefaultActive])
 
-  useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') fetchAll() }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [fetchAll])
+  // ── Attention queue (derived) ────────────────────────────────────────────
+  const attn = useMemo<AttnItem[]>(() => {
+    const items: AttnItem[] = []
+    if (priceAlertCount > 0) {
+      items.push({
+        id: 'price-alerts',
+        kind: 'price',
+        icon: AlertTriangle,
+        iconTint: 'red',
+        title: <><b>{priceAlertCount}</b> active price {priceAlertCount === 1 ? 'alert' : 'alerts'} — review impact on recipes</>,
+        meta: 'PRICE ALERTS · open Inbox to acknowledge',
+        cost: { value: priceAlertCount.toString(), sub: priceAlertCount === 1 ? 'alert' : 'alerts', tint: 'bad' },
+        ctaHref: '/invoices',
+        ctaLabel: 'Review',
+      })
+    }
+    if (inboxKpis && inboxKpis.awaitingApprovalCount > 0) {
+      items.push({
+        id: 'invoices-pending',
+        kind: 'invoice',
+        icon: Mail,
+        iconTint: 'amber',
+        title: <><b>{inboxKpis.awaitingApprovalCount}</b> {inboxKpis.awaitingApprovalCount === 1 ? 'invoice' : 'invoices'} awaiting approval</>,
+        meta: 'OCR · ready for review',
+        cost: { value: inboxKpis.awaitingApprovalCount.toString(), sub: 'to approve', tint: 'warn' },
+        ctaHref: '/invoices',
+        ctaLabel: 'Open',
+      })
+    }
+    const criticalPrep = prepItems.filter(p => p.priority === '911').length
+    if (criticalPrep > 0) {
+      items.push({
+        id: 'prep-critical',
+        kind: 'count',
+        icon: ClipboardList,
+        iconTint: 'red',
+        title: <><b>{criticalPrep}</b> critical prep {criticalPrep === 1 ? 'item' : 'items'} — depleted or empty</>,
+        meta: 'PREP · build before service',
+        cost: { value: criticalPrep.toString(), sub: 'critical', tint: 'bad' },
+        ctaHref: '/prep',
+        ctaLabel: 'Open prep',
+      })
+    }
+    const latestCount = countSessions
+      .filter(s => s.status === 'FINALIZED' && s.finalizedAt)
+      .sort((a, b) => new Date(b.finalizedAt!).getTime() - new Date(a.finalizedAt!).getTime())[0]
+    const daysSinceCount = latestCount
+      ? Math.floor((Date.now() - new Date(latestCount.finalizedAt!).getTime()) / 86_400_000)
+      : null
+    if (daysSinceCount !== null && daysSinceCount > 4) {
+      items.push({
+        id: 'count-overdue',
+        kind: 'variance',
+        icon: Activity,
+        iconTint: 'amber',
+        title: <>Last count was <b>{daysSinceCount}d ago</b> — theoretical-vs-actual drift widens</>,
+        meta: 'COUNT · schedule a partial before brunch',
+        cost: { value: `${daysSinceCount}d`, sub: 'stale', tint: 'warn' },
+        ctaHref: '/count',
+        ctaLabel: 'Schedule',
+      })
+    }
+    return items
+  }, [priceAlertCount, inboxKpis, prepItems, countSessions])
 
-  // Derived prep metrics
-  const urgentPrep = prep.filter(p => p.priority === '911' || p.priority === 'NEEDED_TODAY')
-  const prepDue    = urgentPrep.filter(p => !p.todayLog).length
-  const previewPrep = prep.filter(p => !p.todayLog).slice(0, 5)
+  const prepSummary = useMemo(() => {
+    const active = prepItems.filter(p => p.onHand >= 0 || p.priority !== 'LATER')
+    const top = [...prepItems]
+      .filter(p => p.priority !== 'LATER')
+      .sort((a, b) => (a.priority === '911' ? -1 : 0) - (b.priority === '911' ? -1 : 0))
+      .slice(0, 5)
+    return { total: active.length, top }
+  }, [prepItems])
 
-  type AttentionItem = {
-    key: string
-    icon: React.ComponentType<{ size?: number }>
-    label: string
-    href: string
-    severity: 'warn' | 'info'
-  }
+  const greeting = greetingFor(new Date())
+  const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
 
-  // Attention items
-  const attentionItems = ([
-    inbox?.awaitingApprovalCount ? {
-      key: 'invoices',
-      icon: FileText,
-      label: `${inbox.awaitingApprovalCount} invoice${inbox.awaitingApprovalCount === 1 ? '' : 's'} pending review`,
-      href: '/invoices',
-      severity: 'warn' as const,
-    } : null,
-    inbox?.priceAlertCount ? {
-      key: 'prices',
-      icon: TrendingUp,
-      label: `${inbox.priceAlertCount} price alert${inbox.priceAlertCount === 1 ? '' : 's'} unresolved`,
-      href: '/invoices',
-      severity: 'warn' as const,
-    } : null,
-    dash?.outOfStockCount ? {
-      key: 'stock',
-      icon: AlertTriangle,
-      label: `${dash.outOfStockCount} item${dash.outOfStockCount === 1 ? '' : 's'} out of stock`,
-      href: '/inventory',
-      severity: 'info' as const,
-    } : null,
-  ] as (AttentionItem | null)[]).filter((x): x is AttentionItem => x !== null)
+  const cutoff = nextServiceCutoff(new Date())
+  const remainingMs = cutoff.getTime() - Date.now()
+  const remainingH = Math.floor(remainingMs / 3_600_000)
+  const remainingM = Math.floor((remainingMs % 3_600_000) / 60_000)
 
-  const foodCostPct  = dash?.estimatedFoodCostPct ?? 0
-  const foodCostHigh = foodCostPct > 35
-  const foodCostWarn = foodCostPct > 28 && !foodCostHigh
-
-  const dateStr = now.toLocaleDateString('en-CA', { weekday: 'long', day: 'numeric', month: 'long' })
-  const timeStr = now.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', hour12: false })
-
-  // ── Skeleton ───────────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div>
-          <div className="h-8 w-64 bg-gray-200 rounded-lg mb-2" />
-          <div className="h-4 w-48 bg-gray-100 rounded" />
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-gray-200 rounded-xl" />
-          ))}
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="h-48 bg-gray-200 rounded-xl" />
-          <div className="h-48 bg-gray-200 rounded-xl" />
-        </div>
-      </div>
-    )
-  }
-
-  // ── Pass ──────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <>
+      <SubNav
+        tabs={[
+          { href: '/pass', label: 'Pass' },
+          { href: '/prep', label: 'Briefing', icon: <Activity size={14} /> },
+          { href: '/cost', label: 'End-of-day', icon: <Clock size={14} /> },
+        ]}
+      />
+      <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
 
-      {/* ── Header ────────────────────────────────────────────── */}
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {getGreeting()}{firstName ? `, ${firstName}` : ''}.
-          </h1>
-          <p className="text-sm text-gray-400 mt-0.5 flex items-center gap-1.5">
-            <Clock size={12} />
-            {dateStr} · {timeStr}
-            {activeRc?.name ? ` · ${activeRc.name}` : ''}
-          </p>
-        </div>
-        <Link
-          href="/prep"
-          className="hidden sm:flex items-center gap-1.5 text-xs text-gold font-medium hover:underline"
-        >
-          Open Prep list <ArrowRight size={12} />
-        </Link>
-      </div>
+        <PageHead
+          crumbs={<><Clock size={12} /> TODAY / PASS · {fmtCrumbDate(new Date())}</>}
+          title={<>Good {greeting}, <em className="not-italic text-gold-2">{firstName}</em>.</>}
+          sub={<>
+            {greeting === 'morning' ? 'Dinner' : 'Tomorrow'} service in <b>{remainingH}h {remainingM}m</b>
+            {dashboard && <> · weekly food sales <b>{formatCurrency(dashboard.weeklyRevenue)}</b></>}
+            {attn.length > 0 && <> · <b className="text-red-text">{attn.length} {attn.length === 1 ? 'thing' : 'things'}</b> need you</>}
+          </>}
+          actions={
+            <>
+              <Link href="/cost" className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
+                <Clock size={13} className="text-ink-3" /> End-of-day
+              </Link>
+              <Link href="/prep" className="inline-flex items-center gap-1.5 bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors">
+                <ArrowRight size={13} className="text-gold" /> Start pre-shift
+              </Link>
+            </>
+          }
+        />
 
-      {/* ── KPI strip ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-
-        {/* Food cost — hero card */}
-        <div className="col-span-2 lg:col-span-1 rounded-xl p-4 flex flex-col gap-1"
-          style={{ background: '#09090b' }}>
-          <p className="text-[10px] font-semibold tracking-widest uppercase"
-            style={{ color: 'rgba(255,255,255,0.35)' }}>
-            Food Cost · Live
-          </p>
-          <p className={`text-3xl font-bold tracking-tight ${
-            foodCostHigh ? 'text-red-400' : foodCostWarn ? 'text-amber-400' : 'text-gold'
-          }`}>
-            {foodCostPct > 0 ? `${foodCostPct.toFixed(1)}%` : '—'}
-          </p>
-          <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-            {dash?.foodCostLabel ?? 'purchases / food sales'}
-          </p>
-        </div>
-
-        {/* On hand */}
-        <div className="rounded-xl p-4 bg-white border border-gray-100 flex flex-col gap-1">
-          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">On Hand</p>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">
-            {dash ? formatCurrency(dash.totalInventoryValue) : '—'}
-          </p>
-          {dash?.outOfStockCount ? (
-            <p className="text-[11px] text-amber-600">{dash.outOfStockCount} item{dash.outOfStockCount === 1 ? '' : 's'} out of stock</p>
-          ) : (
-            <p className="text-[11px] text-gray-400">all items in stock</p>
-          )}
+        <div className="grid gap-3 mb-6" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>
+          <HeroKPI chrome={chrome} dashboard={dashboard} />
+          <KPI label="ON HAND"
+            value={dashboard ? formatCurrency(dashboard.totalInventoryValue) : '—'}
+            delta={<><b>{dashboard?.outOfStockCount ?? 0}</b> out of stock</>}
+          />
+          <KPI label="PREP TO DO"
+            value={prepSummary.total.toString()}
+            delta={
+              prepSummary.top.filter(p => p.priority === '911').length > 0
+                ? <><b className="text-red-text">{prepSummary.top.filter(p => p.priority === '911').length} critical</b></>
+                : <>all on par</>
+            }
+          />
+          <KPI label="WASTAGE · 7D"
+            value={dashboard ? formatCurrency(dashboard.weeklyWastageCost) : '—'}
+            valueClass={dashboard && dashboard.weeklyWastageCost > 0 ? 'text-red-text' : ''}
+            delta={<>tracked from <b>waste log</b></>}
+          />
         </div>
 
-        {/* Prep due */}
-        <div className="rounded-xl p-4 bg-white border border-gray-100 flex flex-col gap-1">
-          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">Prep Due</p>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">
-            {prep.length > 0 ? prepDue : '—'}
-          </p>
-          <p className="text-[11px] text-gray-400">
-            {prep.length > 0
-              ? `of ${prep.length} active item${prep.length === 1 ? '' : 's'}`
-              : 'no prep items set up'}
-          </p>
-        </div>
+        <div className="grid gap-5" style={{ gridTemplateColumns: '1fr 320px' }}>
+          <div className="space-y-5 min-w-0">
 
-        {/* Wastage */}
-        <div className="rounded-xl p-4 bg-white border border-gray-100 flex flex-col gap-1">
-          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">Wastage · 7d</p>
-          <p className={`text-2xl font-bold tracking-tight ${
-            (dash?.weeklyWastageCost ?? 0) > 500 ? 'text-red-600' : 'text-gray-900'
-          }`}>
-            {dash ? formatCurrency(dash.weeklyWastageCost) : '—'}
-          </p>
-          <p className="text-[11px] text-gray-400">this week</p>
-        </div>
-      </div>
-
-      {/* ── Main panels ───────────────────────────────────────── */}
-      <div className="grid md:grid-cols-2 gap-4">
-
-        {/* Needs you */}
-        <div className="bg-white rounded-xl border border-gray-100">
-          <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900 text-sm">Needs you</h2>
-            {attentionItems.length === 0 && (
-              <span className="text-[11px] text-green-600 font-medium">All clear ✓</span>
-            )}
-          </div>
-
-          {attentionItems.length === 0 ? (
-            <div className="px-4 py-8 text-center text-gray-400 text-sm">
-              No pending actions — you&apos;re on top of it.
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-50">
-              {attentionItems.map(item => {
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.key}
-                    href={item.href}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
-                  >
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                      item.severity === 'warn'
-                        ? 'bg-amber-50 text-amber-500'
-                        : 'bg-gray-100 text-gray-400'
-                    }`}>
-                      <Icon size={14} />
-                    </div>
-                    <span className="flex-1 text-sm text-gray-700">{item.label}</span>
-                    <ArrowRight size={13} className="text-gray-300 group-hover:text-gold transition-colors" />
-                  </Link>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Out-of-stock list */}
-          {dash?.outOfStockItems && dash.outOfStockItems.length > 0 && (
-            <div className="px-4 pb-3 pt-1 border-t border-gray-50">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
-                Out of stock
-              </p>
-              <div className="space-y-1">
-                {dash.outOfStockItems.slice(0, 3).map(item => (
-                  <Link
-                    key={item.id}
-                    href={`/inventory?item=${item.id}`}
-                    className="flex items-center justify-between text-xs text-gray-600 hover:text-gold transition-colors py-0.5"
-                  >
-                    <span>{item.itemName}</span>
-                    <ArrowRight size={11} className="text-gray-300" />
-                  </Link>
-                ))}
-                {dash.outOfStockItems.length > 3 && (
-                  <Link href="/inventory?orderList=1" className="text-xs text-gold hover:underline">
-                    +{dash.outOfStockItems.length - 3} more →
-                  </Link>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Today's prep preview */}
-        <div className="bg-white rounded-xl border border-gray-100">
-          <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ChefHat size={15} className="text-gray-400" />
-              <h2 className="font-semibold text-gray-900 text-sm">Today&apos;s prep</h2>
-            </div>
-            <Link href="/prep" className="text-xs text-gold hover:underline flex items-center gap-0.5">
-              Full list <ArrowRight size={11} />
-            </Link>
-          </div>
-
-          {previewPrep.length === 0 ? (
-            <div className="px-4 py-8 text-center text-gray-400 text-sm">
-              {prep.length === 0
-                ? 'No prep items set up yet.'
-                : 'All prep logged for today — nice work.'}
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-50">
-              {previewPrep.map(item => (
-                <Link
-                  key={item.id}
-                  href="/prep"
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
-                >
-                  <div className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${PRIORITY_COLOR[item.priority]}`}>
-                    {PRIORITY_LABEL[item.priority]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
-                    <p className="text-[11px] text-gray-400">
-                      {item.suggestedQty > 0 ? `${item.suggestedQty} ${item.unit}` : item.unit}
-                      {item.station ? ` · ${item.station}` : ''}
-                    </p>
-                  </div>
-                  <ArrowRight size={13} className="text-gray-300 group-hover:text-gold transition-colors shrink-0" />
-                </Link>
+            <section className="bg-paper border border-line rounded-[12px] overflow-hidden">
+              <header className="flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2">
+                <h3 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${attn.length > 0 ? 'bg-red' : 'bg-green'}`} />
+                  Needs you <span className="font-mono text-[10.5px] text-ink-3 font-normal">· {attn.length} {attn.length === 1 ? 'item' : 'items'}</span>
+                </h3>
+                <span className="font-mono text-[10.5px] text-ink-3">SORTED BY $ IMPACT</span>
+              </header>
+              {attn.length === 0 ? (
+                <div className="px-6 py-10 text-center">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-green-text">All clear</p>
+                  <p className="text-[13px] text-ink-3 mt-1.5">Nothing needs you right now — go cook.</p>
+                </div>
+              ) : attn.map(a => (
+                <AttnRow key={a.id} item={a} />
               ))}
-              {prep.filter(p => !p.todayLog).length > 5 && (
-                <Link
-                  href="/prep"
-                  className="flex items-center justify-center gap-1 px-4 py-3 text-xs text-gold hover:bg-gold/5 transition-colors"
-                >
-                  +{prep.filter(p => !p.todayLog).length - 5} more prep items
-                  <ArrowRight size={11} />
-                </Link>
-              )}
+            </section>
+
+            <div className="grid grid-cols-2 gap-4">
+              <PrepCard items={prepSummary.top} />
+              <CountCard sessions={countSessions} />
             </div>
-          )}
+
+            <LoopStrip phase={loopPhase(new Date())} weeklyRevenue={dashboard?.weeklyRevenue} />
+          </div>
+
+          <aside className="space-y-3.5">
+            <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Right rail · context</div>
+
+            <RailCard icon={<Zap size={11} />} iconTint="amber" title="Signal of the day">
+              {priceAlertCount > 0 ? (
+                <>You have <b>{priceAlertCount}</b> active price {priceAlertCount === 1 ? 'alert' : 'alerts'} — review whether to bump menu prices or switch suppliers before lunch service.</>
+              ) : (
+                <>No new signals. Your spine is clean — the live cost chrome above is up to date.</>
+              )}
+              <div className="flex gap-2 mt-3">
+                <Link href="/signals" className="inline-flex items-center gap-1 border border-line bg-paper text-ink-2 px-3 py-1.5 rounded-[7px] text-[12px] font-medium hover:border-ink-3 transition-colors">
+                  Open signals
+                </Link>
+              </div>
+            </RailCard>
+
+            <RailCard icon={<Activity size={11} />} iconTint="blue" title="Loop says…">
+              {(() => {
+                const latest = countSessions.filter(s => s.status === 'FINALIZED' && s.finalizedAt)[0]
+                if (!latest) return <>No counts yet. Schedule your first count to start closing the loop.</>
+                const days = Math.floor((Date.now() - new Date(latest.finalizedAt!).getTime()) / 86_400_000)
+                return <>Counts are <b>{days}d old</b>. Theoretical-vs-actual drift widens until the next reconciliation. Schedule a partial count before service.</>
+              })()}
+              <div className="flex gap-2 mt-3">
+                <Link href="/count" className="inline-flex items-center gap-1 bg-ink text-paper px-3 py-1.5 rounded-[7px] text-[12px] font-medium hover:bg-[#18181b] transition-colors">
+                  Schedule count
+                </Link>
+              </div>
+            </RailCard>
+          </aside>
+        </div>
+
+        <div className="mt-4 flex justify-between font-mono text-[10.5px] text-ink-3 tracking-wide">
+          <span>PASS REFRESHES EVERY 60S</span>
+          <span><kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘R</kbd> REFRESH · <kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘/</kbd> SEARCH</span>
         </div>
       </div>
+    </>
+  )
+}
 
-      {/* ── Quick links ───────────────────────────────────────── */}
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-        {[
-          { href: '/invoices', label: 'Invoices',  icon: FileText },
-          { href: '/inventory', label: 'Inventory', icon: AlertTriangle },
-          { href: '/recipes',   label: 'Recipes',   icon: ChefHat },
-          { href: '/reports',   label: 'Reports',   icon: Activity },
-          { href: '/count',     label: 'Count',     icon: Activity },
-        ].map(link => {
-          const Icon = link.icon
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl bg-white border border-gray-100 text-gray-500 hover:border-gold/30 hover:text-gold hover:bg-gold/5 transition-all text-center"
-            >
-              <Icon size={16} />
-              <span className="text-[11px] font-medium">{link.label}</span>
-            </Link>
-          )
-        })}
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function HeroKPI({ chrome, dashboard }: { chrome: CostChromeData | null; dashboard: DashboardData | null }) {
+  const pct = chrome?.foodCostPct ?? dashboard?.estimatedFoodCostPct ?? null
+  const target = chrome?.targetPct ?? 27
+  const intStr = pct !== null ? Math.floor(pct).toString() : '—'
+  const decimal = pct !== null ? `.${(pct % 1).toFixed(1).slice(2)}%` : ''
+  return (
+    <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
+      <div>
+        <div className="font-mono text-[10.5px] text-zinc-500 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
+        <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
+          {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decimal}</sub>
+        </div>
       </div>
-
+      <div className="font-mono text-[11px] text-zinc-500 tracking-[0]">
+        target <b className="text-paper">{target.toFixed(1)}</b>
+        {pct !== null && (
+          <> · <span className={pct > target ? 'text-red-300' : 'text-green-400'}>
+            {pct > target ? '+' : ''}{(pct - target).toFixed(1)}
+          </span> vs target</>
+        )}
+      </div>
     </div>
   )
+}
+
+function KPI({ label, value, delta, valueClass = '' }: { label: string; value: string; delta: React.ReactNode; valueClass?: string }) {
+  return (
+    <div className="bg-paper border border-line rounded-[12px] p-5 flex flex-col justify-between min-h-[128px] relative">
+      <div className="absolute top-0 left-0 w-8 h-0.5 bg-gold" />
+      <div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase">{label}</div>
+        <div className={`text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 ${valueClass || 'text-ink'}`}>{value}</div>
+      </div>
+      <div className="font-mono text-[11px] text-ink-3 tracking-[0] [&_b]:text-ink [&_b]:font-medium">{delta}</div>
+    </div>
+  )
+}
+
+function AttnRow({ item }: { item: AttnItem }) {
+  const tint = {
+    red:   'bg-red-soft text-red-text',
+    amber: 'bg-gold-soft text-gold-2',
+    blue:  'bg-blue-soft text-blue-text',
+    green: 'bg-green-soft text-green-text',
+  }[item.iconTint]
+  const costTint = item.cost.tint === 'bad' ? 'text-red-text'
+    : item.cost.tint === 'warn' ? 'text-gold-2'
+    : item.cost.tint === 'ok' ? 'text-green-text' : ''
+  const Icon = item.icon
+  return (
+    <Link href={item.ctaHref} className="grid grid-cols-[48px_1fr_auto_auto] items-center gap-3.5 px-[18px] py-3.5 border-b border-line last:border-0 cursor-pointer hover:bg-bg-2/40 transition-colors">
+      <div className={`w-9 h-9 rounded-[9px] grid place-items-center shrink-0 ${tint}`}>
+        <Icon size={16} />
+      </div>
+      <div>
+        <div className="text-[14px] font-medium tracking-[-0.01em] text-ink [&_b]:font-semibold [&_b]:text-red-text">{item.title}</div>
+        <div className="font-mono text-[10.5px] text-ink-3 mt-1 tracking-[0]">{item.meta}</div>
+      </div>
+      <div className={`text-right font-mono text-[13.5px] font-semibold tracking-[-0.01em] ${costTint}`}>
+        {item.cost.value}
+        <small className="block font-normal text-ink-3 font-mono text-[10.5px] mt-0.5">{item.cost.sub}</small>
+      </div>
+      <button className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-[#27272a] transition-colors">
+        {item.ctaLabel}
+      </button>
+    </Link>
+  )
+}
+
+function PrepCard({ items }: { items: PrepItem[] }) {
+  return (
+    <div className="bg-paper border border-line rounded-[12px] p-5">
+      <header className="flex items-center justify-between mb-3">
+        <h3 className="text-[15px] font-semibold tracking-[-0.015em]">
+          Today&apos;s prep <span className="font-mono text-[10.5px] text-ink-3 font-normal">· {items.length} {items.length === 1 ? 'card' : 'cards'}</span>
+        </h3>
+        <Link href="/prep" className="font-mono text-[10.5px] text-gold-2 border-b border-dashed border-current">Open prep →</Link>
+      </header>
+      {items.length === 0 ? (
+        <p className="text-[13px] text-ink-3 py-4 text-center">No prep needed today.</p>
+      ) : items.map(it => {
+        const pct = it.parLevel > 0 ? Math.min(100, (it.onHand / it.parLevel) * 100) : 100
+        const tone = it.priority === '911' ? 'bad' : it.priority === 'NEEDED_TODAY' ? 'warn' : 'ok'
+        return (
+          <div key={it.id} className="grid grid-cols-[1fr_64px_auto] items-center gap-2.5 py-2 border-b border-dashed border-line last:border-0 text-[13px]">
+            <div className="font-medium text-ink tracking-[-0.005em] truncate">{it.name}</div>
+            <div className="h-[5px] rounded-full bg-bg-2 overflow-hidden">
+              <div className={`h-full rounded-full ${tone === 'bad' ? 'bg-red' : tone === 'warn' ? 'bg-gold' : 'bg-green'}`} style={{ width: `${pct}%` }} />
+            </div>
+            <div className={`font-mono text-[11px] tracking-[0] tabular-nums whitespace-nowrap ${tone === 'bad' ? 'text-red-text' : tone === 'warn' ? 'text-gold-2' : 'text-ink-3'}`}>
+              {it.onHand.toFixed(it.onHand % 1 === 0 ? 0 : 1)} / {it.parLevel.toFixed(it.parLevel % 1 === 0 ? 0 : 1)} {it.unit}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CountCard({ sessions }: { sessions: CountSession[] }) {
+  const recent = [...sessions]
+    .filter(s => s.status === 'FINALIZED' || s.status === 'IN_PROGRESS')
+    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+    .slice(0, 4)
+  return (
+    <div className="bg-paper border border-line rounded-[12px] p-5">
+      <header className="flex items-center justify-between mb-3">
+        <h3 className="text-[15px] font-semibold tracking-[-0.015em]">
+          Counts <span className="font-mono text-[10.5px] text-ink-3 font-normal">· recent activity</span>
+        </h3>
+        <Link href="/count" className="font-mono text-[10.5px] text-gold-2 border-b border-dashed border-current">Schedule count →</Link>
+      </header>
+      {recent.length === 0 ? (
+        <p className="text-[13px] text-ink-3 py-4 text-center">No counts yet. Start one →</p>
+      ) : recent.map(s => {
+        const ref = new Date(s.finalizedAt ?? s.startedAt)
+        const days = Math.floor((Date.now() - ref.getTime()) / 86_400_000)
+        const tone = days > 4 ? 'bad' : days > 2 ? 'warn' : 'ok'
+        return (
+          <div key={s.id} className="grid grid-cols-[1fr_auto] items-center gap-2 py-2 border-b border-dashed border-line last:border-0 text-[13px]">
+            <div className="min-w-0">
+              <div className="font-medium text-ink tracking-[-0.005em] truncate">{s.label || 'Count'}</div>
+              <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{s.countedBy} · {s.status === 'IN_PROGRESS' ? 'in progress' : days === 0 ? 'today' : `${days}d ago`}</div>
+            </div>
+            <div className={`font-mono text-[11px] tracking-[0] whitespace-nowrap ${tone === 'bad' ? 'text-red-text' : tone === 'warn' ? 'text-gold-2' : 'text-green-text'}`}>
+              {s.status === 'IN_PROGRESS' ? 'active' : 'finalized'}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function LoopStrip({ phase, weeklyRevenue }: { phase: number; weeklyRevenue?: number }) {
+  const labels = ['01 IN','02 HOLD','03 BUILD','04 PLAN','05 MOVE','06 TRUTH']
+  return (
+    <div className="bg-ink text-paper rounded-[12px] px-5 py-4 flex items-center gap-5 flex-wrap">
+      <span className="font-mono text-[10.5px] text-gold uppercase tracking-[0.04em] font-semibold whitespace-nowrap">↻ THE LOOP</span>
+      <div className="text-[12.5px] text-zinc-300 tracking-[-0.005em] flex-1 min-w-[300px] [&_b]:text-paper [&_b]:font-medium">
+        You&apos;re at <b>{labels[phase]}</b> — overnight invoices write prices, prep starts, sales drain theoretical, counts close the loop weekly.
+        {typeof weeklyRevenue === 'number' && weeklyRevenue > 0 && <> WTD revenue: <b>{formatCurrency(weeklyRevenue)}</b>.</>}
+      </div>
+      <div className="hidden xl:flex items-center gap-1.5 font-mono text-[11px] text-zinc-500">
+        {labels.map((label, i) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <span className={`px-2.5 py-1 border rounded-full ${i === phase ? 'bg-gold text-ink border-gold font-semibold' : 'border-zinc-800 text-zinc-500'}`}>{label}</span>
+            {i < labels.length - 1 && <span className="text-zinc-700">→</span>}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RailCard({ icon, iconTint, title, children }: {
+  icon: React.ReactNode; iconTint: 'amber' | 'blue' | 'neutral'; title: string; children: React.ReactNode
+}) {
+  const iconCls = iconTint === 'amber' ? 'bg-gold-soft text-gold-2'
+    : iconTint === 'blue' ? 'bg-blue-soft text-blue-text'
+    : 'bg-bg-2 text-ink-3'
+  return (
+    <div className="bg-paper border border-line rounded-[12px] p-4">
+      <h4 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2 mb-2">
+        <span className={`w-5 h-5 rounded-md grid place-items-center ${iconCls}`}>{icon}</span>
+        {title}
+      </h4>
+      <div className="text-[13px] leading-[1.5] text-ink-2 tracking-[-0.005em] [&_b]:text-ink [&_b]:font-semibold">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function greetingFor(d: Date): 'morning' | 'afternoon' | 'evening' {
+  const h = d.getHours()
+  if (h < 12) return 'morning'
+  if (h < 18) return 'afternoon'
+  return 'evening'
+}
+
+function nextServiceCutoff(d: Date): Date {
+  const cutoff = new Date(d)
+  if (d.getHours() < 17) {
+    cutoff.setHours(17, 0, 0, 0)
+  } else {
+    cutoff.setDate(d.getDate() + 1)
+    cutoff.setHours(11, 0, 0, 0)
+  }
+  return cutoff
+}
+
+function fmtCrumbDate(d: Date): string {
+  return d.toLocaleString('en-US', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase()
+}
+
+function loopPhase(d: Date): number {
+  const h = d.getHours()
+  if (h < 6) return 0   // IN — overnight
+  if (h < 9) return 1   // HOLD
+  if (h < 12) return 2  // BUILD
+  if (h < 15) return 3  // PLAN
+  if (h < 21) return 4  // MOVE
+  return 5              // TRUTH
 }
