@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
+import { EditorDrawer } from '@/components/layout/EditorDrawer'
 
 // ─── Markdown renderer (bold + italic only) ───────────────────────────────────
 function renderMarkdown(text: string) {
@@ -1208,9 +1209,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   }
 
   if (!recipe) return (
-    <div className="fixed inset-y-0 right-0 w-full md:w-[600px] bg-paper shadow-2xl flex items-center justify-center z-50">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
-    </div>
+    <EditorDrawer onClose={() => { onUpdated(); onClose() }} titleBar={<div className="flex-1 font-mono text-[11px] text-ink-3 uppercase tracking-[0.04em]">Loading…</div>}>
+      <div className="flex-1 flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
+      </div>
+    </EditorDrawer>
   )
 
   const sf = scaleFactor
@@ -1226,53 +1229,45 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
   const menuFoodCostPct = isMenu && recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null
   const margin = recipe.menuPrice !== null ? recipe.menuPrice - recipe.totalCost : null
 
-  return (
+  // ── Title bar slot for <EditorDrawer> ──────────────────────────────────────
+  const titleBar = (
     <>
-    <div className="fixed inset-0 z-[60] flex">
-      <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={handleClose} />
-      <div className="w-full md:w-[640px] bg-bg h-full overflow-y-auto flex flex-col shadow-2xl">
-        <div className="sticky top-0 bg-paper z-10">
-          {/* Title bar */}
-          <div
-            className="border-b border-line px-5 py-4 flex items-center gap-3 bg-paper"
-            style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
-          >
-            <button onClick={handleClose} className="w-8 h-8 rounded-[8px] border border-line flex items-center justify-center text-ink-2 hover:border-ink-3 transition-colors bg-paper"><ArrowLeft size={16} /></button>
-            <div className="flex-1 min-w-0">
-              <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-[20px] font-semibold text-ink tracking-[-0.03em] leading-tight" />
-              <div className="flex items-center gap-2 mt-1.5">
-                {isMenu ? (
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-gold-2 bg-gold-soft px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <UtensilsCrossed size={10} /> Menu
-                  </span>
-                ) : (
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-green-700 bg-green-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <BookOpen size={10} /> Recipe
-                  </span>
-                )}
-                {recipe.inventoryItemId && (
-                  <a href={`/inventory?highlight=${recipe.inventoryItemId}`}
-                    className="font-mono text-[10px] uppercase tracking-[0.06em] bg-bg-2 text-ink-3 px-2 py-0.5 rounded-full flex items-center gap-1 hover:text-ink-2 transition-colors"
-                    onClick={e => e.stopPropagation()}
-                    title="View in Inventory">
-                    <Link2 size={9} /> Synced <ExternalLink size={8} />
-                  </a>
-                )}
-              </div>
-            </div>
-            {saving && <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />}
-            <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
-              className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-line-2'}`}>
-              <span className={`pointer-events-none absolute top-[2px] inline-block h-[18px] w-[18px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
-            </button>
-            <button onClick={() => setShowPrint(true)} title="Print recipe card"
-              className="p-1.5 rounded-[7px] text-ink-3 hover:text-ink hover:bg-bg-2 transition-colors">
-              <Printer size={16} />
-            </button>
-          </div>
+      <div className="flex-1 min-w-0">
+        <InlineEdit value={recipe.name} onSave={name => patchRecipe({ name })} className="text-[20px] font-semibold text-ink tracking-[-0.03em] leading-tight" />
+        <div className="flex items-center gap-2 mt-1.5">
+          {isMenu ? (
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-gold-2 bg-gold-soft px-2 py-0.5 rounded-full flex items-center gap-1">
+              <UtensilsCrossed size={10} /> Menu
+            </span>
+          ) : (
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-green-700 bg-green-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <BookOpen size={10} /> Recipe
+            </span>
+          )}
+          {recipe.inventoryItemId && (
+            <a href={`/inventory?highlight=${recipe.inventoryItemId}`}
+              className="font-mono text-[10px] uppercase tracking-[0.06em] bg-bg-2 text-ink-3 px-2 py-0.5 rounded-full flex items-center gap-1 hover:text-ink-2 transition-colors"
+              onClick={e => e.stopPropagation()}
+              title="View in Inventory">
+              <Link2 size={9} /> Synced <ExternalLink size={8} />
+            </a>
+          )}
+        </div>
+      </div>
+      {saving && <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />}
+      <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
+        className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-line-2'}`}>
+        <span className={`pointer-events-none absolute top-[2px] inline-block h-[18px] w-[18px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
+      </button>
+      <button onClick={() => setShowPrint(true)} title="Print recipe card"
+        className="p-1.5 rounded-[7px] text-ink-3 hover:text-ink hover:bg-bg-2 transition-colors">
+        <Printer size={16} />
+      </button>
+    </>
+  )
 
-          {/* Cost chrome strip — dark ink with gold accent */}
-          {recipe.totalCost > 0 && (
+  // ── Cost strip slot ────────────────────────────────────────────────────────
+  const costStrip = recipe.totalCost > 0 ? (
             <div className="bg-ink px-5 py-3.5 flex items-center gap-1 text-[11.5px] overflow-x-auto">
               {isMenu ? (
                 <>
@@ -1345,14 +1340,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 </>
               )}
             </div>
-          )}
-        </div>
-        {showPrint && typeof document !== 'undefined' && createPortal(
-          <RecipePrintModal recipe={recipe} onClose={() => setShowPrint(false)} />,
-          document.body
-        )}
+  ) : null
 
-        <div className="p-5 space-y-5">
+  return (
+    <>
+    <EditorDrawer onClose={handleClose} titleBar={titleBar} costStrip={costStrip}>
+      <div className="p-5 space-y-5">
 
           {/* Dependency banner — PREP recipes used by other recipes */}
           {!isMenu && recipe.usedInRecipes && recipe.usedInRecipes.length > 0 && (
@@ -1698,9 +1691,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             )}
           </div>
         </div>
-      </div>
+    </EditorDrawer>
 
-    </div>
+    {showPrint && typeof document !== 'undefined' && createPortal(
+      <RecipePrintModal recipe={recipe} onClose={() => setShowPrint(false)} />,
+      document.body
+    )}
 
     {quickEditItemId && (
       <InventoryItemDrawer
