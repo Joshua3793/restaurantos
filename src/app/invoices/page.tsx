@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
 import { InvoiceList } from '@/components/invoices/InvoiceList'
 import { InboxView } from '@/components/invoices/InboxView'
+import { InboxSubNav } from '@/components/invoices/InboxSubNav'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
@@ -164,7 +165,9 @@ export default function InvoicesPage() {
   }, [fetchSessions])
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)]">
+    <>
+    <InboxSubNav />
+    <div className="flex flex-col h-[calc(100vh-104px)]">
       {view === 'inbox' ? (
         <InboxView
           sessions={sessions}
@@ -233,5 +236,6 @@ export default function InvoicesPage() {
         />
       )}
     </div>
+    </>
   )
 }
