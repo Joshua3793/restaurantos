@@ -169,7 +169,7 @@ function NavigationInner() {
     <>
       {/* ── Desktop Sidebar (v2) ─────────────────────────────────── */}
       <aside
-        className="hidden md:flex flex-col w-[240px] min-h-screen fixed left-0 top-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300"
+        className="hidden md:flex flex-col w-[240px] h-screen fixed left-0 top-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300"
         style={{ background: '#09090b' }}
       >
         {/* Brand + bell */}
