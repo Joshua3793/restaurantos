@@ -7,6 +7,7 @@ import type { ScanItem } from '@/components/invoices/types'
 import {
   isUnlinked, hasModeMismatch, hasFormatMismatch, hasMathCheck, hasPriceChange,
 } from './predicates'
+import { computeNormalisedPrices } from './calculations'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
 
 // A line is treated as a "charge" (Other line items — no COGS impact) when the
@@ -25,7 +26,14 @@ export interface ResolveOpts {
 // Big price jumps (>15%) on a linked item are the only price deltas promoted to
 // a decision-required `.issue` — smaller drifts surface only as a variance pill.
 export function isBigPriceChange(item: ScanItem): boolean {
-  return !!item.matchedItem && hasPriceChange(item, 15)
+  if (!item.matchedItem) return false
+  // Prefer the unit-normalised comparison (handles $/cs vs $/L etc.) — the stored
+  // priceDiffPct can be computed in mismatched units and read as a huge jump when
+  // the real per-base-unit price is unchanged. Fall back to the stored pct only
+  // when prices can't be normalised (e.g. per-case with no base unit).
+  const norm = computeNormalisedPrices(item)
+  if (norm) return Math.abs(norm.pctDiff) > 15
+  return hasPriceChange(item, 15)
 }
 
 // Which issue badges a line currently shows, and whether each is resolved.

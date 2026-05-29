@@ -36,8 +36,34 @@ export function isCatchweight(item: ScanItem): boolean {
 
 // ── Format mismatch ───────────────────────────────────────────────────────────
 // Kept as a distinct state from mode mismatch (per-brief decision).
+//
+// The stored `formatMismatch` flag is the *resolution* switch — "Use invoice
+// format" / "Revert to inventory format" clear it. But upstream matching can set
+// it as a false positive (e.g. invoice 4×4L vs inventory 4×4L). So we only treat
+// it as a real issue when the flag is set AND the invoice pack format genuinely
+// differs from the linked item's stored format. If we don't have full invoice
+// pack data to compare, we trust the flag.
+const numEq = (a: string | number | null | undefined, b: string | number | null | undefined): boolean => {
+  const na = Number(a), nb = Number(b)
+  if (Number.isNaN(na) || Number.isNaN(nb)) return String(a ?? '').trim() === String(b ?? '').trim()
+  return Math.abs(na - nb) < 1e-9
+}
+const uomEq = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+
 export function hasFormatMismatch(item: ScanItem): boolean {
-  return item.formatMismatch === true
+  if (item.formatMismatch !== true) return false
+  const inv = item.matchedItem
+  if (!inv) return false
+  const { invoicePackQty, invoicePackSize, invoicePackUOM } = item
+  if (invoicePackQty != null && invoicePackSize != null && invoicePackUOM != null) {
+    const sameFormat =
+      numEq(inv.qtyPerPurchaseUnit, invoicePackQty) &&
+      numEq(inv.packSize, invoicePackSize) &&
+      uomEq(inv.packUOM, invoicePackUOM)
+    if (sameFormat) return false // false positive — formats actually match
+  }
+  return true
 }
 
 // ── Mode mismatch ─────────────────────────────────────────────────────────────
