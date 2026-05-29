@@ -1,10 +1,12 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import { InvoiceKpiStrip } from '@/components/invoices/InvoiceKpiStrip'
-import { InvoiceList } from '@/components/invoices/InvoiceList'
-import { InboxView } from '@/components/invoices/InboxView'
+import { Mail, Clock } from 'lucide-react'
+import { InvoiceKpiStripV2 } from '@/components/invoices/InvoiceKpiStripV2'
+import { InvoiceListV2 } from '@/components/invoices/InvoiceListV2'
+import { InboxViewV2 } from '@/components/invoices/InboxViewV2'
 import { InboxSubNav } from '@/components/invoices/InboxSubNav'
+import { PageHead } from '@/components/layout/PageHead'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
@@ -16,6 +18,7 @@ const InvoiceDrawer = dynamic<{
   sessionId: string | null
   onClose: () => void
   onApproveOrReject: () => void
+  onNavigate?: (id: string) => void
   allSessions?: SessionSummary[]
 }>(
   () => import('@/components/invoices/v2/InvoiceReviewDrawer').then(m => ({ default: m.InvoiceReviewDrawer })),
@@ -164,44 +167,72 @@ export default function InvoicesPage() {
     await fetchSessions()
   }, [fetchSessions])
 
+  const queueCount = sessions.filter(s =>
+    s.status === 'REVIEW' || s.status === 'PROCESSING' || s.status === 'UPLOADING' ||
+    s.status === 'APPROVING' || s.status === 'ERROR'
+  ).length
+
   return (
     <>
     <InboxSubNav />
-    <div className="flex flex-col h-[calc(100vh-104px)]">
+    <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
+
+      <PageHead
+        crumbs={<><Mail size={12} /> INBOX / INVOICES</>}
+        title="Invoices"
+        sub={
+          view === 'inbox'
+            ? <>OCR → review → approve. <b>{queueCount}</b> {queueCount === 1 ? 'session' : 'sessions'} in queue.</>
+            : <>All invoice sessions — sortable, searchable, filterable by status.</>
+        }
+        actions={
+          <div className="inline-flex bg-paper border border-line rounded-[9px] p-[3px]">
+            <button
+              onClick={() => setView('inbox')}
+              className={`font-mono text-[11px] px-3 py-1.5 rounded-[6px] tracking-[0.02em] uppercase transition-colors inline-flex items-center gap-1.5 ${
+                view === 'inbox' ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              <Mail size={11} className={view === 'inbox' ? 'text-gold' : ''} /> Inbox
+              {queueCount > 0 && (
+                <span className={`font-mono text-[10px] px-1.5 rounded-full leading-tight ${view === 'inbox' ? 'bg-gold text-ink' : 'bg-gold-soft text-gold-2'}`}>{queueCount}</span>
+              )}
+            </button>
+            <button
+              onClick={() => setView('history')}
+              className={`font-mono text-[11px] px-3 py-1.5 rounded-[6px] tracking-[0.02em] uppercase transition-colors inline-flex items-center gap-1.5 ${
+                view === 'history' ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              <Clock size={11} className={view === 'history' ? 'text-gold' : ''} /> History
+            </button>
+          </div>
+        }
+      />
+
+      <InvoiceKpiStripV2
+        refreshKey={kpiRefreshKey}
+        activeRcId={activeRcId}
+        isDefault={activeRc?.isDefault ?? false}
+      />
+
       {view === 'inbox' ? (
-        <InboxView
+        <InboxViewV2
           sessions={sessions}
           onSelectSession={setSelectedSessionId}
           onUploadClick={() => setShowUpload(true)}
           onScanClick={isNative() ? triggerScan : undefined}
-          onSwitchToHistory={() => setView('history')}
         />
       ) : (
-        <>
-          <div className="px-4 pt-3 pb-1 sm:pt-4 sm:pb-2 shrink-0 flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Invoice History</h1>
-            <button
-              onClick={() => setView('inbox')}
-              className="ml-auto text-xs text-gold hover:underline font-medium"
-            >
-              ← Back to Inbox
-            </button>
-          </div>
-          <InvoiceKpiStrip
-            refreshKey={kpiRefreshKey}
-            activeRcId={activeRcId}
-            isDefault={activeRc?.isDefault ?? false}
-          />
-          <InvoiceList
-            sessions={sessions}
-            onSelect={setSelectedSessionId}
-            onUploadClick={() => setShowUpload(true)}
-            onScanClick={isNative() ? triggerScan : undefined}
-            onDelete={handleDelete}
-            onBulkDelete={handleBulkDelete}
-            onRetry={handleRetry}
-          />
-        </>
+        <InvoiceListV2
+          sessions={sessions}
+          onSelect={setSelectedSessionId}
+          onUploadClick={() => setShowUpload(true)}
+          onScanClick={isNative() ? triggerScan : undefined}
+          onDelete={handleDelete}
+          onBulkDelete={handleBulkDelete}
+          onRetry={handleRetry}
+        />
       )}
       {scanError && (
         <button
@@ -223,6 +254,7 @@ export default function InvoicesPage() {
         sessionId={selectedSessionId}
         onClose={() => setSelectedSessionId(null)}
         onApproveOrReject={handleApproveOrReject}
+        onNavigate={(id) => setSelectedSessionId(id)}
         allSessions={sessions}
       />
       {showUpload && (
