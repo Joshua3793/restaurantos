@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { calcPricePerBaseUnit, getUnitConv } from '@/lib/utils'
+import { derivePricingMode } from '@/lib/invoice/predicates'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -49,7 +50,14 @@ async function doApprove(
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
 
-        const rawPriceType = scanItem.rawPriceType ?? 'CASE'
+        // Honor the pricing mode the user resolved in the drawer (persisted as
+        // `pricingMode`). `rawPriceType` was never persisted by the OCR/process
+        // step, so reading it here silently forced EVERY line to CASE — dropping
+        // per-weight pricing and never writing the resolved mode back to the
+        // inventory item. Derive the mode exactly as the UI does.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight'
+        const rawPriceType: 'CASE' | 'UOM' = isUomMode ? 'UOM' : 'CASE'
 
         let newPricePerBase: number
         if (rawPriceType === 'UOM') {

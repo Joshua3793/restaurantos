@@ -67,7 +67,14 @@ export function ModeIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
         <>
           <ActButton
             variant={writeback ? 'primary' : 'default'}
-            onClick={() => { if (!writeback) ctx.toggleModeWriteback(lineId) }}
+            onClick={() => {
+              if (!writeback) {
+                ctx.toggleModeWriteback(lineId)
+                // Persist the resolved mode so approve writes the invoice's mode
+                // (and its per-weight price) back to the inventory item.
+                ctx.updateLine(lineId, { pricingMode: detected })
+              }
+            }}
           >
             Switch product to {detectedLbl}
           </ActButton>
