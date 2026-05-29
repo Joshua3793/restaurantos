@@ -223,13 +223,18 @@ export function InvoiceReviewDrawer({
 }) {
   const { revenueCenters } = useRc()
 
-  // Lock background scroll while the drawer is open — otherwise wheel events that
-  // reach a non-scrolling area of the drawer chain through to the page behind it.
+  // Lock background scroll while the drawer is open — otherwise wheel events over
+  // a non-scrolling area of the drawer (PDF pane, header, gaps) chain through to
+  // the page behind it. The page's scroll container is <html>, not <body>, so we
+  // must lock the documentElement (locking body alone has no effect here).
   useEffect(() => {
     if (sessionId === null) return
-    const prev = document.body.style.overflow
+    const html = document.documentElement
+    const prevHtml = html.style.overflow
+    const prevBody = document.body.style.overflow
+    html.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
+    return () => { html.style.overflow = prevHtml; document.body.style.overflow = prevBody }
   }, [sessionId])
 
   // ── Session data ────────────────────────────────────────────────────────────
