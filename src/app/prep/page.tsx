@@ -4,7 +4,7 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import {
   ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
-  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle,
+  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check,
 } from 'lucide-react'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
@@ -487,13 +487,16 @@ export default function PrepPage() {
           </button>
           <button
             onClick={() => handleToggleOnList(item.id, !isAdded)}
-            className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors ${
+            title={isAdded ? "Remove from today's list" : "Add to today's list"}
+            className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-3 border border-line hover:bg-bg'
+                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
-            {isAdded ? <>On list ✓</> : <><span className="text-gold font-semibold">+</span> Add</>}
+            {isAdded
+              ? <><Check size={13} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
 
@@ -627,13 +630,16 @@ export default function PrepPage() {
         <div className="flex justify-end">
           <button
             onClick={() => handleToggleOnList(item.id, !isAdded)}
-            className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors ${
+            title={isAdded ? "Remove from today's list" : "Add to today's list"}
+            className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-green-600 text-paper hover:bg-green-700'
+                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
-            {isAdded ? '✓ On list' : <><span className="text-gold font-semibold">+</span> Add</>}
+            {isAdded
+              ? <><Check size={12} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
       </div>
@@ -1193,17 +1199,33 @@ export default function PrepPage() {
                           spLookingGood.map(item => {
                             const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
                             const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
+                            const isAdded = item.isOnList
                             return (
-                              <button key={item.id} onClick={() => setSelected(item)}
-                                className="bg-bg border border-line rounded-lg px-3 py-2.5 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors text-left">
-                                <div className="flex flex-col gap-0.5 min-w-0">
+                              <div key={item.id}
+                                className="bg-bg border border-line rounded-lg px-3 py-2.5 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors">
+                                <button onClick={() => setSelected(item)} className="flex flex-col gap-0.5 min-w-0 text-left hover:opacity-80 transition-opacity">
                                   <span className="text-[13px] font-medium text-ink tracking-[-0.01em] truncate">{item.name}</span>
                                   <span className="font-mono text-[10.5px] text-ink-3 whitespace-nowrap">
                                     {item.category} · {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
                                   </span>
+                                </button>
+                                <div className="flex items-center gap-2.5 shrink-0">
+                                  <span className="font-mono text-[11px] text-green-700 font-medium">{label}</span>
+                                  <button
+                                    onClick={() => handleToggleOnList(item.id, !isAdded)}
+                                    title={isAdded ? "Remove from today's list" : "Add to today's list"}
+                                    className={`px-2.5 py-1 rounded-[7px] text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
+                                      isAdded
+                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                                        : 'bg-ink text-paper hover:bg-ink-2'
+                                    }`}
+                                  >
+                                    {isAdded
+                                      ? <><Check size={11} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50">✕</span></>
+                                      : <><span className="text-gold font-semibold">+</span> Add</>}
+                                  </button>
                                 </div>
-                                <span className="font-mono text-[11px] text-green-700 font-medium shrink-0">{label}</span>
-                              </button>
+                              </div>
                             )
                           })
                         )}
@@ -1213,12 +1235,28 @@ export default function PrepPage() {
                         {spLookingGood.slice(0, 6).map(item => {
                           const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
                           const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
+                          const isAdded = item.isOnList
                           return (
-                            <button key={item.id} onClick={() => setSelected(item)}
-                              className="bg-bg border border-line rounded-lg px-3 py-2 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors text-left">
-                              <span className="text-[12.5px] font-medium text-ink tracking-[-0.01em] truncate min-w-0">{item.name}</span>
-                              <span className="font-mono text-[10.5px] text-green-700 font-medium shrink-0">{label}</span>
-                            </button>
+                            <div key={item.id}
+                              className="bg-bg border border-line rounded-lg px-3 py-2 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors">
+                              <button onClick={() => setSelected(item)} className="text-[12.5px] font-medium text-ink tracking-[-0.01em] truncate min-w-0 text-left hover:opacity-80 transition-opacity">{item.name}</button>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="font-mono text-[10.5px] text-green-700 font-medium">{label}</span>
+                                <button
+                                  onClick={() => handleToggleOnList(item.id, !isAdded)}
+                                  title={isAdded ? "Remove from today's list" : "Add to today's list"}
+                                  className={`w-6 h-6 grid place-items-center rounded-[6px] text-[12px] font-medium transition-colors group ${
+                                    isAdded
+                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                                      : 'bg-ink text-paper hover:bg-ink-2'
+                                  }`}
+                                >
+                                  {isAdded
+                                    ? <Check size={12} className="text-green-600 group-hover:text-red-500" />
+                                    : <span className="text-gold font-semibold leading-none">+</span>}
+                                </button>
+                              </div>
+                            </div>
                           )
                         })}
                         {spLookingGood.length > 6 && (
