@@ -5,7 +5,7 @@
 // inventory-cost comparison. Reads shared state from DrawerContext.
 
 import { useRef } from 'react'
-import { ChevronDown, ExternalLink, Ban, Undo2 } from 'lucide-react'
+import { ChevronDown, ExternalLink, Ban, Undo2, Check } from 'lucide-react'
 import { useDrawerContext } from './context'
 import { LineNumberChip } from './atoms'
 import {
@@ -19,7 +19,7 @@ import {
   derivePricingMode, isCatchweight, hasModeMismatch, hasFormatMismatch,
   hasMathCheck, isUnlinked,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
 import type { ScanItem } from '@/components/invoices/types'
@@ -45,6 +45,13 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const bigPrice       = !isSkipped && isBigPriceChange(item)
   const isAttention    = unlinked || modeMismatch || formatMismatch || mathCheck || bigPrice
   const isCatch        = isCatchweight(item)
+
+  // A line that surfaced an issue but whose decisions are all made now reads as
+  // resolved — flips the card from amber attention to green acknowledgment.
+  const resolved = isAttention && !lineUnresolved(item, {
+    modeWriteback: ctx.modeWritebackItems.has(lineId),
+    priceAck:      ctx.acknowledgedPriceLines.has(lineId),
+  })
 
   // data-task for the footer's goToTask() targeting (highest-priority first).
   const dataTask = isSkipped ? undefined
@@ -124,16 +131,23 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         data-task={dataTask}
         onClick={handleToggle}
         className={`flex items-center gap-3 bg-paper border rounded-lg px-4 py-[11px] cursor-pointer transition-colors ${
-          isAttention ? 'border-[#fcd34d] hover:border-gold' : 'border-line hover:border-line-2'
+          resolved ? 'border-[#86efac] hover:border-green-text'
+          : isAttention ? 'border-[#fcd34d] hover:border-gold'
+          : 'border-line hover:border-line-2'
         } ${isFlashing ? 'animate-flash-highlight' : ''}`}
       >
-        <LineNumberChip n={displayNo} tone={isAttention ? 'attention' : 'ok'} />
+        <LineNumberChip n={displayNo} tone={isAttention && !resolved ? 'attention' : 'ok'} />
         <div className="flex-1 min-w-0">
           <div className="text-[13px] text-ink font-medium truncate">
             {item.rawDescription || '(no description)'}
             <span className="font-mono text-[10.5px] text-ink-4 font-normal ml-2">{formatPackSummary(item)}</span>
           </div>
         </div>
+        {resolved && (
+          <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-green-soft text-green-text shrink-0 inline-flex items-center gap-1">
+            <Check size={10} /> resolved
+          </span>
+        )}
         {!isAttention && item.matchedItem && (
           <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-green-soft text-green-text shrink-0">
             matched
@@ -153,7 +167,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       data-line-id={lineId}
       data-task={dataTask}
       className={`bg-paper border rounded-lg overflow-hidden transition-shadow ${
-        isAttention ? 'border-[#fcd34d]' : 'border-line'
+        resolved ? 'border-[#86efac]' : isAttention ? 'border-[#fcd34d]' : 'border-line'
       } ${isOpen ? 'shadow-sm' : ''} ${isFlashing ? 'animate-flash-highlight' : ''}`}
     >
       {/* line-head */}
@@ -186,6 +200,11 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           </div>
         </div>
         <div className="flex items-start gap-2.5 shrink-0">
+          {resolved && (
+            <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-green-soft text-green-text inline-flex items-center gap-1 self-center">
+              <Check size={10} /> resolved
+            </span>
+          )}
           <div className="text-right">
             <div className="font-mono text-[16px] font-semibold text-ink tabular-nums leading-none">
               {total !== null ? formatCurrency(total) : '—'}

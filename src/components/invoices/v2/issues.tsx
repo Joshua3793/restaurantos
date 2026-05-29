@@ -3,7 +3,7 @@
 // badge + plain-English description + a row of decision buttons — replaces the
 // three different warning languages the old drawer used (mock §1, §3, §7).
 
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Check } from 'lucide-react'
 import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
@@ -20,16 +20,25 @@ function IssueShell({
   label,
   children,
   actions,
+  resolved = false,
 }: {
   kind: IssueKind
   label: string
   children: React.ReactNode
   actions: React.ReactNode
+  /** Decision made — render the block in a green, acknowledged state. */
+  resolved?: boolean
 }) {
   return (
-    <div className="px-4 py-3 border-b border-dashed border-line last:border-b-0 flex flex-col gap-2.5">
+    <div className={`px-4 py-3 border-b border-dashed border-line last:border-b-0 flex flex-col gap-2.5 transition-colors ${resolved ? 'bg-green-soft/40' : ''}`}>
       <div className="flex items-start gap-2.5">
-        <IssueBadge kind={kind}>{label}</IssueBadge>
+        {resolved ? (
+          <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-green-soft text-green-text shrink-0 inline-flex items-center gap-1">
+            <Check size={10} /> {label}
+          </span>
+        ) : (
+          <IssueBadge kind={kind}>{label}</IssueBadge>
+        )}
         <div className="text-[12.5px] text-ink-2 leading-[1.45] min-w-0">{children}</div>
       </div>
       <div className="flex gap-1.5 flex-wrap pl-0">{actions}</div>
@@ -53,6 +62,7 @@ export function ModeIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
     <IssueShell
       kind="mode"
       label="Mode mismatch"
+      resolved={writeback}
       actions={
         <>
           <ActButton
@@ -165,6 +175,7 @@ export function PriceIssue({
     <IssueShell
       kind="price"
       label={`Price ${pct > 0 ? '↑' : '↓'} ${Math.abs(pct).toFixed(0)}%`}
+      resolved={acked}
       actions={
         <>
           <ActButton variant={acked ? 'primary' : 'default'} onClick={() => ctx.acknowledgePrice(lineId)}>

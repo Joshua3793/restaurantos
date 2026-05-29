@@ -223,6 +223,15 @@ export function InvoiceReviewDrawer({
 }) {
   const { revenueCenters } = useRc()
 
+  // Lock background scroll while the drawer is open — otherwise wheel events that
+  // reach a non-scrolling area of the drawer chain through to the page behind it.
+  useEffect(() => {
+    if (sessionId === null) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [sessionId])
+
   // ── Session data ────────────────────────────────────────────────────────────
   const [session,     setSession]     = useState<Session | null>(null)
   const [loading,     setLoading]     = useState(false)
@@ -838,7 +847,7 @@ export function InvoiceReviewDrawer({
                 />
 
                 {/* Line item list — grouped by section */}
-                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-[18px] py-3 flex flex-col gap-1.5">
+                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] py-3 flex flex-col gap-1.5">
                   {/* Needs your attention */}
                   {(reviewSegment === 'all' || reviewSegment === 'issues') && (sections.attention.length > 0 || supplierNeedsLink) && (
                     <>
