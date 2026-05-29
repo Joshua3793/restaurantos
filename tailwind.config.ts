@@ -27,6 +27,16 @@ const config: Config = {
         gold:        '#d97706',
         'gold-2':    '#b45309',   // text-safe on light bg
         'gold-soft': '#fef3c7',
+        // Semantic data colors (consistent with Tailwind defaults for fallback)
+        red:           '#dc2626',  // red-600
+        'red-soft':    '#fee2e2',  // red-100
+        'red-text':    '#b91c1c',  // red-700
+        green:         '#16a34a',  // green-600
+        'green-soft':  '#dcfce7',  // green-100
+        'green-text':  '#15803d',  // green-700
+        blue:          '#2563eb',  // blue-600
+        'blue-soft':   '#dbeafe',  // blue-100
+        'blue-text':   '#1d4ed8',  // blue-700
         // ── Legacy (keep during migration) ─────────────────────────────────
         background: "var(--background)",
         foreground: "var(--foreground)",
@@ -34,6 +44,7 @@ const config: Config = {
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-geist-mono)', 'ui-monospace', 'monospace'],
+        fraunces: ['var(--font-fraunces)', 'Fraunces', 'ui-serif', 'Georgia', 'serif'],
       },
       borderRadius: {
         sm:  '6px',

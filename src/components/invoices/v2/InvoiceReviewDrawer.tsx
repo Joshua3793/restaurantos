@@ -5,10 +5,12 @@
 import {
   useState, useEffect, useCallback, useMemo, useRef,
 } from 'react'
-import { X, Check, Loader2, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag, Link2 } from 'lucide-react'
+import { X, Check, Loader2, AlertTriangle, ChevronUp, ChevronDown, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag, Search } from 'lucide-react'
 import { DrawerContext, type DrawerContextValue } from './context'
 import { LineItemCard } from './card'
-import { ChipRow, ReconcileBanner, type ReconcileResult } from './composites'
+import { type ReconcileResult } from './composites'
+import { ActButton, IssueBadge } from './atoms'
+import { ImpactStrip, AlertBanner, ReviewProgress, SectionDivider, type ImpactMetric, type ReviewSegment } from './chrome'
 import { ImageViewerV2, type BBox } from './ImageViewer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
@@ -16,25 +18,37 @@ import type { Session, ScanItem, SessionSummary } from '@/components/invoices/ty
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import {
-  getFilterCounts, matchesFilter, sortComparator,
   type FilterKey, type SortMode,
 } from '@/lib/invoice/filters'
 import {
   isUnlinked, hasMathCheck, hasModeMismatch, hasFormatMismatch,
 } from '@/lib/invoice/predicates'
+import { lineUnresolved, isCharge, isBigPriceChange } from '@/lib/invoice/resolution'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { PACK_UOMS, PURCHASE_UNITS, calcPricePerBaseUnit } from '@/lib/utils'
 
 // ─── InvoiceHeader ─────────────────────────────────────────────────────────────
 
+function supplierInitials(name: string | null): string {
+  if (!name) return '??'
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return '??'
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return (words[0][0] + words[1][0]).toUpperCase()
+}
+
 function InvoiceHeader({
   session,
-  reconciliation,
   onClose,
+  queuePos,
+  onPrev,
+  onNext,
 }: {
   session: Session
-  reconciliation: ReconcileResult | null
   onClose: () => void
+  queuePos: { idx: number; total: number }
+  onPrev?: () => void
+  onNext?: () => void
 }) {
   const total    = session.total    ? Number(session.total)    : null
   const subtotal = session.subtotal ? Number(session.subtotal) : null
@@ -48,162 +62,146 @@ function InvoiceHeader({
 
   return (
     <div
-      className="px-[22px] pt-[18px] pb-[14px] border-b border-stone-200"
-      style={{ paddingTop: 'calc(18px + env(safe-area-inset-top, 0px))' }}
+      className="grid grid-cols-[32px_1fr_auto_auto] items-center gap-4 px-[22px] py-[16px] bg-paper border-b border-line"
+      style={{ paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))' }}
     >
-      <div className="flex items-start justify-between gap-4">
-        {/* Left: supplier + meta */}
+      {/* Close */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close drawer"
+        className="w-8 h-8 grid place-items-center rounded-lg border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors"
+      >
+        <X size={16} />
+      </button>
+
+      {/* Avatar + title + meta */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-9 h-9 rounded-[9px] bg-ink text-paper grid place-items-center font-mono text-[12px] font-semibold shrink-0">
+          {supplierInitials(session.supplierName)}
+        </div>
         <div className="min-w-0">
-          <h2 className="text-[19px] font-semibold text-stone-900 leading-[1.2] truncate">
+          <h2 className="font-medium text-[23px] leading-[1.1] tracking-[-0.02em] text-ink truncate">
             {session.supplierName ?? 'Unknown supplier'}
           </h2>
-          <p className="text-[12.5px] text-stone-400 mt-[3px]">
-            {metaParts.join(' · ')}
-          </p>
-        </div>
-
-        {/* Right: total */}
-        <div className="text-right shrink-0">
-          <div className="text-[24px] font-semibold text-stone-900 leading-none tabular-nums">
-            {total !== null ? formatCurrency(total) : '—'}
+          <div className="font-mono text-[11px] text-ink-4 mt-[3px] flex items-center gap-2 flex-wrap">
+            {metaParts.map((p, i) => (
+              <span key={p} className="flex items-center gap-2">
+                {i > 0 && <span className="text-line-2">·</span>}
+                {p}
+              </span>
+            ))}
           </div>
-          {(subtotal !== null || tax !== null) && (
-            <div className="text-[11.5px] text-stone-400 mt-[4px] tabular-nums">
-              {subtotal !== null && `sub ${formatCurrency(subtotal)}`}
-              {subtotal !== null && tax !== null && ' · '}
-              {tax !== null && `tax ${formatCurrency(tax)}`}
-            </div>
-          )}
         </div>
-
-        {/* Close button */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 p-2.5 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
-          aria-label="Close drawer"
-        >
-          <X size={18} />
-        </button>
       </div>
 
-      {/* Reconcile banner */}
-      {reconciliation && <ReconcileBanner reconciliation={reconciliation} />}
+      {/* Total */}
+      <div className="text-right pr-1.5">
+        <div className="font-mono text-[28px] font-semibold tracking-[-0.02em] text-ink tabular-nums leading-none">
+          {total !== null ? formatCurrency(total) : '—'}
+        </div>
+        {(subtotal !== null || tax !== null) && (
+          <div className="font-mono text-[10.5px] text-ink-4 mt-[3px] tabular-nums">
+            {subtotal !== null && `sub ${formatCurrency(subtotal)}`}
+            {subtotal !== null && tax !== null && ' · '}
+            {tax !== null && `tax ${formatCurrency(tax)}`}
+          </div>
+        )}
+      </div>
+
+      {/* Prev / next in queue */}
+      <div className="hidden md:flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onPrev}
+          disabled={!onPrev}
+          aria-label="Previous invoice"
+          className="w-7 h-7 grid place-items-center rounded-[7px] border border-line text-ink-4 hover:border-ink-4 hover:text-ink-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronUp size={13} className="-rotate-90" />
+        </button>
+        <span className="font-mono text-[10.5px] text-ink-4 px-1.5 tabular-nums">{queuePos.idx} / {queuePos.total}</span>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={!onNext}
+          aria-label="Next invoice"
+          className="w-7 h-7 grid place-items-center rounded-[7px] border border-line text-ink-4 hover:border-ink-4 hover:text-ink-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronDown size={13} className="-rotate-90" />
+        </button>
+      </div>
     </div>
   )
 }
 
 // ─── DrawerFooter ──────────────────────────────────────────────────────────────
+// Commits, doesn't decide (mock §4). Left = a plain-English summary of exactly
+// what approving writes; right = Reject + the one ink-on-gold Approve & post.
 
 function DrawerFooter({
-  session,
-  items,
-  modeWritebackItems,
+  priceWrites,
+  newItems,
+  supplierLink,
+  canApprove,
+  disabledReason,
   onApprove,
   onReject,
   saveStatus,
-  goToTask,
 }: {
-  session: Session
-  items: ScanItem[]
-  modeWritebackItems: Set<string>
+  priceWrites: number
+  newItems: number
+  supplierLink: boolean
+  canApprove: boolean
+  disabledReason: string
   onApprove: () => void
   onReject: () => void
   saveStatus: 'idle' | 'saving' | 'error'
-  goToTask: (key: 'link' | 'math' | 'mismatch') => void
 }) {
-  // Skipped items are intentionally excluded — they don't affect COGS and don't need review
-  const activeItems    = items.filter(i => i.action !== 'SKIP')
-  const unlinkedCount  = activeItems.filter(i => isUnlinked(i)).length
-  const mathCount      = activeItems.filter(i => hasMathCheck(i)).length
-  // Mode mismatches acknowledged by the writeback checkbox don't need manual resolution
-  const mismatchCount  = activeItems.filter(i =>
-    (hasModeMismatch(i) && !modeWritebackItems.has(i.id)) || hasFormatMismatch(i)
-  ).length
-
-  const canApprove = unlinkedCount === 0 && mathCount === 0
-  const disabledReason = !canApprove
-    ? [
-        unlinkedCount > 0 && `${unlinkedCount} unlinked item${unlinkedCount > 1 ? 's' : ''}`,
-        mathCount > 0     && `${mathCount} math check${mathCount > 1 ? 's' : ''}`,
-      ].filter(Boolean).join(', ')
-    : ''
+  const parts: string[] = []
+  parts.push(`${priceWrites} price${priceWrites !== 1 ? 's' : ''} to inventory`)
+  if (newItems > 0) parts.push(`creates ${newItems} new item${newItems !== 1 ? 's' : ''}`)
+  if (supplierLink) parts.push('links 1 supplier')
 
   return (
-    <div className="border-t border-stone-200 px-[18px] py-[13px] pb-safe flex items-center gap-3 bg-white">
-      {/* Left: outstanding task count + tappable links */}
-      <div className="flex-1 min-w-0">
-        <div className="text-[12px] text-stone-500 truncate">
-          {unlinkedCount + mathCount + mismatchCount === 0 ? (
-            <span className="flex items-center gap-1.5 text-green-700">
-              <Check size={13} /> All items reviewed
-            </span>
-          ) : (
-            <span className="flex flex-wrap items-center gap-x-[10px] gap-y-1">
-              {unlinkedCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => goToTask('link')}
-                  className="underline underline-offset-2 decoration-stone-300 hover:text-stone-800 transition-colors"
-                >
-                  Link {unlinkedCount} product{unlinkedCount > 1 ? 's' : ''}
-                </button>
-              )}
-              {mathCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => goToTask('math')}
-                  className="underline underline-offset-2 decoration-stone-300 hover:text-stone-800 transition-colors"
-                >
-                  Fix {mathCount} math check{mathCount > 1 ? 's' : ''}
-                </button>
-              )}
-              {mismatchCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => goToTask('mismatch')}
-                  className="underline underline-offset-2 decoration-stone-300 hover:text-stone-800 transition-colors"
-                >
-                  Resolve {mismatchCount} mismatch{mismatchCount > 1 ? 'es' : ''}
-                </button>
-              )}
-            </span>
-          )}
+    <div
+      className="grid grid-cols-[1fr_auto] gap-4 items-center px-[22px] py-3.5 bg-paper border-t border-line"
+      style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))' }}
+    >
+      <div className="min-w-0">
+        <div className="text-[12.5px] text-ink-3 leading-[1.5]">
+          Approve writes <b className="text-ink-2 font-medium">{parts.join(', ')}</b>, and re-costs the recipes that use them.
+        </div>
+        <div className="font-mono text-[10.5px] text-ink-4 mt-[3px] flex items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5"><span className="w-[5px] h-[5px] rounded-full bg-gold" /> Reversible — re-open any time</span>
+          {saveStatus === 'saving' && <span className="inline-flex items-center gap-1 text-ink-4"><Loader2 size={11} className="animate-spin" /> saving</span>}
+          {saveStatus === 'error'  && <span className="inline-flex items-center gap-1 text-red"><AlertTriangle size={11} /> save failed</span>}
         </div>
       </div>
-
-      {/* Save status */}
-      {saveStatus === 'saving' && (
-        <Loader2 size={14} className="text-stone-400 animate-spin shrink-0" />
-      )}
-      {saveStatus === 'error' && (
-        <AlertTriangle size={14} className="text-red-400 shrink-0" />
-      )}
-
-      {/* Reject */}
-      <button
-        type="button"
-        onClick={onReject}
-        className="px-[13px] py-[7px] text-[13px] text-red-500 hover:text-red-700 transition-colors rounded-lg hover:bg-red-50"
-      >
-        Reject
-      </button>
-
-      {/* Approve */}
-      <button
-        type="button"
-        onClick={onApprove}
-        disabled={!canApprove}
-        title={disabledReason}
-        className={`inline-flex items-center gap-1.5 px-[16px] py-[7px] text-[13px] font-medium rounded-lg transition-colors ${
-          canApprove
-            ? 'bg-stone-900 text-white hover:bg-stone-700'
-            : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-        }`}
-      >
-        <Check size={14} />
-        Approve
-      </button>
+      <div className="flex gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onReject}
+          className="px-4 py-2.5 text-[13.5px] font-medium text-ink-3 bg-paper border border-line rounded-[9px] hover:border-ink-4 hover:text-ink transition-colors"
+        >
+          Reject invoice
+        </button>
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={!canApprove}
+          title={disabledReason}
+          className={`inline-flex items-center gap-2 px-[18px] py-2.5 text-[13.5px] font-medium rounded-[9px] transition-colors ${
+            canApprove
+              ? 'bg-ink text-paper hover:bg-ink-2'
+              : 'bg-line text-ink-4 cursor-not-allowed'
+          }`}
+        >
+          <Check size={14} className={canApprove ? 'text-gold' : ''} />
+          Approve &amp; post
+          <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded bg-paper/15 text-bg">⌘ ⏎</span>
+        </button>
+      </div>
     </div>
   )
 }
@@ -214,11 +212,13 @@ export function InvoiceReviewDrawer({
   sessionId,
   onClose,
   onApproveOrReject,
+  onNavigate,
   allSessions = [],
 }: {
   sessionId: string | null
   onClose: () => void
   onApproveOrReject: () => void
+  onNavigate?: (id: string) => void
   allSessions?: SessionSummary[]
 }) {
   const { revenueCenters } = useRc()
@@ -292,10 +292,17 @@ export function InvoiceReviewDrawer({
   const [sortMode,          setSortMode]          = useState<SortMode>('invoice')
   const [pickingLinkForId,  setPickingLinkForId]  = useState<string | null>(null)
   const [modeWritebackItems, setModeWritebackItems] = useState<Set<string>>(new Set())
+  const [acknowledgedPriceLines, setAcknowledgedPriceLines] = useState<Set<string>>(new Set())
   const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
   const [editingInventoryItemId,  setEditingInventoryItemId]  = useState<string | null>(null)
   const [activeBboxItemId,   setActiveBboxItemId]    = useState<string | null>(null)
   const [mobileTab,          setMobileTab]          = useState<'review' | 'image'>('review')
+  const [reviewSegment,      setReviewSegment]      = useState<ReviewSegment>('all')
+  const [supplierSkipped,    setSupplierSkipped]    = useState(false)
+  const [bannerDismissed,    setBannerDismissed]    = useState(false)
+  // Snapshot of which lines needed attention at load — the stable denominator
+  // for the "X of N resolved" progress bar.
+  const [initialAttention,   setInitialAttention]   = useState<{ lineIds: Set<string>; supplier: boolean }>({ lineIds: new Set(), supplier: false })
 
   // Ref for the scrollable list container
   const listRef = useRef<HTMLDivElement>(null)
@@ -314,8 +321,22 @@ export function InvoiceReviewDrawer({
     setSortMode('invoice')
     setPickingLinkForId(null)
     setModeWritebackItems(new Set())
+    setAcknowledgedPriceLines(new Set())
     setActiveBboxItemId(null)
     setMobileTab('review')
+    setReviewSegment('all')
+    setSupplierSkipped(false)
+    setBannerDismissed(false)
+
+    // Snapshot the lines that need a decision at load — the progress denominator.
+    const attentionIds = new Set(
+      session.scanItems
+        .filter(i => i.action !== 'SKIP' && (
+          isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i) || hasFormatMismatch(i) || isBigPriceChange(i)
+        ))
+        .map(i => i.id),
+    )
+    setInitialAttention({ lineIds: attentionIds, supplier: !session.supplierId })
   }, [session])
 
   // ── Computed data ────────────────────────────────────────────────────────────
@@ -334,17 +355,83 @@ export function InvoiceReviewDrawer({
     return r
   }, [session, effectiveLines])
 
-  const filteredSortedIds = useMemo(() => {
-    let items = effectiveLines
-    if (activeFilters.size > 0) {
-      items = items.filter(item =>
-        Array.from(activeFilters).some(f => matchesFilter(item, f)),
-      )
-    }
-    return [...items].sort(sortComparator(sortMode)).map(i => i.id)
-  }, [effectiveLines, activeFilters, sortMode])
+  // Per-line resolution options (mode writeback / price acknowledgement).
+  const optsFor = useCallback(
+    (id: string) => ({ modeWriteback: modeWritebackItems.has(id), priceAck: acknowledgedPriceLines.has(id) }),
+    [modeWritebackItems, acknowledgedPriceLines],
+  )
 
-  const filterCounts = useMemo(() => getFilterCounts(effectiveLines), [effectiveLines])
+  const lineIsAttention = useCallback((i: ScanItem) =>
+    isUnlinked(i) || hasModeMismatch(i) || hasFormatMismatch(i) || hasMathCheck(i) || isBigPriceChange(i),
+  [])
+
+  // Group lines into the mock's three sections + per-line invoice numbering.
+  const sections = useMemo(() => {
+    const active  = effectiveLines.filter(i => !isCharge(i))
+    const charges = effectiveLines.filter(i => isCharge(i))
+    const ordered        = [...active].sort((a, b) => a.sortOrder - b.sortOrder)
+    const orderedCharges = [...charges].sort((a, b) => a.sortOrder - b.sortOrder)
+    const displayNo = new Map<string, number>()
+    ordered.forEach((i, idx) => displayNo.set(i.id, idx + 1))
+    orderedCharges.forEach((i, idx) => displayNo.set(i.id, ordered.length + idx + 1))
+    return {
+      attention: ordered.filter(lineIsAttention),
+      matched:   ordered.filter(i => !lineIsAttention(i)),
+      charges:   orderedCharges,
+      displayNo,
+      activeCount: active.length,
+    }
+  }, [effectiveLines, lineIsAttention])
+
+  const supplierNeedsLink = !linkedSupplierId && !supplierSkipped
+
+  // Progress bar — stable denominator from the load-time snapshot.
+  const progress = useMemo(() => {
+    const total = initialAttention.lineIds.size + (initialAttention.supplier ? 1 : 0)
+    let resolved = 0
+    for (const id of initialAttention.lineIds) {
+      const line = effectiveLines.find(l => l.id === id)
+      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id))) resolved++
+    }
+    if (initialAttention.supplier && (linkedSupplierId || supplierSkipped)) resolved++
+    return { total, resolved }
+  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped])
+
+  // Approve gate — computed over CURRENT state so edits that introduce a new
+  // issue re-block approval (the snapshot above only fixes the progress total).
+  const currentlyUnresolved =
+    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id))).length +
+    (supplierNeedsLink && initialAttention.supplier ? 1 : 0)
+  const canApprove = currentlyUnresolved === 0
+  const disabledReason = canApprove
+    ? ''
+    : `${currentlyUnresolved} ${currentlyUnresolved === 1 ? 'issue needs' : 'issues need'} a decision`
+
+  // Impact-strip + footer metrics (only what's computable before approve).
+  const priceWrites   = effectiveLines.filter(i => i.action !== 'SKIP' && i.matchedItemId).length
+  const newItemsCount = effectiveLines.filter(i => i.action === 'CREATE_NEW').length
+  const impactMetrics: ImpactMetric[] = [
+    { label: 'Inventory writes', value: `${priceWrites} price${priceWrites !== 1 ? 's' : ''}` },
+    ...(newItemsCount > 0 ? [{ label: 'New items', value: String(newItemsCount) }] : []),
+    {
+      label: 'Supplier',
+      value: linkedSupplierId ? 'linked' : supplierSkipped ? 'skipped' : 'link pending',
+      tone: (linkedSupplierId || supplierSkipped) ? undefined : ('warn' as const),
+    },
+  ]
+
+  const segmentCounts = { all: sections.activeCount, issues: sections.attention.length, matched: sections.matched.length }
+
+  // ── Review queue navigation (prev/next invoice in the inbox) ────────────────
+  const reviewQueueIds = useMemo(
+    () => allSessions.filter(s => s.status === 'REVIEW').map(s => s.id),
+    [allSessions],
+  )
+  const queueIdx  = session ? reviewQueueIds.indexOf(session.id) : -1
+  const queuePos  = { idx: queueIdx >= 0 ? queueIdx + 1 : 1, total: Math.max(reviewQueueIds.length, 1) }
+  const navPrev   = onNavigate && queueIdx > 0 ? () => onNavigate(reviewQueueIds[queueIdx - 1]) : undefined
+  const navNext   = onNavigate && queueIdx >= 0 && queueIdx < reviewQueueIds.length - 1
+    ? () => onNavigate(reviewQueueIds[queueIdx + 1]) : undefined
 
   // ── Duplicate detection ─────────────────────────────────────────────────────
   const duplicateSessions = useMemo(() => {
@@ -353,12 +440,6 @@ export function InvoiceReviewDrawer({
       s.id !== session.id && s.invoiceNumber === session.invoiceNumber
     )
   }, [session, allSessions])
-
-  // ── Supplier lookup ─────────────────────────────────────────────────────────
-  const linkedSupplier = useMemo(
-    () => allSuppliers.find(s => s.id === linkedSupplierId) ?? null,
-    [allSuppliers, linkedSupplierId],
-  )
 
   // ── Context helpers ─────────────────────────────────────────────────────────
   const getEffectiveLine = useCallback((id: string): ScanItem => {
@@ -425,17 +506,8 @@ export function InvoiceReviewDrawer({
     })
   }, [])
 
-  // ── goToTask — scroll + expand + flash ─────────────────────────────────────
+  // Pending scroll target — set by J/K navigation, consumed after expand.
   const scrollPendingRef = useRef<string | null>(null)
-
-  const goToTask = useCallback((taskKey: 'link' | 'math' | 'mismatch') => {
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-task="${taskKey}"]`)
-    if (!el) return
-    const lineId = el.getAttribute('data-line-id')
-    if (!lineId) return
-    scrollPendingRef.current = lineId
-    toggleExpand(lineId, true)
-  }, [toggleExpand])
 
   // After expandedLineIds updates, handle pending scroll + flash
   useEffect(() => {
@@ -480,6 +552,11 @@ export function InvoiceReviewDrawer({
     })
   }, [])
 
+  // ── Price-change acknowledgement ─────────────────────────────────────────────
+  const acknowledgePrice = useCallback((id: string) => {
+    setAcknowledgedPriceLines(prev => new Set(prev).add(id))
+  }, [])
+
   // ── Approve ─────────────────────────────────────────────────────────────────
   const handleApprove = async () => {
     if (!session) return
@@ -515,6 +592,62 @@ export function InvoiceReviewDrawer({
     onClose()
   }
 
+  // ── Keyboard model (mock §6): Esc close · ⌘⏎ approve · R reject · J/K nav ────
+  const visibleIdsRef = useRef<string[]>([])
+  const focusedIdRef  = useRef<string | null>(null)
+
+  const focusLine = useCallback((id: string) => {
+    focusedIdRef.current = id
+    scrollPendingRef.current = id
+    toggleExpand(id, true)
+  }, [toggleExpand])
+
+  useEffect(() => {
+    const reviewing = !!session && !approved && !approving
+      && session.status !== 'APPROVED' && session.status !== 'REJECTED'
+    if (!reviewing) return
+    // Don't steal keys while a nested modal is open.
+    if (creatingNewForItem || editingInventoryItemId) return
+
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
+
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (canApprove) handleApprove()
+        return
+      }
+      if (typing) return
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); handleReject(); return }
+      if (e.key === '[' && navPrev) { e.preventDefault(); navPrev(); return }
+      if (e.key === ']' && navNext) { e.preventDefault(); navNext(); return }
+      if (e.key === 'j' || e.key === 'J' || e.key === 'k' || e.key === 'K' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const ids = visibleIdsRef.current
+        if (ids.length === 0) return
+        e.preventDefault()
+        const down = e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown'
+        const cur  = focusedIdRef.current ? ids.indexOf(focusedIdRef.current) : -1
+        const next = down
+          ? ids[Math.min(cur + 1, ids.length - 1)] ?? ids[0]
+          : ids[Math.max(cur - 1, 0)] ?? ids[0]
+        focusLine(next)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [session, approved, approving, creatingNewForItem, editingInventoryItemId, canApprove, navPrev, navNext, focusLine, onClose]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the J/K navigation order in sync with what's actually rendered.
+  useEffect(() => {
+    const ids: string[] = []
+    if (reviewSegment !== 'matched') ids.push(...sections.attention.map(i => i.id))
+    if (reviewSegment !== 'issues')  ids.push(...sections.matched.map(i => i.id))
+    if (reviewSegment === 'all')     ids.push(...sections.charges.map(i => i.id))
+    visibleIdsRef.current = ids
+  }, [sections, reviewSegment])
+
   // ── Compute active bbox for the image viewer ────────────────────────────────
   const activeBbox = useMemo<BBox | null>(() => {
     if (!activeBboxItemId) return null
@@ -542,6 +675,7 @@ export function InvoiceReviewDrawer({
     sortMode,
     pickingLinkForId,
     modeWritebackItems,
+    acknowledgedPriceLines,
     reconciliation,
     getEffectiveLine,
     getItemRc,
@@ -554,14 +688,15 @@ export function InvoiceReviewDrawer({
     openCreateNew:        (item) => setCreatingNewForItem(item),
     openInventoryEdit:    (id)   => setEditingInventoryItemId(id),
     toggleModeWriteback,
+    acknowledgePrice,
     activeBboxItemId,
     toggleFilter,
     setSortMode,
   }), [
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
-    activeFilters, sortMode, pickingLinkForId, modeWritebackItems, reconciliation,
+    activeFilters, sortMode, pickingLinkForId, modeWritebackItems, acknowledgedPriceLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, toggleModeWriteback, activeBboxItemId, toggleFilter,
+    setLineRc, toggleModeWriteback, acknowledgePrice, activeBboxItemId, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────
@@ -579,18 +714,18 @@ export function InvoiceReviewDrawer({
 
       {/* Drawer panel — wider to fit image viewer + review side by side */}
       <div
-        className={`fixed inset-y-0 right-0 z-[60] bg-white shadow-2xl flex flex-col transition-transform duration-300 ${
+        className={`fixed inset-y-0 right-0 z-[60] bg-paper shadow-2xl flex flex-col transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{
           width: (!approved && session?.status !== 'APPROVED' && session?.status !== 'REJECTED' && session?.files?.length)
-            ? '1020px' : '600px',
+            ? '1180px' : '600px',
           maxWidth: '100vw',
         }}
       >
         {loading || !session ? (
           <div className="flex-1 flex items-center justify-center">
-            <Loader2 size={28} className="text-stone-300 animate-spin" />
+            <Loader2 size={28} className="text-line-2 animate-spin" />
           </div>
         ) : approved || session.status === 'APPROVED' || session.status === 'REJECTED' ? (
           <ApprovedView
@@ -607,19 +742,54 @@ export function InvoiceReviewDrawer({
             {/* Full-width header */}
             <InvoiceHeader
               session={session}
-              reconciliation={reconciliation}
               onClose={onClose}
+              queuePos={queuePos}
+              onPrev={navPrev}
+              onNext={navNext}
             />
+
+            {/* Cost-chrome impact strip — Principle 01 */}
+            <ImpactStrip metrics={impactMetrics} helper="on approve" />
+
+            {/* Invoice-wide banners */}
+            {duplicateSessions.length > 0 && !bannerDismissed && (
+              <div className="flex items-center gap-3 bg-red-soft border-b border-[#fecaca] px-[22px] py-[11px] text-[13px] text-red-text">
+                <AlertTriangle size={16} className="text-red shrink-0" strokeWidth={2.2} />
+                <span className="flex-1 min-w-0">
+                  <b className="font-semibold">Possible duplicate.</b>{' '}
+                  Invoice #{session.invoiceNumber} was already scanned
+                  {duplicateSessions[0].supplierName ? ` from ${duplicateSessions[0].supplierName}` : ''}{' '}
+                  ({duplicateSessions[0].status.toLowerCase()}). Review carefully.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBannerDismissed(true)}
+                  className="font-mono text-[10.5px] font-semibold px-2.5 py-1 rounded-full bg-red/10 text-red-text hover:bg-red/20 transition-colors shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {reconciliation?.status === 'mismatch' && !bannerDismissed && (
+              <AlertBanner
+                onIgnore={() => setBannerDismissed(true)}
+                onShowFix={reconciliation.suggestedFixItemId ? () => setActiveBboxItemId(reconciliation.suggestedFixItemId) : undefined}
+              >
+                <b className="font-semibold">{formatCurrency(Math.abs(reconciliation.delta))} mismatch</b>
+                {' '}— sum of lines doesn&rsquo;t tie to the invoice subtotal.
+                {reconciliation.suggestedFixItemId && ' One line looks off.'}
+              </AlertBanner>
+            )}
 
             {/* Mobile tab bar — only shown on small screens when files exist */}
             {session.files.length > 0 && (
-              <div className="md:hidden flex border-b border-stone-200 shrink-0">
+              <div className="md:hidden flex border-b border-line shrink-0">
                 <button
                   onClick={() => setMobileTab('review')}
                   className={`flex-1 py-2.5 text-[13px] font-medium transition-colors ${
                     mobileTab === 'review'
-                      ? 'text-stone-900 border-b-2 border-stone-900'
-                      : 'text-stone-400'
+                      ? 'text-ink border-b-2 border-ink'
+                      : 'text-ink-4'
                   }`}
                 >
                   Review items
@@ -628,8 +798,8 @@ export function InvoiceReviewDrawer({
                   onClick={() => setMobileTab('image')}
                   className={`flex-1 py-2.5 text-[13px] font-medium transition-colors ${
                     mobileTab === 'image'
-                      ? 'text-stone-900 border-b-2 border-stone-900'
-                      : 'text-stone-400'
+                      ? 'text-ink border-b-2 border-ink'
+                      : 'text-ink-4'
                   }`}
                 >
                   Invoice image
@@ -650,134 +820,95 @@ export function InvoiceReviewDrawer({
                       activeBbox={activeBbox}
                     />
                   </div>
-                  <div className="hidden md:block w-px bg-stone-200 shrink-0" />
+                  <div className="hidden md:block w-px bg-line shrink-0" />
                 </>
               )}
 
               {/* ── Review panel ───────────────────────────────────────────── */}
-              <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${
+              <div className={`flex flex-col flex-1 min-w-0 md:flex-none md:w-[540px] overflow-hidden ${
                 session.files.length > 0 && mobileTab === 'image' ? 'hidden md:flex' : 'flex'
               }`}>
-                {/* Filter chip row */}
-                <ChipRow
-                  totalCount={effectiveLines.filter(i => i.action !== 'SKIP').length}
-                  counts={filterCounts}
-                  activeFilters={activeFilters}
-                  onToggle={toggleFilter}
-                  sortMode={sortMode}
-                  onSort={setSortMode}
+                {/* Review progress + segmented filter */}
+                <ReviewProgress
+                  resolved={progress.resolved}
+                  total={progress.total}
+                  segment={reviewSegment}
+                  onSegment={setReviewSegment}
+                  counts={segmentCounts}
                 />
 
-                {/* ── Duplicate invoice warning ──────────────────────── */}
-                {duplicateSessions.length > 0 && (
-                  <div className="mx-[14px] mt-2 flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg">
-                    <AlertTriangle size={13} className="text-red-500 mt-0.5 shrink-0" />
-                    <p className="text-[12px] text-red-700 leading-snug">
-                      <span className="font-semibold">Possible duplicate.</span>{' '}
-                      Invoice #{session.invoiceNumber} was already scanned
-                      {duplicateSessions[0].invoiceDate ? ` on ${duplicateSessions[0].invoiceDate}` : ''}
-                      {duplicateSessions[0].supplierName ? ` from ${duplicateSessions[0].supplierName}` : ''}{' '}
-                      <span className={`font-semibold ${
-                        duplicateSessions[0].status === 'APPROVED' ? 'text-green-700' :
-                        duplicateSessions[0].status === 'REJECTED' ? 'text-red-700' : 'text-amber-700'
-                      }`}>({duplicateSessions[0].status.toLowerCase()})</span>.
-                      {' '}Review carefully before approving.
-                    </p>
-                  </div>
-                )}
-
-                {/* ── Supplier link banner ───────────────────────────────── */}
-                <div className="mx-[14px] mt-2">
-                  {linkedSupplierId && linkedSupplier ? (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg">
-                      <Link2 size={12} className="text-stone-400 shrink-0" />
-                      <span className="text-[12px] text-stone-700 flex-1 truncate font-medium">{linkedSupplier.name}</span>
-                      <span className="text-[10px] text-stone-400">auto-matched</span>
-                      <button
-                        onClick={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
-                        className="text-[11px] text-gold hover:text-amber-700 font-medium flex items-center gap-0.5 shrink-0"
-                      >
-                        Change <ChevronDown size={11} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                      <AlertTriangle size={12} className="text-amber-500 shrink-0" />
-                      <p className="text-[12px] text-stone-700 flex-1 min-w-0 truncate">
-                        {session.supplierName
-                          ? <><span className="font-mono font-semibold">&ldquo;{session.supplierName}&rdquo;</span> — not linked to a supplier</>
-                          : 'No supplier detected'}
-                      </p>
-                      <button
-                        onClick={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
-                        className="text-[11px] font-semibold text-gold hover:text-amber-700 flex items-center gap-0.5 shrink-0"
-                      >
-                        Link <ChevronDown size={11} />
-                      </button>
-                    </div>
-                  )}
-
-                  {supplierComboOpen && (
-                    <div className="mt-1 bg-white border border-stone-200 rounded-lg shadow-lg overflow-hidden z-10 relative">
-                      <input
-                        autoFocus
-                        value={supplierSearch}
-                        onChange={e => setSupplierSearch(e.target.value)}
-                        placeholder="Search suppliers…"
-                        className="w-full px-3 py-2 text-[13px] border-b border-stone-100 focus:outline-none"
+                {/* Line item list — grouped by section */}
+                <div ref={listRef} className="flex-1 overflow-y-auto px-[18px] py-3 flex flex-col gap-1.5">
+                  {/* Needs your attention */}
+                  {(reviewSegment === 'all' || reviewSegment === 'issues') && (sections.attention.length > 0 || supplierNeedsLink) && (
+                    <>
+                      <SectionDivider
+                        tone="red"
+                        label="Needs your attention"
+                        count={`${sections.attention.length + (supplierNeedsLink ? 1 : 0)} item${sections.attention.length + (supplierNeedsLink ? 1 : 0) !== 1 ? 's' : ''}`}
                       />
-                      <div className="max-h-44 overflow-y-auto">
-                        {allSuppliers
-                          .filter(s => s.name.toLowerCase().includes(supplierSearch.toLowerCase()))
-                          .map(s => (
-                            <button
-                              key={s.id}
-                              onClick={() => handleLinkSupplier(s.id)}
-                              className="w-full text-left px-3 py-2 text-[13px] hover:bg-amber-50 transition-colors"
-                            >
-                              <span className="font-medium text-stone-900">{s.name}</span>
-                            </button>
-                          ))
-                        }
-                        {allSuppliers.filter(s => s.name.toLowerCase().includes(supplierSearch.toLowerCase())).length === 0 && (
-                          <p className="px-3 py-3 text-[12px] text-stone-400">No suppliers found</p>
-                        )}
-                      </div>
-                    </div>
+                      {supplierNeedsLink && (
+                        <SupplierLinkCard
+                          supplierName={session.supplierName}
+                          comboOpen={supplierComboOpen}
+                          suppliers={allSuppliers}
+                          search={supplierSearch}
+                          onSearch={setSupplierSearch}
+                          onOpenCombo={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
+                          onPick={handleLinkSupplier}
+                          onSkip={() => { setSupplierSkipped(true); setSupplierComboOpen(false) }}
+                        />
+                      )}
+                      {sections.attention.map(i => (
+                        <LineItemCard key={i.id} lineId={i.id} displayNo={sections.displayNo.get(i.id) ?? 0} />
+                      ))}
+                    </>
                   )}
-                </div>
 
-                {/* Line item list */}
-                <div ref={listRef} className="flex-1 overflow-y-auto px-[14px] py-[10px]">
-                  {filteredSortedIds.length === 0 ? (
-                    <div className="flex items-center justify-center h-32 text-[13px] text-stone-400">
-                      No items match the active filter.
-                    </div>
-                  ) : (
-                    filteredSortedIds.map(id => (
-                      <LineItemCard key={id} lineId={id} />
-                    ))
+                  {/* Auto-matched */}
+                  {(reviewSegment === 'all' || reviewSegment === 'matched') && sections.matched.length > 0 && (
+                    <>
+                      <SectionDivider tone="green" label="Auto-matched" count={`${sections.matched.length} line${sections.matched.length !== 1 ? 's' : ''}`} />
+                      {sections.matched.map(i => (
+                        <LineItemCard key={i.id} lineId={i.id} displayNo={sections.displayNo.get(i.id) ?? 0} />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Other line items (skipped / non-inventory) */}
+                  {reviewSegment === 'all' && sections.charges.length > 0 && (
+                    <>
+                      <SectionDivider tone="neutral" label="Other line items" count={`${sections.charges.length} not inventory`} />
+                      {sections.charges.map(i => (
+                        <LineItemCard key={i.id} lineId={i.id} displayNo={sections.displayNo.get(i.id) ?? 0} />
+                      ))}
+                    </>
+                  )}
+
+                  {sections.attention.length === 0 && sections.matched.length === 0 && sections.charges.length === 0 && (
+                    <div className="flex items-center justify-center h-32 text-[13px] text-ink-4">No line items.</div>
                   )}
                 </div>
 
                 {/* Footer */}
                 {!approving ? (
                   <DrawerFooter
-                    session={session}
-                    items={effectiveLines}
-                    modeWritebackItems={modeWritebackItems}
+                    priceWrites={priceWrites}
+                    newItems={newItemsCount}
+                    supplierLink={initialAttention.supplier && !!linkedSupplierId}
+                    canApprove={canApprove}
+                    disabledReason={disabledReason}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     saveStatus={saveStatus}
-                    goToTask={goToTask}
                   />
                 ) : (
                   <div
-                    className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-center gap-3"
+                    className="border-t border-line px-[18px] py-[13px] flex items-center justify-center gap-3"
                     style={{ paddingBottom: 'calc(13px + env(safe-area-inset-bottom, 0px))' }}
                   >
-                    <Loader2 size={16} className="animate-spin text-stone-500" />
-                    <span className="text-[13px] text-stone-500">Approving…</span>
+                    <Loader2 size={16} className="animate-spin text-ink-3" />
+                    <span className="text-[13px] text-ink-3">Approving…</span>
                   </div>
                 )}
               </div>
@@ -869,7 +1000,7 @@ function ApprovedView({
 
       {/* ── Header ── */}
       <div
-        className={`px-[22px] pt-[18px] pb-[16px] border-b border-stone-200 ${rejected ? 'bg-white' : 'bg-gradient-to-r from-emerald-50/60 to-white'}`}
+        className={`px-[22px] pt-[18px] pb-[16px] border-b border-line ${rejected ? 'bg-paper' : 'bg-gradient-to-r from-green-soft/60 to-white'}`}
         style={{ paddingTop: 'calc(18px + env(safe-area-inset-top, 0px))' }}
       >
         <div className="flex items-start justify-between gap-4">
@@ -877,25 +1008,25 @@ function ApprovedView({
             <div className="flex items-center gap-2.5 mb-[5px]">
               <div className={`flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11px] font-semibold ${
                 rejected
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-emerald-100 text-emerald-700'
+                  ? 'bg-red-soft text-red-text'
+                  : 'bg-green-soft text-green-text'
               }`}>
                 {rejected ? <X size={10} /> : <Check size={10} />}
                 {rejected ? 'Rejected' : 'Applied'}
               </div>
             </div>
-            <h2 className="text-[19px] font-semibold text-stone-900 leading-[1.2] truncate">
+            <h2 className="text-[19px] font-semibold text-ink leading-[1.2] truncate">
               {session.supplierName ?? 'Unknown supplier'}
             </h2>
-            <p className="text-[12.5px] text-stone-400 mt-[3px]">{metaParts.join(' · ')}</p>
+            <p className="text-[12.5px] text-ink-4 mt-[3px]">{metaParts.join(' · ')}</p>
           </div>
 
           <div className="text-right shrink-0">
-            <div className="text-[24px] font-semibold text-stone-900 leading-none tabular-nums">
+            <div className="text-[24px] font-semibold text-ink leading-none tabular-nums">
               {total !== null ? formatCurrency(total) : '—'}
             </div>
             {(subtotal !== null || tax !== null) && (
-              <div className="text-[11.5px] text-stone-400 mt-[4px] tabular-nums">
+              <div className="text-[11.5px] text-ink-4 mt-[4px] tabular-nums">
                 {subtotal !== null && `sub ${formatCurrency(subtotal)}`}
                 {subtotal !== null && tax !== null && ' · '}
                 {tax !== null && `tax ${formatCurrency(tax)}`}
@@ -906,7 +1037,7 @@ function ApprovedView({
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 p-2.5 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+            className="shrink-0 p-2.5 flex items-center justify-center rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-colors"
           >
             <X size={18} />
           </button>
@@ -919,29 +1050,29 @@ function ApprovedView({
         {/* Summary stat cards */}
         {!rejected && (
           <div className="px-[18px] pt-[16px] pb-[4px] grid grid-cols-4 gap-3">
-            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
-              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{updatedItems.length}</div>
-              <div className="text-[11px] text-stone-400 mt-1">prices updated</div>
+            <div className="bg-bg border border-bg-2 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-ink tabular-nums leading-none">{updatedItems.length}</div>
+              <div className="text-[11px] text-ink-4 mt-1">prices updated</div>
             </div>
-            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
-              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{newItems.length}</div>
-              <div className="text-[11px] text-stone-400 mt-1">new items</div>
+            <div className="bg-bg border border-bg-2 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-ink tabular-nums leading-none">{newItems.length}</div>
+              <div className="text-[11px] text-ink-4 mt-1">new items</div>
             </div>
-            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
-              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{session.priceAlerts.length}</div>
-              <div className="text-[11px] text-stone-400 mt-1">price alerts</div>
+            <div className="bg-bg border border-bg-2 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-ink tabular-nums leading-none">{session.priceAlerts.length}</div>
+              <div className="text-[11px] text-ink-4 mt-1">price alerts</div>
             </div>
-            <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center">
-              <div className="text-[22px] font-semibold text-stone-900 tabular-nums leading-none">{session.recipeAlerts.length}</div>
-              <div className="text-[11px] text-stone-400 mt-1">recipe impacts</div>
+            <div className="bg-bg border border-bg-2 rounded-xl p-3 text-center">
+              <div className="text-[22px] font-semibold text-ink tabular-nums leading-none">{session.recipeAlerts.length}</div>
+              <div className="text-[11px] text-ink-4 mt-1">recipe impacts</div>
             </div>
           </div>
         )}
 
         {/* ── Line items ── */}
         <div className="px-[18px] pt-[16px]">
-          <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">Line items</p>
-          <div className="border border-stone-100 rounded-xl overflow-hidden divide-y divide-stone-100">
+          <p className="text-[11px] font-semibold text-ink-4 uppercase tracking-wider mb-2">Line items</p>
+          <div className="border border-bg-2 rounded-xl overflow-hidden divide-y divide-bg-2">
             {session.scanItems.map(item => {
               const prevPrice = item.previousPrice ? Number(item.previousPrice) : null
               const newPrice  = item.newPrice      ? Number(item.newPrice)      : null
@@ -955,30 +1086,30 @@ function ApprovedView({
                 <div key={item.id} className={`flex items-center gap-3 px-4 py-3 ${isSkip ? 'opacity-40' : ''}`}>
                   {/* Icon */}
                   <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
-                    isNew    ? 'bg-emerald-100'  :
-                    isUpdate ? 'bg-blue-50'      :
-                    isSkip   ? 'bg-stone-100'    : 'bg-stone-50'
+                    isNew    ? 'bg-green-soft'  :
+                    isUpdate ? 'bg-blue-soft'      :
+                    isSkip   ? 'bg-bg-2'    : 'bg-bg'
                   }`}>
-                    {isNew    ? <Package  size={13} className="text-emerald-600" /> :
-                     isSkip   ? <X        size={13} className="text-stone-400"   /> :
-                                <Tag      size={13} className="text-blue-500"    />}
+                    {isNew    ? <Package  size={13} className="text-green-text" /> :
+                     isSkip   ? <X        size={13} className="text-ink-4"   /> :
+                                <Tag      size={13} className="text-blue"    />}
                   </div>
 
                   {/* Name + badge */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[13px] font-medium text-stone-800 truncate">
+                      <span className="text-[13px] font-medium text-ink-2 truncate">
                         {item.matchedItem?.itemName ?? item.rawDescription}
                       </span>
                       {isNew && (
-                        <span className="text-[10px] font-semibold px-1.5 py-[1px] rounded bg-emerald-100 text-emerald-700">NEW</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-[1px] rounded bg-green-soft text-green-text">NEW</span>
                       )}
                       {isSkip && (
-                        <span className="text-[10px] font-semibold px-1.5 py-[1px] rounded bg-stone-100 text-stone-400">SKIPPED</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-[1px] rounded bg-bg-2 text-ink-4">SKIPPED</span>
                       )}
                     </div>
                     {item.rawDescription !== item.matchedItem?.itemName && item.matchedItem && (
-                      <div className="text-[11px] text-stone-400 truncate mt-0.5">{item.rawDescription}</div>
+                      <div className="text-[11px] text-ink-4 truncate mt-0.5">{item.rawDescription}</div>
                     )}
                   </div>
 
@@ -986,20 +1117,20 @@ function ApprovedView({
                   {!isSkip && !isNew && prevPrice !== null && newPrice !== null ? (
                     <div className="shrink-0 text-right">
                       <div className="flex items-center gap-1.5 justify-end">
-                        <span className="text-[12px] text-stone-400 line-through tabular-nums">{formatCurrency(prevPrice)}</span>
-                        <span className="text-[12px] font-medium text-stone-800 tabular-nums">{formatCurrency(newPrice)}</span>
+                        <span className="text-[12px] text-ink-4 line-through tabular-nums">{formatCurrency(prevPrice)}</span>
+                        <span className="text-[12px] font-medium text-ink-2 tabular-nums">{formatCurrency(newPrice)}</span>
                         {diffPct !== null && (
-                          <span className={`text-[11px] font-semibold ${diffPct > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                          <span className={`text-[11px] font-semibold ${diffPct > 0 ? 'text-red' : 'text-green-text'}`}>
                             {diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%
                           </span>
                         )}
                       </div>
                       {lineTotal !== null && (
-                        <div className="text-[11px] text-stone-400 mt-0.5 tabular-nums">{formatCurrency(lineTotal)}</div>
+                        <div className="text-[11px] text-ink-4 mt-0.5 tabular-nums">{formatCurrency(lineTotal)}</div>
                       )}
                     </div>
                   ) : lineTotal !== null ? (
-                    <div className="shrink-0 text-[12px] text-stone-500 tabular-nums">{formatCurrency(lineTotal)}</div>
+                    <div className="shrink-0 text-[12px] text-ink-3 tabular-nums">{formatCurrency(lineTotal)}</div>
                   ) : null}
                 </div>
               )
@@ -1015,15 +1146,15 @@ function ApprovedView({
               onClick={() => setPriceAlertsOpen(v => !v)}
               className="w-full flex items-center justify-between mb-2 group"
             >
-              <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
+              <p className="text-[11px] font-semibold text-ink-4 uppercase tracking-wider">
                 Price alerts ({session.priceAlerts.length})
               </p>
               {priceAlertsOpen
-                ? <ChevronUp   size={14} className="text-stone-400 group-hover:text-stone-600" />
-                : <ChevronDown size={14} className="text-stone-400 group-hover:text-stone-600" />}
+                ? <ChevronUp   size={14} className="text-ink-4 group-hover:text-ink-3" />
+                : <ChevronDown size={14} className="text-ink-4 group-hover:text-ink-3" />}
             </button>
             {priceAlertsOpen && (
-              <div className="border border-stone-100 rounded-xl overflow-hidden divide-y divide-stone-100">
+              <div className="border border-bg-2 rounded-xl overflow-hidden divide-y divide-bg-2">
                 {session.priceAlerts.map(alert => {
                   const prev    = Number(alert.previousPrice)
                   const next    = Number(alert.newPrice)
@@ -1031,19 +1162,19 @@ function ApprovedView({
                   const up      = alert.direction === 'UP'
                   return (
                     <div key={alert.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-red-soft' : 'bg-green-soft'}`}>
                         {up
-                          ? <TrendingUp   size={13} className="text-red-500"     />
-                          : <TrendingDown size={13} className="text-emerald-600" />}
+                          ? <TrendingUp   size={13} className="text-red"     />
+                          : <TrendingDown size={13} className="text-green-text" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[13px] font-medium text-stone-800">{alert.inventoryItem.itemName}</span>
+                        <span className="text-[13px] font-medium text-ink-2">{alert.inventoryItem.itemName}</span>
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="flex items-center gap-1.5 justify-end">
-                          <span className="text-[12px] text-stone-400 line-through tabular-nums">{formatCurrency(prev)}</span>
-                          <span className="text-[12px] font-medium text-stone-800 tabular-nums">{formatCurrency(next)}</span>
-                          <span className={`text-[11px] font-semibold ${up ? 'text-red-500' : 'text-emerald-600'}`}>
+                          <span className="text-[12px] text-ink-4 line-through tabular-nums">{formatCurrency(prev)}</span>
+                          <span className="text-[12px] font-medium text-ink-2 tabular-nums">{formatCurrency(next)}</span>
+                          <span className={`text-[11px] font-semibold ${up ? 'text-red' : 'text-green-text'}`}>
                             {up ? '+' : ''}{pct.toFixed(1)}%
                           </span>
                         </div>
@@ -1064,15 +1195,15 @@ function ApprovedView({
               onClick={() => setRecipeAlertsOpen(v => !v)}
               className="w-full flex items-center justify-between mb-2 group"
             >
-              <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
+              <p className="text-[11px] font-semibold text-ink-4 uppercase tracking-wider">
                 Recipe impacts ({session.recipeAlerts.length})
               </p>
               {recipeAlertsOpen
-                ? <ChevronUp   size={14} className="text-stone-400 group-hover:text-stone-600" />
-                : <ChevronDown size={14} className="text-stone-400 group-hover:text-stone-600" />}
+                ? <ChevronUp   size={14} className="text-ink-4 group-hover:text-ink-3" />
+                : <ChevronDown size={14} className="text-ink-4 group-hover:text-ink-3" />}
             </button>
             {recipeAlertsOpen && (
-              <div className="border border-stone-100 rounded-xl overflow-hidden divide-y divide-stone-100">
+              <div className="border border-bg-2 rounded-xl overflow-hidden divide-y divide-bg-2">
                 {session.recipeAlerts.map(alert => {
                   const prevCost  = Number(alert.previousCost)
                   const newCost   = Number(alert.newCost)
@@ -1081,20 +1212,20 @@ function ApprovedView({
                   const up        = pct > 0
                   return (
                     <div key={alert.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-orange-50' : 'bg-emerald-50'}`}>
-                        <BookOpen size={13} className={up ? 'text-orange-500' : 'text-emerald-600'} />
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-orange-50' : 'bg-green-soft'}`}>
+                        <BookOpen size={13} className={up ? 'text-orange-500' : 'text-green-text'} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[13px] font-medium text-stone-800">{alert.recipe.name}</span>
+                        <span className="text-[13px] font-medium text-ink-2">{alert.recipe.name}</span>
                         {foodCost !== null && (
-                          <div className="text-[11px] text-stone-400 mt-0.5">food cost {foodCost.toFixed(1)}%</div>
+                          <div className="text-[11px] text-ink-4 mt-0.5">food cost {foodCost.toFixed(1)}%</div>
                         )}
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="flex items-center gap-1.5 justify-end">
-                          <span className="text-[12px] text-stone-400 line-through tabular-nums">{formatCurrency(prevCost)}</span>
-                          <span className="text-[12px] font-medium text-stone-800 tabular-nums">{formatCurrency(newCost)}</span>
-                          <span className={`text-[11px] font-semibold ${up ? 'text-orange-500' : 'text-emerald-600'}`}>
+                          <span className="text-[12px] text-ink-4 line-through tabular-nums">{formatCurrency(prevCost)}</span>
+                          <span className="text-[12px] font-medium text-ink-2 tabular-nums">{formatCurrency(newCost)}</span>
+                          <span className={`text-[11px] font-semibold ${up ? 'text-orange-500' : 'text-green-text'}`}>
                             {up ? '+' : ''}{pct.toFixed(1)}%
                           </span>
                         </div>
@@ -1112,7 +1243,7 @@ function ApprovedView({
 
       {/* ── Footer ── */}
       <div
-        className="border-t border-stone-200 px-[18px] py-[13px] flex items-center justify-between gap-3 bg-white"
+        className="border-t border-line px-[18px] py-[13px] flex items-center justify-between gap-3 bg-paper"
         style={{ paddingBottom: 'calc(13px + env(safe-area-inset-bottom, 0px))' }}
       >
         {!rejected ? (
@@ -1120,7 +1251,7 @@ function ApprovedView({
             type="button"
             onClick={handleReviewAgain}
             disabled={reverting}
-            className="flex items-center gap-1.5 text-[13px] text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink-2 transition-colors disabled:opacity-50"
           >
             {reverting
               ? <Loader2 size={14} className="animate-spin" />
@@ -1131,7 +1262,7 @@ function ApprovedView({
         <button
           type="button"
           onClick={onClose}
-          className="px-5 py-2 text-[13px] bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors"
+          className="px-5 py-2 text-[13px] bg-ink text-paper rounded-lg hover:bg-ink-2 transition-colors"
         >
           Close
         </button>
@@ -1207,21 +1338,21 @@ function AddNewItemModal({
     onSaved()
   }
 
-  const inputCls = 'w-full border border-stone-200 rounded-lg px-3 py-[7px] text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors'
-  const labelCls = 'block text-[11px] font-medium text-stone-500 mb-[5px] uppercase tracking-wide'
+  const inputCls = 'w-full border border-line rounded-lg px-3 py-[7px] text-[13px] focus:outline-none focus:ring-2 focus:ring-blue/20 focus:border-blue transition-colors'
+  const labelCls = 'block text-[11px] font-medium text-ink-3 mb-[5px] uppercase tracking-wide'
 
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-[60]" onClick={onClose} />
       <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
+        <div className="bg-paper rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
           {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-stone-100">
+          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-bg-2">
             <div>
-              <h3 className="text-[16px] font-semibold text-stone-900">Create new product</h3>
-              <p className="text-[12px] text-stone-400 mt-0.5">These fields will be set when the invoice is approved.</p>
+              <h3 className="text-[16px] font-semibold text-ink">Create new product</h3>
+              <p className="text-[12px] text-ink-4 mt-0.5">These fields will be set when the invoice is approved.</p>
             </div>
-            <button type="button" onClick={onClose} className="p-2.5 flex items-center justify-center text-stone-400 hover:text-stone-600 transition-colors">
+            <button type="button" onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3 transition-colors">
               <X size={18} />
             </button>
           </div>
@@ -1279,14 +1410,14 @@ function AddNewItemModal({
             {/* Price type */}
             <div>
               <label className={labelCls}>Pricing mode</label>
-              <div className="flex rounded-lg border border-stone-200 overflow-hidden text-[12px]">
+              <div className="flex rounded-lg border border-line overflow-hidden text-[12px]">
                 {(['CASE', 'UOM'] as const).map(pt => (
                   <button
                     key={pt}
                     type="button"
                     onClick={() => setPriceType(pt)}
                     className={`flex-1 py-[7px] font-medium transition-colors ${
-                      priceType === pt ? 'bg-stone-900 text-white' : 'bg-white text-stone-500 hover:bg-stone-50'
+                      priceType === pt ? 'bg-ink text-paper' : 'bg-paper text-ink-3 hover:bg-bg'
                     }`}
                   >
                     {pt === 'CASE' ? 'Per case' : 'Per weight / UOM'}
@@ -1298,8 +1429,8 @@ function AddNewItemModal({
             {/* Purchase price */}
             <div>
               <label className={labelCls}>Purchase price</label>
-              <div className="flex items-center border border-stone-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-400 transition-colors">
-                <span className="px-3 text-stone-400 text-[13px]">$</span>
+              <div className="flex items-center border border-line rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue/20 focus-within:border-blue transition-colors">
+                <span className="px-3 text-ink-4 text-[13px]">$</span>
                 <input
                   type="number" min="0" step="any"
                   value={purchasePrice}
@@ -1308,7 +1439,7 @@ function AddNewItemModal({
                 />
               </div>
               {ppb !== null && (
-                <p className="text-[11px] text-stone-400 mt-1">
+                <p className="text-[11px] text-ink-4 mt-1">
                   = {formatCurrency(ppb)}/{packUOM} per base unit
                 </p>
               )}
@@ -1316,11 +1447,11 @@ function AddNewItemModal({
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end gap-2 px-6 py-4 border-t border-stone-100">
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-bg-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-[13px] text-stone-600 border border-stone-200 rounded-lg hover:bg-stone-50 transition-colors"
+              className="px-4 py-2 text-[13px] text-ink-3 border border-line rounded-lg hover:bg-bg transition-colors"
             >
               Cancel
             </button>
@@ -1328,7 +1459,7 @@ function AddNewItemModal({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 text-[13px] font-medium bg-stone-900 text-white rounded-lg hover:bg-stone-700 disabled:opacity-50 transition-colors"
+              className="px-4 py-2 text-[13px] font-medium bg-ink text-paper rounded-lg hover:bg-ink-2 disabled:opacity-50 transition-colors"
             >
               {saving ? 'Saving…' : 'Save & flag for approval'}
             </button>
@@ -1336,5 +1467,76 @@ function AddNewItemModal({
         </div>
       </div>
     </>
+  )
+}
+
+// ─── SupplierLinkCard ────────────────────────────────────────────────────────
+// Invoice-wide attention card (mock §2): the supplier isn't in the directory.
+// Three explicit decisions — link to existing, create new, or skip.
+
+function SupplierLinkCard({
+  supplierName,
+  comboOpen,
+  suppliers,
+  search,
+  onSearch,
+  onOpenCombo,
+  onPick,
+  onSkip,
+}: {
+  supplierName: string | null
+  comboOpen: boolean
+  suppliers: Array<{ id: string; name: string }>
+  search: string
+  onSearch: (v: string) => void
+  onOpenCombo: () => void
+  onPick: (id: string) => void
+  onSkip: () => void
+}) {
+  const filtered = suppliers.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
+  return (
+    <article className="bg-gold-soft/40 border border-[#fcd34d] rounded-lg overflow-hidden">
+      <div className="px-4 py-3 flex flex-col gap-2.5">
+        <div className="flex items-start gap-2.5">
+          <IssueBadge kind="supplier">Supplier</IssueBadge>
+          <div className="text-[12.5px] text-ink-2 leading-[1.45] min-w-0">
+            {supplierName
+              ? <><b className="font-semibold text-ink">&ldquo;{supplierName}&rdquo;</b> isn&rsquo;t linked to a supplier in your directory.</>
+              : 'No supplier was detected on this invoice.'}
+          </div>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          <ActButton variant="primary" onClick={onOpenCombo}>
+            <Search size={12} /> Link to existing
+          </ActButton>
+          <ActButton variant="danger" onClick={onSkip}>Skip for this invoice</ActButton>
+        </div>
+
+        {comboOpen && (
+          <div className="bg-paper border border-line rounded-lg overflow-hidden">
+            <input
+              autoFocus
+              value={search}
+              onChange={e => onSearch(e.target.value)}
+              placeholder="Search suppliers…"
+              className="w-full px-3 py-2 text-[13px] border-b border-bg-2 focus:outline-none"
+            />
+            <div className="max-h-44 overflow-y-auto">
+              {filtered.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onPick(s.id)}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-gold-soft transition-colors font-medium text-ink"
+                >
+                  {s.name}
+                </button>
+              ))}
+              {filtered.length === 0 && <p className="px-3 py-3 text-[12px] text-ink-4">No suppliers found</p>}
+            </div>
+          </div>
+        )}
+      </div>
+    </article>
   )
 }

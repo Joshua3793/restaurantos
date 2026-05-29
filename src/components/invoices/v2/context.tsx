@@ -23,6 +23,7 @@ export interface DrawerContextValue {
   sortMode: SortMode
   pickingLinkForId: string | null     // which line's link picker is open
   modeWritebackItems: Set<string>     // lines where user wants to update product default mode
+  acknowledgedPriceLines: Set<string> // lines where the user accepted the price change
 
   // ── Reconciliation result ──────────────────────────────────────────────────
   reconciliation: ReconcileResult | null
@@ -55,6 +56,9 @@ export interface DrawerContextValue {
 
   // ── Mode writeback checkbox ────────────────────────────────────────────────
   toggleModeWriteback: (id: string) => void
+
+  // ── Price-change acknowledgement (resolves the price .issue) ───────────────
+  acknowledgePrice: (id: string) => void
 
   // ── Active bbox for image highlight ────────────────────────────────────────
   activeBboxItemId: string | null     // which line card is expanded + has a bbox

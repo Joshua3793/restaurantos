@@ -1,7 +1,17 @@
 import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
+import { Fraunces } from 'next/font/google'
 import './globals.css'
+
+// Fraunces — the brand display serif, used for invoice/section titles in the
+// invoice review drawer (Implementation.html §5: "Title: Fraunces 500").
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-fraunces',
+  display: 'swap',
+})
 import { Navigation } from '@/components/Navigation'
 import { MobileRcBar } from '@/components/navigation/MobileRcBar'
 import { GlobalSearch } from '@/components/GlobalSearch'
@@ -38,7 +48,7 @@ export const viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} ${fraunces.variable}`}>
         <UserProvider>
         <RcProvider>
         <ToastProvider>

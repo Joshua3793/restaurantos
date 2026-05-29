@@ -175,7 +175,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
       onClick={onClick}
       title={title}
       disabled={disabled}
-      className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      className="p-1.5 rounded-md text-ink-4 hover:bg-[#3a352d] hover:text-bg-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
     >
       {children}
     </button>
@@ -187,17 +187,17 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   const transition = isDragging ? 'none' : 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)'
 
   return (
-    <div className="flex flex-col bg-gray-50 shrink-0 w-full md:w-[460px]">
+    <div className="flex flex-col bg-[#1f1d1a] w-full md:flex-1 md:min-w-0 overflow-hidden">
 
       {/* File / page tabs */}
       {files.length > 1 && (
-        <div className="flex gap-1 px-3 py-2 border-b border-gray-200 bg-white overflow-x-auto shrink-0">
+        <div className="flex gap-1 px-3 py-2 border-b border-[#3a352d] bg-[#27241f] overflow-x-auto shrink-0">
           {files.map((f, i) => (
             <button
               key={f.id}
               onClick={() => setActiveIdx(i)}
               className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                activeIdx === i ? 'bg-amber-100 text-amber-700' : 'text-gray-500 hover:bg-gray-100'
+                activeIdx === i ? 'bg-gold/15 text-[#fcd34d]' : 'text-ink-4 hover:bg-[#3a352d]'
               }`}
             >
               Page {i + 1}
@@ -208,19 +208,19 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
 
       {/* Toolbar */}
       {isImage && file?.fileUrl && (
-        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-white shrink-0">
+        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-[#3a352d] bg-[#27241f] shrink-0">
           <Btn onClick={zoomOut} title="Zoom out" disabled={zoom <= ZOOM_MIN}><Minus size={14} /></Btn>
-          <span className="text-xs font-mono text-gray-400 w-12 text-center select-none">
+          <span className="text-xs font-mono text-ink-4 w-12 text-center select-none">
             {Math.round(zoom * 100)}%
           </span>
           <Btn onClick={zoomIn} title="Zoom in" disabled={zoom >= ZOOM_MAX}><Plus size={14} /></Btn>
-          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <div className="w-px h-4 bg-[#3a352d] mx-1" />
           <Btn onClick={rotateLeft}  title="Rotate left"><RotateCcw size={14} /></Btn>
           <Btn onClick={rotateRight} title="Rotate right"><RotateCw size={14} /></Btn>
-          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <div className="w-px h-4 bg-[#3a352d] mx-1" />
           <Btn onClick={reset} title="Reset view"><Maximize2 size={14} /></Btn>
           {showBbox && (
-            <span className="ml-auto text-[10.5px] text-amber-600 font-medium px-2 py-0.5 bg-amber-50 rounded">
+            <span className="ml-auto text-[10.5px] text-[#fcd34d] font-medium px-2 py-0.5 bg-gold/15 rounded">
               line highlighted
             </span>
           )}
@@ -305,7 +305,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
             <iframe
               src={file.fileUrl}
               title={file.fileName}
-              className="w-full h-full rounded-lg border border-gray-200 bg-white"
+              className="w-full h-full rounded-lg border border-gray-200 bg-paper"
             />
           </div>
         ) : (
@@ -313,7 +313,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
             <FileText size={40} className="text-gray-300" />
             <p className="text-sm">{file?.fileName ?? 'No file'}</p>
             {file?.fileUrl && (
-              <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">
+              <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue hover:underline">
                 Open file ↗
               </a>
             )}
@@ -322,8 +322,8 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
       </div>
 
       {/* File name footer */}
-      <div className="px-3 py-2 border-t border-gray-200 bg-white shrink-0">
-        <p className="text-[10px] text-gray-400 truncate">{file?.fileName}</p>
+      <div className="px-3 py-2 border-t border-[#3a352d] bg-[#27241f] shrink-0">
+        <p className="font-mono text-[10px] text-ink-3 truncate">{file?.fileName}</p>
       </div>
     </div>
   )

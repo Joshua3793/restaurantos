@@ -62,17 +62,17 @@ export function LineAmounts({
           {total !== null ? formatCurrency(total) : '—'}
         </div>
         {warning ? (
-          <div className="flex items-center gap-[3px] text-[11px] text-amber-700 tabular-nums">
+          <div className="flex items-center gap-[3px] text-[11px] text-gold-2 tabular-nums">
             <AlertTriangle size={11} />
             maybe {warning}
           </div>
         ) : rate ? (
-          <div className="text-[11px] text-stone-400 tabular-nums">{rate}</div>
+          <div className="text-[11px] text-ink-4 tabular-nums">{rate}</div>
         ) : null}
       </div>
       <ChevronDown
         size={16}
-        className={`text-stone-400 mt-[5px] shrink-0 transition-transform duration-[180ms] ${isOpen ? 'rotate-180' : ''}`}
+        className={`text-ink-4 mt-[5px] shrink-0 transition-transform duration-[180ms] ${isOpen ? 'rotate-180' : ''}`}
       />
     </div>
   )
@@ -97,20 +97,20 @@ export function LinkInfoRow({
 
   return (
     <div className="flex items-center gap-[7px] min-w-0 flex-wrap text-[12.5px]">
-      <Link2 size={14} className="text-stone-500 shrink-0" />
-      <span className="text-stone-500">linked to</span>
-      <span className="font-medium text-stone-900 truncate">{item.matchedItem?.itemName}</span>
+      <Link2 size={14} className="text-ink-3 shrink-0" />
+      <span className="text-ink-3">linked to</span>
+      <span className="font-medium text-ink truncate">{item.matchedItem?.itemName}</span>
       <button
         type="button"
         onClick={onChangeClick}
-        className="text-[11px] px-2 py-[2px] border border-stone-200 rounded text-stone-500 hover:bg-stone-50 hover:text-stone-900 transition-colors"
+        className="text-[11px] px-2 py-[2px] border border-line rounded text-ink-3 hover:bg-bg hover:text-ink transition-colors"
       >
         change
       </button>
       {variance !== null && Math.abs(variance) >= 0.1 ? (
         <VariancePill percent={Math.abs(variance)} direction={variance > 0 ? 'up' : 'down'} />
       ) : norm ? (
-        <span className="text-[11px] text-stone-400 tabular-nums">
+        <span className="text-[11px] text-ink-4 tabular-nums">
           {formatCurrency(norm.invoicePPB)}/{norm.baseUnit} · unchanged
         </span>
       ) : null}
@@ -162,13 +162,13 @@ export function LinkPicker({
   return (
     <div className="space-y-[5px]">
       {/* Label */}
-      <div className="flex items-center gap-1.5 text-[11px] text-stone-500 uppercase tracking-[0.06em] mb-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] text-ink-3 uppercase tracking-[0.06em] mb-1.5">
         <Search size={13} />
         <span>Link to product</span>
       </div>
 
       {/* Search input */}
-      <div className="flex items-center gap-2 bg-white border-[1.5px] border-blue-500 rounded px-3 h-9 shadow-[0_0_0_3px_rgba(37,99,172,0.12)]">
+      <div className="flex items-center gap-2 bg-paper border-[1.5px] border-blue rounded px-3 h-9 shadow-[0_0_0_3px_rgba(37,99,172,0.12)]">
         <input
           autoFocus
           value={query}
@@ -176,30 +176,30 @@ export function LinkPicker({
           placeholder="search or create…"
           className="flex-1 text-[13px] bg-transparent border-none outline-none"
         />
-        <span className="text-[10px] text-stone-400 px-1.5 py-0.5 bg-stone-100 rounded font-mono">↑↓</span>
+        <span className="text-[10px] text-ink-4 px-1.5 py-0.5 bg-bg-2 rounded font-mono">↑↓</span>
       </div>
 
       {/* Results */}
       {results.length > 0 && (
-        <div className="bg-white border border-stone-200 rounded-lg overflow-hidden">
+        <div className="bg-paper border border-line rounded-lg overflow-hidden">
           {results.map((r, i) => (
             <button
               key={r.id}
               type="button"
               onClick={() => onSelect(r)}
-              className={`w-full flex items-center gap-3 px-[13px] py-[10px] text-left hover:bg-stone-50 transition-colors ${
-                i < results.length - 1 ? 'border-b border-stone-100' : ''
+              className={`w-full flex items-center gap-3 px-[13px] py-[10px] text-left hover:bg-bg transition-colors ${
+                i < results.length - 1 ? 'border-b border-bg-2' : ''
               }`}
             >
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-medium text-stone-900">{r.itemName}</div>
-                <div className="text-[11px] text-stone-500 mt-0.5 tabular-nums">
+                <div className="text-[13px] font-medium text-ink">{r.itemName}</div>
+                <div className="text-[11px] text-ink-3 mt-0.5 tabular-nums">
                   {formatCurrency(r.pricePerBaseUnit)}/{r.baseUnit}
                   {r.category ? ` · ${r.category}` : ''}
                 </div>
               </div>
               {i === 0 && loading === false && (
-                <span className="text-[10.5px] bg-green-50 text-green-700 px-[7px] py-[2px] rounded font-medium shrink-0">
+                <span className="text-[10.5px] bg-green-soft text-green-text px-[7px] py-[2px] rounded font-medium shrink-0">
                   top match
                 </span>
               )}
@@ -212,16 +212,16 @@ export function LinkPicker({
       <button
         type="button"
         onClick={onCreateNew}
-        className="w-full flex items-center gap-3 px-[13px] py-3 bg-blue-50/60 border border-blue-500 rounded-lg hover:bg-blue-50 transition-colors"
+        className="w-full flex items-center gap-3 px-[13px] py-3 bg-blue-soft/60 border border-blue rounded-lg hover:bg-blue-soft transition-colors"
       >
-        <span className="w-[22px] h-[22px] rounded-full bg-blue-600 text-white inline-flex items-center justify-center shrink-0">
+        <span className="w-[22px] h-[22px] rounded-full bg-blue-text text-paper inline-flex items-center justify-center shrink-0">
           <Plus size={13} />
         </span>
         <div className="flex-1 min-w-0 text-left">
-          <div className="text-[11px] text-blue-700 uppercase tracking-[0.05em] mb-[2px]">Or create new</div>
-          <div className="text-[13px] text-blue-800 font-medium truncate">"{defaultQuery}"</div>
+          <div className="text-[11px] text-blue-text uppercase tracking-[0.05em] mb-[2px]">Or create new</div>
+          <div className="text-[13px] text-blue-text font-medium truncate">"{defaultQuery}"</div>
         </div>
-        <span className="text-[10px] text-blue-400 font-mono px-1.5 py-0.5 bg-blue-100 rounded">⏎</span>
+        <span className="text-[10px] text-blue font-mono px-1.5 py-0.5 bg-blue-soft rounded">⏎</span>
       </button>
     </div>
   )
@@ -254,10 +254,10 @@ export function CaseStructureEditor({
     <div>
       {/* Inline editor row */}
       <div className="flex items-center gap-[7px] text-[13.5px] tabular-nums flex-wrap">
-        <span className="text-stone-500">
+        <span className="text-ink-3">
           {item.rawQty ? `${Number(item.rawQty)} cs` : '1 cs'}
         </span>
-        <ArrowRight size={14} className="text-stone-300" />
+        <ArrowRight size={14} className="text-line-2" />
         <input
           type="number"
           step="any"
@@ -265,10 +265,10 @@ export function CaseStructureEditor({
           value={pq}
           onChange={e => setPq(e.target.value)}
           onBlur={() => flush({ invoicePackQty: pq || null })}
-          className="w-[50px] h-8 text-center font-semibold border border-stone-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 focus:ring-[3px] focus:ring-blue-500/10"
+          className="w-[50px] h-8 text-center font-semibold border border-line rounded bg-paper text-sm focus:outline-none focus:border-blue focus:ring-[3px] focus:ring-blue/10"
         />
-        <span className="text-stone-500">pkg</span>
-        <span className="text-stone-300 mx-0.5">×</span>
+        <span className="text-ink-3">pkg</span>
+        <span className="text-line-2 mx-0.5">×</span>
         <input
           type="number"
           step="any"
@@ -276,29 +276,29 @@ export function CaseStructureEditor({
           value={ps}
           onChange={e => setPs(e.target.value)}
           onBlur={() => flush({ invoicePackSize: ps || null })}
-          className="w-[50px] h-8 text-center font-semibold border border-stone-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 focus:ring-[3px] focus:ring-blue-500/10"
+          className="w-[50px] h-8 text-center font-semibold border border-line rounded bg-paper text-sm focus:outline-none focus:border-blue focus:ring-[3px] focus:ring-blue/10"
         />
         <select
           value={pUOM}
           onChange={e => { setPUOM(e.target.value); flush({ invoicePackUOM: e.target.value || null }) }}
-          className="h-8 px-2 border border-stone-200 rounded bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+          className="h-8 px-2 border border-line rounded bg-paper text-sm font-medium focus:outline-none focus:border-blue"
         >
           <option value="">—</option>
           {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
         </select>
-        <span className="text-stone-500">per pkg</span>
+        <span className="text-ink-3">per pkg</span>
       </div>
 
       {/* Derived summary */}
       {totalPerCase > 0 && pUOM && (
-        <div className="mt-[9px] pt-[9px] border-t border-dashed border-stone-200 text-[11.5px] text-stone-500 flex items-center gap-2 flex-wrap tabular-nums">
-          <span className="text-stone-400">total per case:</span>
-          <strong className="text-stone-900">{totalPerCase} {pUOM}</strong>
+        <div className="mt-[9px] pt-[9px] border-t border-dashed border-line text-[11.5px] text-ink-3 flex items-center gap-2 flex-wrap tabular-nums">
+          <span className="text-ink-4">total per case:</span>
+          <strong className="text-ink">{totalPerCase} {pUOM}</strong>
           {costPerUnit !== null && (
             <>
-              <span className="text-stone-300">·</span>
-              <span className="text-stone-400">cost per {pUOM}:</span>
-              <strong className="text-stone-900">{formatCurrency(costPerUnit)}</strong>
+              <span className="text-line-2">·</span>
+              <span className="text-ink-4">cost per {pUOM}:</span>
+              <strong className="text-ink">{formatCurrency(costPerUnit)}</strong>
             </>
           )}
         </div>
@@ -363,14 +363,14 @@ export function InvoiceMathFields({
   // Reset dismiss when item changes
   useEffect(() => { setPanelDismissed(false); setEdited(new Set()) }, [item.id])
 
-  const inputBase = 'h-8 border rounded text-sm tabular-nums transition-colors focus:outline-none focus:border-blue-500 focus:ring-[3px] focus:ring-blue-500/10'
-  const editedCls = (field: string) => edited.has(field) ? 'border-blue-400 bg-blue-50' : 'border-stone-200 bg-white'
+  const inputBase = 'h-8 border rounded text-sm tabular-nums transition-colors focus:outline-none focus:border-blue focus:ring-[3px] focus:ring-blue/10'
+  const editedCls = (field: string) => edited.has(field) ? 'border-blue bg-blue-soft' : 'border-line bg-paper'
 
   return (
     <div>
       {/* Card header */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10.5px] text-stone-400 uppercase tracking-[0.06em] font-medium">
+        <span className="text-[10.5px] text-ink-4 uppercase tracking-[0.06em] font-medium">
           Invoice math
         </span>
         <ModeToggle mode={mode} onChange={m => { onMode(m); setPanelDismissed(false); setEdited(new Set()) }} />
@@ -381,8 +381,8 @@ export function InvoiceMathFields({
           {/* Qty shipped */}
           <div>
             <div className="flex items-center justify-between mb-[5px]">
-              <span className="text-stone-500 text-[11.5px]">qty shipped</span>
-              {edited.has('qty') && <span className="text-[9px] text-blue-500 font-medium uppercase tracking-wide">edited</span>}
+              <span className="text-ink-3 text-[11.5px]">qty shipped</span>
+              {edited.has('qty') && <span className="text-[9px] text-blue font-medium uppercase tracking-wide">edited</span>}
             </div>
             <div className="flex gap-1.5">
               <input
@@ -393,7 +393,7 @@ export function InvoiceMathFields({
                 className={`flex-1 px-2 text-center ${inputBase} ${editedCls('qty')}`}
               />
               <select
-                className="h-8 px-1.5 border border-stone-200 rounded bg-white text-sm font-medium focus:outline-none"
+                className="h-8 px-1.5 border border-line rounded bg-paper text-sm font-medium focus:outline-none"
               >
                 <option>cs</option>
               </select>
@@ -403,11 +403,11 @@ export function InvoiceMathFields({
           {/* Unit price */}
           <div>
             <div className="flex items-center justify-between mb-[5px]">
-              <span className="text-stone-500 text-[11.5px]">unit price</span>
-              {edited.has('unitPrice') && <span className="text-[9px] text-blue-500 font-medium uppercase tracking-wide">edited</span>}
+              <span className="text-ink-3 text-[11.5px]">unit price</span>
+              {edited.has('unitPrice') && <span className="text-[9px] text-blue font-medium uppercase tracking-wide">edited</span>}
             </div>
-            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('unitPrice')} ${edited.has('unitPrice') ? 'focus-within:border-blue-500' : 'focus-within:border-blue-500 focus-within:ring-[3px] focus-within:ring-blue-500/10'}`}>
-              <span className="text-stone-400 text-[12.5px]">$</span>
+            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('unitPrice')} ${edited.has('unitPrice') ? 'focus-within:border-blue' : 'focus-within:border-blue focus-within:ring-[3px] focus-within:ring-blue/10'}`}>
+              <span className="text-ink-4 text-[12.5px]">$</span>
               <input
                 type="number" step="any" min="0"
                 value={unitPrice}
@@ -415,18 +415,18 @@ export function InvoiceMathFields({
                 onBlur={() => onChange({ rawUnitPrice: unitPrice || null })}
                 className="flex-1 bg-transparent border-none outline-none text-sm font-medium tabular-nums"
               />
-              <span className="text-stone-400 text-[12.5px]">/ cs</span>
+              <span className="text-ink-4 text-[12.5px]">/ cs</span>
             </div>
           </div>
 
           {/* Line total — full width */}
           <div className="col-span-2">
             <div className="flex items-center justify-between mb-[5px]">
-              <span className="text-stone-500 text-[11.5px]">line total</span>
-              {edited.has('lineTotal') && <span className="text-[9px] text-blue-500 font-medium uppercase tracking-wide">edited</span>}
+              <span className="text-ink-3 text-[11.5px]">line total</span>
+              {edited.has('lineTotal') && <span className="text-[9px] text-blue font-medium uppercase tracking-wide">edited</span>}
             </div>
-            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('lineTotal')} focus-within:border-blue-500 focus-within:ring-[3px] focus-within:ring-blue-500/10`}>
-              <span className="text-stone-400 text-[12.5px]">$</span>
+            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('lineTotal')} focus-within:border-blue focus-within:ring-[3px] focus-within:ring-blue/10`}>
+              <span className="text-ink-4 text-[12.5px]">$</span>
               <input
                 type="number" step="any" min="0"
                 value={lineTotal}
@@ -442,8 +442,8 @@ export function InvoiceMathFields({
           {/* Qty shipped (weight) */}
           <div>
             <div className="flex items-center justify-between mb-[5px]">
-              <span className="text-stone-500 text-[11.5px]">qty shipped</span>
-              {edited.has('wQty') && <span className="text-[9px] text-blue-500 font-medium uppercase tracking-wide">edited</span>}
+              <span className="text-ink-3 text-[11.5px]">qty shipped</span>
+              {edited.has('wQty') && <span className="text-[9px] text-blue font-medium uppercase tracking-wide">edited</span>}
             </div>
             <div className="flex gap-1.5">
               <input
@@ -456,7 +456,7 @@ export function InvoiceMathFields({
               <select
                 value={wQtyUOM}
                 onChange={e => { setWQtyUOM(e.target.value); onChange({ totalQtyUOM: e.target.value }) }}
-                className="h-8 px-1.5 border border-stone-200 rounded bg-white text-sm font-medium focus:outline-none"
+                className="h-8 px-1.5 border border-line rounded bg-paper text-sm font-medium focus:outline-none"
               >
                 {['lb', 'kg', 'g', 'oz'].map(u => <option key={u} value={u}>{u}</option>)}
               </select>
@@ -466,11 +466,11 @@ export function InvoiceMathFields({
           {/* Rate */}
           <div>
             <div className="flex items-center justify-between mb-[5px]">
-              <span className="text-stone-500 text-[11.5px]">rate</span>
-              {edited.has('rate') && <span className="text-[9px] text-blue-500 font-medium uppercase tracking-wide">edited</span>}
+              <span className="text-ink-3 text-[11.5px]">rate</span>
+              {edited.has('rate') && <span className="text-[9px] text-blue font-medium uppercase tracking-wide">edited</span>}
             </div>
-            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('rate')} focus-within:border-blue-500 focus-within:ring-[3px] focus-within:ring-blue-500/10`}>
-              <span className="text-stone-400 text-[12.5px]">$</span>
+            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('rate')} focus-within:border-blue focus-within:ring-[3px] focus-within:ring-blue/10`}>
+              <span className="text-ink-4 text-[12.5px]">$</span>
               <input
                 type="number" step="any" min="0"
                 value={rate}
@@ -478,18 +478,18 @@ export function InvoiceMathFields({
                 onBlur={() => onChange({ rate: rate || null, rateUOM })}
                 className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-medium tabular-nums"
               />
-              <span className="text-stone-400 text-[12.5px] shrink-0">/ {rateUOM}</span>
+              <span className="text-ink-4 text-[12.5px] shrink-0">/ {rateUOM}</span>
             </div>
           </div>
 
           {/* Line total */}
           <div className="col-span-2">
             <div className="flex items-center justify-between mb-[5px]">
-              <span className="text-stone-500 text-[11.5px]">line total</span>
-              {edited.has('wTotal') && <span className="text-[9px] text-blue-500 font-medium uppercase tracking-wide">edited</span>}
+              <span className="text-ink-3 text-[11.5px]">line total</span>
+              {edited.has('wTotal') && <span className="text-[9px] text-blue font-medium uppercase tracking-wide">edited</span>}
             </div>
-            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('wTotal')} focus-within:border-blue-500 focus-within:ring-[3px] focus-within:ring-blue-500/10`}>
-              <span className="text-stone-400 text-[12.5px]">$</span>
+            <div className={`flex items-center gap-1.5 px-2.5 h-8 border rounded transition-colors ${editedCls('wTotal')} focus-within:border-blue focus-within:ring-[3px] focus-within:ring-blue/10`}>
+              <span className="text-ink-4 text-[12.5px]">$</span>
               <input
                 type="number" step="any" min="0"
                 value={wTotal}
@@ -504,10 +504,10 @@ export function InvoiceMathFields({
 
       {/* Check row */}
       {math && (
-        <div className="mt-[11px] pt-[9px] border-t border-dashed border-stone-200 flex items-center justify-between text-[11.5px] tabular-nums">
+        <div className="mt-[11px] pt-[9px] border-t border-dashed border-line flex items-center justify-between text-[11.5px] tabular-nums">
           <div>
-            <span className="text-stone-400">check: </span>
-            <span className="text-stone-800 ml-1">
+            <span className="text-ink-4">check: </span>
+            <span className="text-ink-2 ml-1">
               {mode === 'per_case'
                 ? `${qty || '?'} × ${unitPrice ? formatCurrency(Number(unitPrice)) : '?'} = ${formatCurrency(math.computed)}`
                 : `${wQty || '?'} × ${rate ? formatCurrency(Number(rate)) : '?'} = ${formatCurrency(math.computed)}`
@@ -515,11 +515,11 @@ export function InvoiceMathFields({
             </span>
           </div>
           {math.matches ? (
-            <span className="flex items-center gap-1 text-green-700 font-medium">
+            <span className="flex items-center gap-1 text-green-text font-medium">
               <Check size={12} /> matches invoice
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-amber-700">
+            <span className="flex items-center gap-1 text-gold-2">
               <AlertTriangle size={12} /> {formatCurrency(Math.abs(math.delta))} off
             </span>
           )}
@@ -587,16 +587,16 @@ export function MismatchPanel({
   const delta = computed - entered
 
   return (
-    <div className="mt-[11px] bg-amber-50 rounded-lg p-3">
+    <div className="mt-[11px] bg-gold-soft rounded-lg p-3">
       {/* Header */}
       <div className="flex gap-2 items-start mb-[10px]">
-        <AlertTriangle size={15} className="text-amber-600 mt-0.5 shrink-0" />
-        <div className="flex-1 text-[12px] text-amber-800">
+        <AlertTriangle size={15} className="text-gold-2 mt-0.5 shrink-0" />
+        <div className="flex-1 text-[12px] text-gold-2">
           <div className="font-semibold mb-1">Line total may be off</div>
           <div className="space-y-0.5 tabular-nums leading-[1.7]">
             <div>scanned line total: <strong>{formatCurrency(entered)}</strong></div>
             <div>computed from fields: <strong>{formatCurrency(computed)}</strong></div>
-            <div className="border-t border-amber-200/60 pt-1 mt-1 font-medium">
+            <div className="border-t border-[#fcd34d]/60/60 pt-1 mt-1 font-medium">
               Δ <strong>{formatCurrency(Math.abs(delta))}</strong>
               {' '}{delta > 0 ? 'missing' : 'extra'}
             </div>
@@ -605,12 +605,12 @@ export function MismatchPanel({
       </div>
 
       {/* Actions */}
-      <div className="text-[11px] text-amber-700 font-medium mb-[7px]">What&apos;s correct?</div>
+      <div className="text-[11px] text-gold-2 font-medium mb-[7px]">What&apos;s correct?</div>
       <div className="flex gap-1.5 flex-wrap">
         <button
           type="button"
           onClick={onAcceptComputed}
-          className="flex items-center gap-1.5 text-[11px] px-[11px] py-[5px] bg-white border border-amber-500 text-amber-800 rounded hover:bg-amber-50 transition-colors font-medium"
+          className="flex items-center gap-1.5 text-[11px] px-[11px] py-[5px] bg-paper border border-gold text-gold-2 rounded hover:bg-gold-soft transition-colors font-medium"
         >
           <ArrowRight size={11} />
           use {formatCurrency(computed)}
@@ -618,7 +618,7 @@ export function MismatchPanel({
         <button
           type="button"
           onClick={onRevertPrice}
-          className="flex items-center gap-1.5 text-[11px] px-[11px] py-[5px] bg-white border border-amber-400 text-amber-800 rounded hover:bg-amber-50 transition-colors"
+          className="flex items-center gap-1.5 text-[11px] px-[11px] py-[5px] bg-paper border border-gold text-gold-2 rounded hover:bg-gold-soft transition-colors"
         >
           <RotateCcw size={11} />
           revert price
@@ -627,19 +627,19 @@ export function MismatchPanel({
           <button
             type="button"
             onClick={onAcceptComputed}
-            className="flex items-center gap-1.5 text-[11px] px-[11px] py-[5px] bg-white border border-amber-400 text-amber-800 rounded hover:bg-amber-50 transition-colors"
+            className="flex items-center gap-1.5 text-[11px] px-[11px] py-[5px] bg-paper border border-gold text-gold-2 rounded hover:bg-gold-soft transition-colors"
           >
             <ZoomIn size={11} />
             view on invoice
           </button>
         )}
       </div>
-      <div className="mt-[9px] pt-2 border-t border-amber-200 text-[11px] text-amber-700">
+      <div className="mt-[9px] pt-2 border-t border-[#fcd34d]/60 text-[11px] text-gold-2">
         Or{' '}
         <button
           type="button"
           onClick={onKeepAsIs}
-          className="underline underline-offset-2 hover:text-amber-900 transition-colors"
+          className="underline underline-offset-2 hover:text-gold-2 transition-colors"
         >
           keep as-is and flag for review
         </button>{' '}
@@ -667,14 +667,14 @@ export function ReconcileBanner({
   const { delta, sumOfLines, invoiceSubtotal } = reconciliation
 
   return (
-    <div className="mt-[13px] bg-amber-50/80 border-l-2 border-amber-600 rounded-r-lg overflow-hidden">
+    <div className="mt-[13px] bg-gold-soft/80 border-l-2 border-gold-2 rounded-r-lg overflow-hidden">
       {/* Summary row */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-amber-700 hover:bg-amber-100/50 transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-gold-2 hover:bg-gold-soft/50 transition-colors text-left"
       >
-        <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+        <AlertTriangle size={14} className="text-gold-2 shrink-0" />
         <span className="flex-1">
           <strong>{formatCurrency(Math.abs(delta))} mismatch</strong>
           {' '}— sum of lines doesn&apos;t tie to invoice subtotal.
@@ -682,13 +682,13 @@ export function ReconcileBanner({
         </span>
         <ChevronDown
           size={14}
-          className={`text-amber-600 shrink-0 transition-transform duration-[180ms] ${open ? 'rotate-180' : ''}`}
+          className={`text-gold-2 shrink-0 transition-transform duration-[180ms] ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
       {/* Expanded breakdown */}
       {open && (
-        <div className="px-3 pb-3 pt-0 text-[12px] text-amber-700 border-t border-amber-200/50 tabular-nums">
+        <div className="px-3 pb-3 pt-0 text-[12px] text-gold-2 border-t border-[#fcd34d]/60/50 tabular-nums">
           <div className="space-y-0 leading-[1.9] mt-2">
             <div className="flex justify-between">
               <span>Sum of line items</span>
@@ -698,7 +698,7 @@ export function ReconcileBanner({
               <span>Invoice subtotal</span>
               <span className="font-medium">{invoiceSubtotal !== null ? formatCurrency(invoiceSubtotal) : '—'}</span>
             </div>
-            <div className="flex justify-between border-t border-amber-200/60 pt-1 mt-1 font-medium">
+            <div className="flex justify-between border-t border-[#fcd34d]/60/60 pt-1 mt-1 font-medium">
               <span>Δ {delta > 0 ? 'missing' : 'extra'}</span>
               <span>{formatCurrency(Math.abs(delta))}</span>
             </div>
@@ -708,7 +708,7 @@ export function ReconcileBanner({
               <button
                 type="button"
                 onClick={onRecheck}
-                className="text-[11px] px-2.5 py-1 border border-amber-500 rounded text-amber-700 hover:bg-amber-100 transition-colors"
+                className="text-[11px] px-2.5 py-1 border border-gold rounded text-gold-2 hover:bg-gold-soft transition-colors"
               >
                 Recheck OCR
               </button>
@@ -748,15 +748,15 @@ export function ChipRow({
   const overflow = withCounts.slice(MAX_VISIBLE_CHIPS)
 
   return (
-    <div className="flex items-center gap-1.5 px-[22px] py-[11px] bg-white border-b border-stone-200 flex-nowrap overflow-x-auto">
+    <div className="flex items-center gap-1.5 px-[22px] py-[11px] bg-paper border-b border-line flex-nowrap overflow-x-auto">
       {/* All chip */}
       <button
         type="button"
         onClick={() => activeFilters.size > 0 && onToggle(Array.from(activeFilters)[0])}
         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] border transition-colors whitespace-nowrap ${
           activeFilters.size === 0
-            ? 'bg-stone-900 text-white border-stone-900 font-medium'
-            : 'border-stone-300 text-stone-700 hover:bg-stone-50'
+            ? 'bg-ink text-paper border-ink font-medium'
+            : 'border-line-2 text-ink-2 hover:bg-bg'
         }`}
       >
         All {totalCount}
@@ -766,7 +766,7 @@ export function ChipRow({
       {visible.map(k => {
         const active = activeFilters.has(k)
         const isWarn   = ['needsLink', 'mathCheck', 'formatMismatch', 'modeMismatch'].includes(k)
-        const ringCls  = k === 'needsLink' ? 'bg-red-500' : isWarn ? 'bg-amber-500' : 'bg-blue-500'
+        const ringCls  = k === 'needsLink' ? 'bg-red' : isWarn ? 'bg-gold' : 'bg-blue'
         return (
           <button
             key={k}
@@ -774,8 +774,8 @@ export function ChipRow({
             onClick={() => onToggle(k)}
             className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] border transition-colors whitespace-nowrap ${
               active
-                ? 'bg-stone-900 text-white border-stone-900 font-medium'
-                : 'border-stone-300 text-stone-700 hover:bg-stone-50'
+                ? 'bg-ink text-paper border-ink font-medium'
+                : 'border-line-2 text-ink-2 hover:bg-bg'
             }`}
           >
             {!active && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ringCls}`} />}
@@ -790,21 +790,21 @@ export function ChipRow({
           <button
             type="button"
             onClick={() => setOverflowOpen(o => !o)}
-            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[12px] border border-dashed border-stone-300 text-stone-500 hover:bg-stone-50 whitespace-nowrap"
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[12px] border border-dashed border-line-2 text-ink-3 hover:bg-bg whitespace-nowrap"
           >
             +{overflow.length} more
           </button>
           {overflowOpen && (
-            <div className="absolute top-full left-0 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-10 py-1 min-w-[160px]">
+            <div className="absolute top-full left-0 mt-1 bg-paper border border-line rounded-lg shadow-lg z-10 py-1 min-w-[160px]">
               {overflow.map(k => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => { onToggle(k); setOverflowOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-[12px] text-stone-700 hover:bg-stone-50 flex items-center justify-between"
+                  className="w-full text-left px-3 py-2 text-[12px] text-ink-2 hover:bg-bg flex items-center justify-between"
                 >
                   <span>{FILTER_LABELS[k]}</span>
-                  <span className="text-stone-400 ml-4">{counts[k]}</span>
+                  <span className="text-ink-4 ml-4">{counts[k]}</span>
                 </button>
               ))}
             </div>
@@ -822,7 +822,7 @@ export function ChipRow({
           const next = modes[(modes.indexOf(sortMode) + 1) % modes.length]
           onSort(next)
         }}
-        className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-900 transition-colors whitespace-nowrap px-2 py-1 shrink-0"
+        className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink transition-colors whitespace-nowrap px-2 py-1 shrink-0"
       >
         <ChevronDown size={12} className="rotate-180" />
         {sortMode === 'invoice' ? 'invoice order' : sortMode === 'priceDelta' ? 'price delta' : 'unlinked first'}

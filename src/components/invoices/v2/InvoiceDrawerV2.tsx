@@ -161,7 +161,7 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
 
       {/* Desktop drawer */}
       <div
-        className={`hidden sm:flex fixed top-0 right-0 h-full z-50 bg-white shadow-2xl flex-col transition-all duration-150 ease-out ${isReview ? 'w-[960px]' : 'w-[560px]'}`}
+        className={`hidden sm:flex fixed top-0 right-0 h-full z-50 bg-paper shadow-2xl flex-col transition-all duration-150 ease-out ${isReview ? 'w-[960px]' : 'w-[560px]'}`}
         style={{ transform: open ? 'translateX(0)' : 'translateX(100%)' }}
       >
         <DrawerChrome onClose={onClose} title={session ? labelFor(session.status) : 'Loading…'} />
@@ -196,7 +196,7 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
 
       {/* Mobile — full-screen overlay, slides up from bottom */}
       <div
-        className="sm:hidden fixed inset-0 z-[60] bg-white flex flex-col"
+        className="sm:hidden fixed inset-0 z-[60] bg-paper flex flex-col"
         style={{
           transform: open ? 'translateY(0)' : 'translateY(100%)',
           transition: 'transform 200ms ease-out',
@@ -290,8 +290,8 @@ function DrawerBody({
   if (approveResult) {
     return (
       <div className="flex-1 p-6 text-center space-y-3">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-100">
-          <CheckCircle2 size={28} className="text-emerald-600" />
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-green-soft">
+          <CheckCircle2 size={28} className="text-green-text" />
         </div>
         <h2 className="text-lg font-semibold text-gray-900">Invoice applied</h2>
         <p className="text-sm text-gray-500">
@@ -307,7 +307,7 @@ function DrawerBody({
         <Loader2 size={24} className="animate-spin text-gold mx-auto" />
         <p className="text-sm text-gray-500">{labelFor(session.status)}</p>
         {session.errorMessage && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-left">
+          <p className="text-sm text-red bg-red-soft border border-[#fecaca] rounded-xl px-4 py-3 text-left">
             {session.errorMessage}
           </p>
         )}
@@ -366,7 +366,7 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
     : null
 
   return (
-    <div className="bg-white border-b border-gray-100">
+    <div className="bg-paper border-b border-gray-100">
       <div className="px-5 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
@@ -395,12 +395,12 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
               {tax != null && tax > 0 && <span>· tax {formatCurrency(tax)}</span>}
             </div>
             {!isComputedTotal && recon.match === true && (
-              <div role="status" className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <div role="status" className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-soft text-green-text border border-green-soft">
                 <CheckCircle2 size={9} /> totals reconcile
               </div>
             )}
             {!isComputedTotal && recon.match === false && recon.diff != null && (
-              <div role="status" className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+              <div role="status" className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gold-soft text-gold-2 border border-[#fcd34d]/60">
                 <AlertTriangle size={9} /> totals off by {formatCurrency(Math.abs(recon.diff))}
               </div>
             )}
@@ -409,9 +409,9 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
       </div>
 
       {dup && (
-        <div className="flex items-start gap-2 px-5 py-2.5 bg-amber-50 border-t border-amber-200">
-          <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
-          <div className="text-xs text-amber-700">
+        <div className="flex items-start gap-2 px-5 py-2.5 bg-gold-soft border-t border-[#fcd34d]/60">
+          <AlertTriangle size={13} className="text-gold mt-0.5 shrink-0" />
+          <div className="text-xs text-gold-2">
             <span className="font-semibold">Possible duplicate.</span>{' '}
             Invoice #{session.invoiceNumber} was already scanned
             {dup.invoiceDate ? ` on ${dup.invoiceDate}` : ''}
@@ -452,7 +452,7 @@ function FilterChipsBar({
       <button
         onClick={() => onFilter(value)}
         className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
-          active ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+          active ? 'bg-gray-900 text-paper border-gray-900' : 'bg-paper text-gray-600 border-gray-200 hover:bg-gray-50'
         }`}
       >
         {tone && <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />}
@@ -542,15 +542,15 @@ function LineItemRow({
 
   // Row border tone — danger > warning > neutral
   const borderClass =
-    isUnknownMode(item)                      ? 'border-red-300' :
-    isNeedsLink(item)                        ? 'border-red-300' :
-    isCrossCheckFail(item)                   ? 'border-red-300' :
-    isModeMismatch(item)                     ? 'border-amber-300' :
-    isLowConfidence(item)                    ? 'border-amber-300' :
+    isUnknownMode(item)                      ? 'border-[#fca5a5]' :
+    isNeedsLink(item)                        ? 'border-[#fca5a5]' :
+    isCrossCheckFail(item)                   ? 'border-[#fca5a5]' :
+    isModeMismatch(item)                     ? 'border-[#fcd34d]' :
+    isLowConfidence(item)                    ? 'border-[#fcd34d]' :
                                                'border-gray-200'
 
   return (
-    <div className={`bg-white rounded-xl border ${borderClass} overflow-hidden`}>
+    <div className={`bg-paper rounded-xl border ${borderClass} overflow-hidden`}>
       {/* Row header — keyboard-expandable */}
       <button
         onClick={onToggle}
@@ -612,13 +612,13 @@ function LineItemRow({
             </>
           ) : (
             <>
-              <Unlink size={12} className="text-red-500" />
+              <Unlink size={12} className="text-red" />
               {item.action === 'CREATE_NEW' ? (
                 <span className="text-gray-700">will create new inventory item</span>
               ) : item.action === 'SKIP' ? (
                 <span className="text-gray-400">skipped</span>
               ) : (
-                <span className="text-red-700 font-medium">not linked yet</span>
+                <span className="text-red-text font-medium">not linked yet</span>
               )}
             </>
           )}
@@ -685,8 +685,8 @@ function RcAssigner({
       aria-label="Assign revenue center"
       className={`text-[11px] rounded-lg px-2 py-0.5 shrink-0 focus:outline-none focus:ring-1 focus:ring-gold ${
         current
-          ? 'border border-gray-200 bg-white text-gray-700'
-          : 'border border-dashed border-gray-300 bg-white text-gray-400'
+          ? 'border border-gray-200 bg-paper text-gray-700'
+          : 'border border-dashed border-gray-300 bg-paper text-gray-400'
       }`}
     >
       <option value="">RC: assign…</option>
@@ -875,7 +875,7 @@ function ItemEditSection({
       {/* ── Linked item search ─────────────────────────────────────────────── */}
       <div ref={searchRef} className="relative">
         <span className="block text-[10px] text-gray-500 mb-1 flex items-center gap-1">
-          {linked ? <Link2 size={10} className="text-gray-400" /> : <Unlink size={10} className="text-red-400" />}
+          {linked ? <Link2 size={10} className="text-gray-400" /> : <Unlink size={10} className="text-red" />}
           {linked ? 'Linked item' : 'Link to inventory item'}
         </span>
         <div className="relative flex items-center">
@@ -901,7 +901,7 @@ function ItemEditSection({
         </div>
 
         {showDropdown && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-paper border border-gray-200 rounded-xl shadow-lg overflow-hidden">
             {searchResults.map((inv) => (
               <button
                 key={inv.id}
@@ -919,7 +919,7 @@ function ItemEditSection({
             <div className="flex border-t border-gray-100">
               <button
                 onMouseDown={(e) => { e.preventDefault(); handleSelectCreateNew() }}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-emerald-700 hover:bg-emerald-50 font-medium"
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-green-text hover:bg-green-soft font-medium"
               >
                 <Plus size={12} /> Create new item
               </button>
@@ -949,7 +949,7 @@ function ItemEditSection({
             <div className="flex items-center gap-1.5 mb-1.5">
               <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Pack format</span>
               {!hasPackFormat && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gold-soft text-gold-2 border border-[#fcd34d]/60">
                   <AlertTriangle size={9} /> not detected
                 </span>
               )}
@@ -1082,7 +1082,7 @@ function ItemEditSection({
           </div>
         </div>
       ) : (
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <div className="text-xs text-gold-2 bg-gold-soft border border-[#fcd34d]/60 rounded-lg px-3 py-2">
           Mode couldn&apos;t be detected. Pick{' '}
           <button onClick={() => switchMode('per_case')} className="underline font-medium">per case</button>
           {' '}or{' '}
@@ -1096,7 +1096,7 @@ function ItemEditSection({
 
       {/* ── Mode-mismatch note ─────────────────────────────────────────────── */}
       {pdm && mode !== 'unknown' && pdm !== mode && linked && (
-        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+        <div className="text-[11px] text-gold-2 bg-gold-soft border border-[#fcd34d]/60 rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertCircle size={12} className="mt-0.5 shrink-0" />
           <div>
             Detected pricing is per {mode === 'per_weight' ? 'weight' : 'case'}, but{' '}
@@ -1111,7 +1111,7 @@ function ItemEditSection({
 
 function ModeToggle({ current, onChange }: { current: PricingMode; onChange: (m: 'per_case' | 'per_weight') => void }) {
   const cls = (active: boolean) =>
-    `px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:text-gray-700'}`
+    `px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? 'bg-blue-soft text-blue-text' : 'bg-paper text-gray-500 hover:text-gray-700'}`
   return (
     <div className="inline-flex border border-gray-200 rounded-lg overflow-hidden">
       <button onClick={() => onChange('per_case')}   className={cls(current === 'per_case')}>case</button>
@@ -1223,7 +1223,7 @@ function DrawerFooter({
   const hasBlockerHint = blockers.needsLink > 0 || blockers.mismatch > 0 || blockers.lowConf > 0 || blockers.unknownMode > 0
 
   return (
-    <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 pb-safe flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+    <div className="sticky bottom-0 bg-paper border-t border-gray-200 px-4 py-3 pb-safe flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
       <div className="flex-1 text-[12px] text-gray-600 leading-tight">
         <div className="font-medium text-gray-800">{totalItems} items</div>
         {hasBlockerHint && (
@@ -1244,14 +1244,14 @@ function DrawerFooter({
         placeholder="Your name"
         aria-label="Approver name"
         className={`border rounded-lg px-3 py-1.5 text-sm w-full sm:w-36 focus:outline-none focus:ring-2 focus:ring-gold ${
-          !approvedBy ? 'border-amber-300 bg-amber-50' : 'border-gray-200'
+          !approvedBy ? 'border-[#fcd34d] bg-gold-soft' : 'border-gray-200'
         }`}
       />
       <div className="flex items-center gap-2">
         <button
           onClick={onReject}
           disabled={isApproving}
-          className="border border-red-500 text-red-600 rounded-lg px-4 py-2 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
+          className="border border-red text-red rounded-lg px-4 py-2 text-sm font-medium hover:bg-red-soft disabled:opacity-50"
         >
           Reject
         </button>
@@ -1264,7 +1264,7 @@ function DrawerFooter({
               : !approvedBy.trim() ? 'Enter your name'
               : ''
             : ''}
-          className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-green-text text-paper rounded-lg px-4 py-2 text-sm font-medium flex items-center gap-2 hover:bg-green-text disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isApproving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
           {isApproving ? 'Approving…' : 'Approve & apply'}
