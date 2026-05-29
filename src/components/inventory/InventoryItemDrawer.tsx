@@ -323,23 +323,23 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
   return (
     <div className={`fixed inset-0 ${zClassName} flex items-end sm:items-stretch sm:justify-end`} onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
       <div
-        className="relative bg-white w-full sm:max-w-md h-[92vh] sm:h-full overflow-y-auto shadow-xl rounded-t-2xl sm:rounded-none"
+        className="relative bg-bg w-full sm:max-w-md h-[92vh] sm:h-full overflow-y-auto shadow-2xl rounded-t-2xl sm:rounded-none"
         onClick={e => e.stopPropagation()}
       >
         {loading ? (
           <div className="flex items-center justify-center h-48">
-            <Loader2 size={24} className="animate-spin text-gray-300" />
+            <Loader2 size={24} className="animate-spin text-line-2" />
           </div>
         ) : !item ? (
-          <div className="flex items-center justify-center h-48 text-gray-400 text-sm">Item not found</div>
+          <div className="flex items-center justify-center h-48 text-ink-4 text-sm">Item not found</div>
         ) : (
           <>
             {/* Header */}
             <div
-              className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between gap-2"
-              style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+              className="sticky top-0 z-10 bg-paper border-b border-line p-5 flex items-center justify-between gap-2"
+              style={{ paddingTop: 'calc(1.25rem + env(safe-area-inset-top, 0px))' }}
             >
               <div className="flex-1 min-w-0">
                 {editMode ? (
@@ -349,9 +349,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     className="w-full font-semibold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 ) : (
-                  <h2 className="font-semibold text-gray-900 truncate">{item.itemName}</h2>
+                  <h2 className="font-medium text-ink text-[19px] leading-[1.15] tracking-[-0.02em] truncate">{item.itemName}</h2>
                 )}
-                {item.storageArea && !editMode && <p className="text-xs text-gray-400">{item.storageArea.name}</p>}
+                {item.storageArea && !editMode && <p className="font-mono text-[10.5px] text-ink-4 uppercase tracking-[0.02em] mt-0.5">{item.storageArea.name}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {editMode ? (
@@ -359,22 +359,22 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     <button
                       onClick={handleSave}
                       disabled={saving}
-                      className="px-3 py-1.5 bg-gold text-white text-xs rounded-lg hover:bg-[#a88930] disabled:opacity-50 flex items-center gap-1"
+                      className="px-3 py-1.5 bg-ink text-paper text-[12px] font-medium rounded-[8px] hover:bg-ink-2 disabled:opacity-50 flex items-center gap-1 transition-colors"
                     >
                       {saving && <Loader2 size={10} className="animate-spin" />}
                       Save
                     </button>
-                    <button onClick={() => setEditMode(false)} className="px-3 py-1.5 border border-gray-200 text-xs rounded-lg hover:bg-gray-50">Cancel</button>
+                    <button onClick={() => setEditMode(false)} className="px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors">Cancel</button>
                   </>
                 ) : (
                   <button
                     onClick={openEdit}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-xs rounded-lg hover:bg-gray-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
                   >
                     <Pencil size={12} /> Edit
                   </button>
                 )}
-                <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                <button onClick={onClose} aria-label="Close" className="w-8 h-8 grid place-items-center rounded-[8px] border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors bg-paper"><X size={16} /></button>
               </div>
             </div>
 
@@ -737,87 +737,100 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <CategoryBadge category={item.category} />
                   <StockStatus stock={displayStock(item)} />
                   {item.allergens && item.allergens.length > 0 && item.allergens.map(a => (
-                    <span key={a} className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
+                    <span key={a} className="px-2 py-0.5 rounded-full text-[11px] bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
                   ))}
                   {item.isActive
-                    ? <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 font-medium">Active</span>
-                    : <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">Inactive</span>
+                    ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-soft text-green-text font-medium">Active</span>
+                    : <span className="px-2 py-0.5 rounded-full text-[11px] bg-bg-2 text-ink-4 font-medium">Inactive</span>
                   }
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                {(() => {
+                  const isUom = item.priceType === 'UOM'
+                  const pp = parseFloat(String(item.purchasePrice))
+                  const ppb = parseFloat(String(item.pricePerBaseUnit))
+                  const rateUnit = item.packUOM || item.baseUnit
+                  // For per-weight items the conversion is rate-unit → base (g/ml),
+                  // derivable from the two prices without re-importing UOM tables.
+                  const basesPerRateUnit = ppb > 0 ? pp / ppb : 0
+                  return (
+                <div className="grid grid-cols-2 gap-3 text-[13px]">
                   {(() => {
                     const rows: [string, string][] = item.recipe ? [
                       ['Supplier',      item.supplier?.name || '—'],
-                      ['Storage Area',  item.storageArea?.name || '—'],
-                      ['Linked Recipe', item.recipe.name],
+                      ['Storage area',  item.storageArea?.name || '—'],
+                      ['Linked recipe', item.recipe.name],
                       ['Yield',         `${parseFloat(String(item.packSize ?? 1)).toLocaleString()} ${item.baseUnit}`],
-                      ['Batch Cost',    formatCurrency(parseFloat(String(item.purchasePrice)))],
+                      ['Batch cost',    formatCurrency(pp)],
                       ['Count UOM',     item.countUOM ?? item.baseUnit],
                     ] : [
                       ['Supplier',       item.supplier?.name || '—'],
-                      ['Storage Area',   item.storageArea?.name || '—'],
-                      ['Purchase',       buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, item.baseUnit === 'each' ? 0 : Number(item.packSize ?? 0), item.packUOM ?? 'each')],
-                      ['Purchase Price', formatCurrency(parseFloat(String(item.purchasePrice)))],
+                      ['Storage area',   item.storageArea?.name || '—'],
+                      ['Pricing',        isUom ? `By weight · per ${rateUnit}` : 'By case'],
+                      ['Purchase price', isUom ? `${formatCurrency(pp)} / ${rateUnit}` : `${formatCurrency(pp)} / ${normalizePurchaseUnit(item.purchaseUnit)}`],
+                      ['Pack',           buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, item.baseUnit === 'each' ? 0 : Number(item.packSize ?? 0), item.packUOM ?? 'each')],
                       ['Count UOM',      item.countUOM ?? 'each'],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]
                     return rows.map(([label, value]) => (
-                      <div key={label} className="bg-gray-50 rounded-lg p-3">
-                        <div className="text-xs text-gray-500">{label}</div>
-                        <div className="font-medium text-gray-800 mt-0.5">{value}</div>
+                      <div key={label} className="bg-paper border border-line rounded-[10px] p-3">
+                        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">{label}</div>
+                        <div className="font-medium text-ink mt-1 tracking-[-0.005em]">{value}</div>
                       </div>
                     ))
                   })()}
 
-                  <div className={`rounded-lg p-3 col-span-2 ${item.recipe ? 'bg-purple-50' : 'bg-gold/10'}`}>
+                  <div className={`rounded-[10px] p-3 col-span-2 border ${item.recipe ? 'bg-purple-50 border-purple-200' : 'bg-gold-soft border-[#fcd34d]'}`}>
                     {item.recipe && (
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full">Recipe</span>
-                        <span className="text-xs text-purple-700 font-medium">{item.recipe.name}</span>
+                        <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full">Recipe</span>
+                        <span className="text-[11px] text-purple-700 font-medium">{item.recipe.name}</span>
                       </div>
                     )}
-                    <div className={`text-xs font-medium ${item.recipe ? 'text-purple-600' : 'text-gold'}`}>
+                    <div className={`font-mono text-[10px] font-semibold uppercase tracking-[0.04em] ${item.recipe ? 'text-purple-600' : 'text-gold-2'}`}>
                       Price per {item.baseUnit}
                     </div>
-                    <div className={`text-lg font-bold mt-0.5 ${item.recipe ? 'text-purple-700' : 'text-gold'}`}>
-                      {formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}
+                    <div className={`font-mono text-[17px] font-semibold tabular-nums mt-1 tracking-[-0.01em] ${item.recipe ? 'text-purple-700' : 'text-gold-2'}`}>
+                      {formatUnitPrice(ppb)} / {item.baseUnit}
                     </div>
-                    <div className={`text-xs mt-1 ${item.recipe ? 'text-purple-500' : 'text-blue-500'}`}>
+                    <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-purple-500' : 'text-[#92722f]'}`}>
                       {item.recipe
-                        ? <>Recipe total {formatCurrency(parseFloat(String(item.purchasePrice)))} ÷ {parseFloat(String(item.packSize ?? 1)).toLocaleString()} {item.baseUnit} yield</>
-                        : <>{formatCurrency(parseFloat(String(item.purchasePrice)))} ÷ ({parseFloat(String(item.qtyPerPurchaseUnit))} × {parseFloat(String(item.packSize ?? 1))} {item.packUOM ?? 'each'})</>
+                        ? <>Recipe total {formatCurrency(pp)} ÷ {parseFloat(String(item.packSize ?? 1)).toLocaleString()} {item.baseUnit} yield</>
+                        : isUom
+                          ? <>{formatCurrency(pp)} / {rateUnit} · 1 {rateUnit} = {basesPerRateUnit.toFixed(2)} {item.baseUnit}</>
+                          : <>{formatCurrency(pp)} ÷ ({parseFloat(String(item.qtyPerPurchaseUnit))} × {parseFloat(String(item.packSize ?? 1))} {item.packUOM ?? 'each'}) &nbsp;|&nbsp; 1 {item.countUOM ?? 'each'} = {parseFloat(String(item.conversionFactor)).toFixed(4)} {item.baseUnit}</>
                       }
-                      &nbsp;|&nbsp; 1 {item.countUOM ?? 'each'} = {parseFloat(String(item.conversionFactor)).toFixed(4)} {item.baseUnit}
                     </div>
                   </div>
                 </div>
+                  )
+                })()}
 
                 {/* Stock Overview */}
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock</div>
+                  <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em]">Stock</div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <div className="text-xs text-gray-500">Last Count</div>
-                      <div className="font-bold text-gray-900 mt-0.5">
+                    <div className="bg-paper border border-line rounded-[10px] p-3">
+                      <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Last count</div>
+                      <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
                         {stockMovements
                           ? `${stockMovements.lastCount.qty.toFixed(2)} ${stockMovements.lastCount.unit}`
                           : '—'}
                       </div>
-                      <div className="text-xs text-gray-400 mt-0.5">
+                      <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
                         {stockMovements?.lastCount.date
                           ? new Date(stockMovements.lastCount.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
                           : 'Never counted'}
                       </div>
                     </div>
-                    <div className="bg-blue-50 rounded-lg p-3">
-                      <div className="text-xs text-blue-600">Theoretical Stock</div>
-                      <div className="font-bold text-blue-800 mt-0.5">
+                    <div className="bg-bg-2 border border-line rounded-[10px] p-3">
+                      <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Theoretical stock</div>
+                      <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
                         {stockMovements
                           ? `${stockMovements.theoretical.qty.toFixed(2)} ${stockMovements.theoretical.unit}`
                           : '—'}
                       </div>
-                      <div className="text-xs text-blue-400 mt-0.5">Estimated current</div>
+                      <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">Estimated current</div>
                     </div>
                   </div>
 
@@ -835,16 +848,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         }
                         const cfg = typeConfig[m.type] ?? { label: m.type, color: 'text-gray-600' }
                         return (
-                          <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50 text-xs">
+                          <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-bg text-[12px] transition-colors">
                             <div className="flex items-center gap-2 min-w-0">
                               <span className={`shrink-0 font-medium ${cfg.color}`}>{cfg.label}</span>
-                              <span className="text-gray-400 truncate">{m.description}</span>
+                              <span className="text-ink-4 truncate">{m.description}</span>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
                               <span className={`font-semibold ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
                                 {isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
                               </span>
-                              <span className="text-gray-400 w-14 text-right">
+                              <span className="text-ink-4 w-14 text-right">
                                 {new Date(m.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
                               </span>
                             </div>
@@ -854,7 +867,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     </div>
                   )}
                   {stockMovements && stockMovements.movements.length === 0 && (
-                    <div className="text-xs text-gray-400 text-center py-2">No movements recorded</div>
+                    <div className="text-[12px] text-ink-4 text-center py-2">No movements recorded</div>
                   )}
                 </div>
 
@@ -875,20 +888,20 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 {/* Price History */}
                 {priceHistory.length > 0 && (
                   <div className="mt-2">
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Price History</div>
+                    <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em] mb-2">Price history</div>
                     <div className="space-y-1.5">
                       {priceHistory.map((h, i) => (
-                        <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-xs">
+                        <div key={i} className="flex items-center justify-between bg-paper border border-line rounded-[10px] px-3 py-2 text-[12px]">
                           <div className="min-w-0">
-                            <div className="font-medium text-gray-800 truncate">{h.supplierName}</div>
-                            <div className="text-gray-400">
+                            <div className="font-medium text-ink truncate">{h.supplierName}</div>
+                            <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
                               {new Date(h.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
                               {h.invoiceNumber ? ` · #${h.invoiceNumber}` : ''}
                             </div>
                           </div>
-                          <div className="text-right shrink-0 ml-3">
-                            <div className="font-semibold text-gray-900">{formatCurrency(h.unitPrice)}</div>
-                            <div className="text-gray-400">{formatCurrency(h.lineTotal)} total</div>
+                          <div className="text-right shrink-0 ml-3 font-mono tabular-nums">
+                            <div className="font-semibold text-ink">{formatCurrency(h.unitPrice)}</div>
+                            <div className="text-ink-4 text-[10.5px]">{formatCurrency(h.lineTotal)} total</div>
                           </div>
                         </div>
                       ))}

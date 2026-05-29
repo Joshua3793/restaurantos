@@ -37,6 +37,7 @@ interface InventoryItem {
   isActive: boolean
   qtyUOM?: string | null
   innerQty?: number | string | null
+  priceType?: 'CASE' | 'UOM' | null
   needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
@@ -608,7 +609,7 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px]">
           <div className="font-mono text-[13px] whitespace-nowrap">
             <span className="text-gold-2">{formatCurrency(parseFloat(String(item.purchasePrice)))}</span>
-            <span className="text-ink-3 text-[10.5px] ml-1">/{item.purchaseUnit}</span>
+            <span className="text-ink-3 text-[10.5px] ml-1">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : item.purchaseUnit}</span>
           </div>
           <div className="font-mono text-[10.5px] text-ink-3 mt-0.5 whitespace-nowrap">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
@@ -686,7 +687,7 @@ function InventoryPageInner() {
           <div className="font-mono text-[13px] font-medium text-ink">
             {formatCurrency(parseFloat(String(item.purchasePrice)))}
           </div>
-          <div className="font-mono text-[10px] text-ink-4">/{item.purchaseUnit}</div>
+          <div className="font-mono text-[10px] text-ink-4">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : item.purchaseUnit}</div>
         </div>
         <ChevronRight size={14} className="text-ink-4 shrink-0" />
       </div>
