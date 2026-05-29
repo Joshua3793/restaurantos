@@ -217,7 +217,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
 
       {/* link picker (search) */}
       {isPicking ? (
-        <div className="px-4 py-3 border-b border-dashed border-line">
+        <div className="px-4 py-2.5 border-b border-dashed border-line">
           <LinkPicker
             defaultQuery={item.rawDescription ?? ''}
             onSelect={handleSelectLink}
@@ -256,7 +256,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           {modeMismatch && <ModeIssue item={item} lineId={lineId} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {formatMismatch && !modeMismatch && (
-            <div className="px-4 py-3 border-b border-dashed border-line">
+            <div className="px-4 py-2.5 border-b border-dashed border-line">
               <FormatMismatchNotice item={item} lineId={lineId} />
             </div>
           )}
@@ -267,13 +267,13 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       {!isPicking && (
         <>
           {pricingMode === 'per_case' && (
-            <div className="px-4 py-3 border-b border-dashed border-line">
+            <div className="px-4 py-2.5 border-b border-dashed border-line">
               <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold mb-2">Pack structure</div>
               <CaseStructureEditor item={item} onChange={patch => ctx.updateLine(lineId, patch)} />
             </div>
           )}
 
-          <div ref={mathRef} className="px-4 py-3 bg-bg border-b border-dashed border-line">
+          <div ref={mathRef} className="px-4 py-2.5 bg-bg border-b border-dashed border-line">
             <InvoiceMathFields
               item={item}
               mode={pricingMode}
@@ -346,7 +346,7 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   const isBad = pct !== null && pct > 0
 
   return (
-    <div className="px-4 py-3 border-b border-dashed border-line">
+    <div className="px-4 py-2.5 border-b border-dashed border-line">
       <div className="flex items-center justify-between mb-2">
         <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">Inventory comparison</div>
         {item.matchedItem?.id && (

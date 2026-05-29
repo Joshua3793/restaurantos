@@ -27,7 +27,7 @@ export function ImpactStrip({
     t === 'warn' ? 'text-[#fcd34d]' : t === 'bad' ? 'text-[#fca5a5]' : t === 'ok' ? 'text-green' : 'text-bg'
 
   return (
-    <div className="flex items-center gap-[18px] bg-ink text-bg px-[22px] py-[11px] overflow-x-auto">
+    <div className="flex items-center gap-[18px] bg-ink text-bg px-[22px] py-[9px] overflow-x-auto">
       {metrics.map((m, i) => (
         <div key={m.label} className="flex items-center gap-[18px] shrink-0">
           {i > 0 && <span className="w-px h-3.5 bg-ink-2" />}
@@ -106,7 +106,7 @@ export function ReviewProgress({
 }) {
   const pct = total > 0 ? Math.round((resolved / total) * 100) : 100
   return (
-    <div className="flex items-center gap-3 px-[22px] py-3.5 bg-paper border-b border-line shrink-0">
+    <div className="flex items-center gap-3 px-[22px] py-2.5 bg-paper border-b border-line shrink-0">
       <span className="font-mono text-[11px] font-semibold text-ink-2 shrink-0 tabular-nums">
         {total > 0 ? `${resolved} of ${total} resolved` : 'All matched'}
       </span>

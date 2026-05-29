@@ -165,7 +165,7 @@ function DrawerFooter({
 
   return (
     <div
-      className="grid grid-cols-[1fr_auto] gap-4 items-center px-[22px] py-3.5 bg-paper border-t border-line shrink-0"
+      className="grid grid-cols-[1fr_auto] gap-4 items-center px-[22px] py-3 bg-paper border-t border-line shrink-0"
       style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))' }}
     >
       <div className="min-w-0">
@@ -733,7 +733,7 @@ export function InvoiceReviewDrawer({
         }`}
         style={{
           width: (!approved && session?.status !== 'APPROVED' && session?.status !== 'REJECTED' && session?.files?.length)
-            ? '1180px' : '600px',
+            ? '1340px' : '620px',
           maxWidth: '100vw',
         }}
       >
@@ -839,7 +839,7 @@ export function InvoiceReviewDrawer({
               )}
 
               {/* ── Review panel ───────────────────────────────────────────── */}
-              <div className={`flex flex-col flex-1 min-w-0 min-h-0 md:flex-none md:w-[540px] overflow-hidden ${
+              <div className={`flex flex-col flex-1 min-w-0 min-h-0 md:flex-none md:w-[680px] overflow-hidden ${
                 session.files.length > 0 && mobileTab === 'image' ? 'hidden md:flex' : 'flex'
               }`}>
                 {/* Review progress + segmented filter */}
