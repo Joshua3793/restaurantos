@@ -9,12 +9,12 @@ import { formatCurrency } from '@/lib/utils'
 interface PriceAlert {
   id: string
   inventoryItemId: string
-  oldPrice: string | number | null
+  previousPrice: string | number | null
   newPrice: string | number | null
   changePct: string | number | null
   createdAt: string
   acknowledged: boolean
-  inventoryItem: { id: string; itemName: string }
+  inventoryItem: { id: string; itemName: string; purchaseUnit: string | null; baseUnit: string | null; pricePerBaseUnit: string | number | null }
   session: { id: string; supplierName: string | null; invoiceDate: string | null }
 }
 
@@ -81,7 +81,7 @@ export default function PriceAlertsPage() {
         <PageHead
           crumbs={<span>INBOX / PRICE ALERTS</span>}
           title="Price alerts"
-          sub={<>Items whose <b>pricePerBaseUnit</b> jumped after an invoice approval — and the recipes affected.</>}
+          sub={<>Ingredients whose <b>purchase price</b> moved ≥15% on approval — this re-costs every recipe that uses them.</>}
           actions={
             total > 0 ? (
               <button onClick={ackAll} disabled={busyId === 'all'}
@@ -104,11 +104,17 @@ export default function PriceAlertsPage() {
                 <h2 className="font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3 mb-2">Ingredient price spikes · {priceAlerts.length}</h2>
                 <div className="bg-paper border border-line rounded-[12px] overflow-hidden">
                   {priceAlerts.map(a => {
-                    const old = a.oldPrice !== null ? Number(a.oldPrice) : null
-                    const cur = a.newPrice !== null ? Number(a.newPrice) : null
-                    const pct = a.changePct !== null ? Number(a.changePct) : null
+                    const prevRaw = a.previousPrice != null ? Number(a.previousPrice) : null
+                    const curRaw  = a.newPrice != null ? Number(a.newPrice) : null
+                    const old = prevRaw !== null && Number.isFinite(prevRaw) && prevRaw > 0 ? prevRaw : null
+                    const cur = curRaw  !== null && Number.isFinite(curRaw) ? curRaw : null
+                    // Derive % from the two prices shown so the badge always matches
+                    // the numbers; fall back to the stored changePct only if we can't.
+                    const stored = a.changePct != null && Number.isFinite(Number(a.changePct)) ? Number(a.changePct) : null
+                    const pct = old !== null && cur !== null ? ((cur - old) / old) * 100 : stored
+                    const unit = a.inventoryItem.purchaseUnit || 'unit'
                     return (
-                      <div key={a.id} className="grid grid-cols-[36px_1.4fr_1fr_1fr_auto] items-center gap-3 px-[18px] py-3.5 border-b border-line last:border-0">
+                      <div key={a.id} className="grid grid-cols-[36px_1.4fr_1.2fr_1fr_auto] items-center gap-3 px-[18px] py-3.5 border-b border-line last:border-0">
                         <div className="w-9 h-9 rounded-[9px] bg-red-soft text-red-text grid place-items-center shrink-0">
                           <AlertTriangle size={15} />
                         </div>
@@ -121,9 +127,14 @@ export default function PriceAlertsPage() {
                             {a.session.supplierName ?? '—'} · {fmtDate(a.session.invoiceDate ?? a.createdAt)}
                           </div>
                         </div>
-                        <div className="font-mono text-[12px] text-ink-3">
-                          {old !== null ? formatCurrency(old) : '—'} <span className="text-ink-4">→</span>{' '}
-                          <span className="text-ink font-medium">{cur !== null ? formatCurrency(cur) : '—'}</span>
+                        <div className="min-w-0">
+                          <div className="font-mono text-[12px] text-ink-3">
+                            {old !== null ? formatCurrency(old) : <span className="text-ink-4">new</span>} <span className="text-ink-4">→</span>{' '}
+                            <span className="text-ink font-medium">{cur !== null ? formatCurrency(cur) : '—'}</span>
+                          </div>
+                          <div className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.02em] mt-0.5">
+                            purchase price · per {unit}
+                          </div>
                         </div>
                         <div className={`font-mono text-[13px] font-semibold tabular-nums ${pct !== null && pct > 0 ? 'text-red-text' : pct !== null && pct < 0 ? 'text-green-text' : 'text-ink-3'}`}>
                           {pct !== null ? (pct > 0 ? '+' : '') + pct.toFixed(1) + '%' : '—'}
