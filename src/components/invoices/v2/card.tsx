@@ -166,7 +166,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
     <article
       data-line-id={lineId}
       data-task={dataTask}
-      className={`bg-paper border rounded-lg overflow-hidden transition-shadow ${
+      className={`shrink-0 bg-paper border rounded-lg overflow-hidden transition-shadow ${
         resolved ? 'border-[#86efac]' : isAttention ? 'border-[#fcd34d]' : 'border-line'
       } ${isOpen ? 'shadow-sm' : ''} ${isFlashing ? 'animate-flash-highlight' : ''}`}
     >

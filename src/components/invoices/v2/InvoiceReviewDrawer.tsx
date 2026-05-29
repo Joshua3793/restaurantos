@@ -859,7 +859,7 @@ export function InvoiceReviewDrawer({
                 />
 
                 {/* Line item list — grouped by section */}
-                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-3 pb-10 scroll-pt-3 flex flex-col gap-1.5">
+                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-3 pb-10 scroll-pt-3 flex flex-col gap-1.5 [&>*]:shrink-0">
                   {/* Needs your attention */}
                   {(reviewSegment === 'all' || reviewSegment === 'issues') && (sections.attention.length > 0 || supplierNeedsLink) && (
                     <>
