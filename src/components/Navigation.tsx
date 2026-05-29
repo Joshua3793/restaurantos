@@ -7,7 +7,7 @@ import {
   Sun, Package, FileText, Trash2, BarChart3,
   BookOpen, UtensilsCrossed, LayoutGrid,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
-  ClipboardList, Activity, Building2, Zap,
+  ClipboardList, Activity, Building2, Zap, Flame,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
@@ -33,9 +33,10 @@ const navGroups: NavGroup[] = [
   {
     label: 'TODAY',
     items: [
-      { href: '/pass',  label: 'Pass',  icon: Sun },
-      { href: '/prep',  label: 'Prep',  icon: ChefHat },
-      { href: '/count', label: 'Count', icon: ClipboardList },
+      { href: '/pass',     label: 'Pass',      icon: Sun },
+      { href: '/preshift', label: 'Pre-shift', icon: Flame },
+      { href: '/prep',     label: 'Prep',      icon: ChefHat },
+      { href: '/count',    label: 'Count',     icon: ClipboardList },
     ],
   },
   {

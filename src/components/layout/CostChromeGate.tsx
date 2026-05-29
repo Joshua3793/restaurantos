@@ -10,6 +10,7 @@ import { CostChrome } from './CostChrome'
 const SPINE_ROUTES = [
   '/',
   '/pass',
+  '/preshift',
   '/prep',
   '/count',
   '/inventory',

@@ -95,7 +95,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (packQty > 0 && packSize > 0 && packUOM) {
       baseUnits = convertQty(qty * packQty * packSize, packUOM, nonNullItem.baseUnit)
     } else {
-      baseUnits = qty * Number(nonNullItem.qtyPerPurchaseUnit) * Number(nonNullItem.packSize)
+      // Fall back to the inventory item's own pack structure. Must convert the
+      // packUOM → baseUnit (e.g. kg → g) exactly like the branch above and the
+      // pricePerBaseUnit spine (qtyPerPurchaseUnit × packSize × getUnitConv(packUOM));
+      // omitting it understated weight/volume purchases by the conversion factor (1000× for kg→g).
+      baseUnits = convertQty(
+        qty * Number(nonNullItem.qtyPerPurchaseUnit) * Number(nonNullItem.packSize),
+        nonNullItem.packUOM ?? 'each',
+        nonNullItem.baseUnit,
+      )
     }
     const supplier = si.session.supplierName ?? 'Purchase'
     const invNum   = si.session.invoiceNumber ? ` · #${si.session.invoiceNumber}` : ''

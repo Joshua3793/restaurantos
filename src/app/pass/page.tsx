@@ -196,7 +196,7 @@ export default function PassPage() {
       <SubNav
         tabs={[
           { href: '/pass', label: 'Pass' },
-          { href: '/prep', label: 'Briefing', icon: <Activity size={14} /> },
+          { href: '/preshift', label: 'Pre-shift', icon: <Activity size={14} /> },
           { href: '/cost', label: 'End-of-day', icon: <Clock size={14} /> },
         ]}
       />
@@ -215,7 +215,7 @@ export default function PassPage() {
               <Link href="/cost" className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <Clock size={13} className="text-ink-3" /> End-of-day
               </Link>
-              <Link href="/prep" className="inline-flex items-center gap-1.5 bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors">
+              <Link href="/preshift" className="inline-flex items-center gap-1.5 bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors">
                 <ArrowRight size={13} className="text-gold" /> Start pre-shift
               </Link>
             </>

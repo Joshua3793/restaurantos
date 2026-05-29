@@ -143,8 +143,13 @@ export async function buildPurchaseMap(
       if (packQty > 0 && packSize > 0 && packUOM) {
         baseUnits = convertQty(qty * packQty * packSize, packUOM, si.matchedItem.baseUnit)
       } else {
+        // Convert packUOM → baseUnit, matching the branch above and the legacy
+        // InvoiceLineItem path below. Omitting getUnitConv understated weight/
+        // volume purchases by the conversion factor (1000× for kg→g).
         const unitsPerCase =
-          Number(si.matchedItem.qtyPerPurchaseUnit) * Number(si.matchedItem.packSize)
+          Number(si.matchedItem.qtyPerPurchaseUnit) *
+          Number(si.matchedItem.packSize) *
+          getUnitConv(si.matchedItem.packUOM)
         baseUnits = qty * unitsPerCase
       }
 
