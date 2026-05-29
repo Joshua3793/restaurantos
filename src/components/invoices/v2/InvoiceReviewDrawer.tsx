@@ -165,7 +165,7 @@ function DrawerFooter({
 
   return (
     <div
-      className="grid grid-cols-[1fr_auto] gap-4 items-center px-[22px] py-3.5 bg-paper border-t border-line"
+      className="grid grid-cols-[1fr_auto] gap-4 items-center px-[22px] py-3.5 bg-paper border-t border-line shrink-0"
       style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))' }}
     >
       <div className="min-w-0">
@@ -825,7 +825,7 @@ export function InvoiceReviewDrawer({
               )}
 
               {/* ── Review panel ───────────────────────────────────────────── */}
-              <div className={`flex flex-col flex-1 min-w-0 md:flex-none md:w-[540px] overflow-hidden ${
+              <div className={`flex flex-col flex-1 min-w-0 min-h-0 md:flex-none md:w-[540px] overflow-hidden ${
                 session.files.length > 0 && mobileTab === 'image' ? 'hidden md:flex' : 'flex'
               }`}>
                 {/* Review progress + segmented filter */}
@@ -838,7 +838,7 @@ export function InvoiceReviewDrawer({
                 />
 
                 {/* Line item list — grouped by section */}
-                <div ref={listRef} className="flex-1 overflow-y-auto px-[18px] py-3 flex flex-col gap-1.5">
+                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-[18px] py-3 flex flex-col gap-1.5">
                   {/* Needs your attention */}
                   {(reviewSegment === 'all' || reviewSegment === 'issues') && (sections.attention.length > 0 || supplierNeedsLink) && (
                     <>
@@ -904,7 +904,7 @@ export function InvoiceReviewDrawer({
                   />
                 ) : (
                   <div
-                    className="border-t border-line px-[18px] py-[13px] flex items-center justify-center gap-3"
+                    className="border-t border-line px-[18px] py-[13px] flex items-center justify-center gap-3 shrink-0"
                     style={{ paddingBottom: 'calc(13px + env(safe-area-inset-bottom, 0px))' }}
                   >
                     <Loader2 size={16} className="animate-spin text-ink-3" />

@@ -106,7 +106,7 @@ export function ReviewProgress({
 }) {
   const pct = total > 0 ? Math.round((resolved / total) * 100) : 100
   return (
-    <div className="flex items-center gap-3 px-[22px] py-3.5 bg-paper border-b border-line">
+    <div className="flex items-center gap-3 px-[22px] py-3.5 bg-paper border-b border-line shrink-0">
       <span className="font-mono text-[11px] font-semibold text-ink-2 shrink-0 tabular-nums">
         {total > 0 ? `${resolved} of ${total} resolved` : 'All matched'}
       </span>
