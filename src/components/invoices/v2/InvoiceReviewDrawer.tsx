@@ -320,6 +320,8 @@ export function InvoiceReviewDrawer({
 
   // Ref for the scrollable list container
   const listRef = useRef<HTMLDivElement>(null)
+  // Line id to scroll to the top of the list after it opens (set on click-expand).
+  const expandScrollRef = useRef<string | null>(null)
 
   // ── Auto-expand attention items when session first loads ────────────────────
   useEffect(() => {
@@ -512,7 +514,7 @@ export function InvoiceReviewDrawer({
     setExpandedLineIds(prev => {
       const next = new Set(prev)
       const willOpen = forceOpen || !next.has(id)
-      if (willOpen) next.add(id)
+      if (willOpen) { next.add(id); expandScrollRef.current = id }
       else next.delete(id)
       // Track which item to highlight in the image viewer
       setActiveBboxItemId(willOpen ? id : null)
@@ -523,19 +525,24 @@ export function InvoiceReviewDrawer({
   // Pending scroll target — set by J/K navigation, consumed after expand.
   const scrollPendingRef = useRef<string | null>(null)
 
-  // After expandedLineIds updates, handle pending scroll + flash
+  // After expandedLineIds updates, scroll the opened line to the top of the list
+  // so its full details (down to the Skip row) are reachable, not stranded below
+  // the fold. J/K navigation also flashes the row; a plain click just scrolls.
   useEffect(() => {
-    const lineId = scrollPendingRef.current
-    if (!lineId) return
+    const flashId  = scrollPendingRef.current
+    const scrollId = flashId ?? expandScrollRef.current
     scrollPendingRef.current = null
-    const el = listRef.current?.querySelector(`[data-line-id="${lineId}"]`)
+    expandScrollRef.current  = null
+    if (!scrollId) return
+    const el = listRef.current?.querySelector(`[data-line-id="${scrollId}"]`)
     if (!el) return
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    setFlashingLineIds(prev => new Set(prev).add(lineId))
+    if (!flashId) return
+    setFlashingLineIds(prev => new Set(prev).add(flashId))
     setTimeout(() => {
       setFlashingLineIds(prev => {
         const next = new Set(prev)
-        next.delete(lineId)
+        next.delete(flashId)
         return next
       })
     }, 1400)
@@ -852,7 +859,7 @@ export function InvoiceReviewDrawer({
                 />
 
                 {/* Line item list — grouped by section */}
-                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] py-3 flex flex-col gap-1.5">
+                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-3 pb-10 scroll-pt-3 flex flex-col gap-1.5">
                   {/* Needs your attention */}
                   {(reviewSegment === 'all' || reviewSegment === 'issues') && (sections.attention.length > 0 || supplierNeedsLink) && (
                     <>
