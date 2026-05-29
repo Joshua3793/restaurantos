@@ -1,308 +1,255 @@
 'use client'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
-  Clock, Sun, ChefHat, ClipboardList, AlertTriangle, Mail,
-  Package, Activity, Plus, Check, ArrowRight, RotateCcw, Flame,
+  Clock, Sun, Activity, ChefHat, ClipboardList, Plus, Check,
+  Thermometer, UtensilsCrossed, RotateCcw, ArrowRight, ArrowLeft, X,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
-import { useUser } from '@/contexts/UserContext'
-import { formatCurrency } from '@/lib/utils'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
-type Priority = 'NOW' | 'SOON' | 'LATER' | 'OFF'
+type Tint = 'ok' | 'warn' | 'bad' | 'neutral'
+type SectionKey = 'safety' | 'line' | 'service'
 
-type TaskKind = 'prep' | 'restock' | 'invoice' | 'price' | 'count' | 'custom'
+interface TempSpec { unit: '°C'; max?: number; min?: number }
 
-interface Candidate {
-  /** Stable id — survives reloads so user priority/done state sticks. */
+interface CheckItem {
   id: string
-  kind: TaskKind
+  section: SectionKey
   title: string
-  meta: string
-  /** What the system thinks this should be, before the user decides. */
-  suggested: Priority
-  /** Optional $ / qty hint shown on the right. */
-  hint?: { value: string; sub: string; tint?: 'bad' | 'warn' | 'ok' }
-  /** Deep link to the tool that resolves this task. */
-  href?: string
-  ctaLabel?: string
-}
-
-interface TaskState {
-  priority: Priority
-  done: boolean
-}
-
-interface CustomTask {
-  id: string
-  title: string
+  meta?: string
+  /** Optional red-bold fragment appended to meta (e.g. "0 / 10 kg — critical"). */
+  metaAlert?: string
+  /** Static right-side status (non-temp items). */
+  right?: { value: string; sub?: string; tint?: Tint }
+  /** Hard blocker — gates service until checked off. */
+  blocker?: boolean
+  /** If present, the row logs a temperature and auto-judges it. */
+  temp?: TempSpec
+  custom?: boolean
 }
 
 interface PrepItem {
-  id: string; name: string; unit: string
+  id: string; name: string; unit: string; station?: string | null
   onHand: number; parLevel: number
   priority: '911' | 'NEEDED_TODAY' | 'LATER'
   isBlocked: boolean; blockedReason: string | null
 }
-interface DashboardData {
-  outOfStockItems: Array<{ id: string; itemName: string; category: string; lastValue: number }>
-}
-interface KPIs { awaitingApprovalCount: number }
-interface CountSession {
-  id: string; finalizedAt: string | null; status: string
-}
 
-// ── Priority vocabulary ─────────────────────────────────────────────────────
+// ── Section metadata ─────────────────────────────────────────────────────
 
-const LANES: { key: Exclude<Priority, 'OFF'>; label: string; blurb: string; dot: string }[] = [
-  { key: 'NOW',   label: 'Now — before anything', blurb: 'Service-stoppers. Fire these first.', dot: 'bg-red' },
-  { key: 'SOON',  label: 'Before doors',          blurb: 'On the board before we open.',        dot: 'bg-gold' },
-  { key: 'LATER', label: 'If time',               blurb: 'Nice to have — not blocking service.', dot: 'bg-green' },
+const SECTIONS: { key: SectionKey; title: string; icon: typeof Thermometer }[] = [
+  { key: 'safety',  title: 'Safety & temps',          icon: Thermometer },
+  { key: 'line',    title: 'Line checks · mise ready', icon: UtensilsCrossed },
+  { key: 'service', title: 'Service readiness',        icon: Clock },
 ]
 
-const PRIORITY_RANK: Record<Priority, number> = { NOW: 0, SOON: 1, LATER: 2, OFF: 3 }
+// Generic opening checks — shipped as editable defaults.
+const SAFETY_DEFAULTS: CheckItem[] = [
+  { id: 'safety:walkin-a', section: 'safety', title: 'Walk-in A — fridge temp logged', meta: 'TARGET ≤ 4°C · probe before service', temp: { unit: '°C', max: 4 } },
+  { id: 'safety:walkin-b', section: 'safety', title: 'Walk-in B — fridge temp logged', meta: 'TARGET ≤ 4°C', temp: { unit: '°C', max: 4 } },
+  { id: 'safety:hot-hold', section: 'safety', title: 'Hot hold above 63°C', meta: 'soups + sauces on the pass', temp: { unit: '°C', min: 63 } },
+  { id: 'safety:probe',    section: 'safety', title: 'Probe thermometer calibrated', meta: 'ice / boil check · daily' },
+  { id: 'safety:sanitiser', section: 'safety', title: 'Sanitiser buckets made & dated', meta: 'all stations' },
+]
+
+const SERVICE_DEFAULTS: CheckItem[] = [
+  { id: 'service:86',       section: 'service', title: '86 board confirmed with floor', meta: 'agree off-menu items before doors' },
+  { id: 'service:specials', section: 'service', title: 'Specials tasted & briefed to floor', meta: 'tonight’s additions' },
+  { id: 'service:allergen', section: 'service', title: 'Allergen tickets reviewed', meta: 'coeliac · nut · shellfish' },
+  { id: 'service:pos',      section: 'service', title: 'POS open & printers tested', meta: 'kitchen + bar dockets' },
+  { id: 'service:room',     section: 'service', title: 'Dining room & patio set', meta: 'covers laid · stations stocked' },
+]
+
+// Fallback line checks when there's no live prep data.
+const LINE_FALLBACK: CheckItem[] = [
+  { id: 'line:grill',   section: 'line', title: 'Grill — protein portioned & labelled', meta: 'portion & date all proteins' },
+  { id: 'line:larder',  section: 'line', title: 'Larder — salads & cold apps dressed', meta: 'cold section mise' },
+  { id: 'line:sauces',  section: 'line', title: 'Sauces — bases reduced & held', meta: 'mother sauces on the pass' },
+  { id: 'line:pastry',  section: 'line', title: 'Pastry — desserts plated & chilled', meta: 'sweet section ready' },
+  { id: 'line:garnish', section: 'line', title: 'Garnish & pass mise stocked', meta: 'pick, herbs, finishing oils' },
+]
 
 // ── Page ─────────────────────────────────────────────────────────────────
 
 export default function PreshiftPage() {
-  const { user } = useUser()
+  const router = useRouter()
   const { activeRcId } = useRc()
 
   const [prepItems, setPrepItems] = useState<PrepItem[]>([])
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
-  const [inboxKpis, setInboxKpis] = useState<KPIs | null>(null)
-  const [countSessions, setCountSessions] = useState<CountSession[]>([])
-  const [priceAlertCount, setPriceAlertCount] = useState(0)
   const [loaded, setLoaded] = useState(false)
 
-  // Per-day, per-RC persisted user decisions.
-  const storageKey = useMemo(() => {
-    const day = ymd(new Date())
-    return `preshift:${day}:${activeRcId || 'all'}`
-  }, [activeRcId])
+  const storageKey = useMemo(() => `preshift:${ymd(new Date())}:${activeRcId || 'all'}`, [activeRcId])
 
-  const [states, setStates] = useState<Record<string, TaskState>>({})
-  const [custom, setCustom] = useState<CustomTask[]>([])
+  const [done, setDone] = useState<Record<string, boolean>>({})
+  const [temps, setTemps] = useState<Record<string, number | null>>({})
+  const [custom, setCustom] = useState<CheckItem[]>([])
   const [hydrated, setHydrated] = useState(false)
 
-  // Hydrate from localStorage when the key (day / RC) changes.
+  // Hydrate per-day state.
   useEffect(() => {
     setHydrated(false)
     try {
       const raw = localStorage.getItem(storageKey)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        setStates(parsed.states ?? {})
-        setCustom(parsed.custom ?? [])
-      } else {
-        setStates({})
-        setCustom([])
-      }
-    } catch { setStates({}); setCustom([]) }
+      const p = raw ? JSON.parse(raw) : {}
+      setDone(p.done ?? {})
+      setTemps(p.temps ?? {})
+      setCustom(p.custom ?? [])
+    } catch { setDone({}); setTemps({}); setCustom([]) }
     setHydrated(true)
   }, [storageKey])
 
-  // Persist on change (after hydration so we never clobber with empty).
+  // Persist.
   useEffect(() => {
     if (!hydrated) return
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ states, custom }))
-    } catch { /* quota / private mode — non-fatal */ }
-  }, [states, custom, hydrated, storageKey])
+    try { localStorage.setItem(storageKey, JSON.stringify({ done, temps, custom })) } catch { /* noop */ }
+  }, [done, temps, custom, hydrated, storageKey])
 
-  // Pull live signals.
+  // Live prep.
   useEffect(() => {
     let cancelled = false
-    const load = async () => {
-      try {
-        const qs = activeRcId ? `?rcId=${activeRcId}` : ''
-        const [p, d, k, s, a] = await Promise.all([
-          fetch('/api/prep/items', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
-          fetch(`/api/reports/dashboard${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-          fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-          fetch('/api/count/sessions', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
-          fetch('/api/invoices/alerts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { priceAlerts: [] }),
-        ])
-        if (cancelled) return
-        if (Array.isArray(p)) setPrepItems(p)
-        if (d) setDashboard(d)
-        if (k) setInboxKpis(k)
-        if (Array.isArray(s)) setCountSessions(s)
-        if (a?.priceAlerts) setPriceAlertCount(a.priceAlerts.length)
-      } catch { /* swallow */ } finally {
-        if (!cancelled) setLoaded(true)
-      }
-    }
-    load()
+    fetch('/api/prep/items', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : [])
+      .then(p => { if (!cancelled && Array.isArray(p)) setPrepItems(p) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoaded(true) })
     return () => { cancelled = true }
   }, [activeRcId])
 
-  // ── Build candidate tasks from the signals ────────────────────────────────
-  const candidates = useMemo<Candidate[]>(() => {
-    const out: Candidate[] = []
-
-    for (const it of prepItems) {
-      if (it.priority === 'LATER') continue
-      const short = it.parLevel - it.onHand
-      out.push({
-        id: `prep:${it.id}`,
-        kind: 'prep',
-        title: `Prep ${it.name}`,
+  // ── Build the line-check items from prep ──────────────────────────────────
+  const lineItems = useMemo<CheckItem[]>(() => {
+    const active = prepItems.filter(p => p.priority !== 'LATER')
+    if (active.length === 0) return LINE_FALLBACK
+    return active.map(it => {
+      const station = it.station ? `${it.station} — ` : ''
+      const pct = it.parLevel > 0 ? it.onHand / it.parLevel : 1
+      const is911 = it.priority === '911'
+      const right: CheckItem['right'] = is911 || it.isBlocked
+        ? { value: 'behind', sub: 'blocker', tint: 'bad' }
+        : pct >= 1
+          ? { value: 'ready', sub: 'on par', tint: 'ok' }
+          : pct <= 0
+            ? { value: 'behind', sub: 'blocker', tint: 'bad' }
+            : { value: `${Math.round(pct * 100)}%`, sub: 'in progress', tint: 'warn' }
+      const blocker = is911 || it.isBlocked || pct <= 0
+      const metaAlert = blocker
+        ? `${fmtQty(it.onHand)} / ${fmtQty(it.parLevel)} ${it.unit} — critical`
+        : undefined
+      return {
+        id: `line:prep:${it.id}`,
+        section: 'line' as const,
+        title: `${station}${it.name}`,
         meta: it.isBlocked && it.blockedReason
-          ? `BLOCKED · ${it.blockedReason}`
-          : `${fmtQty(it.onHand)} / ${fmtQty(it.parLevel)} ${it.unit} on hand`,
-        suggested: it.priority === '911' ? 'NOW' : 'SOON',
-        hint: {
-          value: short > 0 ? `${fmtQty(short)}` : 'par',
-          sub: short > 0 ? `${it.unit} short` : 'on par',
-          tint: it.priority === '911' ? 'bad' : 'warn',
-        },
-        href: '/prep',
-        ctaLabel: 'Prep',
-      })
-    }
-
-    for (const oos of dashboard?.outOfStockItems ?? []) {
-      out.push({
-        id: `restock:${oos.id}`,
-        kind: 'restock',
-        title: `Restock ${oos.itemName}`,
-        meta: `${oos.category} · out of stock`,
-        suggested: 'SOON',
-        hint: { value: '0', sub: 'on hand', tint: 'bad' },
-        href: '/inventory',
-        ctaLabel: 'Inventory',
-      })
-    }
-
-    if (inboxKpis && inboxKpis.awaitingApprovalCount > 0) {
-      out.push({
-        id: 'invoice:awaiting',
-        kind: 'invoice',
-        title: `Approve ${inboxKpis.awaitingApprovalCount} ${inboxKpis.awaitingApprovalCount === 1 ? 'invoice' : 'invoices'}`,
-        meta: 'OCR done · prices flow to recipes on approve',
-        suggested: 'LATER',
-        hint: { value: String(inboxKpis.awaitingApprovalCount), sub: 'pending', tint: 'warn' },
-        href: '/invoices',
-        ctaLabel: 'Open',
-      })
-    }
-
-    if (priceAlertCount > 0) {
-      out.push({
-        id: 'price:alerts',
-        kind: 'price',
-        title: `Review ${priceAlertCount} price ${priceAlertCount === 1 ? 'alert' : 'alerts'}`,
-        meta: 'Cost moved — check menu pricing before service',
-        suggested: 'LATER',
-        hint: { value: String(priceAlertCount), sub: 'alerts', tint: 'warn' },
-        href: '/signals',
-        ctaLabel: 'Review',
-      })
-    }
-
-    const lastFinal = countSessions
-      .filter(s => s.status === 'FINALIZED' && s.finalizedAt)
-      .sort((a, b) => new Date(b.finalizedAt!).getTime() - new Date(a.finalizedAt!).getTime())[0]
-    const daysSince = lastFinal
-      ? Math.floor((Date.now() - new Date(lastFinal.finalizedAt!).getTime()) / 86_400_000)
-      : null
-    if (daysSince === null || daysSince > 4) {
-      out.push({
-        id: 'count:stale',
-        kind: 'count',
-        title: daysSince === null ? 'Run your first count' : 'Schedule a partial count',
-        meta: daysSince === null ? 'No counts yet — theoretical is unverified' : `Last count ${daysSince}d ago · drift widening`,
-        suggested: 'LATER',
-        hint: { value: daysSince === null ? '—' : `${daysSince}d`, sub: 'stale', tint: 'warn' },
-        href: '/count',
-        ctaLabel: 'Count',
-      })
-    }
-
-    for (const c of custom) {
-      out.push({
-        id: c.id,
-        kind: 'custom',
-        title: c.title,
-        meta: 'Added by you',
-        suggested: 'SOON',
-        ctaLabel: undefined,
-      })
-    }
-
-    return out
-  }, [prepItems, dashboard, inboxKpis, priceAlertCount, countSessions, custom])
-
-  // Resolve effective priority: user override wins, else system suggestion.
-  const priorityOf = useCallback(
-    (c: Candidate): Priority => states[c.id]?.priority ?? c.suggested,
-    [states],
-  )
-  const isDone = useCallback((id: string) => states[id]?.done ?? false, [states])
-
-  const setPriority = useCallback((c: Candidate, priority: Priority) => {
-    setStates(prev => ({ ...prev, [c.id]: { priority, done: prev[c.id]?.done ?? false } }))
-  }, [])
-
-  const toggleDone = useCallback((c: Candidate) => {
-    setStates(prev => {
-      const cur = prev[c.id] ?? { priority: c.suggested, done: false }
-      return { ...prev, [c.id]: { ...cur, done: !cur.done } }
+          ? it.blockedReason
+          : blocker ? undefined : `${fmtQty(it.onHand)} / ${fmtQty(it.parLevel)} ${it.unit} on hand`,
+        metaAlert,
+        right,
+        blocker,
+      }
     })
+  }, [prepItems])
+
+  // ── All items, grouped by section ─────────────────────────────────────────
+  const itemsBySection = useMemo<Record<SectionKey, CheckItem[]>>(() => {
+    const customBy = (s: SectionKey) => custom.filter(c => c.section === s)
+    return {
+      safety:  [...SAFETY_DEFAULTS, ...customBy('safety')],
+      line:    [...lineItems,       ...customBy('line')],
+      service: [...SERVICE_DEFAULTS, ...customBy('service')],
+    }
+  }, [lineItems, custom])
+
+  const allItems = useMemo(
+    () => SECTIONS.flatMap(s => itemsBySection[s.key]),
+    [itemsBySection],
+  )
+
+  // ── Temp judging ──────────────────────────────────────────────────────────
+  const judgeTemp = useCallback((item: CheckItem): { tint: Tint; value: string; sub: string; over: boolean } => {
+    const v = temps[item.id]
+    const t = item.temp!
+    if (v === null || v === undefined || Number.isNaN(v)) return { tint: 'neutral', value: '—', sub: 'log it', over: false }
+    const over = (t.max !== undefined && v > t.max) || (t.min !== undefined && v < t.min)
+    return {
+      tint: over ? 'bad' : 'ok',
+      value: `${fmtQty(v)}°C`,
+      sub: over ? 'out of range' : 'good',
+      over,
+    }
+  }, [temps])
+
+  const isDone = useCallback((it: CheckItem) => {
+    if (done[it.id]) return true
+    // An in-range logged temp counts as done automatically.
+    if (it.temp) {
+      const j = judgeTemp(it)
+      if (j.tint === 'ok') return true
+    }
+    return false
+  }, [done, judgeTemp])
+
+  const isBlockingOpen = useCallback((it: CheckItem) => {
+    if (isDone(it)) return false
+    if (it.blocker) return true
+    if (it.temp && judgeTemp(it).over) return true
+    return false
+  }, [isDone, judgeTemp])
+
+  // ── Derived totals ────────────────────────────────────────────────────────
+  const total = allItems.length
+  const doneCount = allItems.filter(isDone).length
+  const blockers = allItems.filter(isBlockingOpen)
+  const blockersOpen = blockers.length
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
+  const ready = total > 0 && doneCount === total
+
+  const carries = useMemo(
+    () => allItems.filter(it => !isDone(it) && !isBlockingOpen(it) && it.right?.tint === 'warn'),
+    [allItems, isDone, isBlockingOpen],
+  )
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const toggle = useCallback((it: CheckItem) => {
+    setDone(prev => {
+      const currentlyDone = prev[it.id] ?? (it.temp ? judgeTemp(it).tint === 'ok' : false)
+      return { ...prev, [it.id]: !currentlyDone }
+    })
+  }, [judgeTemp])
+
+  const logTemp = useCallback((it: CheckItem, raw: string) => {
+    const v = raw.trim() === '' ? null : Number(raw)
+    setTemps(prev => ({ ...prev, [it.id]: v === null || Number.isNaN(v) ? null : v }))
+    // Clear any manual done override so the auto-judge takes over.
+    setDone(prev => { const n = { ...prev }; delete n[it.id]; return n })
   }, [])
 
-  const addCustom = useCallback((title: string) => {
+  const addCheck = useCallback((section: SectionKey, title: string, blocker: boolean) => {
     const t = title.trim()
     if (!t) return
-    const id = `custom:${slug(t)}-${t.length}-${candidates.length}`
-    setCustom(prev => [...prev, { id, title: t }])
-    setStates(prev => ({ ...prev, [id]: { priority: 'SOON', done: false } }))
-  }, [candidates.length])
+    const id = `custom:${section}:${slug(t)}-${custom.length}`
+    setCustom(prev => [...prev, { id, section, title: t, meta: 'Added by you', blocker, custom: true }])
+  }, [custom.length])
 
-  const resetDay = useCallback(() => {
-    setStates({})
-    setCustom([])
+  const removeCustom = useCallback((id: string) => {
+    setCustom(prev => prev.filter(c => c.id !== id))
+    setDone(prev => { const n = { ...prev }; delete n[id]; return n })
   }, [])
 
-  // ── Derived: lanes + readiness ────────────────────────────────────────────
-  const onList = useMemo(
-    () => candidates.filter(c => priorityOf(c) !== 'OFF'),
-    [candidates, priorityOf],
-  )
-  const offList = useMemo(
-    () => candidates.filter(c => priorityOf(c) === 'OFF'),
-    [candidates, priorityOf],
-  )
+  const resetAll = useCallback(() => { setDone({}); setTemps({}) }, [])
 
-  const lanes = useMemo(() => {
-    return LANES.map(lane => ({
-      ...lane,
-      items: onList
-        .filter(c => priorityOf(c) === lane.key)
-        .sort((a, b) => {
-          // done sinks; then by kind weight; then title
-          const da = isDone(a.id) ? 1 : 0, db = isDone(b.id) ? 1 : 0
-          if (da !== db) return da - db
-          return a.title.localeCompare(b.title)
-        }),
-    }))
-  }, [onList, priorityOf, isDone])
+  const openService = useCallback(() => { if (ready) router.push('/pass') }, [ready, router])
 
-  // Blocking = everything that must happen before doors (NOW + SOON).
-  const blocking = useMemo(
-    () => onList.filter(c => priorityOf(c) === 'NOW' || priorityOf(c) === 'SOON'),
-    [onList, priorityOf],
-  )
-  const blockingDone = blocking.filter(c => isDone(c.id)).length
-  const ready = blocking.length > 0 ? blockingDone === blocking.length : onList.length === 0
-  const pct = blocking.length > 0 ? Math.round((blockingDone / blocking.length) * 100) : 100
+  // ESC → back to Pass
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') router.push('/pass') }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [router])
 
-  const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'chef'
   const cutoff = nextServiceCutoff(new Date())
   const remMs = cutoff.getTime() - Date.now()
   const remH = Math.max(0, Math.floor(remMs / 3_600_000))
@@ -313,7 +260,7 @@ export default function PreshiftPage() {
       <SubNav
         tabs={[
           { href: '/pass', label: 'Pass', icon: <Sun size={14} /> },
-          { href: '/preshift', label: 'Pre-shift', icon: <Flame size={14} /> },
+          { href: '/preshift', label: 'Pre-shift', icon: <Activity size={14} /> },
           { href: '/prep', label: 'Prep', icon: <ChefHat size={14} /> },
           { href: '/count', label: 'Count', icon: <ClipboardList size={14} /> },
         ]}
@@ -321,338 +268,328 @@ export default function PreshiftPage() {
 
       <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
         <PageHead
-          crumbs={<><Clock size={12} /> TODAY / PRE-SHIFT · {fmtCrumbDate(new Date())}</>}
-          title={<>Set the line, <em className="not-italic text-gold-2">{firstName}</em>.</>}
-          sub={<>
-            Doors in <b>{remH}h {remM}m</b> · <b>{onList.length}</b> on the list
-            {blocking.length > 0 && <> · <b className={ready ? 'text-green-text' : 'text-red-text'}>{blockingDone}/{blocking.length}</b> before-doors done</>}
-          </>}
+          className="mb-5 items-center"
+          crumbs={
+            <Link href="/pass" className="inline-flex items-center gap-1.5 hover:text-ink transition-colors">
+              <ArrowLeft size={12} /> BACK TO PASS
+            </Link>
+          }
+          title={<>Pre-shift <em className="not-italic text-gold-2">check</em>.</>}
+          sub={<>Walk the line, log temps, confirm the 86 board. <b>Service can&apos;t open</b> until every blocker clears.</>}
           actions={
             <>
-              <button
-                onClick={resetDay}
-                className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
-              >
+              <button onClick={resetAll} className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <RotateCcw size={13} className="text-ink-3" /> Reset
               </button>
-              <Link
-                href="/pass"
-                aria-disabled={!ready}
-                className={`inline-flex items-center gap-1.5 px-4 py-[9px] rounded-[9px] text-[13px] font-medium transition-colors ${
-                  ready
-                    ? 'bg-ink text-paper hover:bg-[#18181b]'
-                    : 'bg-bg-2 text-ink-4 pointer-events-none border border-line'
-                }`}
-              >
-                <ArrowRight size={13} className={ready ? 'text-gold' : 'text-ink-4'} />
-                {ready ? 'Open service' : 'Finish the list'}
-              </Link>
             </>
           }
         />
 
-        {/* Readiness hero */}
-        <ReadinessBar
-          ready={ready}
+        {/* Progress band */}
+        <ProgressBand
+          done={doneCount}
+          total={total}
           pct={pct}
-          done={blockingDone}
-          total={blocking.length}
-          empty={onList.length === 0 && loaded}
+          blockersOpen={blockersOpen}
+          lineCount={itemsBySection.line.length}
+          remH={remH}
+          remM={remM}
         />
 
-        {/* Add a task */}
-        <AddTask onAdd={addCustom} />
+        <AddCheck onAdd={addCheck} />
 
-        {/* Lanes */}
-        <div className="grid gap-5 mt-5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-          {lanes.map(lane => (
-            <Lane
-              key={lane.key}
-              lane={lane}
-              priorityOf={priorityOf}
-              isDone={isDone}
-              onSetPriority={setPriority}
-              onToggle={toggleDone}
-              loaded={loaded}
-            />
-          ))}
+        <div className="grid gap-5 mt-5" style={{ gridTemplateColumns: '1fr 320px' }}>
+          {/* Sections */}
+          <div className="min-w-0">
+            {SECTIONS.map(sec => {
+              const items = itemsBySection[sec.key]
+              const d = items.filter(isDone).length
+              return (
+                <Section key={sec.key} title={sec.title} Icon={sec.icon} done={d} total={items.length}>
+                  {items.length === 0 ? (
+                    <p className="text-[12.5px] text-ink-3 px-[18px] py-6 text-center">{loaded ? 'No checks here yet — add one above.' : 'Loading…'}</p>
+                  ) : items.map(it => (
+                    <CheckRow
+                      key={it.id}
+                      item={it}
+                      done={isDone(it)}
+                      blockingOpen={isBlockingOpen(it)}
+                      tempValue={temps[it.id] ?? null}
+                      judge={it.temp ? judgeTemp(it) : null}
+                      onToggle={() => toggle(it)}
+                      onLogTemp={raw => logTemp(it, raw)}
+                      onRemove={it.custom ? () => removeCustom(it.id) : undefined}
+                    />
+                  ))}
+                </Section>
+              )
+            })}
+          </div>
+
+          {/* Sign-off rail */}
+          <aside className="space-y-3.5">
+            <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Right rail · sign-off</div>
+
+            <GateCard pct={pct} ready={ready} blockersOpen={blockersOpen} remaining={total - doneCount} onOpen={openService} />
+
+            <RailCard title="Open blockers" count={blockersOpen}>
+              {blockers.length === 0 ? (
+                <p className="text-[12.5px] text-green-text py-1">No blockers — line is clear.</p>
+              ) : blockers.map(b => (
+                <div key={b.id} className="flex items-center gap-2.5 py-2 border-b border-dashed border-line last:border-0 text-[12.5px]">
+                  <span className="w-[7px] h-[7px] rounded-full bg-red shrink-0" />
+                  <span className="font-medium text-ink tracking-[-0.005em] truncate">{b.title}</span>
+                  <span className="font-mono text-[10px] text-ink-3 ml-auto whitespace-nowrap">
+                    {b.temp ? judgeTemp(b).value : b.right?.value ?? 'open'}
+                  </span>
+                </div>
+              ))}
+            </RailCard>
+
+            <RailCard title="Carries into tonight">
+              {carries.length === 0 ? (
+                <p className="text-[12.5px] text-ink-3 py-1">Nothing flagged — finish the list.</p>
+              ) : carries.map(c => (
+                <div key={c.id} className="flex items-center gap-2.5 py-2 border-b border-dashed border-line last:border-0 text-[12.5px]">
+                  <span className="w-[7px] h-[7px] rounded-full bg-gold shrink-0" />
+                  <span className="font-medium text-ink tracking-[-0.005em] truncate">{c.title}</span>
+                  <span className="font-mono text-[10px] text-ink-3 ml-auto whitespace-nowrap">{c.right?.value}</span>
+                </div>
+              ))}
+            </RailCard>
+          </aside>
         </div>
 
-        {/* Off the list */}
-        {offList.length > 0 && (
-          <OffList
-            items={offList}
-            onSetPriority={setPriority}
-          />
-        )}
-
-        <div className="mt-6 flex justify-between font-mono text-[10.5px] text-ink-3 tracking-wide">
-          <span>YOUR LIST RESETS AT MIDNIGHT · SAVED ON THIS DEVICE</span>
-          <span>SET A PRIORITY TO PUT A TASK ON THE LINE</span>
+        <div className="mt-5 flex justify-between font-mono text-[10.5px] text-ink-3 tracking-wide flex-wrap gap-2">
+          <span>PRE-SHIFT IN PROGRESS · {doneCount} OF {total} CHECKS · SAVED ON THIS DEVICE</span>
+          <span>↵ TOGGLE CHECK · ESC BACK TO PASS</span>
         </div>
       </div>
     </>
   )
 }
 
-// ── Sub-components (module scope — never remount on render) ──────────────────
+// ── Sub-components (module scope) ────────────────────────────────────────────
 
-function ReadinessBar({ ready, pct, done, total, empty }: {
-  ready: boolean; pct: number; done: number; total: number; empty: boolean
+function ProgressBand({ done, total, pct, blockersOpen, lineCount, remH, remM }: {
+  done: number; total: number; pct: number; blockersOpen: number; lineCount: number; remH: number; remM: number
 }) {
-  if (empty) {
-    return (
-      <div className="bg-ink text-paper rounded-[12px] p-5 mb-5 flex items-center gap-4">
-        <span className="w-2.5 h-2.5 rounded-full bg-green shrink-0" />
-        <div>
-          <div className="text-[15px] font-semibold tracking-[-0.015em]">Nothing on the list yet</div>
-          <div className="text-[12.5px] text-zinc-400 tracking-[-0.005em] mt-0.5">
-            Set a priority on the suggestions below — or add your own — to build tonight&apos;s pre-shift.
-          </div>
-        </div>
-      </div>
-    )
-  }
   return (
-    <div className="bg-ink text-paper rounded-[12px] p-5 mb-5">
-      <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <span className={`w-2.5 h-2.5 rounded-full ${ready ? 'bg-green' : 'bg-gold'}`} />
-          <span className="text-[15px] font-semibold tracking-[-0.015em]">
-            {ready ? 'Ready for service' : 'Building toward service'}
+    <div className="bg-paper border border-line rounded-[12px] px-[22px] py-[18px] flex items-center gap-6 flex-wrap">
+      <div className="flex flex-col gap-[3px] shrink-0">
+        <div className="text-[30px] font-semibold tracking-[-0.04em] leading-none">
+          {done}<span className="text-ink-4 font-medium">/{total}</span>
+        </div>
+        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">checks complete</div>
+      </div>
+
+      <div className="flex-1 flex flex-col gap-2.5 min-w-[260px]">
+        <div className="h-2 rounded-full bg-bg-2 overflow-hidden">
+          <div className={`h-full rounded-full transition-all duration-300 ${blockersOpen > 0 ? 'bg-red' : pct === 100 ? 'bg-green' : 'bg-gold'}`} style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {blockersOpen > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-medium bg-red-soft border border-red/40 text-red-text px-2.5 py-[5px] rounded-full">
+              <span className="w-[7px] h-[7px] rounded-full bg-red" /> <span className="font-mono font-semibold">{blockersOpen}</span> blocker{blockersOpen > 1 ? 's' : ''} open
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-medium bg-bg border border-line text-ink-2 px-2.5 py-[5px] rounded-full">
+            <span className="w-[7px] h-[7px] rounded-full bg-gold" /> <span className="font-mono font-semibold">{lineCount}</span> line checks
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-medium bg-bg border border-line text-ink-2 px-2.5 py-[5px] rounded-full">
+            <span className="w-[7px] h-[7px] rounded-full bg-blue" /> <span className="font-mono font-semibold">{total - done}</span> left
           </span>
         </div>
-        <span className="font-mono text-[11px] text-zinc-400 tracking-[0]">
-          {total > 0 ? <><b className="text-paper">{done}</b> / {total} before-doors done</> : 'no before-doors tasks'}
-        </span>
       </div>
-      <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${ready ? 'bg-green' : 'bg-gold'}`}
-          style={{ width: `${pct}%` }}
-        />
+
+      <div className="shrink-0 text-right border-l border-line pl-6">
+        <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">{remH}h {remM}m</div>
+        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">to doors</div>
       </div>
     </div>
   )
 }
 
-function AddTask({ onAdd }: { onAdd: (title: string) => void }) {
-  const [value, setValue] = useState('')
-  const submit = () => { onAdd(value); setValue('') }
+function AddCheck({ onAdd }: { onAdd: (section: SectionKey, title: string, blocker: boolean) => void }) {
+  const [open, setOpen] = useState(false)
+  const [section, setSection] = useState<SectionKey>('line')
+  const [title, setTitle] = useState('')
+  const [blocker, setBlocker] = useState(false)
+  const submit = () => { onAdd(section, title, blocker); setTitle(''); setBlocker(false) }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-4 inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
+        <Plus size={14} className="text-ink-3" /> Add check
+      </button>
+    )
+  }
   return (
-    <div className="flex items-center gap-2 bg-paper border border-line rounded-[12px] px-3.5 py-2.5">
-      <Plus size={15} className="text-ink-3 shrink-0" />
+    <div className="mt-4 flex items-center gap-2 bg-paper border border-line rounded-[12px] px-3.5 py-2.5 flex-wrap">
+      <select value={section} onChange={e => setSection(e.target.value as SectionKey)} className="bg-bg-2 border border-line rounded-[7px] text-[12.5px] text-ink-2 px-2 py-1.5 outline-none">
+        {SECTIONS.map(s => <option key={s.key} value={s.key}>{s.title}</option>)}
+      </select>
       <input
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter') submit() }}
-        placeholder="Add your own pre-shift task — e.g. set up dessert station, brief the team…"
-        className="flex-1 bg-transparent text-[13.5px] text-ink placeholder:text-ink-4 outline-none tracking-[-0.005em]"
+        autoFocus
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setOpen(false) }}
+        placeholder="What needs doing before service?"
+        className="flex-1 min-w-[180px] bg-transparent text-[13.5px] text-ink placeholder:text-ink-4 outline-none tracking-[-0.005em]"
       />
+      <button onClick={() => setBlocker(b => !b)} className={`font-mono text-[10px] uppercase tracking-[0.02em] px-2.5 py-1.5 rounded-full border transition-colors ${blocker ? 'bg-red text-paper border-red' : 'bg-paper text-ink-3 border-line hover:border-ink-3'}`}>
+        Blocker
+      </button>
+      <button onClick={submit} disabled={!title.trim()} className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-[#27272a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Add</button>
+      <button onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink p-1"><X size={15} /></button>
+    </div>
+  )
+}
+
+function Section({ title, Icon, done, total, children }: {
+  title: string; Icon: typeof Thermometer; done: number; total: number; children: React.ReactNode
+}) {
+  const complete = total > 0 && done === total
+  return (
+    <section className="bg-paper border border-line rounded-[12px] overflow-hidden mb-4">
+      <header className="flex items-center justify-between px-[18px] py-[13px] border-b border-line bg-bg-2">
+        <h3 className="text-[13.5px] font-semibold tracking-[-0.01em] flex items-center gap-2.5">
+          <span className="w-6 h-6 rounded-[7px] bg-paper border border-line grid place-items-center text-ink-2"><Icon size={13} /></span>
+          {title}
+        </h3>
+        <span className={`font-mono text-[10.5px] ${complete ? 'text-green-text' : 'text-ink-3'}`}>{done} / {total}</span>
+      </header>
+      {children}
+    </section>
+  )
+}
+
+function CheckRow({ item, done, blockingOpen, tempValue, judge, onToggle, onLogTemp, onRemove }: {
+  item: CheckItem
+  done: boolean
+  blockingOpen: boolean
+  tempValue: number | null
+  judge: { tint: Tint; value: string; sub: string; over: boolean } | null
+  onToggle: () => void
+  onLogTemp: (raw: string) => void
+  onRemove?: () => void
+}) {
+  const rightTint = (t?: Tint) =>
+    t === 'bad' ? 'text-red-text' : t === 'warn' ? 'text-gold-2' : t === 'ok' ? 'text-green-text' : 'text-ink-3'
+
+  return (
+    <div
+      className="grid grid-cols-[26px_1fr_auto] items-center gap-3.5 px-[18px] py-[13px] border-b border-line last:border-0 hover:bg-bg/60 transition-colors cursor-pointer group"
+      onClick={onToggle}
+    >
+      <div className={`w-[22px] h-[22px] rounded-[6px] border-[1.5px] grid place-items-center transition-all ${done ? 'bg-green border-green text-white' : 'border-line-2 text-transparent'}`}>
+        <Check size={13} strokeWidth={3} />
+      </div>
+
+      <div className="min-w-0">
+        <div className={`text-[14px] font-medium tracking-[-0.01em] flex items-center gap-1.5 ${done ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink'}`}>
+          <span className="truncate">{item.title}</span>
+          {item.custom && onRemove && (
+            <button onClick={e => { e.stopPropagation(); onRemove() }} className="opacity-0 group-hover:opacity-100 text-ink-4 hover:text-red-text transition-opacity shrink-0"><X size={12} /></button>
+          )}
+        </div>
+        {(item.meta || item.metaAlert) && (
+          <div className="font-mono text-[10.5px] text-ink-3 mt-[3px] tracking-[0] flex items-center gap-1.5 flex-wrap">
+            {item.meta}
+            {item.meta && item.metaAlert && <span className="text-ink-4">·</span>}
+            {item.metaAlert && <b className="text-red-text font-semibold">{item.metaAlert}</b>}
+          </div>
+        )}
+      </div>
+
+      {item.temp ? (
+        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={tempValue ?? ''}
+            onChange={e => onLogTemp(e.target.value)}
+            placeholder="—"
+            className={`font-mono text-[12px] font-semibold border rounded-[7px] px-2 py-[5px] w-[64px] text-center bg-bg text-ink outline-none focus:border-ink-3 ${judge?.over ? 'border-red text-red-text' : judge?.tint === 'ok' ? 'border-green/50' : 'border-line'}`}
+          />
+          <div className={`text-right font-mono text-[10px] w-[58px] ${rightTint(judge?.tint)}`}>
+            {judge?.value !== '—' && <span className="block font-semibold">{item.temp.max !== undefined ? `≤${item.temp.max}°` : `≥${item.temp.min}°`}</span>}
+            <span className="block">{judge?.sub}</span>
+          </div>
+        </div>
+      ) : item.right ? (
+        <div className={`text-right font-mono text-[11.5px] font-semibold tracking-[-0.01em] ${rightTint(item.right.tint)}`}>
+          {item.right.value}
+          {item.right.sub && <small className="block font-normal text-ink-3 text-[9.5px] mt-px">{item.right.sub}</small>}
+        </div>
+      ) : (
+        <div className="text-right font-mono text-[11.5px] text-ink-3">{done ? '✓' : '—'}</div>
+      )}
+    </div>
+  )
+}
+
+function GateCard({ pct, ready, blockersOpen, remaining, onOpen }: {
+  pct: number; ready: boolean; blockersOpen: number; remaining: number; onOpen: () => void
+}) {
+  const C = 2 * Math.PI * 44
+  const offset = C * (1 - pct / 100)
+  const ringColor = ready ? '#16a34a' : blockersOpen > 0 ? '#dc2626' : '#d97706'
+  const title = ready ? 'Ready for service' : blockersOpen > 0 ? 'Not ready' : 'Almost there'
+  const sub = ready
+    ? 'All checks signed off. Open the doors.'
+    : blockersOpen > 0
+      ? `${blockersOpen} blocker${blockersOpen > 1 ? 's' : ''} must clear before service can open.`
+      : `${remaining} check${remaining > 1 ? 's' : ''} left — no blockers, finish the list.`
+
+  return (
+    <div className="bg-paper border border-line rounded-[12px] p-[18px] text-center">
+      <div className="w-24 h-24 mx-auto mt-1 mb-3.5 grid place-items-center relative">
+        <svg viewBox="0 0 100 100" width="96" height="96" className="absolute inset-0 -rotate-90">
+          <circle cx="50" cy="50" r="44" fill="none" stroke="#f4f4f5" strokeWidth="8" />
+          <circle cx="50" cy="50" r="44" fill="none" stroke={ringColor} strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={C.toFixed(2)} strokeDashoffset={offset.toFixed(2)} style={{ transition: 'stroke-dashoffset .3s ease, stroke .3s' }} />
+        </svg>
+        <div className="text-[26px] font-semibold tracking-[-0.04em]">{pct}<small className="text-[13px] text-ink-3">%</small></div>
+      </div>
+      <div className="text-[14px] font-semibold tracking-[-0.015em]">{title}</div>
+      <div className="font-mono text-[10.5px] text-ink-3 mt-1 leading-[1.5]">{sub}</div>
       <button
-        onClick={submit}
-        disabled={!value.trim()}
-        className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-[#27272a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        onClick={onOpen}
+        disabled={!ready}
+        className={`w-full mt-4 py-3 rounded-[9px] text-[13.5px] font-semibold tracking-[-0.01em] inline-flex items-center justify-center gap-2 transition-all ${
+          ready
+            ? 'bg-green border border-green text-white hover:bg-green-text cursor-pointer shadow-[0_8px_20px_-8px_rgba(22,163,74,0.5)]'
+            : 'bg-bg-2 border border-line text-ink-4 cursor-not-allowed'
+        }`}
       >
-        Add
+        <ArrowRight size={14} strokeWidth={2.5} /> Open service
       </button>
     </div>
   )
 }
 
-function Lane({ lane, priorityOf, isDone, onSetPriority, onToggle, loaded }: {
-  lane: { key: Exclude<Priority, 'OFF'>; label: string; blurb: string; dot: string; items: Candidate[] }
-  priorityOf: (c: Candidate) => Priority
-  isDone: (id: string) => boolean
-  onSetPriority: (c: Candidate, p: Priority) => void
-  onToggle: (c: Candidate) => void
-  loaded: boolean
-}) {
-  const doneCount = lane.items.filter(c => isDone(c.id)).length
+function RailCard({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
-    <section className="bg-paper border border-line rounded-[12px] overflow-hidden flex flex-col">
-      <header className="px-[18px] py-3 border-b border-line bg-bg-2">
-        <h3 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${lane.dot}`} />
-          {lane.label}
-          <span className="font-mono text-[10.5px] text-ink-3 font-normal ml-auto">
-            {doneCount}/{lane.items.length}
-          </span>
-        </h3>
-        <p className="font-mono text-[10px] text-ink-3 mt-1 tracking-[0]">{lane.blurb}</p>
-      </header>
-      <div className="flex-1">
-        {lane.items.length === 0 ? (
-          <p className="text-[12.5px] text-ink-3 px-[18px] py-6 text-center">
-            {loaded ? 'Nothing here.' : 'Loading…'}
-          </p>
-        ) : lane.items.map(c => (
-          <TaskRow
-            key={c.id}
-            c={c}
-            done={isDone(c.id)}
-            priority={priorityOf(c)}
-            onSetPriority={onSetPriority}
-            onToggle={onToggle}
-          />
-        ))}
-      </div>
-    </section>
-  )
-}
-
-const KIND_ICON: Record<TaskKind, typeof ClipboardList> = {
-  prep: ChefHat,
-  restock: Package,
-  invoice: Mail,
-  price: AlertTriangle,
-  count: Activity,
-  custom: ClipboardList,
-}
-
-function TaskRow({ c, done, priority, onSetPriority, onToggle }: {
-  c: Candidate
-  done: boolean
-  priority: Priority
-  onSetPriority: (c: Candidate, p: Priority) => void
-  onToggle: (c: Candidate) => void
-}) {
-  const Icon = KIND_ICON[c.kind]
-  const hintTint = c.hint?.tint === 'bad' ? 'text-red-text'
-    : c.hint?.tint === 'warn' ? 'text-gold-2'
-    : c.hint?.tint === 'ok' ? 'text-green-text' : 'text-ink-3'
-  return (
-    <div className={`px-[18px] py-3 border-b border-line last:border-0 transition-colors ${done ? 'bg-bg-2/40' : ''}`}>
-      <div className="flex items-start gap-3">
-        <button
-          onClick={() => onToggle(c)}
-          aria-pressed={done}
-          aria-label={done ? 'Mark not done' : 'Mark done'}
-          className={`mt-0.5 w-[22px] h-[22px] rounded-[7px] border grid place-items-center shrink-0 transition-colors ${
-            done ? 'bg-green border-green text-paper' : 'border-line-2 text-transparent hover:border-ink-3'
-          }`}
-        >
-          <Check size={14} strokeWidth={3} />
-        </button>
-
-        <div className="min-w-0 flex-1">
-          <div className={`text-[13.5px] font-medium tracking-[-0.005em] flex items-center gap-1.5 ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>
-            <Icon size={13} className="text-ink-4 shrink-0" />
-            <span className="truncate">{c.title}</span>
-          </div>
-          <div className="font-mono text-[10.5px] text-ink-3 mt-1 tracking-[0]">{c.meta}</div>
-        </div>
-
-        {c.hint && !done && (
-          <div className={`text-right font-mono text-[12px] font-semibold tracking-[-0.01em] shrink-0 ${hintTint}`}>
-            {c.hint.value}
-            <small className="block font-normal text-ink-3 font-mono text-[10px] mt-0.5">{c.hint.sub}</small>
-          </div>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 mt-2.5 pl-[34px]">
-        <PriorityPicker value={priority} onChange={p => onSetPriority(c, p)} />
-        {c.href && (
-          <Link
-            href={c.href}
-            className="ml-auto font-mono text-[10.5px] text-gold-2 border-b border-dashed border-current hover:text-gold whitespace-nowrap"
-          >
-            {c.ctaLabel ?? 'Open'} →
-          </Link>
-        )}
-      </div>
+    <div className="bg-paper border border-line rounded-[12px] p-[16px_18px]">
+      <h4 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2 mb-3">
+        {title}
+        {count !== undefined && <span className="font-mono text-[10px] text-ink-3 font-normal ml-auto">{count}</span>}
+      </h4>
+      <div>{children}</div>
     </div>
-  )
-}
-
-const PICKER_OPTIONS: { key: Priority; label: string; active: string }[] = [
-  { key: 'NOW',   label: 'Now',    active: 'bg-red text-paper border-red' },
-  { key: 'SOON',  label: 'Doors',  active: 'bg-gold text-paper border-gold' },
-  { key: 'LATER', label: 'If time', active: 'bg-green text-paper border-green' },
-  { key: 'OFF',   label: 'Off',    active: 'bg-ink text-paper border-ink' },
-]
-
-function PriorityPicker({ value, onChange }: { value: Priority; onChange: (p: Priority) => void }) {
-  return (
-    <div className="inline-flex rounded-[8px] border border-line overflow-hidden">
-      {PICKER_OPTIONS.map((opt, i) => {
-        const active = value === opt.key
-        return (
-          <button
-            key={opt.key}
-            onClick={() => onChange(opt.key)}
-            aria-pressed={active}
-            className={`font-mono text-[10px] uppercase tracking-[0.02em] px-2 py-1 transition-colors ${
-              i > 0 ? 'border-l border-line' : ''
-            } ${active ? opt.active : 'bg-paper text-ink-3 hover:text-ink hover:bg-bg-2'}`}
-          >
-            {opt.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function OffList({ items, onSetPriority }: {
-  items: Candidate[]; onSetPriority: (c: Candidate, p: Priority) => void
-}) {
-  return (
-    <section className="bg-paper border border-line rounded-[12px] overflow-hidden mt-5">
-      <header className="px-[18px] py-3 border-b border-line bg-bg-2">
-        <h3 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2 text-ink-3">
-          <span className="w-2 h-2 rounded-full bg-ink-4" />
-          Off the list
-          <span className="font-mono text-[10.5px] font-normal ml-auto">{items.length}</span>
-        </h3>
-      </header>
-      {items.map(c => {
-        const Icon = KIND_ICON[c.kind]
-        return (
-          <div key={c.id} className="flex items-center gap-3 px-[18px] py-2.5 border-b border-line last:border-0">
-            <Icon size={13} className="text-ink-4 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] text-ink-3 tracking-[-0.005em] truncate">{c.title}</div>
-            </div>
-            <button
-              onClick={() => onSetPriority(c, 'SOON')}
-              className="font-mono text-[10.5px] text-gold-2 border-b border-dashed border-current hover:text-gold whitespace-nowrap shrink-0"
-            >
-              Put back →
-            </button>
-          </div>
-        )
-      })}
-    </section>
   )
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function fmtQty(n: number): string {
-  return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)
-}
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32)
-}
+function fmtQty(n: number): string { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1) }
+function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+function slug(s: string): string { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) }
 
 function nextServiceCutoff(d: Date): Date {
   const cutoff = new Date(d)
-  if (d.getHours() < 17) {
-    cutoff.setHours(17, 0, 0, 0)
-  } else {
-    cutoff.setDate(d.getDate() + 1)
-    cutoff.setHours(11, 0, 0, 0)
-  }
+  if (d.getHours() < 17) cutoff.setHours(17, 0, 0, 0)
+  else { cutoff.setDate(d.getDate() + 1); cutoff.setHours(11, 0, 0, 0) }
   return cutoff
-}
-
-function fmtCrumbDate(d: Date): string {
-  return d.toLocaleString('en-US', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase()
 }
