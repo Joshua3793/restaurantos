@@ -179,45 +179,49 @@ function buildMatchResult(
     invoicePackSize = format.packSize
     invoicePackUOM = format.packUOM
 
-    if (formatConfirmed && rawUnitPrice !== null) {
-      // ── Per-base comparison — only when the user previously confirmed this format ──
-      // Convert invoice price to per-packUOM (e.g. $/L), then normalize to SI base
-      const total = format.packQty * format.packSize
-      if (total > 0) {
-        const invoicePricePerPackUOM = rawUnitPrice / total  // e.g. $2.756/L
-        // Recompute inventory's price-per-packUOM from raw fields so we never
-        // rely on the stored pricePerBaseUnit (which can be stale / mis-scaled).
-        const invPackTotal = Number(bestItem.qtyPerPurchaseUnit) * Number(bestItem.packSize)
-        const invPricePerPackUOM = invPackTotal > 0 ? Number(bestItem.purchasePrice) / invPackTotal : 0
-        const normalized = comparePricesNormalized(
-          invoicePricePerPackUOM, format.packUOM,    // invoice: $/packUOM
-          invPricePerPackUOM,     bestItem.packUOM   // inventory: $/packUOM (recomputed)
-        )
-
-        if (normalized) {
-          priceDiffPct = normalized.pctDiff
+    // ── Normalised per-base price comparison ──────────────────────────────────
+    // This depends only on the parsed pack format, NOT on whether the user has
+    // confirmed it — so always compute the delta this way. (Previously the
+    // unconfirmed path did a raw $/cs-vs-$/L direct comparison, which read as a
+    // huge bogus jump even when the real per-base price was unchanged.)
+    // Confirmation still gates whether we WRITE a normalised newPrice back.
+    const total = format.packQty * format.packSize
+    let normalisedOk = false
+    if (total > 0 && rawUnitPrice !== null) {
+      const invoicePricePerPackUOM = rawUnitPrice / total  // e.g. $2.756/L
+      // Recompute inventory's price-per-packUOM from raw fields so we never
+      // rely on the stored pricePerBaseUnit (which can be stale / mis-scaled).
+      const invPackTotal = Number(bestItem.qtyPerPurchaseUnit) * Number(bestItem.packSize)
+      const invPricePerPackUOM = invPackTotal > 0 ? Number(bestItem.purchasePrice) / invPackTotal : 0
+      const normalized = comparePricesNormalized(
+        invoicePricePerPackUOM, format.packUOM,    // invoice: $/packUOM
+        invPricePerPackUOM,     bestItem.packUOM   // inventory: $/packUOM (recomputed)
+      )
+      if (normalized) {
+        priceDiffPct = normalized.pctDiff
+        normalisedOk = true
+        if (formatConfirmed) {
           // Calculate newPrice normalized to inventory's purchase format
           const calcPrice = calcNewPurchasePrice(
             invoicePricePerPackUOM, format.packUOM,
             Number(bestItem.qtyPerPurchaseUnit), Number(bestItem.packSize), bestItem.packUOM
           )
           if (calcPrice !== null) newPrice = calcPrice
-        } else {
-          // Truly incompatible units (e.g. kg vs mL) — fall back to direct comparison
-          if (previousPrice > 0) {
-            priceDiffPct = Math.round(((rawUnitPrice - previousPrice) / previousPrice) * 10000) / 100
-          }
-          needsFormatConfirm = true
         }
       }
-    } else {
-      // Format auto-parsed but not yet confirmed — use direct price comparison,
-      // show the parsed format hint, and prompt user to confirm it
+    }
+
+    if (!normalisedOk) {
+      // Truly incompatible units (e.g. kg vs mL) — fall back to direct comparison
+      // and ask the user to confirm the format.
       if (previousPrice > 0 && rawUnitPrice !== null) {
         priceDiffPct = Math.round(((rawUnitPrice - previousPrice) / previousPrice) * 10000) / 100
       }
-      // Flag for confirmation only if the item has a non-trivial format
-      const hasComplexFormat = bestItem.packUOM && bestItem.packUOM.toLowerCase() !== 'each'
+      needsFormatConfirm = true
+    } else if (!formatConfirmed) {
+      // Delta normalised cleanly, but a complex pack format is still unconfirmed —
+      // surface the confirm prompt without distorting the price delta.
+      const hasComplexFormat = !!bestItem.packUOM && bestItem.packUOM.toLowerCase() !== 'each'
         && Number(bestItem.packSize) > 1
       needsFormatConfirm = !!(hasComplexFormat && rawUnitPrice !== null)
     }
@@ -237,10 +241,18 @@ function buildMatchResult(
     action = (priceDiffPct !== null && Math.abs(priceDiffPct) > 0.1) ? 'UPDATE_PRICE' : 'ADD_SUPPLIER'
   }
 
+  // A real format mismatch means the invoice's pack STRUCTURE (qty × size + uom)
+  // differs from the linked item's stored pack — not merely that the shipped-UOM
+  // label differs from the purchase-unit label (e.g. "cs" vs "case"), which is
+  // legitimate and produced false positives (4×4L flagged against 4×4L). Only
+  // flag when a format was parsed and it genuinely differs.
   const formatMismatch = !!(
-    ocrItem.qtyShippedUOM &&
-    bestItem.purchaseUnit &&
-    normalizeUOM(ocrItem.qtyShippedUOM) !== normalizeUOM(bestItem.purchaseUnit)
+    format &&
+    (
+      Number(format.packQty)  !== Number(bestItem.qtyPerPurchaseUnit) ||
+      Number(format.packSize) !== Number(bestItem.packSize) ||
+      normalizeUOM(format.packUOM) !== normalizeUOM(bestItem.packUOM)
+    )
   )
 
   return {
