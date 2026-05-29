@@ -322,10 +322,17 @@ export function InvoiceReviewDrawer({
   const listRef = useRef<HTMLDivElement>(null)
   // Line id to scroll to the top of the list after it opens (set on click-expand).
   const expandScrollRef = useRef<string | null>(null)
+  // The session id we've already initialised review state for. Guards the reset
+  // below so it runs ONCE per session — refreshSession() after creating an item,
+  // editing a line, etc. produces a new `session` object but must NOT wipe the
+  // user's in-flight progress (acks, mode writebacks, edits, expansions).
+  const initializedSessionRef = useRef<string | null>(null)
 
-  // ── Auto-expand attention items when session first loads ────────────────────
+  // ── Initialise review state once per session (first load only) ──────────────
   useEffect(() => {
     if (!session) return
+    if (initializedSessionRef.current === session.id) return // refetch — keep progress
+    initializedSessionRef.current = session.id
     const toExpand = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i)))
