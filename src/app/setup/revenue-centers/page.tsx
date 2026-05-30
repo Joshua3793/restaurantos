@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, Copy, X } from 'lucide-react'
 import type { ServiceSchedule, ServiceWindow } from '@/lib/service-hours'
 import { fmtWindow, fmtDuration, dayIndex } from '@/lib/service-hours'
@@ -529,29 +529,60 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
   )
 }
 
+interface RcInsightsResponse {
+  centers: Record<string, RcInsight>
+  totals: { activeCount: number; totalCount: number; blendedTargetPct: number | null; allocatedWTD: number }
+}
+
+function fmtMoney(n: number): string {
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`
+  return `$${Math.round(n).toLocaleString()}`
+}
+
 export default function RevenueCentersPage() {
   const { revenueCenters, reload } = useRc()
   const [editTarget, setEditTarget] = useState<RevenueCenter | null>(null)
   const [showForm, setShowForm]     = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [insights, setInsights] = useState<RcInsightsResponse | null>(null)
+
+  const loadInsights = async () => {
+    try {
+      const res = await fetch('/api/insights/revenue-centers')
+      if (res.ok) setInsights(await res.json())
+    } catch { /* non-fatal: cards fall back to target-only */ }
+  }
+  useEffect(() => { loadInsights() }, [])
+
+  const refreshAll = async () => { await reload(); await loadInsights() }
 
   const handleDelete = async (rc: RevenueCenter) => {
     if (!confirm(`Delete "${rc.name}"?`)) return
     const res = await fetch(`/api/revenue-centers/${rc.id}`, { method: 'DELETE' })
     if (!res.ok) { const d = await res.json(); setDeleteError(d.error || 'Failed to delete'); return }
     setDeleteError('')
-    reload()
+    refreshAll()
   }
 
   const openAdd  = () => { setEditTarget(null); setShowForm(true) }
   const openEdit = (rc: RevenueCenter) => { setEditTarget(rc); setShowForm(true) }
 
+  const totals = insights?.totals
+  const activeCenters = revenueCenters.filter(rc => rc.isActive)
+  const spendShare = activeCenters
+    .map(rc => ({ rc, spend: insights?.centers[rc.id]?.spendWTD ?? 0 }))
+    .filter(x => x.spend > 0)
+  const spendTotal = spendShare.reduce((s, x) => s + x.spend, 0)
+
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Revenue Centers</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{revenueCenters.length} center{revenueCenters.length !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {revenueCenters.length} center{revenueCenters.length !== 1 ? 's' : ''}
+            {totals && <> · each center&apos;s target drives its workspace cost-chrome</>}
+          </p>
         </div>
         <button
           onClick={openAdd}
@@ -561,28 +592,92 @@ export default function RevenueCentersPage() {
         </button>
       </div>
 
+      {/* KPI strip */}
+      {totals && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-400">Centers · Active</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">
+              {totals.activeCount}<span className="text-base text-gray-400 font-medium"> / {totals.totalCount}</span>
+            </div>
+          </div>
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-400">Blended Target</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">
+              {totals.blendedTargetPct != null ? totals.blendedTargetPct.toFixed(1) : '—'}
+              <span className="text-base text-gold font-semibold">%</span>
+            </div>
+          </div>
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-400">Allocated · WTD</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">{fmtMoney(totals.allocatedWTD)}</div>
+          </div>
+        </div>
+      )}
+
       {deleteError && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
           {deleteError}
         </div>
       )}
 
-      <div className="space-y-3">
-        {revenueCenters.map(rc => (
-          <RcCard
-            key={rc.id}
-            rc={rc}
-            onEdit={() => openEdit(rc)}
-            onDelete={() => handleDelete(rc)}
-          />
-        ))}
+      {/* 2-column: list + rail (rail stacks below on mobile) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 items-start">
+        <div className="space-y-3">
+          {revenueCenters.map(rc => (
+            <RcCard
+              key={rc.id}
+              rc={rc}
+              insight={insights?.centers[rc.id]}
+              onEdit={() => openEdit(rc)}
+              onDelete={() => handleDelete(rc)}
+            />
+          ))}
+        </div>
+
+        {/* Rail */}
+        <div className="space-y-3">
+          {spendShare.length > 0 && (
+            <div className="bg-white border border-gray-100 rounded-2xl p-4">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Spend allocation · WTD</h4>
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden flex mb-3">
+                {spendShare.map(({ rc, spend }) => (
+                  <span key={rc.id} style={{ background: rcHex(rc.color), width: `${(spend / spendTotal) * 100}%` }} />
+                ))}
+              </div>
+              {spendShare.map(({ rc, spend }) => (
+                <div key={rc.id} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-gray-100 last:border-0">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: rcHex(rc.color) }} />
+                  <span className="flex-1 text-xs text-gray-600 truncate">{rc.name}</span>
+                  <span className="font-mono text-xs font-semibold text-gray-900">{fmtMoney(spend)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <h4 className="text-sm font-semibold text-gray-900 mb-2">Service hours drive timing</h4>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Each center&apos;s service windows and prep lead feed the day&apos;s countdowns — the Pre-shift
+              &ldquo;to service&rdquo; banner and the Prep deadline both read from here.
+            </p>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <h4 className="text-sm font-semibold text-gray-900 mb-2">Why centers matter</h4>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Each center owns its target food cost. The live cost-chrome strip reads the active workspace&apos;s
+              target — switch the workspace pill and every Cost, Variance, and Menu screen re-baselines.
+            </p>
+          </div>
+        </div>
       </div>
 
       {showForm && (
         <RcFormModal
           initial={editTarget}
           onClose={() => setShowForm(false)}
-          onSaved={reload}
+          onSaved={refreshAll}
         />
       )}
     </div>
