@@ -492,6 +492,9 @@ model RevenueCenter {
   notes             String?
   targetFoodCostPct Decimal?
   type              String            @default("other")
+  schedulingMode    String            @default("FIXED")
+  prepLeadMinutes   Int?
+  serviceSchedule   Json?
   countSessions     CountSession[]    @relation("CountRC")
   scanItems         InvoiceScanItem[] @relation("ScanItemRC")
   invoiceSessions   InvoiceSession[]  @relation("SessionRC")
