@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, Copy, X } from 'lucide-react'
+import type { ServiceSchedule, ServiceWindow } from '@/lib/service-hours'
 import { RC_COLORS, rcHex } from '@/lib/rc-colors'
 import { useRc, RevenueCenter } from '@/contexts/RevenueCenterContext'
 
@@ -12,6 +13,9 @@ const RC_TYPES = [
   { value: 'other',      label: 'Other' },
 ] as const
 
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+const EMPTY_WINDOW: ServiceWindow = { label: '', start: '17:00', end: '22:00' }
+
 interface RcFormData {
   name: string
   color: string
@@ -22,11 +26,91 @@ interface RcFormData {
   managerName: string
   targetFoodCostPct: string
   notes: string
+  schedulingMode: 'FIXED' | 'ON_DEMAND'
+  prepLeadH: string          // hours portion of prep lead (UI)
+  prepLeadM: string          // minutes portion of prep lead (UI)
+  schedule: ServiceSchedule  // working copy, keys "0".."6"
 }
 
 const EMPTY_FORM: RcFormData = {
   name: '', color: 'blue', isDefault: false, isActive: true,
   type: 'other', description: '', managerName: '', targetFoodCostPct: '', notes: '',
+  schedulingMode: 'FIXED', prepLeadH: '', prepLeadM: '', schedule: {},
+}
+
+function ServiceScheduleEditor({
+  schedule,
+  onChange,
+}: {
+  schedule: ServiceSchedule
+  onChange: (next: ServiceSchedule) => void
+}) {
+  const dayWindows = (idx: number): ServiceWindow[] => schedule[String(idx)] ?? []
+
+  const setDay = (idx: number, windows: ServiceWindow[]) => {
+    const next = { ...schedule }
+    if (windows.length) next[String(idx)] = windows
+    else delete next[String(idx)]
+    onChange(next)
+  }
+
+  const addWindow = (idx: number) => setDay(idx, [...dayWindows(idx), { ...EMPTY_WINDOW }])
+  const removeWindow = (idx: number, wi: number) => setDay(idx, dayWindows(idx).filter((_, i) => i !== wi))
+  const editWindow = (idx: number, wi: number, key: keyof ServiceWindow, val: string) =>
+    setDay(idx, dayWindows(idx).map((w, i) => (i === wi ? { ...w, [key]: val } : w)))
+
+  const copyMondayToAll = () => {
+    const mon = dayWindows(0)
+    const next: ServiceSchedule = {}
+    for (let i = 0; i < 7; i++) if (mon.length) next[String(i)] = mon.map(w => ({ ...w }))
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="block text-xs font-medium text-gray-600">Weekly service hours</label>
+        <button type="button" onClick={copyMondayToAll}
+          className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-700">
+          <Copy size={11} /> Copy Mon → all
+        </button>
+      </div>
+      {DAY_LABELS.map((label, idx) => {
+        const windows = dayWindows(idx)
+        return (
+          <div key={label} className="border border-gray-100 rounded-xl p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-700 w-10">{label}</span>
+              {windows.length === 0 && <span className="text-[11px] text-gray-400">Closed</span>}
+              <button type="button" onClick={() => addWindow(idx)}
+                className="flex items-center gap-1 text-[11px] text-gold hover:text-[#a88930]">
+                <Plus size={11} /> Window
+              </button>
+            </div>
+            {windows.map((w, wi) => (
+              <div key={wi} className="flex items-center gap-1.5 mt-2">
+                <input
+                  value={w.label}
+                  onChange={e => editWindow(idx, wi, 'label', e.target.value)}
+                  placeholder="Lunch"
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold"
+                />
+                <input type="time" value={w.start} onChange={e => editWindow(idx, wi, 'start', e.target.value)}
+                  className="border border-gray-200 rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-gray-400 text-xs">–</span>
+                <input type="time" value={w.end} onChange={e => editWindow(idx, wi, 'end', e.target.value)}
+                  className="border border-gray-200 rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
+                <button type="button" onClick={() => removeWindow(idx, wi)}
+                  className="p-1 text-gray-300 hover:text-red-500">
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function RcFormModal({
@@ -50,6 +134,10 @@ function RcFormModal({
           managerName:       initial.managerName       ?? '',
           targetFoodCostPct: initial.targetFoodCostPct != null ? String(parseFloat(initial.targetFoodCostPct)) : '',
           notes:             initial.notes             ?? '',
+          schedulingMode:    (initial.schedulingMode === 'ON_DEMAND' ? 'ON_DEMAND' : 'FIXED'),
+          prepLeadH:         initial.prepLeadMinutes != null ? String(Math.floor(initial.prepLeadMinutes / 60)) : '',
+          prepLeadM:         initial.prepLeadMinutes != null ? String(initial.prepLeadMinutes % 60) : '',
+          schedule:          initial.serviceSchedule ?? {},
         }
       : EMPTY_FORM
   )
