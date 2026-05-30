@@ -9,8 +9,6 @@ import {
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { prepDeadline, fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
-import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
-import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
@@ -816,12 +814,7 @@ export default function PrepPage() {
           ))}
         </div>
 
-        {/* Mobile KPI strip (Today only) */}
-        {viewMode === 'today' && (
-          <div className="mt-2">
-            <PrepKpiStrip items={todayItems} />
-          </div>
-        )}
+        {/* Shift info on Today is rendered once by <PrepShiftBand> in the shared content block (all breakpoints). */}
 
         {/* Search + filter toggle — Smart Prep only on mobile; Today uses <PrepToolbar> in the shared content block */}
         {viewMode === 'smartprep' && (

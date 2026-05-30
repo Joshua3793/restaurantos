@@ -53,7 +53,7 @@ export default function PrepShiftBand({ summary, countdown, workloadLabel }: Pre
   const progPct = summary.total ? (summary.inProgress / summary.total) * 100 : 0
 
   return (
-    <div className="bg-paper border border-line rounded-[13px] mb-[18px] flex items-center gap-[22px] px-5 py-[13px]">
+    <div className="bg-paper border border-line rounded-[13px] mb-[18px] flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-[22px] px-4 sm:px-5 py-[13px]">
       <div className="flex flex-col gap-[3px] shrink-0">
         <div className="text-[25px] font-semibold tracking-[-0.04em] leading-none">
           {summary.done}
@@ -64,8 +64,8 @@ export default function PrepShiftBand({ summary, countdown, workloadLabel }: Pre
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col gap-[9px] min-w-0">
-        <div className="h-2 rounded-full bg-bg-2 overflow-hidden flex">
+      <div className="basis-full sm:basis-auto flex-1 flex flex-col gap-[9px] min-w-0">
+        <div className="h-2 min-h-[8px] rounded-full bg-bg-2 overflow-hidden flex">
           <div className="bg-green" style={{ width: `${donePct}%` }} />
           <div className="bg-gold" style={{ width: `${progPct}%` }} />
         </div>
