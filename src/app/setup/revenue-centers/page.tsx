@@ -2,6 +2,9 @@
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, Copy, X } from 'lucide-react'
 import type { ServiceSchedule, ServiceWindow } from '@/lib/service-hours'
+import { fmtWindow, fmtDuration, dayIndex } from '@/lib/service-hours'
+
+interface RcInsight { spendWTD: number; runningFoodCostPct: number | null; itemCount: number }
 import { RC_COLORS, rcHex } from '@/lib/rc-colors'
 import { useRc, RevenueCenter } from '@/contexts/RevenueCenterContext'
 
@@ -374,10 +377,20 @@ function RcFormModal({
   )
 }
 
-function RcCard({ rc, onEdit, onDelete }: { rc: RevenueCenter; onEdit: () => void; onDelete: () => void }) {
+function RcCard({ rc, insight, onEdit, onDelete }: {
+  rc: RevenueCenter; insight?: RcInsight; onEdit: () => void; onDelete: () => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const typeLabel = RC_TYPES.find(t => t.value === rc.type)?.label ?? rc.type
   const hasDetails = rc.description || rc.managerName || rc.targetFoodCostPct || rc.notes
+  const todayIdx = dayIndex(new Date())
+  const todayWindows = rc.schedulingMode === 'FIXED' ? (rc.serviceSchedule?.[String(todayIdx)] ?? []) : []
+  const prepLeadLabel = rc.prepLeadMinutes != null ? fmtDuration(rc.prepLeadMinutes * 60_000) : null
+  const target = rc.targetFoodCostPct != null ? parseFloat(rc.targetFoodCostPct) : null
+  const running = insight?.runningFoodCostPct ?? null
+  const runningColor = target == null || running == null
+    ? 'text-gray-400'
+    : running <= target ? 'text-green-600' : running <= target + 2 ? 'text-amber-600' : 'text-red-500'
 
   return (
     <div className={`bg-white border rounded-2xl overflow-hidden transition-all ${rc.isActive ? 'border-gray-100' : 'border-gray-200 opacity-60'}`}>
@@ -426,6 +439,57 @@ function RcCard({ rc, onEdit, onDelete }: { rc: RevenueCenter; onEdit: () => voi
                 </span>
               )}
             </div>
+
+            {/* Service row */}
+            <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+              <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-gray-400 font-medium">
+                <Clock size={11} /> Service
+              </span>
+              {rc.schedulingMode === 'ON_DEMAND' ? (
+                <span className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-[11.5px] text-gray-500">
+                  By booking
+                </span>
+              ) : todayWindows.length === 0 ? (
+                <span className="text-[11.5px] text-gray-400">Closed today</span>
+              ) : (
+                todayWindows.map((w, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-[11.5px] text-gray-600">
+                    <span className="font-semibold text-gray-700">{w.label}</span>
+                    <span className="text-gray-400 font-mono text-[11px]">{fmtWindow(w)}</span>
+                  </span>
+                ))
+              )}
+              {prepLeadLabel && (
+                <span className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-[11.5px] text-gray-400">
+                  Prep lead {prepLeadLabel}
+                </span>
+              )}
+              {insight && (
+                <span className="inline-flex items-center gap-1 text-[11.5px] text-gray-400">
+                  · {insight.itemCount} items
+                </span>
+              )}
+            </div>
+
+            {/* Target vs running */}
+            {target != null && (
+              <div className="mt-2.5">
+                <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1">
+                  <span>Target food cost <b className="text-gray-700">{target}%</b></span>
+                  <span>Running{' '}
+                    <b className={runningColor}>{running != null ? `${running.toFixed(1)}%` : '—'}</b>
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100 overflow-hidden relative">
+                  <div className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, running ?? target)}%`,
+                      backgroundColor: running == null ? '#d1d5db' : running <= target ? '#16a34a' : '#d97706',
+                    }} />
+                  <div className="absolute top-0 bottom-0 w-px bg-gray-900/40" style={{ left: `${Math.min(100, target)}%` }} />
+                </div>
+              </div>
+            )}
 
             {rc.notes && (
               <div className="mt-2">
