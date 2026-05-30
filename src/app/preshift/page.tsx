@@ -7,6 +7,7 @@ import {
   Thermometer, UtensilsCrossed, RotateCcw, ArrowRight, ArrowLeft, X,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { nextServiceStart, currentWindow, fmtDuration } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -78,7 +79,7 @@ const LINE_FALLBACK: CheckItem[] = [
 
 export default function PreshiftPage() {
   const router = useRouter()
-  const { activeRcId } = useRc()
+  const { activeRcId, activeRc } = useRc()
 
   const [prepItems, setPrepItems] = useState<PrepItem[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -250,10 +251,13 @@ export default function PreshiftPage() {
     return () => window.removeEventListener('keydown', h)
   }, [router])
 
-  const cutoff = nextServiceCutoff(new Date())
-  const remMs = cutoff.getTime() - Date.now()
-  const remH = Math.max(0, Math.floor(remMs / 3_600_000))
-  const remM = Math.max(0, Math.floor((remMs % 3_600_000) / 60_000))
+  const now = new Date()
+  const inService = activeRc ? currentWindow(activeRc, now) : null
+  const next = activeRc ? nextServiceStart(activeRc, now) : null
+  const serviceCountdown = inService
+    ? 'in service'
+    : next ? fmtDuration(next.start.getTime() - now.getTime()) : null
+  const serviceLabel = inService ? inService.window.label : next?.label ?? null
 
   return (
     <>
@@ -292,8 +296,8 @@ export default function PreshiftPage() {
           pct={pct}
           blockersOpen={blockersOpen}
           lineCount={itemsBySection.line.length}
-          remH={remH}
-          remM={remM}
+          serviceCountdown={serviceCountdown}
+          serviceLabel={serviceLabel}
         />
 
         <AddCheck onAdd={addCheck} />
@@ -371,8 +375,9 @@ export default function PreshiftPage() {
 
 // ── Sub-components (module scope) ────────────────────────────────────────────
 
-function ProgressBand({ done, total, pct, blockersOpen, lineCount, remH, remM }: {
-  done: number; total: number; pct: number; blockersOpen: number; lineCount: number; remH: number; remM: number
+function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountdown, serviceLabel }: {
+  done: number; total: number; pct: number; blockersOpen: number; lineCount: number
+  serviceCountdown: string | null; serviceLabel: string | null
 }) {
   return (
     <div className="bg-paper border border-line rounded-[12px] px-[22px] py-[18px] flex items-center gap-6 flex-wrap">
@@ -403,8 +408,12 @@ function ProgressBand({ done, total, pct, blockersOpen, lineCount, remH, remM }:
       </div>
 
       <div className="shrink-0 text-right border-l border-line pl-6">
-        <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">{remH}h {remM}m</div>
-        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">to doors</div>
+        <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">
+          {serviceCountdown ?? 'No window'}
+        </div>
+        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">
+          {serviceCountdown == null ? 'no fixed service' : serviceLabel ? `to ${serviceLabel}` : 'to service'}
+        </div>
       </div>
     </div>
   )
@@ -586,10 +595,3 @@ function RailCard({ title, count, children }: { title: string; count?: number; c
 function fmtQty(n: number): string { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1) }
 function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function slug(s: string): string { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) }
-
-function nextServiceCutoff(d: Date): Date {
-  const cutoff = new Date(d)
-  if (d.getHours() < 17) cutoff.setHours(17, 0, 0, 0)
-  else { cutoff.setDate(d.getDate() + 1); cutoff.setHours(11, 0, 0, 0) }
-  return cutoff
-}
