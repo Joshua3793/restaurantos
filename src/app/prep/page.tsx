@@ -868,32 +868,33 @@ export default function PrepPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between gap-6">
           <div>
-            <p className="font-mono text-[10.5px] text-ink-3 tracking-wide mb-2 flex items-center gap-2">
-              <ChefHat size={13} className="text-ink-3" />
-              TODAY / PREP
+            <p className="font-mono text-[10.5px] uppercase tracking-[0.02em] text-ink-3 mb-2.5 flex items-center gap-1.5">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
+              Today / Prep
             </p>
-            <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
+            <h1 className="text-[34px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              {countdown && <> · dinner service in <b className="text-ink font-medium">{countdown.serviceLabel}</b></>}
             </p>
           </div>
 
           {/* Desktop tabs — centered, branded pill */}
-          <div className="inline-flex bg-bg-2 border border-line rounded-[10px] p-[3px] gap-0.5">
+          <div className="inline-flex bg-bg-2 border border-line rounded-[11px] p-[3px] gap-[2px]">
             <button onClick={() => setViewMode('today')} id="dtab-today"
-              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'today' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'today' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M7 13h4M7 16h6"/></svg>
               To do
-              {todayItems.length > 0 && <span className="font-mono text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{todayItems.length}</span>}
+              {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className={`font-mono text-[10px] text-white px-1.5 rounded-full font-semibold ${viewMode === 'today' ? 'bg-red' : 'bg-ink-4'}`}>{shiftSummary.total - shiftSummary.resolved}</span>}
             </button>
             <button onClick={() => setViewMode('smartprep')} id="dtab-smartprep"
-              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
               Smart prep
-              {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length + spNeeded.length}</span>}
+              {(shiftSummary.critical + spNeeded.length) > 0 && <span className={`font-mono text-[10px] text-white px-1.5 rounded-full font-semibold ${viewMode === 'smartprep' ? 'bg-red' : 'bg-ink-4'}`}>{shiftSummary.critical + spNeeded.length}</span>}
             </button>
             <button onClick={() => setViewMode('history')} id="dtab-history"
-              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <History size={13} />
               History
             </button>
@@ -910,13 +911,12 @@ export default function PrepPage() {
               <BookOpen size={13} className={`text-ink-3 ${syncing ? 'animate-pulse' : ''}`} />
               {syncing ? 'Syncing…' : 'Sync from recipes'}
             </button>
-            <button onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
-              <Settings size={13} className="text-ink-3" />
-              Settings
+            <button onClick={() => setShowSettings(true)} title="Settings"
+              className="inline-flex items-center justify-center p-2.5 rounded-[9px] border border-line bg-paper text-ink-2 hover:border-ink-3 transition-colors">
+              <Settings size={15} className="text-ink-3" />
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap">
+              className="inline-flex items-center gap-[7px] px-4 py-2.5 rounded-[9px] border border-ink bg-ink text-paper text-[13px] font-medium hover:bg-[#18181b] transition-colors whitespace-nowrap">
               <span className="text-gold font-semibold text-base leading-none">+</span>
               Add item
             </button>
