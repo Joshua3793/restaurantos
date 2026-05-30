@@ -148,12 +148,18 @@ function RcFormModal({
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
+    const prepLeadMinutes =
+      form.prepLeadH === '' && form.prepLeadM === ''
+        ? null
+        : (parseInt(form.prepLeadH || '0', 10) * 60) + parseInt(form.prepLeadM || '0', 10)
     const payload = {
       ...form,
       targetFoodCostPct: form.targetFoodCostPct !== '' ? parseFloat(form.targetFoodCostPct) : null,
       description:  form.description  || null,
       managerName:  form.managerName  || null,
       notes:        form.notes        || null,
+      prepLeadMinutes,
+      serviceSchedule: form.schedulingMode === 'ON_DEMAND' ? null : form.schedule,
     }
     const res = await fetch(
       initial ? `/api/revenue-centers/${initial.id}` : '/api/revenue-centers',
@@ -270,6 +276,55 @@ function RcFormModal({
                 rows={2}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold resize-none"
               />
+            </div>
+
+            {/* Scheduling */}
+            <div className="pt-2 border-t border-gray-100 space-y-3">
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-gray-400" />
+                <span className="text-xs font-semibold text-gray-700">Service hours &amp; prep timing</span>
+              </div>
+
+              {/* Mode toggle */}
+              <div className="flex gap-1.5">
+                {(['FIXED', 'ON_DEMAND'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => f('schedulingMode', mode)}
+                    className={`flex-1 py-2 text-xs font-medium rounded-xl border transition-colors ${
+                      form.schedulingMode === mode
+                        ? 'border-gold bg-gold/10 text-gray-900'
+                        : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    {mode === 'FIXED' ? 'Fixed hours' : 'On-demand / by booking'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Prep lead */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Prep lead before service</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" value={form.prepLeadH}
+                    onChange={e => f('prepLeadH', e.target.value)} placeholder="0"
+                    className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-gray-400">h</span>
+                  <input type="number" min="0" max="59" value={form.prepLeadM}
+                    onChange={e => f('prepLeadM', e.target.value)} placeholder="0"
+                    className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-gray-400">m</span>
+                </div>
+              </div>
+
+              {/* Weekly editor (Fixed only) */}
+              {form.schedulingMode === 'FIXED' && (
+                <ServiceScheduleEditor
+                  schedule={form.schedule}
+                  onChange={next => setForm(prev => ({ ...prev, schedule: next }))}
+                />
+              )}
             </div>
 
             {/* Toggles */}
