@@ -39,6 +39,7 @@ export interface RecipeWithCost {
   menuPrice: number | null
   isActive: boolean
   notes: string | null
+  steps: string[]
   createdAt: Date
   updatedAt: Date
   ingredients: IngredientWithCost[]
@@ -204,6 +205,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     menuPrice: recipe.menuPrice !== null ? Number(recipe.menuPrice) : null,
     isActive: recipe.isActive,
     notes: recipe.notes,
+    steps: recipe.steps,
     createdAt: recipe.createdAt,
     updatedAt: recipe.updatedAt,
     ingredients,

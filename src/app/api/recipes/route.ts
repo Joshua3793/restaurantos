@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const {
     name, type, categoryId, baseYieldQty, yieldUnit,
-    portionSize, portionUnit, menuPrice, notes, isActive, revenueCenterId,
+    portionSize, portionUnit, menuPrice, notes, isActive, revenueCenterId, steps,
   } = body
 
   if (!name || !type || !categoryId || !baseYieldQty || !yieldUnit) {
@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
       notes: notes || null,
       isActive: isActive !== undefined ? isActive : true,
       revenueCenterId: type === 'MENU' ? (revenueCenterId || null) : null,
+      steps: Array.isArray(steps) ? steps.filter((s: unknown) => typeof s === 'string') : [],
     },
   })
 
