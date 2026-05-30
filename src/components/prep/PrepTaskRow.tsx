@@ -229,7 +229,7 @@ export default function PrepTaskRow({
       data-kind={kind}
       onClick={() => onOpen(item)}
       onKeyDown={handleRowKeyDown}
-      className={`grid grid-cols-[auto_1fr_auto_auto] gap-5 items-center border rounded-[14px] px-[22px] py-5 relative cursor-pointer mb-3.5 transition-[box-shadow,border-color,background] hover:shadow-[0_10px_30px_-16px_rgba(0,0,0,0.26)] hover:border-line-2 focus-visible:outline-2 focus-visible:outline-ink ${washCls} ${borderCls}`}
+      className={`grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto_auto] gap-3 sm:gap-5 items-center border rounded-[14px] px-4 sm:px-[22px] py-5 relative cursor-pointer mb-3.5 transition-[box-shadow,border-color,background] hover:shadow-[0_10px_30px_-16px_rgba(0,0,0,0.26)] hover:border-line-2 focus-visible:outline-2 focus-visible:outline-ink ${washCls} ${borderCls}`}
     >
       {/* left accent stripe */}
       <span
@@ -257,7 +257,7 @@ export default function PrepTaskRow({
         </div>
 
         <h3
-          className={`text-[23px] font-semibold tracking-[-0.025em] leading-[1.1] m-0 ${
+          className={`text-[19px] sm:text-[23px] font-semibold tracking-[-0.025em] leading-[1.1] m-0 ${
             state === 'skipped' ? 'line-through text-ink-3' : ''
           }`}
         >
@@ -287,7 +287,7 @@ export default function PrepTaskRow({
       </div>
 
       {/* col 3 — make block */}
-      <div className={`shrink-0 min-w-[150px] ${makeDim ? 'opacity-40' : ''}`}>
+      <div className={`col-span-2 sm:col-span-1 shrink-0 sm:min-w-[150px] ${makeDim ? 'opacity-40' : ''}`}>
         <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3">Make</div>
         <div className="text-[32px] font-semibold tracking-[-0.04em] leading-none mt-[5px]">
           {fmt(Number(item.suggestedQty))}
@@ -305,24 +305,24 @@ export default function PrepTaskRow({
       </div>
 
       {/* col 4 — end */}
-      <div className="flex flex-col items-end gap-3 shrink-0 min-w-[150px]">
+      <div className="col-span-2 sm:col-span-1 flex flex-col items-stretch sm:items-end gap-3 shrink-0 sm:min-w-[150px]">
         <span
-          className={`font-mono text-[10px] px-2.5 py-1 rounded-full font-semibold uppercase inline-flex items-center gap-1.5 ${pillCls}`}
+          className={`font-mono text-[10px] px-2.5 py-1 rounded-full font-semibold uppercase inline-flex items-center gap-1.5 self-start sm:self-auto ${pillCls}`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${dotCls}`} />
           {PREP_STATE_META[status].label}
         </span>
 
         {/* actions area — swallow clicks so they don't open the drawer */}
-        <div className="w-full flex flex-col items-end gap-3" onClick={stop}>
+        <div className="w-full flex flex-col items-stretch sm:items-end gap-3" onClick={stop}>
           {/* action set by state */}
-          <div className="flex items-center justify-end gap-2 w-full relative">
+          <div className="flex items-center justify-stretch sm:justify-end gap-2 w-full relative">
             {state === 'not-started' && (
               <>
                 <button
                   type="button"
                   onClick={() => onStatusChange(item, 'IN_PROGRESS')}
-                  className="h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-ink text-paper"
+                  className="flex-1 sm:flex-none h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-ink text-paper"
                 >
                   <IcPlay size={15} className="text-gold" />
                   {item.isBlocked ? 'Start anyway' : 'Start'}
@@ -345,7 +345,7 @@ export default function PrepTaskRow({
                   onClick={() =>
                     onStatusChange(item, 'DONE', parseFloat(partialValue) || item.suggestedQty)
                   }
-                  className="h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
+                  className="flex-1 sm:flex-none h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
                 >
                   <IcCheck size={15} />
                   Mark done
@@ -365,7 +365,7 @@ export default function PrepTaskRow({
               <button
                 type="button"
                 onClick={() => onStatusChange(item, 'NOT_STARTED')}
-                className="h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
+                className="flex-1 sm:flex-none h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
               >
                 <IcUndo size={15} />
                 Reopen
@@ -376,7 +376,7 @@ export default function PrepTaskRow({
               <button
                 type="button"
                 onClick={() => onStatusChange(item, 'NOT_STARTED')}
-                className="h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
+                className="flex-1 sm:flex-none h-[42px] px-4 rounded-[10px] text-[13px] font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
               >
                 <IcUndo size={15} />
                 Restore

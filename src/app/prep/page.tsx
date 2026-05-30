@@ -823,8 +823,8 @@ export default function PrepPage() {
           </div>
         )}
 
-        {/* Search + filter toggle */}
-        {viewMode !== 'history' && (
+        {/* Search + filter toggle — Smart Prep only on mobile; Today uses <PrepToolbar> in the shared content block */}
+        {viewMode === 'smartprep' && (
           <div className="flex gap-2 mt-3">
             <div className="relative flex-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -848,7 +848,7 @@ export default function PrepPage() {
           </div>
         )}
 
-        {showMobileFilters && (
+        {viewMode === 'smartprep' && showMobileFilters && (
           <div className="mt-2 bg-white border border-gray-100 rounded-xl p-3 space-y-2">
             <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
@@ -923,44 +923,7 @@ export default function PrepPage() {
           </div>
         </div>
 
-        {/* Desktop filter bar (Today only — Smart Prep has its own branded tools row) */}
-        {viewMode === 'today' && (
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-              <input
-                className="w-full bg-paper border border-line rounded-[9px] pl-9 pr-3 py-2.5 text-[13px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors tracking-[-0.005em]"
-                placeholder="Search prep items…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            <select
-              value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
-            >
-              <option value="ALL">All categories</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select
-              value={filterStation}
-              onChange={e => setFilterStation(e.target.value)}
-              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
-            >
-              <option value="ALL">All stations</option>
-              <option value="UNASSIGNED">Unassigned</option>
-              {stations.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <label className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 transition-colors flex items-center gap-2 cursor-pointer tracking-[-0.005em]">
-              <span className={`w-[14px] h-[14px] border-[1.5px] rounded-[3px] grid place-items-center text-[9px] ${activeOnly ? 'bg-ink border-ink text-paper' : 'border-line-2 bg-paper'}`}>
-                {activeOnly && '✓'}
-              </span>
-              <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="hidden" />
-              Active only
-            </label>
-          </div>
-        )}
+        {/* Today filter is rendered once by <PrepToolbar> in the shared content block below. */}
       </div>
 
       {/* ── System banners ── */}
