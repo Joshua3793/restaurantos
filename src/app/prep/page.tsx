@@ -17,6 +17,8 @@ import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import PrepToolbar from '@/components/prep/PrepToolbar'
 import PrepTaskRow from '@/components/prep/PrepTaskRow'
+import PrepGetAhead from '@/components/prep/PrepGetAhead'
+import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
 import RecipeCookAlongModal from '@/components/prep/RecipeCookAlongModal'
 import { usePrepToast } from '@/components/prep/PrepToast'
@@ -1036,6 +1038,8 @@ export default function PrepPage() {
               <p className="text-ink-3 text-sm">Nothing on today&apos;s list yet.</p>
               <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
             </div>
+          ) : shiftSummary.resolved === shiftSummary.total ? (
+            <PrepRestState total={shiftSummary.total} />
           ) : (
             <>
               {todayGroups.critical.length > 0 && (
@@ -1050,12 +1054,7 @@ export default function PrepPage() {
               {todayGroups.needed.map(item => (
                 <PrepTaskRow key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
               ))}
-              {todayGroups.later.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Get ahead · <span className="text-ink font-semibold">on par now</span></div>
-              )}
-              {todayGroups.later.map(item => (
-                <PrepTaskRow key={item.id} item={item} kind="later" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
-              ))}
+              <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
               <p className="text-center text-xs text-ink-4 mt-4">This list carries over each day — items stay until marked done or removed.</p>
             </>
           )}
