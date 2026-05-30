@@ -1490,17 +1490,17 @@ export default function PrepPage() {
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'history' && (
         <div className="space-y-4">
-          <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 flex-wrap">
-            <History size={16} className="text-gray-400 shrink-0" />
-            <span className="text-sm font-medium text-gray-700">View date:</span>
+          <div className="bg-paper border border-line rounded-xl p-4 flex items-center gap-3 flex-wrap">
+            <History size={16} className="text-ink-4 shrink-0" />
+            <span className="text-sm font-medium text-ink-2">View date:</span>
             <input
               type="date"
               max={new Date().toISOString().slice(0, 10)}
               value={historyDate}
               onChange={e => setHistoryDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+              className="bg-paper border border-line rounded-[10px] px-3 py-2 text-[13px] text-ink-2 font-mono focus:outline-none focus:ring-2 focus:ring-gold"
             />
-            <span className="text-xs text-gray-400 ml-auto">
+            <span className="text-[11px] text-ink-3 font-mono ml-auto">
               {new Date(historyDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </span>
           </div>
@@ -1510,19 +1510,19 @@ export default function PrepPage() {
               <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-gold" />
             </div>
           ) : historyLogs.length === 0 ? (
-            <div className="bg-white border border-gray-100 rounded-xl py-14 text-center">
-              <History size={28} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500 text-sm">No prep was logged on this date.</p>
-              <p className="text-xs text-gray-400 mt-1">Try a different date.</p>
+            <div className="bg-paper border border-line rounded-xl py-12 text-center">
+              <History size={28} className="mx-auto text-ink-4 mb-3" />
+              <p className="text-ink-3 text-sm">No prep was logged on this date.</p>
+              <p className="text-xs text-ink-3 mt-1">Try a different date.</p>
             </div>
           ) : (() => {
             const STATUS_HIST: Record<string, { label: string; cls: string }> = {
-              DONE:        { label: 'Done',        cls: 'bg-green-100 text-green-700' },
-              PARTIAL:     { label: 'Partial',     cls: 'bg-amber-100 text-amber-700' },
-              IN_PROGRESS: { label: 'In Progress', cls: 'bg-gold/15 text-gold' },
-              BLOCKED:     { label: 'Blocked',     cls: 'bg-red-100 text-red-700' },
-              SKIPPED:     { label: 'Skipped',     cls: 'bg-gray-100 text-gray-400' },
-              NOT_STARTED: { label: 'Not Started', cls: 'bg-gray-100 text-gray-400' },
+              DONE:        { label: 'Done',        cls: 'bg-green-soft text-green-text' },
+              PARTIAL:     { label: 'Partial',     cls: 'bg-gold-soft text-gold-2' },
+              IN_PROGRESS: { label: 'In Progress', cls: 'bg-blue-soft text-blue-text' },
+              BLOCKED:     { label: 'Blocked',     cls: 'bg-red-soft text-red-text' },
+              SKIPPED:     { label: 'Skipped',     cls: 'bg-bg-2 text-ink-3' },
+              NOT_STARTED: { label: 'Not Started', cls: 'bg-bg-2 text-ink-3' },
             }
             const done    = historyLogs.filter(l => l.status === 'DONE').length
             const partial = historyLogs.filter(l => l.status === 'PARTIAL').length
@@ -1533,46 +1533,44 @@ export default function PrepPage() {
               <>
                 <div className="grid grid-cols-4 gap-3">
                   {[
-                    { label: 'Total', value: total, cls: 'text-gray-800' },
-                    { label: 'Done', value: done, cls: 'text-green-700' },
-                    { label: 'Partial', value: partial, cls: 'text-amber-700' },
-                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-700' : completionRate >= 50 ? 'text-amber-700' : 'text-red-600' },
+                    { label: 'Total', value: total, cls: 'text-ink' },
+                    { label: 'Done', value: done, cls: 'text-green-text' },
+                    { label: 'Partial', value: partial, cls: 'text-gold-2' },
+                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-text' : completionRate >= 50 ? 'text-gold-2' : 'text-red-text' },
                   ].map(c => (
-                    <div key={c.label} className="bg-white border border-gray-100 rounded-xl p-3 text-center">
-                      <div className="text-xs text-gray-400 mb-1">{c.label}</div>
-                      <div className={`text-lg font-bold ${c.cls}`}>{c.value}</div>
+                    <div key={c.label} className="bg-paper border border-line rounded-xl p-3 text-center">
+                      <div className="text-[11px] text-ink-3 font-mono uppercase tracking-wide mb-1">{c.label}</div>
+                      <div className={`text-lg font-bold font-mono ${c.cls}`}>{c.value}</div>
                     </div>
                   ))}
                 </div>
 
                 {blocked > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-700">
+                  <div className="bg-red-soft border border-red-soft rounded-xl px-4 py-2.5 text-sm text-red-text">
                     {blocked} item{blocked !== 1 ? 's were' : ' was'} blocked — see notes below.
                   </div>
                 )}
 
-                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Items Logged</span>
-                    <span className="text-xs text-gray-400">{total}</span>
+                <div className="bg-paper border border-line rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-bg-2 border-b border-line flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-ink-3 font-mono uppercase tracking-wide">Items Logged</span>
+                    <span className="text-[11px] text-ink-4 font-mono">{total}</span>
                   </div>
-                  <div className="divide-y divide-gray-50">
+                  <div className="divide-y divide-line">
                     {historyLogs.map(log => {
                       const meta = STATUS_HIST[log.status] ?? STATUS_HIST.NOT_STARTED
                       return (
                         <div key={log.id} className="px-4 py-3 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-gray-800 truncate">{log.prepItem.name}</div>
-                            {log.note && <div className="text-xs text-gray-400 mt-0.5 truncate">{log.note}</div>}
-                            {log.assignedTo && <div className="text-xs text-gray-400">by {log.assignedTo}</div>}
+                            <div className="text-sm font-semibold text-ink truncate">{log.prepItem.name}</div>
+                            {log.note && <div className="text-xs text-ink-3 mt-0.5 truncate">{log.note}</div>}
+                            {log.assignedTo && <div className="text-[11px] text-ink-3 font-mono">by {log.assignedTo}</div>}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            {log.actualPrepQty != null && (
-                              <span className="text-sm text-gray-600 font-medium">
-                                {Number(log.actualPrepQty).toFixed(1)} {log.prepItem.unit}
-                              </span>
-                            )}
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${meta.cls}`}>{meta.label}</span>
+                            <span className="font-mono text-[13px] text-ink-2">
+                              {log.actualPrepQty != null ? Number(log.actualPrepQty).toFixed(1) : '—'} {log.prepItem.unit}
+                            </span>
+                            <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-medium ${meta.cls}`}>{meta.label}</span>
                           </div>
                         </div>
                       )
