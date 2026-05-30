@@ -81,7 +81,7 @@ export default function PrepPage() {
   const { toast, toastNode } = usePrepToast()
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
-  const [recipeModal, setRecipeModal] = useState<{ recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string } | null>(null)
+  const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string } | null>(null)
   const [alertDismissed, setAlertDismissed] = useState(false)
 
   // View state
@@ -531,7 +531,7 @@ export default function PrepPage() {
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
       }
-      setRecipeModal({ recipe, ings: d?.ingredients ?? [], makeQty: item.suggestedQty, unit: item.unit })
+      setRecipeModal({ sourceItemId: item.id, recipe, ings: d?.ingredients ?? [], makeQty: item.suggestedQty, unit: item.unit })
     } catch { /* ignore */ }
   }, [])
 
@@ -543,15 +543,14 @@ export default function PrepPage() {
 
   // Add-to-prep from the cook-along modal: persist planned qty on today's log, then refresh
   const onAddToPrep = useCallback(async (qty: number) => {
-    const it = recipeModal ? todayItems.find(t => t.unit === recipeModal.unit && t.suggestedQty === recipeModal.makeQty) : null
-    const targetId = drawerItem?.id ?? it?.id
+    const targetId = recipeModal?.sourceItemId
     if (!targetId) { toast(`Set to make ${qty}`); return }
     try {
       await fetch('/api/prep/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prepItemId: targetId, requiredQty: qty }) })
     } catch { /* ignore */ }
     toast(`Task set to make ${qty}`)
     load()
-  }, [recipeModal, drawerItem, todayItems, toast, load])
+  }, [recipeModal, toast, load])
 
   // Keep the open drawer's item in sync across the auto-refresh poll
   useEffect(() => {
