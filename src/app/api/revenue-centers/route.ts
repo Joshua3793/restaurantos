@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
+import { buildScheduleFields } from '@/lib/rc-schedule'
 
 const RC_TYPES = ['restaurant', 'catering', 'events', 'retail', 'other'] as const
 
@@ -28,6 +29,10 @@ export async function POST(req: NextRequest) {
   const resolvedColor = RC_COLORS.includes(color) ? color : 'blue'
   const resolvedType  = RC_TYPES.includes(type)  ? type  : 'other'
 
+  let scheduleFields
+  try { scheduleFields = buildScheduleFields(body) }
+  catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+
   const rc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
       await tx.revenueCenter.updateMany({ data: { isDefault: false } })
@@ -43,6 +48,9 @@ export async function POST(req: NextRequest) {
         managerName:       managerName       || null,
         targetFoodCostPct: targetFoodCostPct != null ? parseFloat(targetFoodCostPct) : null,
         notes:             notes             || null,
+        schedulingMode:  scheduleFields.schedulingMode,
+        prepLeadMinutes: scheduleFields.prepLeadMinutes,
+        serviceSchedule: scheduleFields.serviceSchedule ?? undefined,
       },
     })
   })
