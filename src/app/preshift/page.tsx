@@ -298,6 +298,7 @@ export default function PreshiftPage() {
           lineCount={itemsBySection.line.length}
           serviceCountdown={serviceCountdown}
           serviceLabel={serviceLabel}
+          isInService={inService != null}
         />
 
         <AddCheck onAdd={addCheck} />
@@ -375,9 +376,9 @@ export default function PreshiftPage() {
 
 // ── Sub-components (module scope) ────────────────────────────────────────────
 
-function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountdown, serviceLabel }: {
+function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountdown, serviceLabel, isInService }: {
   done: number; total: number; pct: number; blockersOpen: number; lineCount: number
-  serviceCountdown: string | null; serviceLabel: string | null
+  serviceCountdown: string | null; serviceLabel: string | null; isInService: boolean
 }) {
   return (
     <div className="bg-paper border border-line rounded-[12px] px-[22px] py-[18px] flex items-center gap-6 flex-wrap">
@@ -412,7 +413,11 @@ function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountd
           {serviceCountdown ?? 'No window'}
         </div>
         <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">
-          {serviceCountdown == null ? 'no fixed service' : serviceLabel ? `to ${serviceLabel}` : 'to service'}
+          {serviceCountdown == null
+            ? 'no fixed service'
+            : isInService
+              ? serviceLabel ?? 'in service'
+              : serviceLabel ? `to ${serviceLabel}` : 'to service'}
         </div>
       </div>
     </div>

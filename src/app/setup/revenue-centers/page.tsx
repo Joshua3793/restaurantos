@@ -3,10 +3,10 @@ import { useState, useEffect } from 'react'
 import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, Copy, X } from 'lucide-react'
 import type { ServiceSchedule, ServiceWindow } from '@/lib/service-hours'
 import { fmtWindow, fmtDuration, dayIndex } from '@/lib/service-hours'
-
-interface RcInsight { spendWTD: number; runningFoodCostPct: number | null; itemCount: number }
 import { RC_COLORS, rcHex } from '@/lib/rc-colors'
 import { useRc, RevenueCenter } from '@/contexts/RevenueCenterContext'
+
+interface RcInsight { spendWTD: number; runningFoodCostPct: number | null; itemCount: number }
 
 const RC_TYPES = [
   { value: 'restaurant', label: 'Restaurant Service' },
@@ -385,7 +385,7 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
   const hasDetails = rc.description || rc.managerName || rc.targetFoodCostPct || rc.notes
   const todayIdx = dayIndex(new Date())
   const todayWindows = rc.schedulingMode === 'FIXED' ? (rc.serviceSchedule?.[String(todayIdx)] ?? []) : []
-  const prepLeadLabel = rc.prepLeadMinutes != null ? fmtDuration(rc.prepLeadMinutes * 60_000) : null
+  const prepLeadLabel = rc.prepLeadMinutes != null && rc.prepLeadMinutes > 0 ? fmtDuration(rc.prepLeadMinutes * 60_000) : null
   const target = rc.targetFoodCostPct != null ? parseFloat(rc.targetFoodCostPct) : null
   const running = insight?.runningFoodCostPct ?? null
   const runningColor = target == null || running == null
