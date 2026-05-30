@@ -119,3 +119,52 @@ export function computeScale(
   }
   return { scale: 1, unitMismatch: true }
 }
+
+/** Design status pills: maps our PrepStatus → the design's state + class suffix. */
+export const PREP_STATE_META: Record<string, { key: 'not-started'|'in-progress'|'done'|'skipped'; label: string }> = {
+  NOT_STARTED: { key: 'not-started', label: 'Not started' },
+  IN_PROGRESS: { key: 'in-progress', label: 'In progress' },
+  DONE:        { key: 'done',        label: 'Done' },
+  PARTIAL:     { key: 'in-progress', label: 'Partial' },
+  BLOCKED:     { key: 'not-started', label: 'Blocked' },
+  SKIPPED:     { key: 'skipped',     label: 'Skipped' },
+}
+
+/** Short relative age like the design's "6d ago" / "just now". */
+export function formatShortAge(iso: string | null): string {
+  if (!iso) return '—'
+  const ms = Date.now() - new Date(iso).getTime()
+  const min = Math.round(ms / 60_000)
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min}m ago`
+  const h = Math.round(min / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
+
+export interface ShiftSummary { total: number; done: number; inProgress: number; resolved: number; critical: number; blocked: number; onPar: number }
+
+/** Shift-band rollup. `items` are the on-list items; statuses come from todayLog. */
+export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlocked: boolean; todayLog?: { status: string } | null }>): ShiftSummary {
+  let done = 0, inProgress = 0, resolved = 0, critical = 0, blocked = 0, onPar = 0
+  for (const it of items) {
+    const s = it.todayLog?.status ?? 'NOT_STARTED'
+    if (s === 'DONE') { done++; resolved++ }
+    else if (s === 'SKIPPED') resolved++
+    else if (s === 'IN_PROGRESS') inProgress++
+    const isResolved = s === 'DONE' || s === 'SKIPPED'
+    if (!isResolved && it.priority === '911') critical++
+    if (!isResolved && it.isBlocked) blocked++
+    if (it.priority === 'LATER') onPar++
+  }
+  return { total: items.length, done, inProgress, resolved, critical, blocked, onPar }
+}
+
+/** Split on-list items into the design's groups. */
+export function groupPrepItems<T extends { priority: PrepPriority }>(items: T[]): { critical: T[]; needed: T[]; later: T[] } {
+  return {
+    critical: items.filter(i => i.priority === '911'),
+    needed:   items.filter(i => i.priority === 'NEEDED_TODAY'),
+    later:    items.filter(i => i.priority === 'LATER'),
+  }
+}

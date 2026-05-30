@@ -57,6 +57,9 @@ export interface PrepItemRich {
   todayLog: PrepLogData | null
   createdAt: string
   updatedAt: string
+  ingredientShortCount: number | null
+  ingredientTotalCount: number | null
+  lastMadeAt: string | null
 }
 
 export interface IngredientAvailability {
@@ -67,6 +70,15 @@ export interface IngredientAvailability {
   unit: string
   stockOnHand: number | null
   isAvailable: boolean | null
+}
+
+export interface RecipeStepsData {
+  id: string
+  name: string
+  steps: string[]
+  baseYieldQty: number
+  yieldUnit: string
+  totalCost: number
 }
 
 export interface PrepItemDetail extends PrepItemRich {
