@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
   IcAlert,
@@ -111,19 +111,6 @@ export default function PrepTaskRow({
   const [showPartial, setShowPartial] = useState(false)
   const [partialValue, setPartialValue] = useState('')
 
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    function handle(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('click', handle)
-    return () => document.removeEventListener('click', handle)
-  }, [menuOpen])
-
   // ── derived wash + stripe per state ──
   let washCls = 'bg-gradient-to-r from-[#fff8f7] to-paper'
   let borderCls = 'border-line'
@@ -215,6 +202,10 @@ export default function PrepTaskRow({
   const parLevel = Number(item.parLevel) || 0
   const fillPct = parLevel > 0 ? Math.max(0, Math.min(100, (onHand / parLevel) * 100)) : 0
   const makeDim = state === 'done' || state === 'skipped'
+  const barFill =
+    state === 'done' || kind === 'needed' || (parLevel > 0 && onHand >= parLevel)
+      ? 'bg-green'
+      : 'bg-red'
 
   // ── status pill colors ──
   let pillCls = 'bg-bg-2 text-ink-3'
@@ -304,7 +295,7 @@ export default function PrepTaskRow({
         </div>
         <div className="mt-2.5 flex flex-col gap-1.5">
           <div className="h-1.5 rounded-full bg-bg-2 overflow-hidden">
-            <div className="h-full rounded-full bg-red" style={{ width: `${fillPct}%` }} />
+            <div className={`h-full rounded-full ${barFill}`} style={{ width: `${fillPct}%` }} />
           </div>
           <div className="font-mono text-[10.5px] text-ink-3">
             <b className="text-ink font-semibold">{fmt(onHand)}</b> on hand · par {fmt(parLevel)}{' '}
@@ -337,7 +328,6 @@ export default function PrepTaskRow({
                   {item.isBlocked ? 'Start anyway' : 'Start'}
                 </button>
                 <MoreMenu
-                  ref={menuRef}
                   open={menuOpen}
                   setOpen={setMenuOpen}
                   item={item}
@@ -361,7 +351,6 @@ export default function PrepTaskRow({
                   Mark done
                 </button>
                 <MoreMenu
-                  ref={menuRef}
                   open={menuOpen}
                   setOpen={setMenuOpen}
                   item={item}
@@ -425,7 +414,7 @@ export default function PrepTaskRow({
   )
 }
 
-// ── ⋯ menu (module scope, forwardRef so outside-click handler can read it) ──
+// ── ⋯ menu (module scope; self-contained — owns its ref + outside-click effect) ──
 
 interface MoreMenuProps {
   open: boolean
@@ -436,15 +425,33 @@ interface MoreMenuProps {
   openPartial: () => void
 }
 
-const MoreMenu = forwardRef<HTMLDivElement, MoreMenuProps>(function MoreMenu(
-  { open, setOpen, item, onStatusChange, onOrderStock, openPartial },
-  ref,
-) {
+function MoreMenu({
+  open,
+  setOpen,
+  item,
+  onStatusChange,
+  onOrderStock,
+  openPartial,
+}: MoreMenuProps) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('click', handle)
+    return () => document.removeEventListener('click', handle)
+  }, [open, setOpen])
+
   const close = () => setOpen(false)
   return (
       <div className="relative" ref={ref}>
         <button
           type="button"
+          aria-label="More actions"
           onClick={(e) => {
             e.stopPropagation()
             setOpen(!open)
@@ -514,4 +521,4 @@ const MoreMenu = forwardRef<HTMLDivElement, MoreMenuProps>(function MoreMenu(
         )}
     </div>
   )
-})
+}
