@@ -621,9 +621,9 @@ export default function PrepPage() {
 
         {/* Progress */}
         <div className="flex flex-col gap-1.5">
-          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
-            <span><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
-            <span className={isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
+          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 flex-wrap">
+            <span className="whitespace-nowrap"><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
+            <span className={`whitespace-nowrap ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}`}>{parPct}% of par</span>
           </div>
           <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
             <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
@@ -637,8 +637,8 @@ export default function PrepPage() {
               System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
             </div>
           ) : (
-            <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 whitespace-nowrap ${suggestColor}`}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={suggestAccent}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+            <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 ${suggestColor}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
               System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
               {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
             </div>
@@ -1494,7 +1494,7 @@ export default function PrepPage() {
             const completionRate = total > 0 ? Math.round(((done + partial) / total) * 100) : 0
             return (
               <>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
                     { label: 'Total', value: total, cls: 'text-ink' },
                     { label: 'Done', value: done, cls: 'text-green-text' },
