@@ -582,9 +582,9 @@ export default function PrepPage() {
     const parPct = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
     const isCritical = item.priority === '911'
     const isNeeded = item.priority === 'NEEDED_TODAY'
-    const barColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
-    const suggestColor = isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-green-700'
-    const suggestAccent = isCritical ? 'text-red-500' : isNeeded ? 'text-gold' : 'text-green-500'
+    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-green-text'
+    const suggestAccent = isCritical ? 'text-red' : isNeeded ? 'text-gold' : 'text-green'
     const isAdded = item.isOnList
     const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
 
@@ -609,12 +609,12 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
             {isAdded
-              ? <><Check size={13} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              ? <><Check size={13} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
               : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
@@ -623,7 +623,7 @@ export default function PrepPage() {
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
             <span><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
-            <span className={isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
+            <span className={isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
           </div>
           <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
             <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
@@ -644,7 +644,7 @@ export default function PrepPage() {
             </div>
           )
         ) : (
-          <div className="font-mono text-[11.5px] text-green-700 tracking-[0]">At or above par — looking good</div>
+          <div className="font-mono text-[11.5px] text-green-text tracking-[0]">At or above par — looking good</div>
         )}
 
         {/* Override pills */}
@@ -654,7 +654,7 @@ export default function PrepPage() {
             const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
             const isActive = (item.manualPriorityOverride ?? item.priority) === p
             const activeCls = p === '911'
-              ? 'bg-red-100 text-red-700 border-red-100'
+              ? 'bg-red-soft text-red-text border-red-soft'
               : p === 'NEEDED_TODAY'
                 ? 'bg-gold-soft text-gold-2 border-gold-soft'
                 : 'bg-bg-2 text-ink-2 border-bg-2'
@@ -680,16 +680,16 @@ export default function PrepPage() {
     const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
     const isCritical = item.priority === '911'
     const isNeeded = item.priority === 'NEEDED_TODAY'
-    const dotColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
-    const barColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
-    const suggestColor = isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-3'
+    const dotColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'
     const isAdded = item.isOnList
 
     const labels: Record<string, string>     = { '911': 'CRITICAL', 'NEEDED_TODAY': 'NEEDED', 'LATER': 'ON PAR' }
     const badgeStyles: Record<string, string> = {
-      '911': 'bg-red-100 text-red-700',
+      '911': 'bg-red-soft text-red-text',
       'NEEDED_TODAY': 'bg-gold-soft text-gold-2',
-      'LATER': 'bg-green-100 text-green-700',
+      'LATER': 'bg-green-soft text-green-text',
     }
 
     return (
@@ -718,7 +718,7 @@ export default function PrepPage() {
         <div className="font-mono text-[12.5px] text-ink-2 tracking-[-0.01em] whitespace-nowrap">
           {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
         </div>
-        <div className={`font-mono text-[12.5px] font-medium tracking-[-0.01em] ${isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-4'}`}>
+        <div className={`font-mono text-[12.5px] font-medium tracking-[-0.01em] ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-4'}`}>
           {item.priority !== 'LATER' && item.suggestedQty > 0
             ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}`
             : '—'
@@ -729,7 +729,7 @@ export default function PrepPage() {
             const chipLabels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed', 'LATER': 'Later' }
             const isActive = (item.manualPriorityOverride ?? item.priority) === p
             const activeCls = p === '911'
-              ? 'bg-red-100 text-red-700 border-red-100'
+              ? 'bg-red-soft text-red-text border-red-soft'
               : p === 'NEEDED_TODAY'
                 ? 'bg-gold-soft text-gold-2 border-gold-soft'
                 : 'bg-bg-2 text-ink-2 border-bg-2'
@@ -752,12 +752,12 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
             {isAdded
-              ? <><Check size={12} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              ? <><Check size={12} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
               : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
@@ -1099,14 +1099,14 @@ export default function PrepPage() {
 
                 {/* Critical */}
                 <div className="rounded-xl p-[18px] flex flex-col justify-between min-h-[128px] relative bg-[#fef2f2] border border-[#fca5a5]">
-                  {spCritical.length > 0 && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-red-500" />}
+                  {spCritical.length > 0 && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-red" />}
                   <div>
-                    <p className="font-mono text-[10.5px] tracking-[0.01em] text-red-700">CRITICAL</p>
-                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-red-700">{spCritical.length}</p>
+                    <p className="font-mono text-[10.5px] tracking-[0.01em] text-red-text">CRITICAL</p>
+                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-red-text">{spCritical.length}</p>
                   </div>
                   <p className="font-mono text-[11px] text-ink-3 mt-2">
                     {spCritical.length > 0
-                      ? <><b className="text-red-700 font-medium">Stock depleted</b> · needs prep now</>
+                      ? <><b className="text-red-text font-medium">Stock depleted</b> · needs prep now</>
                       : <>no critical items</>}
                   </p>
                 </div>
@@ -1126,10 +1126,10 @@ export default function PrepPage() {
                 <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[128px]">
                   <div>
                     <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">LOOKING GOOD</p>
-                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-green-700">{spLookingGood.length}</p>
+                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-green-text">{spLookingGood.length}</p>
                   </div>
                   <p className="font-mono text-[11px] text-ink-3 mt-2">
-                    <b className="text-green-700 font-medium">on par or above</b>{stationsCount > 0 ? ` · across ${stationsCount} station${stationsCount !== 1 ? 's' : ''}` : ''}
+                    <b className="text-green-text font-medium">on par or above</b>{stationsCount > 0 ? ` · across ${stationsCount} station${stationsCount !== 1 ? 's' : ''}` : ''}
                   </p>
                 </div>
               </div>
@@ -1137,7 +1137,7 @@ export default function PrepPage() {
           })()}
 
           {/* Info banner (branded) */}
-          <div className="hidden md:flex items-center gap-3 px-4 py-3 bg-gold-soft border border-[#fcd34d] rounded-[10px]">
+          <div className="hidden md:flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-[#fffbeb] to-[#fef9ec] border border-[#fcd34d] rounded-xl">
             <div className="w-7 h-7 rounded-[7px] bg-paper border border-[#fcd34d] grid place-items-center text-gold-2 shrink-0">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
             </div>
@@ -1146,14 +1146,12 @@ export default function PrepPage() {
             </p>
           </div>
 
-          {/* Mobile info banner (original) */}
-          <div className="md:hidden flex items-center gap-3 flex-wrap">
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 flex-1 min-w-0">
-              <span className="text-amber-600 shrink-0">📊</span>
-              <p className="text-sm text-amber-800">
-                Suggestions based on <strong>theoretical stock</strong> from sales, wastage &amp; invoices. Resets at each stock count.
-              </p>
-            </div>
+          {/* Mobile info banner */}
+          <div className="md:hidden flex items-start gap-2.5 bg-gradient-to-b from-[#fffbeb] to-[#fef9ec] border border-[#fcd34d] rounded-xl px-4 py-3">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold-2 shrink-0 mt-0.5"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+            <p className="text-[12.5px] text-[#78350f] leading-[1.4]">
+              Computed live from <b className="font-semibold text-ink">theoretical stock</b> — sales, wastage &amp; invoices since the last count. Resets each count.
+            </p>
           </div>
 
           {/* Desktop tools row: search + dropdowns + segmented control */}
@@ -1227,21 +1225,21 @@ export default function PrepPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
 
                   {/* Critical column */}
-                  <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-gray-100 rounded-xl flex flex-col min-h-[480px]">
+                  <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-line rounded-xl flex flex-col min-h-[480px]">
                     <div className="px-4 py-3.5 border-b border-[#fca5a5] flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-red-500" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-700">CRITICAL</span>
+                        <span className="w-2 h-2 rounded-full bg-red" />
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-text">CRITICAL</span>
                         <span className="font-mono text-[11px] text-ink-3 font-normal">· {spCritical.length} item{spCritical.length !== 1 ? 's' : ''}</span>
                       </div>
                       {spCritical.some(i => !i.isOnList) && (
                         <button onClick={() => handleAddAll('911')}
-                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red-500 bg-red-500 text-paper hover:bg-red-600 whitespace-nowrap">
+                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red bg-red text-paper hover:bg-red-text whitespace-nowrap">
                           + Add all
                         </button>
                       )}
                     </div>
-                    <p className="font-mono text-[10.5px] text-red-700 px-4 pt-2 pb-1">Stock depleted — make now</p>
+                    <p className="font-mono text-[10.5px] text-red-text px-4 pt-2 pb-1">Stock depleted — make now</p>
                     <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-2 overflow-auto">
                       {spCritical.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
@@ -1295,8 +1293,8 @@ export default function PrepPage() {
                       className="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2.5 hover:bg-bg-2/40 transition-colors"
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-green-700">LOOKING GOOD</span>
+                        <span className="w-2 h-2 rounded-full bg-green" />
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-green-text">LOOKING GOOD</span>
                         <span className="font-mono text-[11px] text-ink-3 font-normal">· {spLookingGood.length} item{spLookingGood.length !== 1 ? 's' : ''}</span>
                       </div>
                       <span className="font-mono text-[11px] text-ink-3">{lookingGoodOpen ? '▾' : '→'}</span>
@@ -1321,7 +1319,7 @@ export default function PrepPage() {
                                   </span>
                                 </button>
                                 <div className="flex items-center gap-2.5 shrink-0">
-                                  <span className="font-mono text-[11px] text-green-700 font-medium">{label}</span>
+                                  <span className="font-mono text-[11px] text-green-text font-medium">{label}</span>
                                   <button
                                     onClick={() => handleToggleOnList(item.id, !isAdded)}
                                     title={isAdded ? "Remove from today's list" : "Add to today's list"}
@@ -1332,7 +1330,7 @@ export default function PrepPage() {
                                     }`}
                                   >
                                     {isAdded
-                                      ? <><Check size={11} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50">✕</span></>
+                                      ? <><Check size={11} className="text-green group-hover:text-red" /> On list <span className="opacity-50">✕</span></>
                                       : <><span className="text-gold font-semibold">+</span> Add</>}
                                   </button>
                                 </div>
@@ -1352,7 +1350,7 @@ export default function PrepPage() {
                               className="bg-bg border border-line rounded-lg px-3 py-2 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors">
                               <button onClick={() => setSelected(item)} className="text-[12.5px] font-medium text-ink tracking-[-0.01em] truncate min-w-0 text-left hover:opacity-80 transition-opacity">{item.name}</button>
                               <div className="flex items-center gap-2 shrink-0">
-                                <span className="font-mono text-[10.5px] text-green-700 font-medium">{label}</span>
+                                <span className="font-mono text-[10.5px] text-green-text font-medium">{label}</span>
                                 <button
                                   onClick={() => handleToggleOnList(item.id, !isAdded)}
                                   title={isAdded ? "Remove from today's list" : "Add to today's list"}
@@ -1363,7 +1361,7 @@ export default function PrepPage() {
                                   }`}
                                 >
                                   {isAdded
-                                    ? <Check size={12} className="text-green-600 group-hover:text-red-500" />
+                                    ? <Check size={12} className="text-green group-hover:text-red" />
                                     : <span className="text-gold font-semibold leading-none">+</span>}
                                 </button>
                               </div>
@@ -1400,7 +1398,7 @@ export default function PrepPage() {
                           </div>
                           {(criticalCount > 0 || neededCount > 0) && (
                             <div className="flex items-center gap-1.5">
-                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
+                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-soft text-red-text px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
                               {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
                             </div>
                           )}
@@ -1442,7 +1440,7 @@ export default function PrepPage() {
                           </div>
                           {hasUrgent && (
                             <div className="flex items-center gap-1.5">
-                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
+                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-soft text-red-text px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
                               {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
                             </div>
                           )}
