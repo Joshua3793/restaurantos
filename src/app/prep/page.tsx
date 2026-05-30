@@ -4,8 +4,10 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import {
   ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
-  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check,
+  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock,
 } from 'lucide-react'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { prepDeadline, fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
@@ -16,8 +18,39 @@ const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPane
 const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
+function PrepDeadlineBanner({ rc }: { rc: import('@/contexts/RevenueCenterContext').RevenueCenter | null }) {
+  if (!rc) return null
+  const now = new Date()
+  const onDemand = rc.schedulingMode === 'ON_DEMAND'
+  const leadLabel = rc.prepLeadMinutes != null ? fmtDuration(rc.prepLeadMinutes * 60_000) : null
+  const deadline = onDemand ? null : prepDeadline(rc, now)
+  const countdown = deadline ? fmtDuration(deadline.getTime() - now.getTime()) : null
+  const deadlineTime = deadline
+    ? deadline.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    : null
+
+  return (
+    <div className="flex items-center gap-2 bg-gold/10 border border-gold/30 rounded-xl px-3 py-2 text-xs">
+      <Clock size={14} className="text-gold shrink-0" />
+      {onDemand ? (
+        <span className="text-gray-600">
+          On-demand · {leadLabel ? <>prep lead <b className="text-gray-800">{leadLabel}</b></> : 'no prep lead set'}
+        </span>
+      ) : deadline ? (
+        <span className="text-gray-600">
+          Prep by <b className="text-gray-900">{deadlineTime}</b>
+          <span className="text-gray-400"> · {countdown} left</span>
+        </span>
+      ) : (
+        <span className="text-gray-400">No fixed service window today</span>
+      )}
+    </div>
+  )
+}
+
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
+  const { activeRc } = useRc()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
@@ -650,6 +683,8 @@ export default function PrepPage() {
 
   return (
     <div className="space-y-3 md:space-y-5">
+
+      <PrepDeadlineBanner rc={activeRc} />
 
       {/* ── Mobile Header ── */}
       <div className="md:hidden">
