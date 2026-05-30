@@ -59,6 +59,12 @@ export async function GET(
 
   const lowIngredients = ingredients.filter(i => i.isAvailable === false).map(i => i.itemName)
 
+  const lastMadeLog = await prisma.prepLog.findFirst({
+    where: { prepItemId: params.id, status: { in: ['DONE', 'PARTIAL'] } },
+    orderBy: { logDate: 'desc' },
+    select: { logDate: true },
+  })
+
   return NextResponse.json({
     ...item,
     parLevel,
@@ -70,6 +76,11 @@ export async function GET(
     ingredients,
     isBlocked: lowIngredients.length > 0,
     blockedReason: lowIngredients.length > 0 ? `Low stock: ${lowIngredients.join(', ')}` : null,
+    ingredientTotalCount: ingredients.length,
+    ingredientShortCount: ingredients.filter(
+      g => g.stockOnHand != null && Number(g.stockOnHand) <= 0,
+    ).length,
+    lastMadeAt: lastMadeLog ? lastMadeLog.logDate.toISOString() : null,
   })
 }
 
