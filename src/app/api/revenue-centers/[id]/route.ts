@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
+import { buildScheduleFields } from '@/lib/rc-schedule'
+import { Prisma } from '@prisma/client'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const rc = await prisma.revenueCenter.findUnique({ where: { id: params.id } })
@@ -24,6 +26,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     ? (RC_TYPES.includes(type) ? type : existing.type)
     : undefined
 
+  const sendsSchedule = 'schedulingMode' in body || 'prepLeadMinutes' in body || 'serviceSchedule' in body
+  let scheduleFields: ReturnType<typeof buildScheduleFields> | null = null
+  if (sendsSchedule) {
+    try { scheduleFields = buildScheduleFields(body) }
+    catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+  }
+
   const rc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
       await tx.revenueCenter.updateMany({ data: { isDefault: false } })
@@ -40,6 +49,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ...(managerName  !== undefined ? { managerName:       managerName       || null }      : {}),
         ...(targetFoodCostPct !== undefined ? { targetFoodCostPct: targetFoodCostPct != null ? parseFloat(targetFoodCostPct) : null } : {}),
         ...(notes !== undefined      ? { notes: notes || null }                                : {}),
+        ...(scheduleFields ? {
+          schedulingMode:  scheduleFields.schedulingMode,
+          prepLeadMinutes: scheduleFields.prepLeadMinutes,
+          serviceSchedule: scheduleFields.serviceSchedule ?? Prisma.JsonNull,
+        } : {}),
       },
     })
   })
