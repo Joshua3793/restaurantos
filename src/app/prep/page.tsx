@@ -12,6 +12,16 @@ import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } 
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import PrepShiftBand from '@/components/prep/PrepShiftBand'
+import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
+import PrepToolbar from '@/components/prep/PrepToolbar'
+import PrepTaskRow from '@/components/prep/PrepTaskRow'
+import PrepDrawer from '@/components/prep/PrepDrawer'
+import RecipeCookAlongModal from '@/components/prep/RecipeCookAlongModal'
+import { usePrepToast } from '@/components/prep/PrepToast'
+import { computeShiftSummary, groupPrepItems, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
+import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
 const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
@@ -65,6 +75,14 @@ export default function PrepPage() {
   const [offlineSyncing, setOfflineSyncing] = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
+
+  // Redesigned To-do tab — drawer, cook-along modal, toast, alert dismissal
+  const { activeRc } = useRc()
+  const { toast, toastNode } = usePrepToast()
+  const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
+  const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
+  const [recipeModal, setRecipeModal] = useState<{ recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string } | null>(null)
+  const [alertDismissed, setAlertDismissed] = useState(false)
 
   // View state
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
@@ -284,6 +302,12 @@ export default function PrepPage() {
     })
   }, [todayItems, search, filterCategory, filterStation])
 
+  // Redesigned To-do tab — derived
+  const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
+  const todayGroups = useMemo(() => groupPrepItems(filteredToday), [filteredToday])
+  const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
+  const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
+
   // Keep detail panel in sync with live data
   const selectedLive = useMemo(
     () => selected ? (items.find(i => i.id === selected.id) ?? selected) : null,
@@ -476,6 +500,66 @@ export default function PrepPage() {
       })
     ))
   }
+
+  // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
+
+  // Drawer open: set item, fetch its detail (ingredients + counts)
+  const openDrawer = useCallback(async (item: PrepItemRich) => {
+    setDrawerItem(item)
+    setDrawerDetail(null)
+    try {
+      const res = await fetch(`/api/prep/items/${item.id}`)
+      if (res.ok) setDrawerDetail(await res.json())
+    } catch { /* leave detail null → drawer shows loading */ }
+  }, [])
+
+  const closeDrawer = useCallback(() => { setDrawerItem(null); setDrawerDetail(null) }, [])
+
+  // Recipe cook-along: needs steps+cost (from recipe) and ingredient availability (from prep detail)
+  const openRecipeModal = useCallback(async (item: PrepItemRich) => {
+    if (!item.linkedRecipeId) return
+    try {
+      const [rRes, dRes] = await Promise.all([
+        fetch(`/api/recipes/${item.linkedRecipeId}`),
+        fetch(`/api/prep/items/${item.id}`),
+      ])
+      const r = rRes.ok ? await rRes.json() : null
+      const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
+      if (!r) return
+      const recipe: RecipeStepsData = {
+        id: r.id, name: r.name, steps: Array.isArray(r.steps) ? r.steps : [],
+        baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
+        totalCost: Number(r.totalCost) || 0,
+      }
+      setRecipeModal({ recipe, ings: d?.ingredients ?? [], makeQty: item.suggestedQty, unit: item.unit })
+    } catch { /* ignore */ }
+  }, [])
+
+  // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)
+  const onRowStatusChange = useCallback((item: PrepItemRich, status: string, qty?: number) => {
+    handleStatusChange(item.id, status, qty)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Add-to-prep from the cook-along modal: persist planned qty on today's log, then refresh
+  const onAddToPrep = useCallback(async (qty: number) => {
+    const it = recipeModal ? todayItems.find(t => t.unit === recipeModal.unit && t.suggestedQty === recipeModal.makeQty) : null
+    const targetId = drawerItem?.id ?? it?.id
+    if (!targetId) { toast(`Set to make ${qty}`); return }
+    try {
+      await fetch('/api/prep/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prepItemId: targetId, requiredQty: qty }) })
+    } catch { /* ignore */ }
+    toast(`Task set to make ${qty}`)
+    load()
+  }, [recipeModal, drawerItem, todayItems, toast, load])
+
+  // Keep the open drawer's item in sync across the auto-refresh poll
+  useEffect(() => {
+    if (!drawerItem) return
+    const fresh = items.find(i => i.id === drawerItem.id)
+    if (fresh && fresh !== drawerItem) setDrawerItem(fresh)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
@@ -922,64 +1006,57 @@ export default function PrepPage() {
           TODAY TAB
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'today' && (
-        <div className="space-y-4">
-
-          {/* Desktop KPI strip */}
-          <div className="hidden md:block">
-            <PrepKpiStrip items={todayItems} />
-          </div>
-
-          {/* Priority-change alert */}
-          {priorityAlerts.length > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-3">
-              <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-orange-800">Stock changed since scheduling</p>
-                <p className="text-sm text-orange-700 mt-0.5">
-                  {priorityAlerts.length === 1
-                    ? <><strong>{priorityAlerts[0].name}</strong> is now Critical — theoretical stock at or below 0.</>
-                    : <><strong>{priorityAlerts.map(i => i.name).join(', ')}</strong> — now Critical, stock depleted.</>
-                  }
-                </p>
-              </div>
-            </div>
+        <div className="space-y-0">
+          <PrepShiftBand summary={shiftSummary} countdown={countdown} workloadLabel={workloadLabel} />
+          {priorityAlerts.length > 0 && !alertDismissed && (
+            <PrepAlertBanner
+              onDismiss={() => setAlertDismissed(true)}
+              message={
+                priorityAlerts.length === 1
+                  ? <><b>Stock changed since this list was scheduled.</b> {priorityAlerts[0].name} dropped to Critical — theoretical stock at or below 0.</>
+                  : <><b>Stock changed since this list was scheduled.</b> {priorityAlerts.map(i => i.name).join(', ')} — now Critical, stock depleted.</>
+              }
+            />
           )}
-
+          <PrepToolbar
+            search={search} onSearch={setSearch}
+            categories={categories} stations={stations}
+            filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
+            onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
+            filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
+            onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
+            activeOnly={activeOnly} onActiveOnly={setActiveOnly}
+            forceOpen={todayItems.length > 3}
+          />
           {loading ? (
-            <div className="flex justify-center py-16">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
-            </div>
+            <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
-            <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
-              <ChefHat size={32} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500 text-sm">Nothing on today&apos;s list yet.</p>
-              <p className="text-xs text-gray-400 mt-2">
-                Go to{' '}
-                <button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">
-                  Smart Prep
-                </button>
-                {' '}and add items to your list.
-              </p>
+            <div className="bg-white border border-line rounded-xl py-16 text-center">
+              <ChefHat size={32} className="mx-auto text-ink-4 mb-3" />
+              <p className="text-ink-3 text-sm">Nothing on today&apos;s list yet.</p>
+              <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
             </div>
           ) : (
             <>
-              {/* Today list */}
-              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
-                {filteredToday.map(item => (
-                  <PrepItemRow
-                    key={item.id}
-                    item={item}
-                    onClick={() => setSelected(item)}
-                    onStatusChange={handleStatusChange}
-                    onPriorityChange={handlePriorityChange}
-                    onDelete={handleDelete}
-                    onToggleOnList={handleToggleOnList}
-                  />
-                ))}
-              </div>
-              <p className="text-center text-xs text-gray-400">
-                This list carries over each day — items stay until marked done or removed.
-              </p>
+              {todayGroups.critical.length > 0 && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
+              )}
+              {todayGroups.critical.map(item => (
+                <PrepTaskRow key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+              ))}
+              {todayGroups.needed.length > 0 && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
+              )}
+              {todayGroups.needed.map(item => (
+                <PrepTaskRow key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+              ))}
+              {todayGroups.later.length > 0 && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Get ahead · <span className="text-ink font-semibold">on par now</span></div>
+              )}
+              {todayGroups.later.map(item => (
+                <PrepTaskRow key={item.id} item={item} kind="later" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+              ))}
+              <p className="text-center text-xs text-ink-4 mt-4">This list carries over each day — items stay until marked done or removed.</p>
             </>
           )}
         </div>
@@ -1520,6 +1597,27 @@ export default function PrepPage() {
           onEdit={() => { setEditing(selectedLive); setSelected(null) }}
         />
       )}
+
+      {/* Redesigned To-do tab — drawer, cook-along modal, toast */}
+      <PrepDrawer
+        item={drawerItem}
+        detail={drawerDetail}
+        countdown={countdown}
+        recipeCost={null}
+        onClose={closeDrawer}
+        onStatusChange={onRowStatusChange}
+        onOpenRecipe={openRecipeModal}
+      />
+      <RecipeCookAlongModal
+        open={recipeModal !== null}
+        recipe={recipeModal?.recipe ?? null}
+        ingredients={recipeModal?.ings ?? []}
+        initialMakeQty={recipeModal?.makeQty ?? 0}
+        unit={recipeModal?.unit ?? ''}
+        onClose={() => setRecipeModal(null)}
+        onAddToPrep={onAddToPrep}
+      />
+      {toastNode}
 
       {showAdd && (
         <PrepItemForm onClose={() => setShowAdd(false)} onSaved={load} />
