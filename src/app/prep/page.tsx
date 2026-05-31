@@ -534,10 +534,12 @@ export default function PrepPage() {
   }, [])
 
   // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)
-  const onRowStatusChange = useCallback((item: PrepItemRich, status: string, qty?: number) => {
+  // NOT memoized: must use the current handleStatusChange closure (which reads
+  // current `items`). useCallback([]) here froze the first-render closure where
+  // items was [], so every status action early-returned on `items.find` → no-op.
+  const onRowStatusChange = (item: PrepItemRich, status: string, qty?: number) => {
     handleStatusChange(item.id, status, qty)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }
 
   // Add-to-prep from the cook-along modal: persist planned qty on today's log, then refresh
   const onAddToPrep = useCallback(async (qty: number) => {
