@@ -5,12 +5,14 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState, Suspense, useEffect } from 'react'
 import {
   Sun, Package, FileText, Trash2, BarChart3,
-  BookOpen, UtensilsCrossed, LayoutGrid,
+  BookOpen, UtensilsCrossed,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
   ClipboardList, Activity, Building2, Zap, Flame,
 } from 'lucide-react'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
+import { MobileTabBar } from '@/components/mobile/MobileTabBar'
+import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { createClient } from '@/lib/supabase/client'
@@ -71,16 +73,6 @@ const setupItems: NavItem[] = [
   { href: '/setup/revenue-centers',label: 'Revenue centers', icon: Building2 },
 ]
 
-// Mobile bottom tabs — 2 left, center Pages button, 2 right
-const mobileLeft: NavItem[] = [
-  { href: '/pass', label: 'Pass', icon: Sun },
-  { href: '/prep', label: 'Prep', icon: ChefHat },
-]
-const mobileRight: NavItem[] = [
-  { href: '/count', label: 'Count', icon: ClipboardList },
-  { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
-]
-
 export function Navigation() {
   return (
     <Suspense fallback={null}>
@@ -125,6 +117,7 @@ function NavigationInner() {
   const pathname  = usePathname()
   const router    = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [inboxCounts, setInboxCounts] = useState({ invoicesReview: 0, priceAlerts: 0 })
   useRc()
   const { role } = useUser()
@@ -161,10 +154,6 @@ function NavigationInner() {
 
   const visibleSetupItems = setupItems.filter(i => !i.adminOnly || role === 'ADMIN')
   const allNavItems = navGroups.flatMap(g => g.items)
-  const flankingHrefs = new Set([...mobileLeft, ...mobileRight].map(i => i.href))
-  const moreIsActive = !([...flankingHrefs]).some(href =>
-    pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
-  )
 
   return (
     <>
@@ -280,70 +269,12 @@ function NavigationInner() {
       </aside>
 
       {/* ── Mobile Bottom Tab Bar ──────────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 pb-safe">
-        <div className="relative flex items-end">
-          <div
-            className="absolute inset-x-0 bg-white border-t border-gray-100 shadow-[0_-1px_8px_rgba(0,0,0,0.06)]"
-            style={{
-              bottom: 'calc(-1 * env(safe-area-inset-bottom, 0px))',
-              height: 'calc(4rem + env(safe-area-inset-bottom, 0px))',
-            }}
-          />
-
-          {mobileLeft.map(item => {
-            const active = isActive(item)
-            const { href, label, icon: Icon } = item
-            return (
-              <Link key={href} href={href}
-                className={`relative flex-1 flex flex-col items-center pt-2 pb-2 gap-0.5 transition-colors ${
-                  active ? 'text-gold' : 'text-gray-400'
-                }`}
-              >
-                <Icon size={22} />
-                <span className="text-[10px]">{label}</span>
-              </Link>
-            )
-          })}
-
-          {/* Center Pages button */}
-          <button
-            onClick={() => setMoreOpen(true)}
-            className="relative flex-1 flex flex-col items-center pb-2"
-          >
-            <div className={`-mt-5 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-colors ${
-              moreIsActive ? 'bg-gray-700' : 'bg-gray-900'
-            }`}>
-              <LayoutGrid size={22} className="text-white" />
-            </div>
-            <span className={`text-[10px] mt-0.5 font-medium ${moreIsActive ? 'text-gray-700' : 'text-gray-500'}`}>
-              Pages
-            </span>
-          </button>
-
-          {mobileRight.map(item => {
-            const active = isActive(item)
-            const badge  = getBadge(item.badgeKey)
-            const { href, label, icon: Icon } = item
-            return (
-              <Link key={`mob-${href}-${label}`} href={href}
-                className={`relative flex-1 flex flex-col items-center pt-2 pb-2 gap-0.5 transition-colors ${
-                  active ? 'text-gold' : 'text-gray-400'
-                }`}
-              >
-                <div className="relative">
-                  <Icon size={22} />
-                  {badge > 0 && (
-                    <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-gold text-[#111] text-[8px] font-bold rounded-full flex items-center justify-center leading-none">
-                      {badge > 9 ? '9+' : badge}
-                    </span>
-                  )}
-                </div>
-                <span className="text-[10px]">{label}</span>
-              </Link>
-            )
-          })}
-        </div>
-      </nav>
+      <MobileTabBar
+        onAdd={() => setQuickAddOpen(true)}
+        onMore={() => setMoreOpen(true)}
+        moreBadge={inboxCounts.invoicesReview + inboxCounts.priceAlerts}
+      />
+      <QuickAddSheet open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
 
       {/* ── Mobile Pages Drawer ────────────────────────────────── */}
       {moreOpen && (
