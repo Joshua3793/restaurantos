@@ -73,12 +73,12 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
         <div className={`text-[14px] font-semibold tracking-[-0.01em] leading-tight truncate ${state === 'skipped' ? 'line-through text-ink-3' : 'text-ink'}`}>
           {item.name}
         </div>
-        <div className="font-mono text-[10.5px] text-ink-3 leading-tight truncate mt-0.5">{meta}</div>
+        <div className="font-mono text-[10.5px] leading-tight truncate mt-0.5">
+          {item.isBlocked && !isDoneState && <span className="text-gold-2 font-bold uppercase tracking-[0.03em]">Stock out · </span>}
+          <span className="text-ink-3">{meta}</span>
+        </div>
       </div>
 
-      {item.isBlocked && !isDoneState && (
-        <span className="font-mono text-[8.5px] font-bold px-1.5 py-0.5 rounded-full bg-gold-soft text-gold-2 uppercase tracking-[0.03em] shrink-0">Stock out</span>
-      )}
       {item.linkedRecipeId && (
         <span
           role="button"

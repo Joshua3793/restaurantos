@@ -18,12 +18,15 @@ export default function PrepGetAhead({ items, onAdd, totalCount }: PrepGetAheadP
 
   return (
     <div className="mt-[26px]">
-      <div className="flex items-center justify-between mb-3">
-        <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green" />
-          Get ahead · <b className="text-ink font-semibold">on par now</b>, prep early to stay buffered
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 flex items-center gap-2 min-w-0">
+          <span className="w-2 h-2 rounded-full bg-green shrink-0" />
+          <span className="truncate">
+            Get ahead · <b className="text-ink font-semibold">on par now</b>
+            <span className="hidden sm:inline">, prep early to stay buffered</span>
+          </span>
         </div>
-        <span className="text-[12.5px] font-semibold text-ink-3 hover:text-ink cursor-pointer">
+        <span className="shrink-0 whitespace-nowrap text-[12.5px] font-semibold text-ink-3 hover:text-ink cursor-pointer">
           View all {totalCount ?? items.length} →
         </span>
       </div>

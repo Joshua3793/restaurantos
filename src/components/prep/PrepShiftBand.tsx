@@ -53,7 +53,32 @@ export default function PrepShiftBand({ summary, countdown, workloadLabel }: Pre
   const progPct = summary.total ? (summary.inProgress / summary.total) * 100 : 0
 
   return (
-    <div className="bg-paper border border-line rounded-[13px] mb-3 sm:mb-[18px] flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2 sm:gap-[22px] px-3.5 sm:px-5 py-2.5 sm:py-[13px]">
+    <>
+    {/* Mobile — slim single-line strip: count · progress · alert dots. Deadline lives in the header, so it's dropped here. */}
+    <div className="sm:hidden flex items-center gap-2.5 mb-2.5">
+      <span className="font-mono text-[13px] font-semibold tracking-[-0.01em] shrink-0 leading-none">
+        {summary.done}<span className="text-ink-4">/{summary.total}</span>
+      </span>
+      <div className="flex-1 min-w-0 h-2 rounded-full bg-bg-2 overflow-hidden flex">
+        <div className="bg-green" style={{ width: `${donePct}%` }} />
+        <div className="bg-gold" style={{ width: `${progPct}%` }} />
+      </div>
+      {summary.critical > 0 && (
+        <span className="shrink-0 inline-flex items-center gap-1 text-[11.5px] font-medium text-red-text">
+          <span className="w-1.5 h-1.5 rounded-full bg-red" />
+          <span className="font-mono font-semibold">{summary.critical}</span> critical
+        </span>
+      )}
+      {summary.blocked > 0 && (
+        <span className="shrink-0 inline-flex items-center gap-1 text-[11.5px] font-medium text-gold-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+          <span className="font-mono font-semibold">{summary.blocked}</span> blocked
+        </span>
+      )}
+    </div>
+
+    {/* Desktop — full stat band */}
+    <div className="hidden sm:flex mb-[18px] flex-nowrap items-center gap-[22px] bg-paper border border-line rounded-[13px] px-5 py-[13px]">
       <div className="flex flex-col gap-[3px] shrink-0">
         <div className="text-[20px] sm:text-[25px] font-semibold tracking-[-0.04em] leading-none">
           {summary.done}
@@ -80,5 +105,6 @@ export default function PrepShiftBand({ summary, countdown, workloadLabel }: Pre
         </div>
       </div>
     </div>
+    </>
   )
 }

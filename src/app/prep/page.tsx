@@ -4,7 +4,7 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import {
   ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
-  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock,
+  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock, MoreHorizontal,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { prepDeadline, fmtDuration } from '@/lib/service-hours'
@@ -28,36 +28,6 @@ const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPane
 const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
-function PrepDeadlineBanner({ rc }: { rc: import('@/contexts/RevenueCenterContext').RevenueCenter | null }) {
-  if (!rc) return null
-  const now = new Date()
-  const onDemand = rc.schedulingMode === 'ON_DEMAND'
-  const leadLabel = rc.prepLeadMinutes != null ? fmtDuration(rc.prepLeadMinutes * 60_000) : null
-  const deadline = onDemand ? null : prepDeadline(rc, now)
-  const countdown = deadline ? fmtDuration(deadline.getTime() - now.getTime()) : null
-  const deadlineTime = deadline
-    ? deadline.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    : null
-
-  return (
-    <div className="flex items-center gap-2 bg-gold/10 border border-gold/30 rounded-xl px-3 py-2 text-xs">
-      <Clock size={14} className="text-gold shrink-0" />
-      {onDemand ? (
-        <span className="text-gray-600">
-          On-demand · {leadLabel ? <>prep lead <b className="text-gray-800">{leadLabel}</b></> : 'no prep lead set'}
-        </span>
-      ) : deadline ? (
-        <span className="text-gray-600">
-          Prep by <b className="text-gray-900">{deadlineTime}</b>
-          <span className="text-gray-400"> · {countdown} left</span>
-        </span>
-      ) : (
-        <span className="text-gray-400">No fixed service window today</span>
-      )}
-    </div>
-  )
-}
-
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc } = useRc()
@@ -68,6 +38,7 @@ export default function PrepPage() {
   const [editing,      setEditing]      = useState<PrepItemRich | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [actionError,  setActionError]  = useState<string | null>(null)
   const [syncing,      setSyncing]      = useState(false)
   const [syncResult,   setSyncResult]   = useState<{ created: number; updated: number; skipped: number } | null>(null)
@@ -87,6 +58,8 @@ export default function PrepPage() {
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
   const [smartPrepView,     setSmartPrepView]     = useState<'urgency' | 'category' | 'station'>('urgency')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const [showMobileSearch, setShowMobileSearch] = useState(false)
+  const [priorityMenuFor, setPriorityMenuFor] = useState<string | null>(null)
   const [lookingGoodOpen,   setLookingGoodOpen]   = useState(false)
 
   // Filters (used in Smart Prep and Today)
@@ -305,6 +278,23 @@ export default function PrepPage() {
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
   const todayGroups = useMemo(() => groupPrepItems(filteredToday), [filteredToday])
   const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
+  // Compact prep-deadline label for the mobile header subtitle (replaces the old full-width banner).
+  const prepBy = useMemo(() => {
+    if (!activeRc) return null
+    const now = new Date()
+    if (activeRc.schedulingMode === 'ON_DEMAND') {
+      const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
+      return { onDemand: true as const, time: null, left: null, lead }
+    }
+    const dl = prepDeadline(activeRc, now)
+    if (!dl) return null
+    return {
+      onDemand: false as const,
+      time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      left: fmtDuration(dl.getTime() - now.getTime()),
+      lead: null,
+    }
+  }, [activeRc])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
   // Keep detail panel in sync with live data
@@ -596,9 +586,89 @@ export default function PrepPage() {
     const suggestAccent = isCritical ? 'text-red' : isNeeded ? 'text-gold' : 'text-green'
     const isAdded = item.isOnList
     const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
+    const edgeColor = isCritical ? '#dc2626' : isNeeded ? '#d97706' : '#16a34a'
+    const fmtN = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
+    const makeLabel = item.suggestedQty > 0 ? `make ${fmtN(item.suggestedQty)} ${item.unit}` : 'review stock'
 
     return (
-      <div className={`bg-paper border ${cardBorder} rounded-[10px] p-3.5 flex flex-col gap-2.5`}>
+      <>
+      {/* Mobile — compact row; tap opens the detail drawer (priority override lives there) */}
+      <button
+        type="button"
+        onClick={() => setSelected(item)}
+        className="md:hidden w-full text-left flex items-center gap-2.5 bg-paper border border-line rounded-xl pl-2.5 pr-2 py-2 active:bg-bg-2 transition-colors"
+        style={{ borderLeftWidth: 4, borderLeftColor: edgeColor }}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-semibold tracking-[-0.01em] text-ink truncate leading-tight">{item.name}</div>
+          <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
+            {item.category} · <b className="text-ink font-medium">{fmtN(item.onHand)}/{fmtN(item.parLevel)}</b>
+            {item.priority !== 'LATER'
+              ? <span className={suggestColor}> · {makeLabel}{item.estimatedPrepTime ? ` · ~${item.estimatedPrepTime}m` : ''}</span>
+              : <span className="text-green-text"> · on par</span>}
+          </div>
+        </div>
+
+        {/* Priority chip — shows current priority, tap to override (no full-drawer trip) */}
+        {(() => {
+          const eff = item.manualPriorityOverride ?? item.priority
+          const chip = eff === '911'
+            ? { label: 'Critical', cls: 'bg-red-soft text-red-text' }
+            : eff === 'NEEDED_TODAY'
+              ? { label: 'Needed', cls: 'bg-gold-soft text-gold-2' }
+              : { label: 'On par', cls: 'bg-green-soft text-green-text' }
+          const open = priorityMenuFor === item.id
+          return (
+            <span className="relative shrink-0">
+              <span
+                role="button"
+                tabIndex={0}
+                title="Change priority"
+                onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(open ? null : item.id) }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setPriorityMenuFor(open ? null : item.id) } }}
+                className={`inline-flex items-center gap-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-1.5 py-1 rounded-full active:scale-95 ${chip.cls}`}
+              >
+                {item.manualPriorityOverride && <span className="opacity-70">✎</span>}{chip.label}
+              </span>
+              {open && (
+                <>
+                  <span className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(null) }} />
+                  <span className="absolute right-0 top-[calc(100%+4px)] z-50 w-36 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1 flex flex-col" role="menu">
+                    {([['911', 'Critical'], ['NEEDED_TODAY', 'Needed today'], ['LATER', 'Later']] as const).map(([p, label]) => (
+                      <span key={p} role="menuitem" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(null); handlePriorityChange(item.id, p) }}
+                        className={`px-3 py-2 text-[12.5px] active:bg-bg-2 ${eff === p ? 'text-ink font-semibold' : 'text-ink-2'}`}>
+                        {eff === p ? '✓ ' : ''}{label}
+                      </span>
+                    ))}
+                    {item.manualPriorityOverride && (
+                      <span role="menuitem" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(null); handlePriorityChange(item.id, '') }}
+                        className="px-3 py-2 text-[12.5px] text-ink-3 border-t border-line active:bg-bg-2">
+                        Reset to auto
+                      </span>
+                    )}
+                  </span>
+                </>
+              )}
+            </span>
+          )
+        })()}
+
+        <span
+          role="button"
+          tabIndex={0}
+          title={isAdded ? "Remove from today's list" : "Add to today's list"}
+          onClick={(e) => { e.stopPropagation(); handleToggleOnList(item.id, !isAdded) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleToggleOnList(item.id, !isAdded) } }}
+          className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${isAdded ? 'bg-green-soft text-green-text' : 'bg-ink text-gold'}`}
+        >
+          {isAdded ? <Check size={16} /> : <Plus size={16} />}
+        </span>
+      </button>
+
+      {/* Desktop — full card (urgency columns) */}
+      <div className={`hidden md:flex bg-paper border ${cardBorder} rounded-[10px] p-3 sm:p-3.5 flex-col gap-2 sm:gap-2.5`}>
         {/* Top: name + meta + Add button */}
         <div className="flex items-start justify-between gap-2.5">
           <button onClick={() => setSelected(item)} className="text-left min-w-0 flex-1 hover:opacity-80 transition-opacity">
@@ -646,10 +716,12 @@ export default function PrepPage() {
               System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
             </div>
           ) : (
-            <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 ${suggestColor}`}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
-              System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
-              {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
+            <div className={`font-mono text-[11.5px] tracking-[0] flex items-start gap-1.5 ${suggestColor}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0 mt-[1px]`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+              <span className="min-w-0">
+                System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
+                {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
+              </span>
             </div>
           )
         ) : (
@@ -657,7 +729,7 @@ export default function PrepPage() {
         )}
 
         {/* Override pills */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-2.5 border-t border-line">
+        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-line">
           <span className="font-mono text-[10px] text-ink-3 tracking-[0.02em] mr-0.5">OVERRIDE</span>
           {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
             const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
@@ -681,6 +753,7 @@ export default function PrepPage() {
           })}
         </div>
       </div>
+      </>
     )
   }
 
@@ -779,90 +852,132 @@ export default function PrepPage() {
   return (
     <div className="space-y-3 md:space-y-5">
 
-      <PrepDeadlineBanner rc={activeRc} />
-
       {/* ── Mobile Header ── */}
       <div className="md:hidden">
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-ink flex items-center gap-1.5">
               <ChefHat size={20} className="text-gold" /> Prep List
             </h1>
-            <p className="text-xs text-gray-500">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            <p className="text-[11.5px] text-ink-3 mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+              {prepBy && (
+                <>
+                  <span className="text-ink-4">·</span>
+                  {prepBy.onDemand ? (
+                    <span className="text-ink-3">on-demand{prepBy.lead ? ` · lead ${prepBy.lead}` : ''}</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-gold-2 font-medium">
+                      <Clock size={11} /> prep by {prepBy.time}
+                      <span className="text-ink-4 font-normal">· {prepBy.left} left</span>
+                    </span>
+                  )}
+                </>
+              )}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={handleRefresh} disabled={generating}
-              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              title="Refresh">
-              <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={() => setShowSettings(true)}
-              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-              title="Settings">
-              <Settings size={16} />
-            </button>
-            <button onClick={handleSync} disabled={syncing}
-              className="p-2 rounded-lg border border-gold/30 text-gold bg-gold/10 hover:bg-gold/15 disabled:opacity-50"
-              title="Sync from Recipes">
-              <BookOpen size={16} className={syncing ? 'animate-pulse' : ''} />
-            </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Refresh / Sync / Settings collapse into a ⋯ menu; gold + stays primary */}
+            <div className="relative">
+              <button onClick={() => setShowHeaderMenu(v => !v)}
+                className="p-2 rounded-lg border border-line text-ink-2 active:bg-bg-2"
+                title="More actions" aria-haspopup="menu" aria-expanded={showHeaderMenu}>
+                <MoreHorizontal size={16} className={syncing || generating ? 'text-gold' : ''} />
+              </button>
+              {showHeaderMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowHeaderMenu(false)} />
+                  <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-52 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1" role="menu">
+                    <button onClick={() => { setShowHeaderMenu(false); handleRefresh() }} disabled={generating}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2 disabled:opacity-50" role="menuitem">
+                      <RefreshCw size={15} className={`text-ink-3 ${generating ? 'animate-spin' : ''}`} />
+                      {generating ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                    <button onClick={() => { setShowHeaderMenu(false); handleSync() }} disabled={syncing}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2 disabled:opacity-50" role="menuitem">
+                      <BookOpen size={15} className={`text-gold ${syncing ? 'animate-pulse' : ''}`} />
+                      {syncing ? 'Syncing…' : 'Sync from recipes'}
+                    </button>
+                    <button onClick={() => { setShowHeaderMenu(false); setShowSettings(true) }}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
+                      <Settings size={15} className="text-ink-3" /> Settings
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <button onClick={() => setShowAdd(true)}
-              className="p-2 rounded-lg bg-gold text-white hover:bg-[#a88930]">
+              className="p-2 rounded-lg bg-gold text-white active:bg-[#a88930]" title="Add item">
               <Plus size={16} />
             </button>
           </div>
         </div>
 
         {/* Mobile view tabs */}
-        <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
+        <div className="flex bg-bg-2 border border-line rounded-xl p-1 mt-2.5 gap-0.5">
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
-              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
+              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="font-mono bg-gold text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
 
         {/* Shift info on Today is rendered once by <PrepShiftBand> in the shared content block (all breakpoints). */}
 
-        {/* Search + filter toggle — Smart Prep only on mobile; Today uses <PrepToolbar> in the shared content block */}
+        {/* Smart Prep toolbar — view switcher + collapsible search/filter (mobile only) */}
         {viewMode === 'smartprep' && (
-          <div className="flex gap-2 mt-3">
-            <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
-                placeholder="Search prep items…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0 flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5">
+                {(['urgency', 'category', 'station'] as const).map(v => (
+                  <button key={v} onClick={() => setSmartPrepView(v)}
+                    className={`flex-1 py-1.5 font-mono text-[11px] uppercase tracking-[0.03em] rounded-[7px] transition-colors ${smartPrepView === v ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowMobileSearch(v => { if (v) setSearch(''); return !v })}
+                title="Search"
+                className={`shrink-0 p-2 rounded-[9px] border transition-colors ${showMobileSearch || search ? 'border-ink bg-ink text-paper' : 'border-line text-ink-2 active:bg-bg-2'}`}>
+                <Search size={15} />
+              </button>
+              <button
+                onClick={() => setShowMobileFilters(v => !v)}
+                title="Filter"
+                className={`shrink-0 p-2 rounded-[9px] border inline-flex items-center gap-1 transition-colors ${showMobileFilters || activeFilterCount > 0 ? 'border-gold bg-gold-soft text-gold-2' : 'border-line text-ink-2 active:bg-bg-2'}`}>
+                <SlidersHorizontal size={15} />
+                {activeFilterCount > 0 && <span className="font-mono text-[10px] font-bold">{activeFilterCount}</span>}
+              </button>
             </div>
-            <button
-              onClick={() => setShowMobileFilters(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
-                showMobileFilters || activeFilterCount > 0
-                  ? 'border-blue-300 bg-gold/10 text-gold'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}>
-              <SlidersHorizontal size={15} />
-              {activeFilterCount > 0 ? <span className="bg-gold text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
-            </button>
-          </div>
-        )}
 
-        {viewMode === 'smartprep' && showMobileFilters && (
-          <div className="mt-2 bg-white border border-gray-100 rounded-xl p-3 space-y-2">
-            <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-              <option value="ALL">All Categories</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className={selCls + ' w-full'} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
-              <option value="ALL">All Stations</option>
-              <option value="UNASSIGNED">Unassigned</option>
-              {stations.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {showMobileSearch && (
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+                <input
+                  autoFocus
+                  className="w-full bg-paper border border-line rounded-[9px] pl-9 pr-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors"
+                  placeholder="Search prep items…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+            )}
+
+            {showMobileFilters && (
+              <div className="bg-paper border border-line rounded-[9px] p-2.5 space-y-2">
+                <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+                  <option value="ALL">All Categories</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select className={selCls + ' w-full'} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
+                  <option value="ALL">All Stations</option>
+                  <option value="UNASSIGNED">Unassigned</option>
+                  {stations.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -980,6 +1095,9 @@ export default function PrepPage() {
           {priorityAlerts.length > 0 && !alertDismissed && (
             <PrepAlertBanner
               onDismiss={() => setAlertDismissed(true)}
+              compact={
+                <><b className="font-semibold">Stock changed.</b> {priorityAlerts.length} item{priorityAlerts.length !== 1 ? 's' : ''} now Critical.</>
+              }
               message={
                 priorityAlerts.length === 1
                   ? <><b>Stock changed since this list was scheduled.</b> {priorityAlerts[0].name} dropped to Critical — theoretical stock at or below 0.</>
@@ -1031,7 +1149,7 @@ export default function PrepPage() {
                 </div>
               ))}
               <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
-              <p className="text-center text-xs text-ink-4 mt-4">This list carries over each day — items stay until marked done or removed.</p>
+              <p className="text-center text-xs text-ink-4 mt-4 pb-24 sm:pb-0">This list carries over each day — items stay until marked done or removed.</p>
             </>
           )}
         </div>
@@ -1122,14 +1240,6 @@ export default function PrepPage() {
             </p>
           </div>
 
-          {/* Mobile info banner */}
-          <div className="md:hidden flex items-start gap-2.5 bg-gradient-to-b from-[#fffbeb] to-[#fef9ec] border border-[#fcd34d] rounded-xl px-4 py-3">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold-2 shrink-0 mt-0.5"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
-            <p className="text-[12.5px] text-[#78350f] leading-[1.4]">
-              Computed live from <b className="font-semibold text-ink">theoretical stock</b> — sales, wastage &amp; invoices since the last count. Resets each count.
-            </p>
-          </div>
-
           {/* Desktop tools row: search + dropdowns + segmented control */}
           <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center">
             <div className="relative">
@@ -1180,16 +1290,6 @@ export default function PrepPage() {
             SHOWING {items.length} ITEMS · GROUPED BY {smartPrepView.toUpperCase()} · RESETS WITH NEXT COUNT
           </p>
 
-          {/* Mobile view toggle */}
-          <div className="md:hidden flex bg-bg-2 rounded-[10px] p-1 gap-0.5 border border-line">
-            {(['urgency', 'category', 'station'] as const).map(v => (
-              <button key={v} onClick={() => setSmartPrepView(v)}
-                className={`flex-1 py-2 font-mono text-[11px] uppercase tracking-[0.04em] rounded-[7px] transition-colors ${smartPrepView === v ? 'bg-paper shadow-sm text-ink' : 'text-ink-3'}`}>
-                By {v === 'urgency' ? 'Urgency' : v === 'category' ? 'Category' : 'Station'}
-              </button>
-            ))}
-          </div>
-
           {loading ? (
             <div className="flex justify-center py-16">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
@@ -1201,8 +1301,8 @@ export default function PrepPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
 
                   {/* Critical column */}
-                  <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-line rounded-xl flex flex-col min-h-[480px]">
-                    <div className="px-4 py-3.5 border-b border-[#fca5a5] flex items-center justify-between gap-2.5">
+                  <div className="md:bg-[#fffafa] md:border md:border-[#fca5a5] flex flex-col md:rounded-xl md:min-h-[480px]">
+                    <div className="px-0.5 md:px-4 py-2 md:py-3.5 border-b border-line md:border-[#fca5a5] flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
                         <span className="w-2 h-2 rounded-full bg-red" />
                         <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-text">CRITICAL</span>
@@ -1215,8 +1315,8 @@ export default function PrepPage() {
                         </button>
                       )}
                     </div>
-                    <p className="font-mono text-[10.5px] text-red-text px-4 pt-2 pb-1">Stock depleted — make now</p>
-                    <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-2 overflow-auto">
+                    <p className="font-mono text-[10.5px] text-red-text px-0.5 md:px-4 pt-2 pb-1">Stock depleted — make now</p>
+                    <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-2 overflow-visible md:overflow-auto">
                       {spCritical.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
                           <div className="w-9 h-9 rounded-full bg-bg-2 grid place-items-center text-ink-4 mb-2.5">
@@ -1231,8 +1331,8 @@ export default function PrepPage() {
                   </div>
 
                   {/* Needed Today column */}
-                  <div className="bg-paper border border-line rounded-xl flex flex-col min-h-[480px]">
-                    <div className="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2.5">
+                  <div className="md:bg-paper md:border md:border-line flex flex-col md:rounded-xl md:min-h-[480px]">
+                    <div className="px-0.5 md:px-4 py-2 md:py-3.5 border-b border-line flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
                         <span className="w-2 h-2 rounded-full bg-gold" />
                         <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-gold-2">NEEDED TODAY</span>
@@ -1245,8 +1345,8 @@ export default function PrepPage() {
                         </button>
                       )}
                     </div>
-                    <p className="font-mono text-[10.5px] text-ink-3 px-4 pt-2 pb-1">Below par — should be prepped today</p>
-                    <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-2 overflow-auto">
+                    <p className="font-mono text-[10.5px] text-ink-3 px-0.5 md:px-4 pt-2 pb-1">Below par — should be prepped today</p>
+                    <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-2 overflow-visible md:overflow-auto">
                       {spNeeded.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
                           <div className="w-9 h-9 rounded-full bg-bg-2 grid place-items-center text-ink-4 mb-2.5">
@@ -1263,10 +1363,10 @@ export default function PrepPage() {
                   </div>
 
                   {/* Looking Good column */}
-                  <div className="bg-paper border border-line rounded-xl flex flex-col min-h-[480px]">
+                  <div className="md:bg-paper md:border md:border-line flex flex-col md:rounded-xl md:min-h-[480px]">
                     <button
                       onClick={() => setLookingGoodOpen(v => !v)}
-                      className="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2.5 hover:bg-bg-2/40 transition-colors"
+                      className="px-0.5 md:px-4 py-2 md:py-3.5 border-b border-line flex items-center justify-between gap-2.5 hover:bg-bg-2/40 transition-colors"
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
                         <span className="w-2 h-2 rounded-full bg-green" />
@@ -1275,9 +1375,9 @@ export default function PrepPage() {
                       </div>
                       <span className="font-mono text-[11px] text-ink-3">{lookingGoodOpen ? '▾' : '→'}</span>
                     </button>
-                    <p className="font-mono text-[10.5px] text-ink-3 px-4 pt-2 pb-1">On par or above — no action needed</p>
+                    <p className="font-mono text-[10.5px] text-ink-3 px-0.5 md:px-4 pt-2 pb-1">On par or above — no action needed</p>
                     {lookingGoodOpen ? (
-                      <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-1.5 overflow-auto">
+                      <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-1.5 overflow-visible md:overflow-auto">
                         {spLookingGood.length === 0 ? (
                           <div className="flex-1 flex items-center justify-center text-[13px] text-ink-3">No items</div>
                         ) : (
@@ -1316,7 +1416,7 @@ export default function PrepPage() {
                         )}
                       </div>
                     ) : (
-                      <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-1.5 overflow-hidden">
+                      <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-1.5 overflow-hidden">
                         {spLookingGood.slice(0, 6).map(item => {
                           const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
                           const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
@@ -1365,9 +1465,9 @@ export default function PrepPage() {
                     const criticalCount = rows.filter(i => i.priority === '911').length
                     const neededCount = rows.filter(i => i.priority === 'NEEDED_TODAY').length
                     return (
-                      <div key={cat} className="bg-paper border border-line rounded-xl overflow-hidden">
+                      <div key={cat} className="md:overflow-hidden md:bg-paper md:border md:border-line md:rounded-xl">
                         {/* Group header — branded "grow" style (gold-soft for active categories, neutral otherwise) */}
-                        <div className={`grid grid-cols-[1fr_auto] items-center px-[18px] py-2.5 border-b ${criticalCount > 0 || neededCount > 0 ? 'bg-gold-soft border-[#fcd34d]' : 'bg-bg-2 border-line'}`}>
+                        <div className={`grid grid-cols-[1fr_auto] items-center px-0.5 md:px-[18px] py-2 md:py-2.5 border-b border-line ${criticalCount > 0 || neededCount > 0 ? 'md:bg-gold-soft md:border-[#fcd34d]' : 'md:bg-bg-2 md:border-line'}`}>
                           <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
                             <span className={`font-mono text-[11.5px] tracking-[0.02em] font-semibold ${criticalCount > 0 || neededCount > 0 ? 'text-gold-2' : 'text-ink-2'}`}>{cat.toUpperCase()}</span>
                             <span className={`font-mono text-[11px] font-normal ${criticalCount > 0 || neededCount > 0 ? 'text-gold-2/80' : 'text-ink-3'}`}>· {rows.length} item{rows.length !== 1 ? 's' : ''}</span>
@@ -1388,7 +1488,7 @@ export default function PrepPage() {
                           {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
                         </div>
                         {/* Mobile cards */}
-                        <div className="md:hidden p-3 flex flex-col gap-2">
+                        <div className="md:hidden pt-2 pb-1 flex flex-col gap-2">
                           {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
                         </div>
                       </div>
@@ -1406,9 +1506,9 @@ export default function PrepPage() {
                     const neededCount = rows.filter(i => i.priority === 'NEEDED_TODAY').length
                     const hasUrgent = criticalCount > 0 || neededCount > 0
                     return (
-                      <div key={station} className="bg-paper border border-line rounded-xl overflow-hidden">
+                      <div key={station} className="md:overflow-hidden md:bg-paper md:border md:border-line md:rounded-xl">
                         {/* Group header */}
-                        <div className={`grid grid-cols-[1fr_auto] items-center px-[18px] py-2.5 border-b ${hasUrgent ? 'bg-gold-soft border-[#fcd34d]' : 'bg-bg-2 border-line'}`}>
+                        <div className={`grid grid-cols-[1fr_auto] items-center px-0.5 md:px-[18px] py-2 md:py-2.5 border-b border-line ${hasUrgent ? 'md:bg-gold-soft md:border-[#fcd34d]' : 'md:bg-bg-2 md:border-line'}`}>
                           <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
                             <span className="text-[13px]">{emoji}</span>
                             <span className={`font-mono text-[11.5px] tracking-[0.02em] font-semibold ${hasUrgent ? 'text-gold-2' : 'text-ink-2'}`}>{station.toUpperCase()} STATION</span>
@@ -1428,7 +1528,7 @@ export default function PrepPage() {
                         <div className="hidden md:block">
                           {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
                         </div>
-                        <div className="md:hidden p-3 flex flex-col gap-2">
+                        <div className="md:hidden pt-2 pb-1 flex flex-col gap-2">
                           {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
                         </div>
                       </div>
