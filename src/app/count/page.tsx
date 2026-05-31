@@ -362,7 +362,7 @@ export default function CountPage() {
       if (statusFilter === 'uncounted') { if (l.countedQty !== null || l.skipped) return false }
       if (statusFilter === 'counted')   { if (l.countedQty === null || l.skipped) return false }
       if (statusFilter === 'skipped')   { if (!l.skipped) return false }
-      if (q && !l.inventoryItem.itemName.toLowerCase().includes(q)) return false
+      if (q && !l.inventoryItem.itemName.toLowerCase().includes(q) && !l.inventoryItem.category.toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => a.sortOrder - b.sortOrder)
   }, [active?.lines, catFilter, locFilter, statusFilter, searchQuery])
@@ -512,6 +512,22 @@ export default function CountPage() {
     }))
     setOpenId(line.id)
     setInputQty(0)
+    await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skipped: false }),
+    })
+  }
+
+  // Clear a recorded count back to uncounted (PATCH skipped:false resets countedQty server-side).
+  const clearLine = async (line: Line) => {
+    setActive(prev => ({
+      ...prev!, lines: prev!.lines!.map(l =>
+        l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null } : l
+      ),
+    }))
+    setOpenId(null)
+    setToast(`${line.inventoryItem.itemName} cleared`)
     await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1666,6 +1682,7 @@ export default function CountPage() {
 
       const uoms        = getCountableUoms(item)
       const unitLabels  = Array.from(new Set([line.selectedUom, ...uoms.map(u => u.label)]))
+      const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
       const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
       const effectiveQty = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
       const effBase     = convertCountQtyToBase(effectiveQty, line.selectedUom, item)
@@ -1741,7 +1758,7 @@ export default function CountPage() {
                 {unitLabels.length > 1 && (
                   <div className="flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5 mt-3 overflow-x-auto [&::-webkit-scrollbar]:hidden">
                     {unitLabels.map(label => (
-                      <button key={label} onClick={() => { if (label !== line.selectedUom) changeUom(line, label) }}
+                      <button key={label} onClick={() => { if (label !== line.selectedUom) { changeUom(line, label); setInputQty(0); setCaseQty(0) } }}
                         className={`flex-1 min-w-[56px] py-1.5 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
                         {label}
                       </button>
@@ -1752,11 +1769,11 @@ export default function CountPage() {
                 {/* Big stepper */}
                 <div className="text-center font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] mt-4 mb-2">{line.selectedUom} on hand</div>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
+                  <button onClick={() => setInputQty(v => Math.max(0, Math.round((v - stepBy) * 100) / 100))}
                     className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0 active:bg-line"><Minus size={26} className="text-ink-2" /></button>
                   <input type="number" value={inputQty} onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
-                    className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={0.1} />
-                  <button onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
+                    className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={stepBy} />
+                  <button onClick={() => setInputQty(v => Math.round((v + stepBy) * 100) / 100)}
                     className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0 active:bg-ink-2"><Plus size={26} className="text-gold" /></button>
                 </div>
                 <div className="text-center font-mono text-[10.5px] text-ink-4 mt-2">tap to type</div>
@@ -1773,14 +1790,29 @@ export default function CountPage() {
                   </div>
                 )}
 
-                {/* Variance vs theoretical + last count */}
-                {Number(line.expectedQty) > 0 && (
-                  <div className={`flex items-center justify-between gap-2 mt-4 px-3 py-2.5 rounded-[10px] font-mono text-[11px] ${liveVar !== null && Math.abs(liveVar) > LARGE_VARIANCE_PCT ? 'bg-red-soft' : 'bg-bg-2'}`}>
-                    <span className="text-ink-3">
-                      Expected <b className="text-ink-2 font-medium">{expectedDisplay.toFixed(1)} {line.selectedUom}</b>
-                      {lastDisplay != null && <> · last count {f(lastDisplay)} {line.selectedUom}</>}
-                    </span>
-                    {liveVar !== null && <span className={`font-semibold ${varColor(liveVar)}`}>{liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%</span>}
+                {/* Variance vs theoretical + last count — neutral "on track" near zero, else signed unit delta */}
+                {Number(line.expectedQty) > 0 && (() => {
+                  const onTrack = liveVar !== null && Math.abs(liveVar) < 2
+                  const short   = liveVar !== null && liveVar < 0
+                  const bg = onTrack ? 'bg-bg-2' : short ? 'bg-red-soft' : 'bg-gold-soft'
+                  const fg = onTrack ? 'text-ink-3' : short ? 'text-red-text' : 'text-gold-2'
+                  const delta = effectiveQty - expectedDisplay
+                  return (
+                    <div className={`flex items-center justify-between gap-2 mt-4 px-3 py-2.5 rounded-[10px] font-mono text-[11px] ${bg}`}>
+                      <span className="text-ink-3">
+                        Expected <b className="text-ink-2 font-medium">{expectedDisplay.toFixed(1)} {line.selectedUom}</b>
+                        {lastDisplay != null && <> · last {f(lastDisplay)} {line.selectedUom}</>}
+                      </span>
+                      <span className={`font-semibold whitespace-nowrap ${fg}`}>
+                        {onTrack ? 'on track' : `${delta > 0 ? '+' : ''}${f(delta)} ${line.selectedUom}`}
+                      </span>
+                    </div>
+                  )
+                })()}
+
+                {isOffline && (
+                  <div className="font-mono text-[10px] text-gold-2 mt-3 flex items-center gap-1.5">
+                    <WifiOff size={12} /> Saved on device · syncs when back online
                   </div>
                 )}
 
@@ -1789,7 +1821,11 @@ export default function CountPage() {
                   <Check size={17} className="text-gold" /> Save count
                 </button>
                 <div className="flex gap-2 mt-2">
-                  <button onClick={() => confirmLine(line, 0)} className="flex-1 h-10 border border-amber-200 bg-amber-50 text-amber-700 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
+                  {isCounted ? (
+                    <button onClick={() => clearLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-2 font-medium">Clear count</button>
+                  ) : (
+                    <button onClick={() => confirmLine(line, 0)} className="flex-1 h-10 border border-amber-200 bg-amber-50 text-amber-700 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
+                  )}
                   <button onClick={() => skipLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-3 font-medium inline-flex items-center justify-center gap-1.5"><SkipForward size={13} /> Skip</button>
                 </div>
               </div>
@@ -1860,6 +1896,13 @@ export default function CountPage() {
                 {active.label}{catFilter && <span className="text-ink-3 font-normal"> · {catFilter}</span>}
               </span>
             </div>
+            {isOffline ? (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gold-soft text-gold-2 font-mono text-[10px] font-semibold shrink-0" title={`${pendingCount} change${pendingCount !== 1 ? 's' : ''} pending`}>
+                <WifiOff size={11} /> {pendingCount}
+              </span>
+            ) : offlineSyncing ? (
+              <RefreshCw size={14} className="text-gold-2 animate-spin shrink-0" />
+            ) : null}
             <button onClick={handleSync} disabled={syncing} title="Sync" className="p-1.5 text-ink-3 active:text-ink shrink-0 disabled:opacity-50">
               <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
             </button>
@@ -2004,9 +2047,9 @@ export default function CountPage() {
           />
         </div>
 
-        {/* ── Offline banner ─────────────────────────────────────────────────── */}
+        {/* ── Offline banner (desktop; mobile shows it compactly in the header) ── */}
         {(isOffline || offlineSyncing) && (
-          <div className={`flex items-center gap-2 px-4 py-2 font-mono text-[11px] font-medium ${
+          <div className={`hidden md:flex items-center gap-2 px-4 py-2 font-mono text-[11px] font-medium ${
             offlineSyncing ? 'bg-gold-soft text-gold-2' : 'bg-[#fffbeb] text-[#78350f]'
           }`}>
             <WifiOff size={13} className="shrink-0" />
@@ -2210,10 +2253,15 @@ export default function CountPage() {
 
         {/* ── Mobile items list ──────────────────────────────────────────────── */}
         <div className="md:hidden px-3 pt-1 pb-28 space-y-1.5">
-          {(catFilter || !grouped) ? (
-            filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderMobileLine)
+          {(() => {
+            const emptyMsg = searchQuery.trim()
+              ? `NO MATCHES FOR “${searchQuery.trim()}”`
+              : statusFilter === 'uncounted' ? 'ALL ITEMS COUNTED ✓' : 'NOTHING HERE'
+            const MobileEmpty = () => <div className="font-mono text-[11px] text-ink-4 text-center py-16 tracking-[0.02em]">{emptyMsg}</div>
+            return (catFilter || !grouped) ? (
+            filteredLines.length === 0 ? <MobileEmpty /> : filteredLines.map(renderMobileLine)
           ) : (
-            Object.keys(grouped).length === 0 ? <Empty /> :
+            Object.keys(grouped).length === 0 ? <MobileEmpty /> :
             Object.entries(grouped)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([cat, lines]) => {
@@ -2232,17 +2280,30 @@ export default function CountPage() {
                   </div>
                 )
               })
-          )}
+          )
+          })()}
         </div>
 
-        {/* ── Mobile finalize bar ────────────────────────────────────────────── */}
+        {/* ── Mobile finalize bar — adaptive: jump-to-uncounted while counting, finalize when done ─ */}
         <div className="md:hidden fixed bottom-20 inset-x-3 z-30">
-          <button onClick={() => setView('review')}
-            className="w-full h-12 bg-ink text-paper rounded-[14px] shadow-lg flex items-center justify-center gap-2 active:scale-[0.99] transition-transform">
-            <span className="font-mono text-[11px] text-[#a1a1aa]">{Math.max(0, total - counted)} left ·</span>
-            <span className="font-semibold text-[14px]">Review &amp; finish</span>
-            <Check size={16} className="text-gold" />
-          </button>
+          {counted < total ? (
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => { setStatusFilter('uncounted'); setCatFilter(null); setSearchQuery(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                className="flex-1 h-12 rounded-[14px] bg-paper border border-line shadow-lg flex items-center justify-center gap-2 font-medium text-[13px] text-ink-2 active:bg-bg-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-gold" /> {total - counted} left to count
+              </button>
+              <button onClick={() => setView('review')} title="Review &amp; finish"
+                className="w-12 h-12 rounded-[14px] bg-ink grid place-items-center shadow-lg shrink-0 active:scale-95 transition-transform">
+                <Check size={20} className="text-gold" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setView('review')}
+              className="w-full h-12 bg-ink text-paper rounded-[14px] shadow-lg flex items-center justify-center gap-2 font-semibold text-[14px] active:scale-[0.99] transition-transform">
+              <Check size={16} className="text-gold" /> Finalize count · {total} items
+            </button>
+          )}
         </div>
       </div>
     )
