@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { AlertsBell } from '@/components/AlertsBell'
 import { SpineAuditDrawer } from './SpineAuditDrawer'
 
 /**
@@ -54,6 +56,17 @@ export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
 
   return (
     <div className={`${desktopOnly ? 'hidden md:flex' : 'flex'} bg-ink text-paper px-4 md:px-8 py-[10px] items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
+      {/* Brand — detached from the collapsible nav so it stays pinned in the top bar (desktop) */}
+      <Link
+        href="/"
+        className="hidden md:flex items-center gap-[9px] text-[13px] font-semibold tracking-[-0.02em] text-paper shrink-0 hover:opacity-80 transition-opacity"
+      >
+        <span className="relative inline-block w-[18px] h-[18px] rounded-[5px] bg-paper">
+          <span className="absolute inset-[3px] rounded-[2px] bg-gold" />
+        </span>
+        Controla OS
+      </Link>
+      <div className="hidden md:block w-px h-[14px] bg-zinc-800" />
       <CCItem
         label="Food cost · live"
         value={loading ? '…' : fmtPct(fcPct)}
@@ -89,6 +102,10 @@ export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
           <> · last invoice {humanizeAge(data.lastInvoiceAt)}</>
         )}
       </span>
+      {/* Alerts bell — detached from the collapsible nav, pinned in the top bar (desktop) */}
+      <div className="hidden md:block shrink-0 [&>div>button]:text-zinc-400 [&>div>button]:p-1.5 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/10">
+        <AlertsBell />
+      </div>
       <SpineAuditDrawer open={auditOpen} onClose={() => setAuditOpen(false)} />
     </div>
   )

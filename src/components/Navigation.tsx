@@ -9,7 +9,6 @@ import {
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
   ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff,
 } from 'lucide-react'
-import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
@@ -178,18 +177,8 @@ function NavigationInner() {
         } ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
         style={{ background: '#09090b' }}
       >
-        {/* Brand + bell */}
-        <div className="flex items-center justify-between px-1.5 pb-3">
-          <Link href="/" className="flex items-center gap-[9px] text-[14px] font-semibold tracking-[-0.02em] text-[#fafaf9]">
-            <span className="relative inline-block w-5 h-5 rounded-[6px] bg-paper">
-              <span className="absolute inset-1 rounded-[3px] bg-gold" />
-            </span>
-            Controla OS
-          </Link>
-          <div className="[&>div>button]:text-zinc-500 [&>div>button:hover]:text-white">
-            <AlertsBell />
-          </div>
-        </div>
+        {/* Brand + bell moved to the top KPI bar (CostChrome) so they stay
+            pinned when the nav collapses. */}
 
         {/* Workspace switcher pill (RC selector) */}
         <div className="-mx-0.5">
