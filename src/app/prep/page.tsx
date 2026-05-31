@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import {
   ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
   SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock,
+  Flame, Zap, Play, RotateCcw, Minus, X,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { prepDeadline, fmtDuration } from '@/lib/service-hours'
@@ -48,6 +49,28 @@ function PrepDeadlineBanner({ rc }: { rc: import('@/contexts/RevenueCenterContex
   )
 }
 
+// ── Mobile To-Do helpers (match the prep To-Do mockup) ──────────────────────
+function elapsedStr(ms: number) {
+  const m = Math.max(0, Math.floor(ms / 60000))
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+function fq(n: number) { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1) }
+
+// Section header: coloured dot + title + count, with a caption line under it.
+function GroupHead({ dot, title, count, sub }: { dot: string; title: string; count: string; sub: string }) {
+  return (
+    <div className="mt-4 mb-1">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dot }} />
+        <span className="text-[13px] font-semibold text-ink tracking-[-0.01em]">{title}</span>
+        <span className="font-mono text-[11px] text-ink-3">{count}</span>
+      </div>
+      <p className="font-mono text-[10.5px] text-ink-4 mt-0.5 pl-4">{sub}</p>
+    </div>
+  )
+}
+
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc } = useRc()
@@ -65,6 +88,14 @@ export default function PrepPage() {
   const [offlineSyncing, setOfflineSyncing] = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
+
+  // Mobile To-Do: live clock for elapsed timers + log-yield sheet
+  const [nowTs, setNowTs] = useState(() => Date.now())
+  const [mobileLog, setMobileLog] = useState<{ item: PrepItemRich; qty: number } | null>(null)
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
 
   // View state
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
@@ -963,8 +994,8 @@ export default function PrepPage() {
             </div>
           ) : (
             <>
-              {/* Today list — self-contained cards, stacked with gaps */}
-              <div className="flex flex-col gap-2">
+              {/* Desktop: flat card list */}
+              <div className="hidden md:flex flex-col gap-2">
                 {filteredToday.map(item => (
                   <PrepItemRow
                     key={item.id}
@@ -977,7 +1008,120 @@ export default function PrepPage() {
                   />
                 ))}
               </div>
-              <p className="text-center font-mono text-[10.5px] text-ink-3">
+
+              {/* Mobile: status-grouped To-Do (matches mockup) */}
+              <div className="md:hidden">
+                {(() => {
+                  const doing = filteredToday.filter(i => i.todayLog?.status === 'IN_PROGRESS')
+                  const done  = filteredToday.filter(i => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL')
+                  const todo  = filteredToday.filter(i => {
+                    const s = i.todayLog?.status ?? 'NOT_STARTED'
+                    return s !== 'IN_PROGRESS' && s !== 'DONE' && s !== 'PARTIAL' && s !== 'SKIPPED'
+                  })
+                  const total = doing.length + done.length + todo.length
+                  const seg = (n: number) => total ? (n / total) * 100 : 0
+                  return (
+                    <>
+                      {/* progress overview */}
+                      <div className="bg-paper border border-line rounded-xl p-3.5">
+                        <div className="flex items-end justify-between gap-2.5">
+                          <div>
+                            <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em]">Today&apos;s prep</div>
+                            <div className="text-[16px] font-semibold tracking-[-0.02em] mt-1">{done.length} of {total} done</div>
+                          </div>
+                          <div className="font-mono text-[10.5px] text-ink-3 text-right whitespace-nowrap">
+                            {doing.length ? <span className="text-gold-2">{doing.length} in progress</span> : '0 in progress'} · {todo.length} to do
+                          </div>
+                        </div>
+                        <div className="flex h-2 rounded-full overflow-hidden bg-bg-2 mt-3 gap-[2px]">
+                          {done.length > 0 && <div className="bg-green-500" style={{ width: `${seg(done.length)}%` }} />}
+                          {doing.length > 0 && <div className="bg-gold" style={{ width: `${seg(doing.length)}%` }} />}
+                        </div>
+                      </div>
+
+                      {/* In progress */}
+                      {doing.length > 0 && (
+                        <>
+                          <GroupHead dot="#d97706" title="In progress" count={`${doing.length}`} sub="Cooking now — log the yield when finished" />
+                          <div className="flex flex-col gap-2 mt-2.5">
+                            {doing.map(p => (
+                              <div key={p.id} onClick={() => setSelected(p)} className="bg-gold-soft border border-gold rounded-xl px-3.5 py-3 cursor-pointer">
+                                <div className="flex items-center gap-3">
+                                  <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-ink grid place-items-center"><Flame size={16} className="text-gold" /></span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-gold-2 ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
+                                    <div className="font-mono text-[10.5px] text-gold-2 mt-1 flex items-center gap-1.5 whitespace-nowrap">
+                                      <span className="w-[7px] h-[7px] rounded-full bg-gold shrink-0 animate-pulse" />
+                                      {p.todayLog?.updatedAt ? `${elapsedStr(nowTs - new Date(p.todayLog.updatedAt).getTime())} elapsed` : 'in progress'}{p.station ? ` · ${p.station}` : ''}
+                                    </div>
+                                  </div>
+                                  <button onClick={e => { e.stopPropagation(); setMobileLog({ item: p, qty: p.suggestedQty > 0 ? p.suggestedQty : 0 }) }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold">
+                                    <Check size={14} className="text-gold" strokeWidth={2.8} /> Done
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {/* To do */}
+                      {todo.length > 0 && (
+                        <>
+                          <GroupHead dot="#09090b" title="To do" count={`${todo.length}`} sub="Tap for recipe · start when you begin" />
+                          <div className="flex flex-col gap-2 mt-2.5">
+                            {todo.map(p => {
+                              const isCrit = p.priority === '911'
+                              const edge = isCrit ? '#dc2626' : p.priority === 'NEEDED_TODAY' ? '#d97706' : null
+                              return (
+                                <div key={p.id} onClick={() => setSelected(p)} className="bg-paper border border-line rounded-xl px-3.5 py-3 cursor-pointer" style={edge ? { borderLeft: `3px solid ${edge}` } : undefined}>
+                                  <div className="flex items-center gap-3">
+                                    <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-bg-2 border border-line grid place-items-center"><ChefHat size={16} className="text-ink-3" /></span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-ink-3 ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
+                                      <div className="mt-1 flex items-center gap-1.5">
+                                        {isCrit && <span className="font-mono text-[8.5px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 uppercase tracking-[0.02em]">Critical</span>}
+                                        <span className="whitespace-nowrap font-mono text-[10.5px] text-ink-3">{p.station || 'Prep'}{p.linkedRecipeId ? ' · recipe' : ''}</span>
+                                      </div>
+                                    </div>
+                                    <button onClick={e => { e.stopPropagation(); handleStatusChange(p.id, 'IN_PROGRESS') }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold">
+                                      <Zap size={13} className="text-gold" /> Start
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Done */}
+                      {done.length > 0 && (
+                        <>
+                          <GroupHead dot="#16a34a" title="Done" count={`${done.length}`} sub="Logged → feeds history & yield insights" />
+                          <div className="flex flex-col gap-1.5 mt-2.5">
+                            {done.map(p => (
+                              <div key={p.id} className="flex items-center gap-3 bg-paper border border-line rounded-[10px] px-3.5 py-2.5">
+                                <span className="w-6 h-6 rounded-[7px] bg-green-600 grid place-items-center shrink-0"><Check size={14} className="text-white" strokeWidth={3} /></span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[13.5px] font-medium text-ink-3 line-through truncate">{p.name}</div>
+                                  <div className="font-mono text-[10px] text-ink-4 mt-0.5">{p.station || 'Prep'} · done</div>
+                                </div>
+                                <span className="font-mono text-[11.5px] font-semibold text-green-700 shrink-0">{fq(p.todayLog?.actualPrepQty ?? p.suggestedQty)} {p.unit}</span>
+                                <button onClick={() => handleStatusChange(p.id, 'NOT_STARTED')} title="Reopen" className="w-7 h-7 rounded-[8px] border border-line grid place-items-center shrink-0 text-ink-3">
+                                  <RotateCcw size={13} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+
+              <p className="text-center font-mono text-[10.5px] text-ink-3 mt-3">
                 This list carries over each day — items stay until marked done or removed.
               </p>
             </>
@@ -1578,6 +1722,49 @@ export default function PrepPage() {
           onSaved={() => { load(); loadSettings(); setShowSettings(false) }}
         />
       )}
+
+      {/* Mobile log-yield sheet (from an in-progress To-Do card) */}
+      {mobileLog && (() => {
+        const { item, qty } = mobileLog
+        const isFine = item.unit === 'kg' || item.unit === 'L'
+        const step = isFine ? 0.1 : 1
+        const setQty = (q: number) => setMobileLog(m => m ? { ...m, qty: Math.max(0, +q.toFixed(1)) } : m)
+        const meetsPar = qty >= item.parLevel
+        return (
+          <div className="md:hidden fixed inset-0 z-[80] flex items-end">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setMobileLog(null)} />
+            <div className="relative w-full bg-paper rounded-t-2xl shadow-xl pb-8 animate-[slide-up_.25s_ease]">
+              <div className="flex justify-center pt-2.5"><div className="w-9 h-[5px] rounded-full bg-line-2" /></div>
+              <div className="flex items-center justify-between px-5 pt-3 pb-1">
+                <div className="text-[18px] font-semibold tracking-[-0.02em]">Log · {item.name}</div>
+                <button onClick={() => setMobileLog(null)} className="w-8 h-8 rounded-full bg-bg-2 grid place-items-center text-ink-3"><X size={16} /></button>
+              </div>
+              <div className="px-5 pt-2">
+                <div className="font-mono text-[11px] text-ink-3 mb-3">
+                  {(item.station || 'PREP').toUpperCase()} · PLANNED {fq(item.suggestedQty)} {item.unit} · PAR {fq(item.parLevel)} {item.unit}
+                </div>
+                <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] text-center mb-3">Yield made · {item.unit}</div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setQty(qty - step)} className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0"><Minus size={26} className="text-ink-2" /></button>
+                  <div className="flex-1 text-center">
+                    <div className="text-[44px] font-semibold tracking-[-0.04em] leading-none">{isFine ? qty.toFixed(1) : qty.toFixed(0)}</div>
+                  </div>
+                  <button onClick={() => setQty(qty + step)} className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0"><Plus size={26} className="text-gold" /></button>
+                </div>
+                <div className="font-mono text-[11px] text-center mt-3 mb-4" style={{ color: meetsPar ? '#15803d' : '#b45309' }}>
+                  par {fq(item.parLevel)} {item.unit} · {meetsPar ? 'meets par ✓' : `short ${fq(Math.max(0, item.parLevel - qty))}${item.unit}`}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setMobileLog(null)} className="flex-1 h-12 rounded-xl border border-line text-ink-2 text-[14px] font-medium">Cancel</button>
+                  <button onClick={() => { handleStatusChange(item.id, 'DONE', qty > 0 ? qty : undefined); setMobileLog(null) }} className="flex-1 h-12 rounded-xl bg-ink text-paper text-[14px] font-semibold inline-flex items-center justify-center gap-2">
+                    <Check size={16} className="text-gold" strokeWidth={2.6} /> Mark done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
