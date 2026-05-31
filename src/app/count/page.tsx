@@ -12,6 +12,7 @@ import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/l
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useUser } from '@/contexts/UserContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
   enqueueCountMutation, flushCountQueue, loadCountQueue,
@@ -57,6 +58,16 @@ interface Line {
   sortOrder: number
   notes: string | null
   updatedAt?: string               // for optimistic concurrency on PATCH
+}
+
+interface CountAreaRow {
+  id: string
+  name: string
+  itemCount: number
+  onHandValue: number
+  drift: number
+  lastCountDate: string | null
+  activeSessionId: string | null
 }
 
 interface Session {
@@ -208,6 +219,9 @@ export default function CountPage() {
 
   // ── Storage areas (for partial count picker) ─────────────────────────────
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
+  const [countAreas, setCountAreas] = useState<CountAreaRow[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [startingArea, setStartingArea] = useState<string | null>(null)
 
   // ── Add-item modal ────────────────────────────────────────────────────────
   const [showAddItem,    setShowAddItem]    = useState(false)
@@ -231,6 +245,8 @@ export default function CountPage() {
 
   const { revenueCenters, activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
+  const { user } = useUser()
+  const counterName = user?.name || user?.email?.split('@')[0] || 'You'
   const [selectedRcId, setSelectedRcId] = useState<string>('')
 
   useEffect(() => {
@@ -254,7 +270,17 @@ export default function CountPage() {
     return fetch(`/api/count/sessions/${id}`).then(r => r.json()).catch(() => null)
   }, [])
 
-  useEffect(() => { loadSessions() }, [loadSessions])
+  const loadCountAreas = useCallback(async () => {
+    const params = new URLSearchParams()
+    if (activeRcId) {
+      params.set('rcId', activeRcId)
+      if (activeRc?.isDefault) params.set('isDefault', 'true')
+    }
+    const data = await fetch(`/api/count/areas?${params}`).then(r => r.json()).catch(() => [])
+    setCountAreas(Array.isArray(data) ? data : [])
+  }, [activeRcId, activeRc])
+
+  useEffect(() => { loadSessions(); loadCountAreas() }, [loadSessions, loadCountAreas])
   useEffect(() => {
     fetch('/api/storage-areas').then(r => r.json()).then(d => {
       if (Array.isArray(d)) setStorageAreas(d)
@@ -401,6 +427,56 @@ export default function CountPage() {
     setActive(full)
     setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null)
     setView(target)
+  }
+
+  // Create a count session scoped to the given area (or full when areaId is null),
+  // then open count mode. Used by the area-based landing.
+  const createAndOpenCount = async (label: string | undefined, areaId: string | null) => {
+    const res = await fetch('/api/count/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        label,
+        type: 'FULL',
+        countedBy: counterName,
+        sessionDate: new Date().toISOString().slice(0, 10),
+        areaFilter: areaId || undefined,
+        revenueCenterId: activeRcId || undefined,
+      }),
+    })
+    const session = await res.json()
+    await loadSessions(); loadCountAreas()
+    const full = await loadSession(session.id)
+    if (full) {
+      saveCountSessionCache(session.id, full)
+      setPendingCount(0)
+      setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count')
+    }
+  }
+
+  // Tap a storage area → resume its active session, else start a fresh one scoped to it.
+  const startAreaCount = async (area: CountAreaRow) => {
+    if (startingArea) return
+    setStartingArea(area.id)
+    try {
+      if (area.activeSessionId) {
+        const existing = sessions.find(s => s.id === area.activeSessionId)
+        await openSession(existing ?? ({ id: area.activeSessionId } as Session), existing?.status === 'PENDING_REVIEW' ? 'review' : 'count')
+      } else {
+        await createAndOpenCount(area.name, area.id)
+      }
+    } finally { setStartingArea(null) }
+  }
+
+  // "Full count" — resume an active all-areas session if one exists, else create one.
+  const startFullCount = async () => {
+    if (startingArea) return
+    setStartingArea('__full__')
+    try {
+      const activeFull = sessions.find(s => !s.areaFilter && (s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW'))
+      if (activeFull) await openSession(activeFull, activeFull.status === 'PENDING_REVIEW' ? 'review' : 'count')
+      else await createAndOpenCount(undefined, null)
+    } finally { setStartingArea(null) }
   }
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -1121,8 +1197,8 @@ export default function CountPage() {
               </div>
             </div>
 
-            {/* ── Filter chips ── */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
+            {/* ── Filter chips (desktop) ── */}
+            <div className="hidden md:flex flex-wrap gap-1.5 mb-3">
               {sessionFilterChips.map(({ key, label }) => (
                 <button
                   key={key}
@@ -1138,8 +1214,8 @@ export default function CountPage() {
               ))}
             </div>
 
-            {/* ── Search + filters ── */}
-            <div className="flex gap-2 mb-3">
+            {/* ── Search + filters (desktop) ── */}
+            <div className="hidden md:flex gap-2 mb-3">
               <div className="relative flex-1">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
                 <input
@@ -1152,12 +1228,60 @@ export default function CountPage() {
               </div>
             </div>
 
-            <p className="font-mono text-[11px] text-ink-3 mb-3 tracking-wide">
+            <p className="hidden md:block font-mono text-[11px] text-ink-3 mb-3 tracking-wide">
               SHOWING {filteredSessions.length} OF {sessions.length} COUNT{sessions.length !== 1 ? 'S' : ''} · NEWEST FIRST
             </p>
 
-            {/* ── Mobile list ── */}
-            <div className="flex md:hidden flex-col gap-2 mb-4">
+            {/* ── Mobile areas overview (taps start/resume an area-scoped count) ── */}
+            <div className="md:hidden space-y-2.5 mb-4">
+              <div className="flex items-center justify-between px-0.5">
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3">Storage areas</span>
+                <span className="font-mono text-[10.5px] text-ink-4">{countAreas.length} area{countAreas.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="bg-paper border border-line rounded-xl overflow-hidden divide-y divide-line">
+                {countAreas.map(a => {
+                  const days = a.lastCountDate ? Math.floor((Date.now() - new Date(a.lastCountDate).getTime()) / 86_400_000) : null
+                  const stale = days === null || days >= 7
+                  const active = !!a.activeSessionId
+                  const lastLabel = days === 0 ? 'today' : days === 1 ? '1d ago' : `${days}d ago`
+                  return (
+                    <button key={a.id} disabled={!!startingArea} onClick={() => startAreaCount(a)}
+                      className="w-full text-left flex items-center gap-3 px-3.5 py-3 active:bg-bg-2 disabled:opacity-60">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green-500'}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-semibold text-ink truncate">{a.name}</div>
+                        <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
+                          {a.itemCount} items · {active
+                            ? <span className="text-gold-2 font-medium">in progress</span>
+                            : days === null ? 'never counted' : <>last {lastLabel}{stale ? ' · stale' : ''}</>}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-mono text-[12px] text-ink-2">{formatCurrency(a.onHandValue)}</div>
+                        {!active && a.drift >= 1 && (
+                          <div className="font-mono text-[10px] text-red-text mt-0.5">drift ~${Math.round(a.drift).toLocaleString()}</div>
+                        )}
+                        {active
+                          ? <div className="font-mono text-[10px] text-gold-2 font-medium mt-0.5">Resume →</div>
+                          : <div className="font-mono text-[10px] text-ink-4 mt-0.5">{startingArea === a.id ? 'starting…' : 'Count ›'}</div>}
+                      </div>
+                    </button>
+                  )
+                })}
+                {countAreas.length === 0 && <div className="px-3.5 py-8 text-center font-mono text-[11px] text-ink-4">No storage areas with items</div>}
+              </div>
+              <button disabled={!!startingArea} onClick={startFullCount}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-line-2 text-ink-2 text-[13px] font-medium active:bg-bg-2 disabled:opacity-60">
+                <Plus size={15} className="text-ink-3" /> {startingArea === '__full__' ? 'Starting…' : 'Full count · all areas'}
+              </button>
+              <button onClick={() => setShowHistory(v => !v)} className="w-full flex items-center justify-between py-1.5 px-0.5 font-mono text-[11px] text-ink-3">
+                <span>Recent counts</span>
+                <ChevronDown size={14} className={`transition-transform ${showHistory ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
+
+            {/* ── Mobile list (session history; desktop always; mobile behind "Recent counts") ── */}
+            <div className={`md:hidden flex-col gap-2 mb-4 ${showHistory ? 'flex' : 'hidden'}`}>
               {filteredSessions.map(s => {
                 const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
                 const isUpdating = s.status === 'UPDATING'
