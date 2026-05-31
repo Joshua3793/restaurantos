@@ -33,10 +33,15 @@ Therefore: we **integrate** the prototype's IA and screens into the existing Nex
 
 ### 2.1 Navigation shell
 
-A single new client component, `MobileTabBar`, mounted once in `src/app/layout.tsx`, rendered fixed-bottom on small screens only (`flex sm:hidden`). Navigation remains **URL-based** — tabs are `next/link` `Link`s to real routes — so deep links, the browser back button, and `src/middleware.ts` auth all continue to work unchanged.
+A mobile bottom nav **already exists** in `src/components/Navigation.tsx` (`md:hidden fixed bottom-0`, rendered via the `Navigation` component mounted in `layout.tsx`). Its current five slots are `Pass · Prep · [Pages drawer] · Count · Invoices`, with a full-screen "All Pages" drawer behind the center button. Phase 1 **refactors this in place** into `Today · Prep · ＋ · Count · More` rather than adding a second bar. Navigation remains **URL-based** — tabs are `next/link` `Link`s to real routes — so deep links, the browser back button, and `src/middleware.ts` auth all keep working.
 
 - **Top of screen (`< sm`):** keep the existing `MobileRcBar` (revenue-center switch + alerts bell). The app is multi-revenue-center; the prototype was single-venue, so this is an intentional divergence from the prototype.
-- **Bottom (`< sm`):** new `MobileTabBar` with five slots: `Today · Prep · ＋ · Count · More`. The center ＋ is not a route — it opens the quick-add bottom sheet. The "More" tab carries a dot indicator when there are pending inbox items.
+- **Bottom (`< sm`):** refactored bar, five slots: `Today · Prep · ＋ · Count · More`.
+  - `Pass` slot → **Today** (new route, §2.2/Phase 1).
+  - center `[Pages]` button → **＋ quick-add sheet** (not a route).
+  - `Invoices` slot → **More** — opens the existing "All Pages" drawer, which becomes the More-hub foundation (Phase 5). Invoices moves *into* the More hub / Inbox.
+  - The More tab carries a dot indicator when there are pending inbox items (the existing badge-polling in `Navigation.tsx` already fetches `/api/invoices/kpis`).
+- **Note on `<sm>` vs `<md>`:** the existing mobile chrome uses the `md` breakpoint (`md:hidden`), not `sm`. Phase 1 follows the existing `md` convention for the nav bar to stay consistent with `MobileRcBar` and the current bottom nav, even though per-page dual renderers use `sm`. (Tablet `sm`–`md` widths keep the mobile nav; acceptable.)
 - **Active-tab logic:** the bar highlights based on the current pathname. Routes outside the four core tabs (e.g. `/inventory`, `/recipes`, `/wastage`, `/signals`) highlight "More", mirroring the prototype's `tabActive` logic.
 - **Content offset:** the existing `pb-20 md:pb-0` bottom padding on main content already reserves space; verify it clears the tab bar height (prototype uses 84px incl. home-indicator gutter) and adjust the utility if needed.
 
@@ -72,7 +77,7 @@ Each phase is independently shippable and ordered so later phases depend only on
 
 The backbone every other screen hangs off.
 
-- **`MobileTabBar`** as in §2.1.
+- **Refactor the existing mobile bottom nav** in `Navigation.tsx` into `Today · Prep · ＋ · Count · More` as in §2.1 (extract to `src/components/mobile/MobileTabBar.tsx` for focus).
 - **Quick-add launcher** (`Sheet`): Log waste · Capture invoice · Scan item · Start a count. Each routes to the relevant flow (some land in later phases; until then they route to the closest existing screen).
 - **`/today` route** (mobile renderer; desktop can redirect or show the existing pass). The root `/` mobile redirect lands here instead of the current STAFF→`/count` / MANAGER→`/pass` split.
   - **Manager Today:** `CostChrome` strip (reused), "Needs you" queue, prep overview (read-only progress rows → `/prep`), 2×2 quick actions.
@@ -156,4 +161,4 @@ The backbone every other screen hangs off.
 
 **Reused:** `CostChrome`, `SpineAuditDrawer`, `MobileRcBar`, `CameraCapture`, `PrepKpiStrip`, `RecipeViewModal`, recipes `shared.tsx`, `InventoryItemDrawer`, `count-offline.ts`, `components/ui/*`, `RevenueCenterContext`, `UserContext`, all existing APIs.
 
-**Modified:** `src/app/layout.tsx` (mount `MobileTabBar`), `CostChrome.tsx` (allow mobile render), root `/` mobile redirect (→ `/today`), `globals.css` (tab-bar clearance if needed).
+**Modified:** `src/components/Navigation.tsx` (refactor mobile bottom nav → `Today · Prep · ＋ · Count · More`, extract to `MobileTabBar`; "All Pages" drawer → More-hub seed), `CostChrome.tsx` + `CostChromeGate.tsx` (allow mobile render on `/today`), root `/` redirect (→ `/today` for all roles on mobile), `globals.css` (tab-bar clearance if needed).
