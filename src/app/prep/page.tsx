@@ -10,7 +10,6 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { prepDeadline, fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
-import { useRc } from '@/contexts/RevenueCenterContext'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import PrepToolbar from '@/components/prep/PrepToolbar'
@@ -77,7 +76,6 @@ export default function PrepPage() {
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
 
   // Redesigned To-do tab — drawer, cook-along modal, toast, alert dismissal
-  const { activeRc } = useRc()
   const { toast, toastNode } = usePrepToast()
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
