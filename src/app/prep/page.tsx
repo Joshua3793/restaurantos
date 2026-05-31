@@ -110,6 +110,7 @@ export default function PrepPage() {
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
   const [smartPrepView,     setSmartPrepView]     = useState<'urgency' | 'category' | 'station'>('urgency')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const [mSearchOpen, setMSearchOpen] = useState(false)
   const [lookingGoodOpen,   setLookingGoodOpen]   = useState(false)
 
   // Filters (used in Smart Prep and Today)
@@ -744,24 +745,30 @@ export default function PrepPage() {
               })()}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={() => setMSearchOpen(o => !o)}
+              className={`p-1.5 rounded-lg border transition-colors ${mSearchOpen || search ? 'border-gold/40 bg-gold-soft text-gold-2' : 'border-line text-ink-3 hover:bg-bg-2'}`}
+              title="Search">
+              <Search size={15} />
+            </button>
             <button onClick={handleRefresh} disabled={generating}
-              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              className="p-1.5 rounded-lg border border-line text-ink-3 hover:bg-bg-2 disabled:opacity-50"
               title="Refresh">
-              <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
+              <RefreshCw size={15} className={generating ? 'animate-spin' : ''} />
             </button>
             <button onClick={() => setShowSettings(true)}
-              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              className="p-1.5 rounded-lg border border-line text-ink-3 hover:bg-bg-2"
               title="Settings">
-              <Settings size={16} />
+              <Settings size={15} />
             </button>
             <button onClick={handleSync} disabled={syncing}
-              className="p-2 rounded-lg border border-gold/30 text-gold bg-gold/10 hover:bg-gold/15 disabled:opacity-50"
+              className="p-1.5 rounded-lg border border-gold/30 text-gold bg-gold-soft hover:bg-gold/15 disabled:opacity-50"
               title="Sync from Recipes">
-              <BookOpen size={16} className={syncing ? 'animate-pulse' : ''} />
+              <BookOpen size={15} className={syncing ? 'animate-pulse' : ''} />
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="p-2 rounded-lg bg-gold text-white hover:bg-[#a88930]">
+              className="p-1.5 rounded-lg bg-gold text-white hover:bg-gold-2"
+              title="Add prep item">
               <Plus size={16} />
             </button>
           </div>
@@ -777,17 +784,24 @@ export default function PrepPage() {
           ))}
         </div>
 
-        {/* Search + filter toggle */}
-        {viewMode !== 'history' && (
-          <div className="flex gap-2 mt-3">
+        {/* Search + filter — collapsed by default; opens from the search icon above */}
+        {viewMode !== 'history' && (mSearchOpen || search) && (
+          <div className="flex gap-2 mt-2.5">
             <div className="relative flex-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
               <input
-                className="w-full pl-9 pr-3 py-2 text-sm border border-line rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
+                autoFocus
+                className="w-full pl-9 pr-9 py-2 text-sm border border-line rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
                 placeholder="Search prep items…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
+              <button
+                onClick={() => { setSearch(''); setMSearchOpen(false) }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2"
+                title="Close search">
+                <X size={15} />
+              </button>
             </div>
             <button
               onClick={() => setShowMobileFilters(v => !v)}

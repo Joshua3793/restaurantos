@@ -19,7 +19,7 @@ interface ChromeData {
   sourceItemCount: number
 }
 
-export function CostChrome() {
+export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
   const { activeRcId } = useRc()
   const [data, setData] = useState<ChromeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -53,7 +53,7 @@ export function CostChrome() {
   const v7d = data?.variance7d ?? null
 
   return (
-    <div className="flex bg-ink text-paper px-4 md:px-8 py-[10px] items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible">
+    <div className={`${desktopOnly ? 'hidden md:flex' : 'flex'} bg-ink text-paper px-4 md:px-8 py-[10px] items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
       <CCItem
         label="Food cost · live"
         value={loading ? '…' : fmtPct(fcPct)}

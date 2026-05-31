@@ -38,5 +38,7 @@ export function CostChromeGate() {
   if (HIDDEN_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) return null
   const onSpine = SPINE_ROUTES.some(p => pathname === p || pathname.startsWith(p + '/'))
   if (!onSpine) return null
-  return <CostChrome />
+  // On prep, the strip is read-only KPI that crowds the mobile list — desktop-only there.
+  const desktopOnly = pathname === '/prep' || pathname.startsWith('/prep/')
+  return <CostChrome desktopOnly={desktopOnly} />
 }
