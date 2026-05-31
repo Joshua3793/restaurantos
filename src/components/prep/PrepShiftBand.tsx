@@ -8,7 +8,7 @@ interface PrepShiftBandProps {
 }
 
 const CHIP_BASE =
-  'inline-flex items-center gap-1.5 text-xs font-medium text-ink-2 bg-bg border border-line px-2.5 py-[5px] rounded-full'
+  'inline-flex items-center gap-1.5 text-xs font-medium text-ink-2 bg-bg border border-line px-2.5 py-[5px] rounded-full shrink-0 whitespace-nowrap'
 
 function CriticalChip({ count }: { count: number }) {
   return (
@@ -53,9 +53,9 @@ export default function PrepShiftBand({ summary, countdown, workloadLabel }: Pre
   const progPct = summary.total ? (summary.inProgress / summary.total) * 100 : 0
 
   return (
-    <div className="bg-paper border border-line rounded-[13px] mb-[18px] flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-[22px] px-4 sm:px-5 py-[13px]">
+    <div className="bg-paper border border-line rounded-[13px] mb-3 sm:mb-[18px] flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2 sm:gap-[22px] px-3.5 sm:px-5 py-2.5 sm:py-[13px]">
       <div className="flex flex-col gap-[3px] shrink-0">
-        <div className="text-[25px] font-semibold tracking-[-0.04em] leading-none">
+        <div className="text-[20px] sm:text-[25px] font-semibold tracking-[-0.04em] leading-none">
           {summary.done}
           <em className="not-italic text-ink-4 font-medium"> / {summary.total}</em>
         </div>
@@ -69,7 +69,7 @@ export default function PrepShiftBand({ summary, countdown, workloadLabel }: Pre
           <div className="bg-green" style={{ width: `${donePct}%` }} />
           <div className="bg-gold" style={{ width: `${progPct}%` }} />
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-0.5 px-0.5 [&::-webkit-scrollbar]:hidden">
           {summary.critical > 0 && <CriticalChip count={summary.critical} />}
           {summary.blocked > 0 && <BlockedChip count={summary.blocked} />}
           {countdown && <StartByChip countdown={countdown} />}

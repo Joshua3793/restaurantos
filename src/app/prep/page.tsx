@@ -14,6 +14,7 @@ import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import PrepToolbar from '@/components/prep/PrepToolbar'
 import PrepTaskRow from '@/components/prep/PrepTaskRow'
+import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
 import PrepGetAhead from '@/components/prep/PrepGetAhead'
 import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
@@ -1001,13 +1002,19 @@ export default function PrepPage() {
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
               )}
               {todayGroups.critical.map(item => (
-                <PrepTaskRow key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+                <div key={item.id}>
+                  <div className="hidden md:block"><PrepTaskRow item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                  <div className="md:hidden"><PrepTaskRowCompact item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                </div>
               ))}
               {todayGroups.needed.length > 0 && (
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
               )}
               {todayGroups.needed.map(item => (
-                <PrepTaskRow key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+                <div key={item.id}>
+                  <div className="hidden md:block"><PrepTaskRow item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                  <div className="md:hidden"><PrepTaskRowCompact item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                </div>
               ))}
               <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
               <p className="text-center text-xs text-ink-4 mt-4">This list carries over each day — items stay until marked done or removed.</p>
