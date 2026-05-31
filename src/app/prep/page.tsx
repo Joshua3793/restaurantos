@@ -1070,15 +1070,54 @@ export default function PrepPage() {
             </p>
           </div>
 
-          {/* Mobile info banner (original) */}
-          <div className="md:hidden flex items-center gap-3 flex-wrap">
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 flex-1 min-w-0">
-              <span className="text-amber-600 shrink-0">📊</span>
-              <p className="text-sm text-amber-800">
-                Suggestions based on <strong>theoretical stock</strong> from sales, wastage &amp; invoices. Resets at each stock count.
-              </p>
-            </div>
-          </div>
+          {/* Mobile Smart Prep summary — compact context strip (mirrors desktop cards) */}
+          {(() => {
+            const actionItems = [...spCritical, ...spNeeded]
+            const topAction = actionItems[0]
+            const totalPrepMinutes = actionItems.reduce((sum, i) => sum + (i.estimatedPrepTime ?? 0), 0)
+            return (
+              <div className="md:hidden space-y-2">
+                {/* Dark hero — today's suggested prep */}
+                <div className="bg-ink text-paper rounded-xl border border-ink p-4 relative overflow-hidden">
+                  <div className="absolute top-4 right-4 flex items-end gap-[2px] h-[16px]">
+                    {[11, 14, 8, 16, 10, 13, 17, 12].map((h, i) => (
+                      <span key={i} className="w-[3px] rounded-[1px]" style={{ height: h, background: '#3f3f46' }} />
+                    ))}
+                  </div>
+                  <p className="font-mono text-[10px] text-ink-4 tracking-[0.04em] uppercase">Today&apos;s suggested prep</p>
+                  <p className="text-[34px] font-semibold tracking-[-0.045em] leading-none mt-1.5">
+                    {actionItems.length}
+                    <span className="text-[16px] font-medium text-gold ml-1.5 tracking-[-0.02em]">item{actionItems.length !== 1 ? 's' : ''}</span>
+                  </p>
+                  <p className="font-mono text-[11px] text-ink-4 mt-2">
+                    {topAction
+                      ? <>{topAction.suggestedQty % 1 === 0 ? topAction.suggestedQty.toFixed(0) : topAction.suggestedQty.toFixed(1)} {topAction.unit} {topAction.name.toLowerCase()}{totalPrepMinutes > 0 ? <> · <b className="text-paper font-medium">~{totalPrepMinutes} min</b></> : null}</>
+                      : 'nothing to prep right now'}
+                  </p>
+                </div>
+                {/* Critical / Needed / On-par stat chips */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-[#fef2f2] border border-[#fca5a5] rounded-xl px-3 py-2.5 relative">
+                    {spCritical.length > 0 && <span className="absolute top-2.5 right-2.5 w-[6px] h-[6px] rounded-full bg-red" />}
+                    <p className="font-mono text-[9.5px] text-red-700 tracking-[0.03em] uppercase">Critical</p>
+                    <p className="text-[22px] font-semibold tracking-[-0.03em] text-red-700 leading-none mt-1">{spCritical.length}</p>
+                  </div>
+                  <div className="bg-paper border border-line rounded-xl px-3 py-2.5">
+                    <p className="font-mono text-[9.5px] text-ink-3 tracking-[0.03em] uppercase">Needed</p>
+                    <p className={`text-[22px] font-semibold tracking-[-0.03em] leading-none mt-1 ${spNeeded.length > 0 ? 'text-ink' : 'text-ink-3'}`}>{spNeeded.length}</p>
+                  </div>
+                  <div className="bg-paper border border-line rounded-xl px-3 py-2.5">
+                    <p className="font-mono text-[9.5px] text-ink-3 tracking-[0.03em] uppercase">On par</p>
+                    <p className="text-[22px] font-semibold tracking-[-0.03em] text-green-700 leading-none mt-1">{spLookingGood.length}</p>
+                  </div>
+                </div>
+                {/* Live-source caption */}
+                <p className="font-mono text-[10px] text-ink-3 leading-[1.5] px-0.5">
+                  Live from <b className="text-ink-2 font-medium">theoretical stock</b> · resets at each count
+                </p>
+              </div>
+            )
+          })()}
 
           {/* Desktop tools row: search + dropdowns + segmented control */}
           <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center">
