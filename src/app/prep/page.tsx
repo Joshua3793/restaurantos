@@ -14,6 +14,7 @@ import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import PrepToolbar from '@/components/prep/PrepToolbar'
 import PrepTaskRow from '@/components/prep/PrepTaskRow'
+import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
 import PrepGetAhead from '@/components/prep/PrepGetAhead'
 import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
@@ -524,8 +525,19 @@ export default function PrepPage() {
       const r = rRes.ok ? await rRes.json() : null
       const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
       if (!r) return
+      // Steps may be a structured array; otherwise fall back to parsing the recipe's
+      // free-text notes (e.g. "Instructions: 1. … 2. …") so the method is always shown.
+      const parsedSteps: string[] = (() => {
+        if (Array.isArray(r.steps) && r.steps.length > 0) return r.steps.map(String)
+        const notes: string = typeof r.notes === 'string' ? r.notes : ''
+        if (!notes.trim()) return []
+        const body = notes.replace(/^\s*(?:instructions?|method|steps)\s*:?\s*/i, '')
+        let parts = body.split(/(?=\d+[.)]\s)/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean)
+        if (parts.length <= 1) parts = body.split(/\n+/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean)
+        return parts
+      })()
       const recipe: RecipeStepsData = {
-        id: r.id, name: r.name, steps: Array.isArray(r.steps) ? r.steps : [],
+        id: r.id, name: r.name, steps: parsedSteps,
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
       }
@@ -975,16 +987,19 @@ export default function PrepPage() {
               }
             />
           )}
-          <PrepToolbar
-            search={search} onSearch={setSearch}
-            categories={categories} stations={stations}
-            filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
-            onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
-            filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
-            onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
-            activeOnly={activeOnly} onActiveOnly={setActiveOnly}
-            forceOpen={todayItems.length > 3}
-          />
+          {/* Desktop gets the full filter toolbar; mobile chefs scan the grouped list, so it's hidden there. */}
+          <div className="hidden md:block">
+            <PrepToolbar
+              search={search} onSearch={setSearch}
+              categories={categories} stations={stations}
+              filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
+              onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
+              filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
+              onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
+              activeOnly={activeOnly} onActiveOnly={setActiveOnly}
+              forceOpen={todayItems.length > 3}
+            />
+          </div>
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
@@ -1001,13 +1016,19 @@ export default function PrepPage() {
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
               )}
               {todayGroups.critical.map(item => (
-                <PrepTaskRow key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+                <div key={item.id}>
+                  <div className="hidden md:block"><PrepTaskRow item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                  <div className="md:hidden"><PrepTaskRowCompact item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                </div>
               ))}
               {todayGroups.needed.length > 0 && (
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
               )}
               {todayGroups.needed.map(item => (
-                <PrepTaskRow key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+                <div key={item.id}>
+                  <div className="hidden md:block"><PrepTaskRow item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                  <div className="md:hidden"><PrepTaskRowCompact item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
+                </div>
               ))}
               <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
               <p className="text-center text-xs text-ink-4 mt-4">This list carries over each day — items stay until marked done or removed.</p>
