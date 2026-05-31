@@ -525,8 +525,19 @@ export default function PrepPage() {
       const r = rRes.ok ? await rRes.json() : null
       const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
       if (!r) return
+      // Steps may be a structured array; otherwise fall back to parsing the recipe's
+      // free-text notes (e.g. "Instructions: 1. … 2. …") so the method is always shown.
+      const parsedSteps: string[] = (() => {
+        if (Array.isArray(r.steps) && r.steps.length > 0) return r.steps.map(String)
+        const notes: string = typeof r.notes === 'string' ? r.notes : ''
+        if (!notes.trim()) return []
+        const body = notes.replace(/^\s*(?:instructions?|method|steps)\s*:?\s*/i, '')
+        let parts = body.split(/(?=\d+[.)]\s)/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean)
+        if (parts.length <= 1) parts = body.split(/\n+/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean)
+        return parts
+      })()
       const recipe: RecipeStepsData = {
-        id: r.id, name: r.name, steps: Array.isArray(r.steps) ? r.steps : [],
+        id: r.id, name: r.name, steps: parsedSteps,
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
       }
