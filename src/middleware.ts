@@ -43,6 +43,13 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // LOCAL-DEV ONLY: skip auth entirely when the bypass flag is set. Hard-gated to
+  // non-production (NODE_ENV is 'production' on deployed builds), so this can never
+  // disable auth in production. requireSession() applies the same bypass for APIs.
+  if (process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_BYPASS === 'true') {
+    return NextResponse.next({ request })
+  }
+
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(

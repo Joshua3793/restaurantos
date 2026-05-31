@@ -1634,7 +1634,17 @@ export default function CountPage() {
           </div>
 
           {isOpen && (
-            <div className="px-3 pb-3 pt-1 border-t border-line">
+            <div className="fixed inset-0 z-[60] flex items-end md:hidden" onClick={() => setOpenId(null)}>
+              <div className="absolute inset-0 bg-black/40" />
+              <div className="relative w-full bg-paper rounded-t-2xl px-4 pb-8 pt-2 shadow-xl animate-[slide-up_.25s_ease]" onClick={e => e.stopPropagation()}>
+                <div className="w-9 h-1 bg-line rounded-full mx-auto mb-3" />
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-semibold text-ink truncate tracking-[-0.02em]">{line.inventoryItem.itemName}</div>
+                    {subtitle && <div className="font-mono text-[11px] text-ink-3 mt-0.5">{subtitle}</div>}
+                  </div>
+                  <button onClick={() => setOpenId(null)} className="p-1 -mr-1 text-ink-4 shrink-0"><X size={18} /></button>
+                </div>
               {/* UOM selector + expected */}
               {(() => {
                 const uoms = getCountableUoms(line.inventoryItem)
@@ -1675,25 +1685,25 @@ export default function CountPage() {
                   </>
                 )
               })()}
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-3 mb-2">
                 <button
                   onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
-                  className="w-12 h-12 rounded-[10px] bg-bg-2 border border-line flex items-center justify-center shrink-0"
+                  className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line flex items-center justify-center shrink-0 active:bg-line"
                 >
-                  <Minus size={18} className="text-ink-2" />
+                  <Minus size={26} className="text-ink-2" />
                 </button>
                 <input
                   type="number"
                   value={inputQty}
                   onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
-                  className="flex-1 min-w-0 h-12 text-center text-2xl font-bold border-2 border-gold rounded-[10px] focus:outline-none text-ink"
+                  className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink"
                   min={0} step={0.1}
                 />
                 <button
                   onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
-                  className="w-12 h-12 rounded-[10px] bg-bg-2 border border-line flex items-center justify-center shrink-0"
+                  className="w-[60px] h-[60px] rounded-2xl bg-ink flex items-center justify-center shrink-0 active:bg-ink-2"
                 >
-                  <Plus size={18} className="text-ink-2" />
+                  <Plus size={26} className="text-gold" />
                 </button>
               </div>
               <div className="text-center font-mono text-[11px] text-ink-3 mb-3">{line.selectedUom}</div>
@@ -1717,6 +1727,7 @@ export default function CountPage() {
                 >
                   <SkipForward size={13} /> Skip
                 </button>
+              </div>
               </div>
             </div>
           )}
@@ -2058,11 +2069,14 @@ export default function CountPage() {
                     <button onClick={() => setCatFilter(null)}
                       className={`px-3 py-1.5 rounded-full text-[13px] border transition-colors ${catFilter === null ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}
                     >All</button>
-                    {categories.map(([cat]) => (
-                      <button key={cat} onClick={() => setCatFilter(cat)}
-                        className={`px-3 py-1.5 rounded-full text-[13px] border transition-colors ${catFilter === cat ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}
-                      >{cat}</button>
-                    ))}
+                    {categories.map(([cat, total]) => {
+                      const done = (active.lines ?? []).filter(l => l.inventoryItem.category === cat && (l.countedQty !== null || l.skipped)).length
+                      return (
+                        <button key={cat} onClick={() => setCatFilter(cat)}
+                          className={`px-3 py-1.5 rounded-full text-[13px] border transition-colors ${catFilter === cat ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}
+                        >{cat} <span className={`font-mono text-[11px] ${catFilter === cat ? 'text-paper/60' : 'text-ink-4'}`}>{done}/{total}</span></button>
+                      )
+                    })}
                   </div>
                 </div>
                 {locations.length > 0 && (

@@ -19,7 +19,7 @@ interface ChromeData {
   sourceItemCount: number
 }
 
-export function CostChrome() {
+export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
   const { activeRcId } = useRc()
   const [data, setData] = useState<ChromeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -53,7 +53,7 @@ export function CostChrome() {
   const v7d = data?.variance7d ?? null
 
   return (
-    <div className="hidden md:flex bg-ink text-paper px-8 py-[10px] items-center gap-6 border-b border-ink">
+    <div className={`${desktopOnly ? 'hidden md:flex' : 'flex'} bg-ink text-paper px-4 md:px-8 py-[10px] items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
       <CCItem
         label="Food cost · live"
         value={loading ? '…' : fmtPct(fcPct)}
@@ -75,8 +75,8 @@ export function CostChrome() {
         label="On hand"
         value={loading ? '…' : fmtMoney(data?.onHand ?? null)}
       />
-      <div className="flex-1" />
-      <span className="font-mono text-[10.5px] text-zinc-500">
+      <div className="hidden md:block flex-1" />
+      <span className="hidden md:inline-block font-mono text-[10.5px] text-zinc-500">
         computed from{' '}
         <button
           onClick={() => setAuditOpen(true)}
@@ -96,8 +96,8 @@ export function CostChrome() {
 
 function CCItem({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-[0.02em]">{label}</span>
+    <div className="flex items-baseline gap-2 shrink-0">
+      <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-[0.02em] whitespace-nowrap">{label}</span>
       <span className={`font-mono text-[14px] font-semibold tracking-[-0.01em] ${valueClass || 'text-paper'}`}>
         {value}
       </span>
