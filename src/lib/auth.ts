@@ -21,6 +21,24 @@ const ROLE_RANK: Record<Role, number> = {
 }
 
 /**
+ * LOCAL-DEV ONLY auth bypass. Active only when BOTH:
+ *   - NODE_ENV !== 'production'  (never true on a deployed Vercel build), and
+ *   - DEV_AUTH_BYPASS === 'true' (opt-in via local .env)
+ * When active and there is no real Supabase session, the app behaves as the
+ * first ADMIN user so it can be used without logging in. This can never run in
+ * production because the NODE_ENV gate fails there.
+ */
+const DEV_AUTH_BYPASS =
+  process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_BYPASS === 'true'
+
+async function devBypassUser(): Promise<User | null> {
+  return (
+    (await prisma.user.findFirst({ where: { role: 'ADMIN', isActive: true } })) ??
+    (await prisma.user.findFirst({ where: { isActive: true } }))
+  )
+}
+
+/**
  * Verifies the current request has a valid Supabase session and returns
  * the corresponding Prisma User.
  *
@@ -47,6 +65,12 @@ export async function requireSession(minRole?: Role): Promise<User> {
   const {
     data: { user: authUser },
   } = await supabase.auth.getUser()
+
+  // Local-dev bypass: no real session → fall back to the first ADMIN user.
+  if (!authUser && DEV_AUTH_BYPASS) {
+    const devUser = await devBypassUser()
+    if (devUser) return devUser
+  }
 
   if (!authUser) {
     throw new AuthError(401, 'Unauthorized')

@@ -1225,7 +1225,7 @@ export default function PrepPage() {
                   <div className="font-mono text-[9px] text-ink-4 uppercase tracking-[0.05em]">To prep</div>
                   <div className="text-[18px] font-semibold tracking-[-0.03em] leading-none mt-1 whitespace-nowrap">
                     {actionItems.length}
-                    <span className="text-[11px] font-normal text-ink-4 ml-1">item{actionItems.length !== 1 ? 's' : ''}{totalPrepMinutes > 0 ? ` · ~${totalPrepMinutes}m` : ''}</span>
+                    <span className="text-[11px] font-normal text-ink-4 ml-1">item{actionItems.length !== 1 ? 's' : ''}{totalPrepMinutes > 0 ? ` · ~${totalPrepMinutes >= 90 ? `${Math.round(totalPrepMinutes / 60)}h` : `${totalPrepMinutes}m`}` : ''}</span>
                   </div>
                 </div>
                 <div className="flex items-stretch gap-0 shrink-0 font-mono text-center divide-x divide-zinc-700">
