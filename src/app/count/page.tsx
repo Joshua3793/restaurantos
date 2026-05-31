@@ -11,6 +11,7 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useDrawer } from '@/contexts/DrawerContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
   enqueueCountMutation, flushCountQueue, loadCountQueue,
@@ -182,6 +183,7 @@ export default function CountPage() {
   const [editCountedBy, setEditCountedBy] = useState('')
   const [editDate,      setEditDate]      = useState('')
   const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
+  const [showCountMenu, setShowCountMenu] = useState(false)
   const [sessionFilter, setSessionFilter] = useState<'all' | 'in_progress' | 'finalized' | 'full' | 'spot'>('all')
   const [sessionSearch, setSessionSearch] = useState('')
 
@@ -196,6 +198,7 @@ export default function CountPage() {
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
   const [inputQty,      setInputQty]      = useState(0)
+  const [caseQty,       setCaseQty]       = useState(0)  // unopened full cases, added to loose count
   const [catFilter,     setCatFilter]     = useState<string | null>(null)
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped'>('all')
@@ -227,6 +230,7 @@ export default function CountPage() {
   })
 
   const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { setDrawerOpen } = useDrawer()
   const [selectedRcId, setSelectedRcId] = useState<string>('')
 
   useEffect(() => {
@@ -306,8 +310,18 @@ export default function CountPage() {
       // with expected qty — that biases the user toward confirming theoretical stock
       // rather than counting what's actually on the shelf.
       setInputQty(line.countedQty !== null ? Number(line.countedQty) : 0)
+      setCaseQty(0)
     }
   }, [openId, active?.lines])
+
+  // Count mode + review are immersive full-screen task flows with their own bottom
+  // action bars — hide the global chat FAB (reusing the drawer-open mechanism) so it
+  // doesn't overlap the finalize bar or clutter the counting flow.
+  useEffect(() => {
+    if (view !== 'count' && view !== 'review') return
+    setDrawerOpen(true)
+    return () => setDrawerOpen(false)
+  }, [view, setDrawerOpen])
 
   // ── Computed ──────────────────────────────────────────────────────────────
   const { total, counted } = useMemo(() => {
@@ -880,8 +894,47 @@ export default function CountPage() {
       <div>
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
 
-        {/* ── Header ── */}
-        <div className="flex items-start justify-between mb-7 gap-6">
+        {/* ── Mobile header ── */}
+        <div className="md:hidden flex items-center justify-between gap-2 mb-4">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-ink flex items-center gap-1.5">
+              <ClipboardList size={19} className="text-gold" /> Stock count
+            </h1>
+            <p className="text-[11.5px] text-ink-3 mt-0.5">Track inventory accuracy &amp; COGS</p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="relative">
+              <button onClick={() => setShowCountMenu(v => !v)}
+                className="p-2 rounded-lg border border-line text-ink-2 active:bg-bg-2" title="More actions" aria-haspopup="menu" aria-expanded={showCountMenu}>
+                <MoreHorizontal size={16} />
+              </button>
+              {showCountMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowCountMenu(false)} />
+                  <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-44 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1" role="menu">
+                    <button onClick={() => setShowCountMenu(false)}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M3 5h18M3 12h18M3 19h12"/></svg>
+                      History
+                    </button>
+                    <button onClick={() => setShowCountMenu(false)}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                      Export reports
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            <button onClick={() => setView('new')}
+              className="p-2 rounded-lg bg-gold text-white active:bg-[#a88930]" title="Start count">
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Desktop header ── */}
+        <div className="hidden md:flex items-start justify-between mb-7 gap-6">
           <div>
             <p className="font-mono text-[10.5px] text-ink-3 tracking-wide mb-2">TODAY / COUNT</p>
             <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Stock count</h1>
@@ -920,8 +973,54 @@ export default function CountPage() {
           </div>
         ) : (
           <>
-            {/* ── KPI context strip ── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {/* ── Mobile hero — resume/start + slim stats ── */}
+            <div className="md:hidden space-y-2.5 mb-4">
+              {inProgressSess ? (
+                <button
+                  onClick={() => openSession(inProgressSess, inProgressSess.status === 'PENDING_REVIEW' ? 'review' : 'count')}
+                  className="w-full text-left bg-ink text-paper rounded-xl p-4 active:opacity-90"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10.5px] text-gold tracking-[0.04em]">RESUME COUNT</span>
+                    <span className="font-mono text-[11px] text-[#a1a1aa]">{Math.round(inProgPct)}%</span>
+                  </div>
+                  <div className="flex items-baseline gap-2 mt-1.5">
+                    <span className="text-[26px] font-semibold tracking-[-0.03em] leading-none">
+                      {inProgCounts.counted}<small className="text-[15px] text-[#a1a1aa] font-medium">/{inProgCounts.total}</small>
+                    </span>
+                    <span className="text-[13px] text-[#d4d4d8]">counted</span>
+                    <span className="ml-auto font-mono text-[12px] text-gold font-medium">Continue →</span>
+                  </div>
+                  <div className="h-1.5 bg-[#3f3f46] rounded-full mt-2.5 overflow-hidden">
+                    <div className="h-full bg-gold rounded-full" style={{ width: `${Math.max(inProgPct, inProgCounts.counted > 0 ? 2 : 0)}%` }} />
+                  </div>
+                  <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-2">{inProgressSess.countedBy} · {fmtDate(inProgressSess.sessionDate)}</div>
+                </button>
+              ) : (
+                <button onClick={() => setView('new')} className="w-full text-left bg-ink text-paper rounded-xl p-4 active:opacity-90 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="font-mono text-[10.5px] text-gold tracking-[0.04em]">START A COUNT</span>
+                    <p className="text-[17px] font-semibold tracking-[-0.02em] mt-1">Count your stock</p>
+                  </div>
+                  <span className="w-10 h-10 rounded-full bg-gold text-white grid place-items-center shrink-0"><Plus size={20} /></span>
+                </button>
+              )}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="bg-paper border border-line rounded-xl px-3.5 py-2.5">
+                  <p className="font-mono text-[9.5px] text-ink-3 tracking-[0.04em] uppercase">Last count</p>
+                  <p className="text-[17px] font-semibold tracking-[-0.02em] text-ink mt-0.5 truncate">{lastFinalized ? formatCurrency(Number(lastFinalized.totalCountedValue)) : '—'}</p>
+                  <p className="font-mono text-[10px] text-ink-3 mt-0.5 truncate">{lastFinalized ? fmtDate(lastFinalized.sessionDate) : 'no counts yet'}</p>
+                </div>
+                <div className={`rounded-xl px-3.5 py-2.5 border ${isOverdue ? 'bg-[#fffbeb] border-[#fcd34d]' : 'bg-paper border-line'}`}>
+                  <p className={`font-mono text-[9.5px] tracking-[0.04em] uppercase ${isOverdue ? 'text-gold-2' : 'text-ink-3'}`}>Next due</p>
+                  <p className={`text-[17px] font-semibold tracking-[-0.02em] mt-0.5 ${isOverdue ? 'text-gold' : 'text-ink'}`}>{nextCountDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                  <p className={`font-mono text-[10px] mt-0.5 truncate ${isOverdue ? 'text-gold-2' : 'text-ink-3'}`}>{isOverdue ? `overdue ${overdueDays}d` : 'weekly'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ── KPI context strip (desktop) ── */}
+            <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
               {/* Hero: last finalized */}
               <div className="bg-ink text-paper rounded-xl border border-ink p-[18px] flex flex-col justify-between min-h-[120px] relative">
                 <div className="absolute top-[18px] right-4 flex items-end gap-[3px] h-[18px]">
@@ -1042,7 +1141,7 @@ export default function CountPage() {
             </p>
 
             {/* ── Mobile list ── */}
-            <div className="flex sm:hidden flex-col gap-2 mb-4">
+            <div className="flex md:hidden flex-col gap-2 mb-4">
               {filteredSessions.map(s => {
                 const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
                 const isUpdating = s.status === 'UPDATING'
@@ -1118,7 +1217,7 @@ export default function CountPage() {
             </div>
 
             {/* ── Desktop table ── */}
-            <div className="hidden sm:block bg-paper border border-line rounded-xl overflow-hidden mb-5">
+            <div className="hidden md:block bg-paper border border-line rounded-xl overflow-hidden mb-5">
               <div className="grid grid-cols-[100px_1.6fr_0.7fr_1.4fr_1fr_220px] px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
                 <span>DATE</span>
                 <span>SESSION</span>
@@ -1246,9 +1345,9 @@ export default function CountPage() {
               </div>
             </div>
 
-            {/* ── Overdue callout ── */}
+            {/* ── Overdue callout (desktop; mobile shows it in the hero stat strip) ── */}
             {isOverdue && (
-              <div className="flex items-center gap-5 bg-[#fffbeb] border border-[#fcd34d] rounded-xl px-[22px] py-[18px] mb-5">
+              <div className="hidden md:flex items-center gap-5 bg-[#fffbeb] border border-[#fcd34d] rounded-xl px-[22px] py-[18px] mb-5">
                 <div className="w-9 h-9 rounded-[10px] bg-gold-soft border border-[#fcd34d] flex items-center justify-center shrink-0">
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
                 </div>
@@ -1268,8 +1367,8 @@ export default function CountPage() {
               </div>
             )}
 
-            {/* ── Footer note ── */}
-            <div className="flex justify-between font-mono text-[10.5px] text-ink-3 tracking-wide">
+            {/* ── Footer note (desktop) ── */}
+            <div className="hidden md:flex justify-between font-mono text-[10.5px] text-ink-3 tracking-wide">
               <span>
                 SHOWING {filteredSessions.length} SESSION{filteredSessions.length !== 1 ? 'S' : ''} · {sessions.filter(s => s.status === 'IN_PROGRESS').length} IN PROGRESS · {sessions.filter(s => s.status === 'FINALIZED').length} FINALIZED
               </span>
@@ -1558,32 +1657,29 @@ export default function CountPage() {
     }
 
     const renderMobileLine = (line: Line) => {
+      const item      = line.inventoryItem
       const isOpen    = openId === line.id
       const isCounted = line.countedQty !== null && !line.skipped
       const isSkipped = line.skipped
-      const locLabel  = line.inventoryItem.storageArea?.name ?? line.inventoryItem.location
-      const subtitle  = [line.inventoryItem.category, locLabel].filter(Boolean).join(' · ')
+      const locLabel  = item.storageArea?.name ?? item.location
+      const f = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
 
-      const inputBase2 = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
+      const uoms        = getCountableUoms(item)
+      const unitLabels  = Array.from(new Set([line.selectedUom, ...uoms.map(u => u.label)]))
+      const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
+      const effectiveQty = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
+      const effBase     = convertCountQtyToBase(effectiveQty, line.selectedUom, item)
       const liveVar = isOpen && Number(line.expectedQty) > 0
-        ? ((inputBase2 - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
+        ? ((effBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
-
-      const dotColor = isSkipped
-        ? 'bg-ink-4'
-        : isCounted
-          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT ? 'bg-gold' : 'bg-green-500')
-          : 'bg-ink-4'
-
-      const rowBg = isSkipped
-        ? 'bg-bg-2 border-line opacity-60'
-        : isCounted
-          ? (line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
-              ? 'bg-amber-50/60 border-amber-200'
-              : 'bg-green-50/60 border-green-200')
-          : isOpen
-            ? 'border-2 border-gold bg-paper'
-            : 'bg-paper border-line'
+      const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, item)
+      const lastDisplay = item.lastCountQty != null ? convertBaseToCountUom(Number(item.lastCountQty), line.selectedUom, item) : null
+      const bigVar = isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
+      const dotColor = isSkipped ? 'bg-ink-4' : isCounted ? (bigVar ? 'bg-gold' : 'bg-green-500') : 'bg-ink-4'
+      const rowBg = isSkipped ? 'bg-bg-2 border-line opacity-60'
+        : isCounted ? (bigVar ? 'bg-amber-50/60 border-amber-200' : 'bg-green-50/60 border-green-200')
+        : isOpen ? 'border-gold bg-paper' : 'bg-paper border-line'
+      const sub = [item.category, lastDisplay != null ? `last ${f(lastDisplay)} ${line.selectedUom}` : locLabel].filter(Boolean).join(' · ')
 
       return (
         <div key={`m-${line.id}`}
@@ -1594,140 +1690,108 @@ export default function CountPage() {
             className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
             onClick={() => setOpenId(isOpen ? null : line.id)}
           >
-            <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+            <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
             <div className="flex-1 min-w-0">
-              <div className={`text-sm font-medium truncate ${isSkipped ? 'line-through text-ink-4' : 'text-ink'}`}>
-                {line.inventoryItem.itemName}
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[14px] font-semibold truncate ${isSkipped ? 'line-through text-ink-4' : 'text-ink'}`}>{item.itemName}</span>
+                {bigVar && (
+                  <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.02em] px-1 py-0.5 rounded bg-red-soft text-red-text shrink-0">
+                    VAR {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(0)}%
+                  </span>
+                )}
               </div>
-              {subtitle && <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">{subtitle}</div>}
+              <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">{sub}</div>
             </div>
-            <button
-              onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
-              className="p-1.5 rounded-[8px] text-ink-4 hover:text-ink-2 hover:bg-bg-2 shrink-0"
-              title="Edit item"
-            >
-              <Pencil size={13} />
-            </button>
-            <div className="text-right shrink-0">
-              {isSkipped ? (
-                <button
-                  onClick={e => { e.stopPropagation(); unskipLine(line) }}
-                  className="font-mono text-[11px] text-gold font-medium px-2 py-1 rounded-[6px] hover:bg-gold-soft"
-                >
-                  Count it
-                </button>
-              ) : isCounted ? (
-                <>
-                  <div className="text-sm font-semibold text-ink">
-                    {Number(line.countedQty).toFixed(1)} {line.selectedUom}
+            {isSkipped ? (
+              <span role="button" tabIndex={0}
+                onClick={e => { e.stopPropagation(); unskipLine(line) }}
+                className="font-mono text-[11px] text-gold font-medium px-2 py-1 rounded-[6px] active:bg-gold-soft shrink-0">Count it</span>
+            ) : isCounted ? (
+              <div className="text-right shrink-0">
+                <div className="text-sm font-semibold text-ink tabular-nums leading-tight">
+                  {f(Number(line.countedQty))}<span className="font-mono text-[10.5px] font-normal text-ink-3 ml-0.5">{line.selectedUom}</span>
+                </div>
+                {line.variancePct !== null && (
+                  <div className={`font-mono text-[11px] mt-0.5 ${varColor(line.variancePct)}`}>
+                    {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(1)}%
                   </div>
-                  {line.variancePct !== null && (
-                    <div className={`text-xs ${varColor(line.variancePct)}`}>
-                      {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(1)}%
-                    </div>
-                  )}
-                </>
-              ) : (
-                <span className="font-mono text-[11px] text-ink-4">— —</span>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <span className="shrink-0 inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-ink-2 border border-line rounded-full px-2.5 py-1">
+                COUNT <span className="text-ink-4">›</span>
+              </span>
+            )}
           </div>
 
           {isOpen && (
             <div className="fixed inset-0 z-[60] flex items-end md:hidden" onClick={() => setOpenId(null)}>
               <div className="absolute inset-0 bg-black/40" />
-              <div className="relative w-full bg-paper rounded-t-2xl px-4 pb-8 pt-2 shadow-xl animate-[slide-up_.25s_ease]" onClick={e => e.stopPropagation()}>
+              <div className="relative w-full bg-paper rounded-t-2xl px-4 pb-8 pt-2 shadow-xl animate-[slide-up_.25s_ease] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 <div className="w-9 h-1 bg-line rounded-full mx-auto mb-3" />
-                <div className="flex items-start gap-3 mb-3">
+                <div className="flex items-start gap-3 mb-1">
                   <div className="flex-1 min-w-0">
-                    <div className="text-[15px] font-semibold text-ink truncate tracking-[-0.02em]">{line.inventoryItem.itemName}</div>
-                    {subtitle && <div className="font-mono text-[11px] text-ink-3 mt-0.5">{subtitle}</div>}
+                    <div className="text-[17px] font-semibold text-ink truncate tracking-[-0.02em]">{item.itemName}</div>
+                    <div className="font-mono text-[11px] text-ink-3 mt-0.5 truncate">{[item.category, locLabel].filter(Boolean).join(' · ')}</div>
                   </div>
                   <button onClick={() => setOpenId(null)} className="p-1 -mr-1 text-ink-4 shrink-0"><X size={18} /></button>
                 </div>
-              {/* UOM selector + expected */}
-              {(() => {
-                const uoms = getCountableUoms(line.inventoryItem)
-                const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
-                return (
-                  <>
-                    {uoms.length > 1 && (
-                      <div className="mb-2">
-                        <select
-                          value={line.selectedUom}
-                          onChange={e => changeUom(line, e.target.value)}
-                          className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] font-medium text-ink bg-paper focus:outline-none focus:border-gold"
-                        >
-                          {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt, line.inventoryItem.baseUnit)}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                    <div className="font-mono text-[10.5px] text-ink-3 mb-1.5 flex items-center gap-1.5">
-                      <span>Expected: {expectedDisplay.toFixed(2)} {line.selectedUom}</span>
-                      {liveVar !== null && (
-                        <span className={`font-medium ${varColor(liveVar)}`}>
-                          · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
-                        </span>
-                      )}
+
+                {/* Unit tabs */}
+                {unitLabels.length > 1 && (
+                  <div className="flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5 mt-3 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                    {unitLabels.map(label => (
+                      <button key={label} onClick={() => { if (label !== line.selectedUom) changeUom(line, label) }}
+                        className={`flex-1 min-w-[56px] py-1.5 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Big stepper */}
+                <div className="text-center font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] mt-4 mb-2">{line.selectedUom} on hand</div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
+                    className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0 active:bg-line"><Minus size={26} className="text-ink-2" /></button>
+                  <input type="number" value={inputQty} onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
+                    className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={0.1} />
+                  <button onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
+                    className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0 active:bg-ink-2"><Plus size={26} className="text-gold" /></button>
+                </div>
+                <div className="text-center font-mono text-[10.5px] text-ink-4 mt-2">tap to type</div>
+
+                {/* Unopened cases */}
+                {showCases && (
+                  <div className="flex items-center justify-between gap-3 border-t border-line mt-3 pt-3">
+                    <span className="font-mono text-[11px] text-ink-2 uppercase tracking-[0.03em]">+ unopened cases <span className="text-ink-4">({f(Number(item.packSize))}/{item.packUOM || 'CS'})</span></span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => setCaseQty(v => Math.max(0, v - 1))} className="w-9 h-9 rounded-[9px] bg-bg-2 border border-line grid place-items-center active:bg-line"><Minus size={16} className="text-ink-2" /></button>
+                      <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{caseQty}</span>
+                      <button onClick={() => setCaseQty(v => v + 1)} className="w-9 h-9 rounded-[9px] bg-ink grid place-items-center active:bg-ink-2"><Plus size={16} className="text-gold" /></button>
                     </div>
-                    {(line.inventoryItem.parLevel != null || line.inventoryItem.lastCountQty != null) && (
-                      <div className="font-mono text-[10.5px] text-ink-4 mb-2 flex flex-wrap items-center gap-x-3">
-                        {line.inventoryItem.parLevel != null && (
-                          <span>Par: <span className="font-medium text-ink-2">{Number(line.inventoryItem.parLevel).toFixed(2)} {line.selectedUom}</span></span>
-                        )}
-                        {line.inventoryItem.lastCountQty != null && (
-                          <span>Last: <span className="font-medium text-ink-2">{convertBaseToCountUom(Number(line.inventoryItem.lastCountQty), line.selectedUom, line.inventoryItem).toFixed(2)} {line.selectedUom}</span></span>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-              <div className="flex items-center gap-3 mb-2">
-                <button
-                  onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
-                  className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line flex items-center justify-center shrink-0 active:bg-line"
-                >
-                  <Minus size={26} className="text-ink-2" />
+                  </div>
+                )}
+
+                {/* Variance vs theoretical + last count */}
+                {Number(line.expectedQty) > 0 && (
+                  <div className={`flex items-center justify-between gap-2 mt-4 px-3 py-2.5 rounded-[10px] font-mono text-[11px] ${liveVar !== null && Math.abs(liveVar) > LARGE_VARIANCE_PCT ? 'bg-red-soft' : 'bg-bg-2'}`}>
+                    <span className="text-ink-3">
+                      Expected <b className="text-ink-2 font-medium">{expectedDisplay.toFixed(1)} {line.selectedUom}</b>
+                      {lastDisplay != null && <> · last count {f(lastDisplay)} {line.selectedUom}</>}
+                    </span>
+                    {liveVar !== null && <span className={`font-semibold ${varColor(liveVar)}`}>{liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%</span>}
+                  </div>
+                )}
+
+                <button onClick={() => confirmLine(line, effectiveQty)}
+                  className="w-full h-12 bg-ink text-paper rounded-[12px] font-semibold text-[15px] flex items-center justify-center gap-2 mt-4">
+                  <Check size={17} className="text-gold" /> Save count
                 </button>
-                <input
-                  type="number"
-                  value={inputQty}
-                  onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
-                  className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink"
-                  min={0} step={0.1}
-                />
-                <button
-                  onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
-                  className="w-[60px] h-[60px] rounded-2xl bg-ink flex items-center justify-center shrink-0 active:bg-ink-2"
-                >
-                  <Plus size={26} className="text-gold" />
-                </button>
-              </div>
-              <div className="text-center font-mono text-[11px] text-ink-3 mb-3">{line.selectedUom}</div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => confirmLine(line, inputQty)}
-                  className="flex-1 h-11 bg-ink text-paper rounded-[10px] font-semibold text-sm flex items-center justify-center gap-1.5"
-                >
-                  <Check size={15} className="text-gold" /> Confirm
-                </button>
-                <button
-                  onClick={() => confirmLine(line, 0)}
-                  className="px-3 h-11 border border-amber-200 bg-amber-50 text-amber-700 rounded-[10px] text-xs font-semibold"
-                  title="Mark out of stock"
-                >
-                  Out of stock
-                </button>
-                <button
-                  onClick={() => skipLine(line)}
-                  className="px-4 h-11 border border-line rounded-[10px] text-sm text-ink-3 flex items-center gap-1.5"
-                >
-                  <SkipForward size={13} /> Skip
-                </button>
-              </div>
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => confirmLine(line, 0)} className="flex-1 h-10 border border-amber-200 bg-amber-50 text-amber-700 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
+                  <button onClick={() => skipLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-3 font-medium inline-flex items-center justify-center gap-1.5"><SkipForward size={13} /> Skip</button>
+                </div>
               </div>
             </div>
           )}
@@ -1787,14 +1851,39 @@ export default function CountPage() {
           />
         )}
 
-        {/* ── Sticky top bar ─────────────────────────────────────────────────── */}
-        <div className="sticky top-0 z-20 bg-paper border-b border-line px-4 py-3 flex items-center gap-3 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">
+        {/* ── Mobile header — area · category + live progress ────────────────── */}
+        <div className="md:hidden sticky top-0 z-20 bg-paper border-b border-line -mx-4 px-4 pt-2.5 pb-2">
+          <div className="flex items-center gap-1.5">
+            <button onClick={backFromCount} className="-ml-1 p-1 text-ink-3 active:text-ink"><ArrowLeft size={20} /></button>
+            <div className="flex-1 min-w-0">
+              <span className="text-[14px] font-semibold text-ink tracking-[-0.01em] truncate block">
+                {active.label}{catFilter && <span className="text-ink-3 font-normal"> · {catFilter}</span>}
+              </span>
+            </div>
+            <button onClick={handleSync} disabled={syncing} title="Sync" className="p-1.5 text-ink-3 active:text-ink shrink-0 disabled:opacity-50">
+              <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={openAddItem} title="Add item" className="p-1.5 text-ink-3 active:text-ink shrink-0">
+              <Plus size={16} />
+            </button>
+          </div>
+          <div className="flex items-center justify-between mt-1 font-mono text-[10.5px]">
+            <span className="text-ink-3"><b className="text-ink font-semibold">{counted}</b> of {total} counted · {total > 0 ? Math.round((counted / total) * 100) : 0}%</span>
+            <span className="text-gold-2 font-medium">{Math.max(0, total - counted)} left</span>
+          </div>
+          <div className="h-1 bg-bg-2 rounded-full mt-1.5 overflow-hidden">
+            <div className="h-full bg-gold rounded-full transition-all duration-300" style={{ width: `${total > 0 ? (counted / total) * 100 : 0}%` }} />
+          </div>
+        </div>
+
+        {/* ── Sticky top bar (desktop) ───────────────────────────────────────── */}
+        <div className="hidden md:flex sticky top-0 z-20 bg-paper border-b border-line py-3 items-center gap-3 -mx-8 px-8">
           <button onClick={backFromCount} className="-ml-1 p-1 text-ink-3 hover:text-ink transition-colors">
             <ArrowLeft size={20} />
           </button>
           <div className="flex-1 min-w-0">
             <span className="text-[13.5px] font-medium text-ink tracking-[-0.01em] truncate block">{active.label}</span>
-            <span className="font-mono text-[10.5px] text-ink-3 hidden md:block">{active.countedBy} · {fmtDate(active.sessionDate)}</span>
+            <span className="font-mono text-[10.5px] text-ink-3">{active.countedBy} · {fmtDate(active.sessionDate)}</span>
           </div>
           <span className="shrink-0 bg-bg-2 text-ink-2 border border-line rounded-full px-3 py-1 font-mono text-[11px] whitespace-nowrap">
             {counted} / {total}
@@ -1806,14 +1895,14 @@ export default function CountPage() {
             className="shrink-0 flex items-center gap-1.5 border border-line text-ink-2 font-mono text-[11px] px-3 py-1.5 rounded-[8px] hover:border-ink-3 whitespace-nowrap disabled:opacity-50 transition-colors"
           >
             <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">Sync</span>
+            Sync
           </button>
           <button
             onClick={openAddItem}
             className="shrink-0 flex items-center gap-1.5 border border-line text-ink-2 font-mono text-[11px] px-3 py-1.5 rounded-[8px] hover:border-ink-3 whitespace-nowrap transition-colors"
           >
             <Plus size={13} />
-            <span className="hidden sm:inline">Add item</span>
+            Add item
           </button>
           <button
             onClick={() => setView('review')}
@@ -1907,8 +1996,8 @@ export default function CountPage() {
           </div>
         )}
 
-        {/* ── Progress bar ───────────────────────────────────────────────────── */}
-        <div className="h-1 bg-line -mx-4 sm:-mx-6 md:-mx-8">
+        {/* ── Progress bar (desktop; mobile has it in the header) ────────────── */}
+        <div className="hidden md:block h-1 bg-line -mx-4 sm:-mx-6 md:-mx-8">
           <div
             className="h-1 bg-gold transition-all duration-300"
             style={{ width: `${total > 0 ? (counted / total) * 100 : 0}%` }}
@@ -1928,7 +2017,7 @@ export default function CountPage() {
         )}
 
         {/* ── Search bar ─────────────────────────────────────────────────────── */}
-        <div className="sticky top-[57px] z-10 bg-paper border-b border-line px-4 py-2 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">
+        <div className="md:sticky md:top-[57px] z-10 bg-paper border-b border-line py-2 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">
           <div className="relative max-w-lg">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
             <input
@@ -2028,24 +2117,40 @@ export default function CountPage() {
         {/* ════════════════════════════════════════
             MOBILE LAYOUT
         ════════════════════════════════════════ */}
-        {/* ── Mobile filter row ──────────────────────────────────────────────── */}
-        <div className="flex md:hidden items-center gap-2 px-3 pt-2 pb-1.5">
-          {(['all', 'uncounted', 'counted', 'skipped'] as const).map(f => (
-            <Pill key={f} active={statusFilter === f} onClick={() => setStatusFilter(f)}>
-              {f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : f === 'counted' ? 'Counted' : 'Skipped'}
-            </Pill>
-          ))}
-          <div className="flex-1" />
-          <button
-            onClick={() => setShowCountFilterSheet(true)}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-              catFilter || locFilter
-                ? 'bg-gold/10 text-gold border-gold/30'
-                : 'bg-paper text-ink-2 border-line'
-            }`}
-          >
-            Filter{(catFilter ? 1 : 0) + (locFilter ? 1 : 0) > 0 && ` · ${(catFilter ? 1 : 0) + (locFilter ? 1 : 0)}`}
-          </button>
+        {/* ── Mobile: category chips + uncounted toggle ──────────────────────── */}
+        <div className="md:hidden">
+          <div className="flex gap-1.5 overflow-x-auto pt-2 pb-1 -mx-4 px-4 [&::-webkit-scrollbar]:hidden">
+            {(() => {
+              const allDone = (active.lines ?? []).filter(l => l.countedQty !== null || l.skipped).length
+              return (
+                <button onClick={() => setCatFilter(null)}
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium border whitespace-nowrap transition-colors ${catFilter === null ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}>
+                  All <span className={`font-mono text-[10.5px] ${catFilter === null ? 'text-paper/60' : 'text-ink-4'}`}>{allDone}/{(active.lines ?? []).length}</span>
+                </button>
+              )
+            })()}
+            {categories.map(([cat, total]) => {
+              const done = (active.lines ?? []).filter(l => l.inventoryItem.category === cat && (l.countedQty !== null || l.skipped)).length
+              return (
+                <button key={cat} onClick={() => setCatFilter(catFilter === cat ? null : cat)}
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium border whitespace-nowrap transition-colors ${catFilter === cat ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}>
+                  {cat} <span className={`font-mono text-[10.5px] ${catFilter === cat ? 'text-paper/60' : 'text-ink-4'}`}>{done}/{total}</span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="font-mono text-[10.5px] text-ink-3 uppercase tracking-[0.04em]">
+              {filteredLines.length} items{catFilter ? ` · ${catFilter}` : ''}
+            </span>
+            <button onClick={() => setStatusFilter(statusFilter === 'uncounted' ? 'all' : 'uncounted')}
+              className="inline-flex items-center gap-1.5 font-mono text-[11px] text-ink-2 active:opacity-70">
+              <span className={`w-3.5 h-3.5 rounded-full border grid place-items-center transition-colors ${statusFilter === 'uncounted' ? 'bg-gold border-gold' : 'border-line bg-paper'}`}>
+                {statusFilter === 'uncounted' && <Check size={9} className="text-white" />}
+              </span>
+              Uncounted only
+            </button>
+          </div>
         </div>
 
         {/* ── Mobile filter bottom sheet ──────────────────────────────────────── */}
@@ -2129,6 +2234,16 @@ export default function CountPage() {
               })
           )}
         </div>
+
+        {/* ── Mobile finalize bar ────────────────────────────────────────────── */}
+        <div className="md:hidden fixed bottom-20 inset-x-3 z-30">
+          <button onClick={() => setView('review')}
+            className="w-full h-12 bg-ink text-paper rounded-[14px] shadow-lg flex items-center justify-center gap-2 active:scale-[0.99] transition-transform">
+            <span className="font-mono text-[11px] text-[#a1a1aa]">{Math.max(0, total - counted)} left ·</span>
+            <span className="font-semibold text-[14px]">Review &amp; finish</span>
+            <Check size={16} className="text-gold" />
+          </button>
+        </div>
       </div>
     )
   }
@@ -2170,14 +2285,14 @@ export default function CountPage() {
             <p className="font-mono text-[10.5px] text-ink-3 mt-0.5">{active.label} · {active.countedBy}</p>
           </div>
           {!isFinalized && (
-            <button onClick={() => setView('count')} className="font-mono text-[11px] text-ink-3 hover:text-ink shrink-0">
+            <button onClick={() => setView('count')} className="hidden md:block font-mono text-[11px] text-ink-3 hover:text-ink shrink-0">
               ← Back to counting
             </button>
           )}
         </div>
 
         {/* Stats — mobile compact strip */}
-        <div className="flex sm:hidden gap-2 mb-4">
+        <div className="flex md:hidden gap-2 mb-4">
           {[
             { val: countedLines.length.toString(),   label: 'Counted',  cls: 'bg-bg-2 text-ink'   },
             { val: flagged.length.toString(),         label: 'Flagged',  cls: flagged.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-bg-2 text-ink-3' },
@@ -2206,7 +2321,7 @@ export default function CountPage() {
 
         {/* Variance cards — mobile */}
         {sorted.length > 0 && (
-          <div className="block sm:hidden space-y-2 mb-24">
+          <div className="block md:hidden space-y-2 mb-24">
             {sorted.map(l => {
               const vPct     = Number(l.variancePct ?? 0)
               const vCost    = Number(l.varianceCost ?? 0)
@@ -2254,7 +2369,7 @@ export default function CountPage() {
 
         {/* Variance table — desktop */}
         {sorted.length > 0 && (
-          <div className="hidden sm:block bg-paper rounded-xl border border-line overflow-hidden mb-6">
+          <div className="hidden md:block bg-paper rounded-xl border border-line overflow-hidden mb-6">
             <div className="px-4 py-3 border-b border-line">
               <h2 className="font-mono text-[11px] text-ink-3 uppercase tracking-[0.06em]">Variance breakdown</h2>
             </div>
@@ -2299,7 +2414,7 @@ export default function CountPage() {
 
         {/* Footer — mobile fixed bar */}
         {!isFinalized && (
-          <div className="fixed sm:hidden bottom-20 inset-x-0 bg-paper border-t border-line px-4 py-3 z-30">
+          <div className="fixed md:hidden bottom-20 inset-x-0 bg-paper border-t border-line px-4 py-3 z-30">
             <div className="flex gap-3">
               <button onClick={() => setView('count')}
                 className="flex-1 py-3 border border-line rounded-[10px] text-[13px] font-medium text-ink-2"
@@ -2317,7 +2432,7 @@ export default function CountPage() {
 
         {/* Footer — desktop */}
         {!isFinalized ? (
-          <div className="hidden sm:flex gap-3">
+          <div className="hidden md:flex gap-3">
             <button onClick={() => setView('count')}
               className="flex-1 py-3 border border-line rounded-[10px] text-[13px] text-ink-2 hover:bg-bg-2 font-medium flex items-center justify-center gap-1.5 transition-colors"
             >
