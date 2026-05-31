@@ -10,6 +10,7 @@ import {
   ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff,
 } from 'lucide-react'
 import { RcSelector } from '@/components/navigation/RcSelector'
+import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -172,9 +173,9 @@ function NavigationInner() {
       <aside
         onMouseEnter={() => { if (!pinned) setPeeking(true) }}
         onMouseLeave={() => { if (!pinned) setPeeking(false) }}
-        className={`hidden md:flex flex-col w-[240px] h-screen fixed left-0 top-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300 transition-transform duration-200 ${
-          pinned || peeking ? 'translate-x-0' : '-translate-x-full'
-        } ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
+        className={`hidden md:flex flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300 transition-transform duration-200 ${
+          isAuthRoute(pathname) ? 'top-0 h-screen' : 'top-11 h-[calc(100vh-44px)]'
+        } ${pinned || peeking ? 'translate-x-0' : '-translate-x-full'} ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
         style={{ background: '#09090b' }}
       >
         {/* Brand + bell moved to the top KPI bar (CostChrome) so they stay

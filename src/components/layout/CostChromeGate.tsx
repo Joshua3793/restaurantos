@@ -1,44 +1,18 @@
 'use client'
 import { usePathname } from 'next/navigation'
 import { CostChrome } from './CostChrome'
+import { isAuthRoute, isSpineRoute } from '@/lib/chrome-routes'
 
 /**
- * Mount CostChrome only on routes that touch the spine
- * (recipes / menu / invoices / count / prep / pass / insights).
- * Auth + setup routes don't get the strip.
+ * Mounts the top bar (CostChrome) on every app route except auth/standalone
+ * pages. On spine routes the bar also shows the live cost KPIs; elsewhere it's
+ * just the brand + bell shell so the logo stays pinned everywhere.
  */
-const SPINE_ROUTES = [
-  '/',
-  '/today',
-  '/pass',
-  '/preshift',
-  '/prep',
-  '/count',
-  '/inventory',
-  '/recipes',
-  '/menu',
-  '/invoices',
-  '/cost',
-  '/variance',
-  '/signals',
-  '/sales',
-  '/wastage',
-]
-
-const HIDDEN_PREFIXES = [
-  '/login',
-  '/auth',
-  '/setup',
-  '/settings', // legacy; middleware redirects but cover it just in case
-]
-
 export function CostChromeGate() {
   const pathname = usePathname()
-  if (!pathname) return null
-  if (HIDDEN_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) return null
-  const onSpine = SPINE_ROUTES.some(p => pathname === p || pathname.startsWith(p + '/'))
-  if (!onSpine) return null
-  // On prep, the strip is read-only KPI that crowds the mobile list — desktop-only there.
-  const desktopOnly = pathname === '/prep' || pathname.startsWith('/prep/')
-  return <CostChrome desktopOnly={desktopOnly} />
+  if (isAuthRoute(pathname)) return null
+  const onSpine = isSpineRoute(pathname)
+  // On prep, the KPI strip is read-only and crowds the mobile list — desktop-only there.
+  const desktopOnly = pathname === '/prep' || (pathname?.startsWith('/prep/') ?? false)
+  return <CostChrome onSpine={onSpine} desktopOnly={desktopOnly} />
 }

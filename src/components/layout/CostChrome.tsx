@@ -21,13 +21,14 @@ interface ChromeData {
   sourceItemCount: number
 }
 
-export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
+export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: boolean; desktopOnly?: boolean }) {
   const { activeRcId } = useRc()
   const [data, setData] = useState<ChromeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [auditOpen, setAuditOpen] = useState(false)
 
   useEffect(() => {
+    if (!onSpine) return // off-spine routes show only the brand shell — no live KPIs
     let cancelled = false
     const fetchData = async () => {
       try {
@@ -41,7 +42,7 @@ export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
     fetchData()
     const i = setInterval(fetchData, 60_000)
     return () => { cancelled = true; clearInterval(i) }
-  }, [activeRcId])
+  }, [activeRcId, onSpine])
 
   const fcPct = data?.foodCostPct ?? null
   const fcClass = fcPct === null
@@ -55,7 +56,7 @@ export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
   const v7d = data?.variance7d ?? null
 
   return (
-    <div className={`${desktopOnly ? 'hidden md:flex' : 'flex'} bg-ink text-paper px-4 md:px-8 py-[10px] items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
+    <div className={`${(onSpine && !desktopOnly) ? 'flex' : 'hidden'} md:flex md:fixed md:top-0 md:inset-x-0 md:z-50 md:h-11 bg-ink text-paper px-4 md:px-8 py-[10px] md:py-0 items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
       {/* Brand — detached from the collapsible nav so it stays pinned in the top bar (desktop) */}
       <Link
         href="/"
@@ -66,42 +67,51 @@ export function CostChrome({ desktopOnly = false }: { desktopOnly?: boolean }) {
         </span>
         Controla OS
       </Link>
-      <div className="hidden md:block w-px h-[14px] bg-zinc-800" />
-      <CCItem
-        label="Food cost · live"
-        value={loading ? '…' : fmtPct(fcPct)}
-        valueClass={fcClass}
-      />
-      <CCDivider />
-      <CCItem
-        label="Target"
-        value={loading ? '…' : fmtPct(data?.targetPct ?? null)}
-      />
-      <CCDivider />
-      <CCItem
-        label="7d variance"
-        value={loading ? '…' : fmtMoneySigned(v7d)}
-        valueClass={v7d !== null && v7d > 0 ? 'text-red-300' : v7d !== null && v7d < 0 ? 'text-green-400' : ''}
-      />
-      <CCDivider />
-      <CCItem
-        label="On hand"
-        value={loading ? '…' : fmtMoney(data?.onHand ?? null)}
-      />
+
+      {onSpine && (
+        <>
+          <div className="hidden md:block w-px h-[14px] bg-zinc-800" />
+          <CCItem
+            label="Food cost · live"
+            value={loading ? '…' : fmtPct(fcPct)}
+            valueClass={fcClass}
+          />
+          <CCDivider />
+          <CCItem
+            label="Target"
+            value={loading ? '…' : fmtPct(data?.targetPct ?? null)}
+          />
+          <CCDivider />
+          <CCItem
+            label="7d variance"
+            value={loading ? '…' : fmtMoneySigned(v7d)}
+            valueClass={v7d !== null && v7d > 0 ? 'text-red-300' : v7d !== null && v7d < 0 ? 'text-green-400' : ''}
+          />
+          <CCDivider />
+          <CCItem
+            label="On hand"
+            value={loading ? '…' : fmtMoney(data?.onHand ?? null)}
+          />
+        </>
+      )}
+
       <div className="hidden md:block flex-1" />
-      <span className="hidden md:inline-block font-mono text-[10.5px] text-zinc-500">
-        computed from{' '}
-        <button
-          onClick={() => setAuditOpen(true)}
-          className="text-gold border-b border-dashed border-gold/60 hover:text-gold/80 transition-colors"
-          title={data ? `${data.sourceItemCount} inventory items — click for audit` : 'pricePerBaseUnit spine'}
-        >
-          pricePerBaseUnit
-        </button>
-        {data?.lastInvoiceAt && (
-          <> · last invoice {humanizeAge(data.lastInvoiceAt)}</>
-        )}
-      </span>
+
+      {onSpine && (
+        <span className="hidden md:inline-block font-mono text-[10.5px] text-zinc-500">
+          computed from{' '}
+          <button
+            onClick={() => setAuditOpen(true)}
+            className="text-gold border-b border-dashed border-gold/60 hover:text-gold/80 transition-colors"
+            title={data ? `${data.sourceItemCount} inventory items — click for audit` : 'pricePerBaseUnit spine'}
+          >
+            pricePerBaseUnit
+          </button>
+          {data?.lastInvoiceAt && (
+            <> · last invoice {humanizeAge(data.lastInvoiceAt)}</>
+          )}
+        </span>
+      )}
       {/* Alerts bell — detached from the collapsible nav, pinned in the top bar (desktop) */}
       <div className="hidden md:block shrink-0 [&>div>button]:text-zinc-400 [&>div>button]:p-1.5 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/10">
         <AlertsBell />
