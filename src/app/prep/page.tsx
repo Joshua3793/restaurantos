@@ -61,7 +61,7 @@ function fq(n: number) { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1) }
 // Section header: coloured dot + title + count, with a caption line under it.
 function GroupHead({ dot, title, count, sub }: { dot: string; title: string; count: string; sub: string }) {
   return (
-    <div className="mt-4 mb-1">
+    <div className="mt-3 mb-1">
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dot }} />
         <span className="text-[13px] font-semibold text-ink tracking-[-0.01em]">{title}</span>
@@ -724,17 +724,24 @@ export default function PrepPage() {
   return (
     <div className="space-y-3 md:space-y-5">
 
-      <PrepDeadlineBanner rc={activeRc} />
+      <div className="hidden md:block">
+        <PrepDeadlineBanner rc={activeRc} />
+      </div>
 
       {/* ── Mobile Header ── */}
       <div className="md:hidden">
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
-              <ChefHat size={20} className="text-gold" /> Prep List
+          <div className="min-w-0">
+            <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-ink flex items-center gap-1.5">
+              <ChefHat size={18} className="text-gold shrink-0" /> Prep List
             </h1>
-            <p className="text-xs text-gray-500">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            <p className="font-mono text-[10.5px] text-ink-3 mt-0.5 truncate">
+              {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              {(() => {
+                if (!activeRc || activeRc.schedulingMode === 'ON_DEMAND') return ''
+                const dl = prepDeadline(activeRc, new Date())
+                return dl ? ` · prep by ${dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · ${fmtDuration(dl.getTime() - Date.now())} left` : ''
+              })()}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -955,7 +962,7 @@ export default function PrepPage() {
           TODAY TAB
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'today' && (
-        <div className="space-y-4">
+        <div className="space-y-2.5 md:space-y-4">
 
           {/* Desktop KPI strip */}
           <div className="hidden md:block">
@@ -1032,18 +1039,13 @@ export default function PrepPage() {
                   const seg = (n: number) => total ? (n / total) * 100 : 0
                   return (
                     <>
-                      {/* progress overview */}
-                      <div className="bg-paper border border-line rounded-xl p-3.5">
-                        <div className="flex items-end justify-between gap-2.5">
-                          <div>
-                            <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em]">Today&apos;s prep</div>
-                            <div className="text-[16px] font-semibold tracking-[-0.02em] mt-1">{done.length} of {total} done</div>
-                          </div>
-                          <div className="font-mono text-[10.5px] text-ink-3 text-right whitespace-nowrap">
-                            {doing.length ? <span className="text-blue-text">{doing.length} in progress</span> : '0 in progress'} · {todo.length} to do
-                          </div>
+                      {/* progress overview — slim strip */}
+                      <div className="pt-0.5">
+                        <div className="flex items-center justify-between gap-2 mb-1.5 font-mono text-[10.5px] whitespace-nowrap">
+                          <span className="text-ink-2"><b className="text-ink font-semibold">{done.length}/{total}</b> done</span>
+                          <span className="text-ink-3">{doing.length ? <span className="text-blue-text">{doing.length} in progress</span> : '0 in progress'} · {todo.length} to do</span>
                         </div>
-                        <div className="flex h-2 rounded-full overflow-hidden bg-bg-2 mt-3 gap-[2px]">
+                        <div className="flex h-1.5 rounded-full overflow-hidden bg-bg-2 gap-[2px]">
                           {done.length > 0 && <div className="bg-green" style={{ width: `${seg(done.length)}%` }} />}
                           {doing.length > 0 && <div className="bg-blue" style={{ width: `${seg(doing.length)}%` }} />}
                         </div>
