@@ -5,15 +5,22 @@ import dynamic from 'next/dynamic'
 import {
   ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
   SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock,
-  Flame, Zap, Play, RotateCcw, Minus, X,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { prepDeadline, fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
-import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
-import { PrepItemRow }     from '@/components/prep/PrepItemRow'
-import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
+import PrepShiftBand from '@/components/prep/PrepShiftBand'
+import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
+import PrepToolbar from '@/components/prep/PrepToolbar'
+import PrepTaskRow from '@/components/prep/PrepTaskRow'
+import PrepGetAhead from '@/components/prep/PrepGetAhead'
+import PrepRestState from '@/components/prep/PrepRestState'
+import PrepDrawer from '@/components/prep/PrepDrawer'
+import RecipeCookAlongModal from '@/components/prep/RecipeCookAlongModal'
+import { usePrepToast } from '@/components/prep/PrepToast'
+import { computeShiftSummary, groupPrepItems, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
+import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
 const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
@@ -50,28 +57,6 @@ function PrepDeadlineBanner({ rc }: { rc: import('@/contexts/RevenueCenterContex
   )
 }
 
-// ── Mobile To-Do helpers (match the prep To-Do mockup) ──────────────────────
-function elapsedStr(ms: number) {
-  const m = Math.max(0, Math.floor(ms / 60000))
-  if (m < 60) return `${m}m`
-  return `${Math.floor(m / 60)}h ${m % 60}m`
-}
-function fq(n: number) { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1) }
-
-// Section header: coloured dot + title + count, with a caption line under it.
-function GroupHead({ dot, title, count, sub }: { dot: string; title: string; count: string; sub: string }) {
-  return (
-    <div className="mt-3 mb-1">
-      <div className="flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dot }} />
-        <span className="text-[13px] font-semibold text-ink tracking-[-0.01em]">{title}</span>
-        <span className="font-mono text-[11px] text-ink-3">{count}</span>
-      </div>
-      <p className="font-mono text-[10.5px] text-ink-4 mt-0.5 pl-4">{sub}</p>
-    </div>
-  )
-}
-
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc } = useRc()
@@ -90,27 +75,17 @@ export default function PrepPage() {
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
 
-  // Mobile To-Do: live clock for elapsed timers + log-yield sheet + recipe view
-  const [nowTs, setNowTs] = useState(() => Date.now())
-  const [mobileLog, setMobileLog] = useState<{ item: PrepItemRich; qty: number } | null>(null)
-  const [recipeItem, setRecipeItem] = useState<PrepItemRich | null>(null)
-  // Per-item checked-ingredient sets (persist while the recipe is being worked through)
-  const [checkedIng, setCheckedIng] = useState<Record<string, Set<string>>>({})
-  const toggleIngredient = (itemId: string, ingId: string) => setCheckedIng(prev => {
-    const next = new Set(prev[itemId] ?? [])
-    next.has(ingId) ? next.delete(ingId) : next.add(ingId)
-    return { ...prev, [itemId]: next }
-  })
-  useEffect(() => {
-    const t = setInterval(() => setNowTs(Date.now()), 30_000)
-    return () => clearInterval(t)
-  }, [])
+  // Redesigned To-do tab — drawer, cook-along modal, toast, alert dismissal
+  const { toast, toastNode } = usePrepToast()
+  const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
+  const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
+  const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string } | null>(null)
+  const [alertDismissed, setAlertDismissed] = useState(false)
 
   // View state
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
   const [smartPrepView,     setSmartPrepView]     = useState<'urgency' | 'category' | 'station'>('urgency')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
-  const [mSearchOpen, setMSearchOpen] = useState(false)
   const [lookingGoodOpen,   setLookingGoodOpen]   = useState(false)
 
   // Filters (used in Smart Prep and Today)
@@ -325,6 +300,12 @@ export default function PrepPage() {
     })
   }, [todayItems, search, filterCategory, filterStation])
 
+  // Redesigned To-do tab — derived
+  const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
+  const todayGroups = useMemo(() => groupPrepItems(filteredToday), [filteredToday])
+  const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
+  const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
+
   // Keep detail panel in sync with live data
   const selectedLive = useMemo(
     () => selected ? (items.find(i => i.id === selected.id) ?? selected) : null,
@@ -518,6 +499,67 @@ export default function PrepPage() {
     ))
   }
 
+  // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
+
+  // Drawer open: set item, fetch its detail (ingredients + counts)
+  const openDrawer = useCallback(async (item: PrepItemRich) => {
+    setDrawerItem(item)
+    setDrawerDetail(null)
+    try {
+      const res = await fetch(`/api/prep/items/${item.id}`)
+      if (res.ok) setDrawerDetail(await res.json())
+    } catch { /* leave detail null → drawer shows loading */ }
+  }, [])
+
+  const closeDrawer = useCallback(() => { setDrawerItem(null); setDrawerDetail(null) }, [])
+
+  // Recipe cook-along: needs steps+cost (from recipe) and ingredient availability (from prep detail)
+  const openRecipeModal = useCallback(async (item: PrepItemRich) => {
+    if (!item.linkedRecipeId) return
+    try {
+      const [rRes, dRes] = await Promise.all([
+        fetch(`/api/recipes/${item.linkedRecipeId}`),
+        fetch(`/api/prep/items/${item.id}`),
+      ])
+      const r = rRes.ok ? await rRes.json() : null
+      const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
+      if (!r) return
+      const recipe: RecipeStepsData = {
+        id: r.id, name: r.name, steps: Array.isArray(r.steps) ? r.steps : [],
+        baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
+        totalCost: Number(r.totalCost) || 0,
+      }
+      setRecipeModal({ sourceItemId: item.id, recipe, ings: d?.ingredients ?? [], makeQty: item.suggestedQty, unit: item.unit })
+    } catch { /* ignore */ }
+  }, [])
+
+  // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)
+  // NOT memoized: must use the current handleStatusChange closure (which reads
+  // current `items`). useCallback([]) here froze the first-render closure where
+  // items was [], so every status action early-returned on `items.find` → no-op.
+  const onRowStatusChange = (item: PrepItemRich, status: string, qty?: number) => {
+    handleStatusChange(item.id, status, qty)
+  }
+
+  // Add-to-prep from the cook-along modal: persist planned qty on today's log, then refresh
+  const onAddToPrep = useCallback(async (qty: number) => {
+    const targetId = recipeModal?.sourceItemId
+    if (!targetId) { toast(`Set to make ${qty}`); return }
+    try {
+      await fetch('/api/prep/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prepItemId: targetId, requiredQty: qty }) })
+    } catch { /* ignore */ }
+    toast(`Task set to make ${qty}`)
+    load()
+  }, [recipeModal, toast, load])
+
+  // Keep the open drawer's item in sync across the auto-refresh poll
+  useEffect(() => {
+    if (!drawerItem) return
+    const fresh = items.find(i => i.id === drawerItem.id)
+    if (fresh && fresh !== drawerItem) setDrawerItem(fresh)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
+
   // ── Render helpers ────────────────────────────────────────────────────────
 
   const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
@@ -564,7 +606,7 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
+                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
@@ -576,9 +618,9 @@ export default function PrepPage() {
 
         {/* Progress */}
         <div className="flex flex-col gap-1.5">
-          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
-            <span><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
-            <span className={isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
+          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 flex-wrap">
+            <span className="whitespace-nowrap"><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
+            <span className={`whitespace-nowrap ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}`}>{parPct}% of par</span>
           </div>
           <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
             <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
@@ -592,8 +634,8 @@ export default function PrepPage() {
               System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
             </div>
           ) : (
-            <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 whitespace-nowrap ${suggestColor}`}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={suggestAccent}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+            <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 ${suggestColor}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
               System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
               {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
             </div>
@@ -707,7 +749,7 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
+                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
@@ -725,99 +767,81 @@ export default function PrepPage() {
   return (
     <div className="space-y-3 md:space-y-5">
 
-      <div className="hidden md:block">
-        <PrepDeadlineBanner rc={activeRc} />
-      </div>
+      <PrepDeadlineBanner rc={activeRc} />
 
       {/* ── Mobile Header ── */}
       <div className="md:hidden">
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-ink flex items-center gap-1.5">
-              <ChefHat size={18} className="text-gold shrink-0" /> Prep List
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
+              <ChefHat size={20} className="text-gold" /> Prep List
             </h1>
-            <p className="font-mono text-[10.5px] text-ink-3 mt-0.5 truncate">
-              {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-              {(() => {
-                if (!activeRc || activeRc.schedulingMode === 'ON_DEMAND') return ''
-                const dl = prepDeadline(activeRc, new Date())
-                return dl ? ` · prep by ${dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · ${fmtDuration(dl.getTime() - Date.now())} left` : ''
-              })()}
+            <p className="text-xs text-gray-500">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => setMSearchOpen(o => !o)}
-              className={`p-1.5 rounded-lg border transition-colors ${mSearchOpen || search ? 'border-gold/40 bg-gold-soft text-gold-2' : 'border-line text-ink-3 hover:bg-bg-2'}`}
-              title="Search">
-              <Search size={15} />
-            </button>
+          <div className="flex items-center gap-1.5">
             <button onClick={handleRefresh} disabled={generating}
-              className="p-1.5 rounded-lg border border-line text-ink-3 hover:bg-bg-2 disabled:opacity-50"
+              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               title="Refresh">
-              <RefreshCw size={15} className={generating ? 'animate-spin' : ''} />
+              <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
             </button>
             <button onClick={() => setShowSettings(true)}
-              className="p-1.5 rounded-lg border border-line text-ink-3 hover:bg-bg-2"
+              className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
               title="Settings">
-              <Settings size={15} />
+              <Settings size={16} />
             </button>
             <button onClick={handleSync} disabled={syncing}
-              className="p-1.5 rounded-lg border border-gold/30 text-gold bg-gold-soft hover:bg-gold/15 disabled:opacity-50"
+              className="p-2 rounded-lg border border-gold/30 text-gold bg-gold/10 hover:bg-gold/15 disabled:opacity-50"
               title="Sync from Recipes">
-              <BookOpen size={15} className={syncing ? 'animate-pulse' : ''} />
+              <BookOpen size={16} className={syncing ? 'animate-pulse' : ''} />
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="p-1.5 rounded-lg bg-gold text-white hover:bg-gold-2"
-              title="Add prep item">
+              className="p-2 rounded-lg bg-gold text-white hover:bg-[#a88930]">
               <Plus size={16} />
             </button>
           </div>
         </div>
 
         {/* Mobile view tabs */}
-        <div className="flex bg-bg-2 rounded-xl p-1 mt-3">
+        <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
-              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow text-ink' : 'text-ink-3'}`}>
-              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
 
-        {/* Search + filter — collapsed by default; opens from the search icon above */}
-        {viewMode !== 'history' && (mSearchOpen || search) && (
-          <div className="flex gap-2 mt-2.5">
+        {/* Shift info on Today is rendered once by <PrepShiftBand> in the shared content block (all breakpoints). */}
+
+        {/* Search + filter toggle — Smart Prep only on mobile; Today uses <PrepToolbar> in the shared content block */}
+        {viewMode === 'smartprep' && (
+          <div className="flex gap-2 mt-3">
             <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus
-                className="w-full pl-9 pr-9 py-2 text-sm border border-line rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
                 placeholder="Search prep items…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
-              <button
-                onClick={() => { setSearch(''); setMSearchOpen(false) }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2"
-                title="Close search">
-                <X size={15} />
-              </button>
             </div>
             <button
               onClick={() => setShowMobileFilters(v => !v)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
                 showMobileFilters || activeFilterCount > 0
-                  ? 'border-gold/40 bg-gold-soft text-gold-2'
-                  : 'border-line text-ink-2 hover:bg-bg-2'
+                  ? 'border-blue-300 bg-gold/10 text-gold'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}>
               <SlidersHorizontal size={15} />
-              {activeFilterCount > 0 ? <span className="bg-gold text-ink text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
+              {activeFilterCount > 0 ? <span className="bg-gold text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
             </button>
           </div>
         )}
 
-        {showMobileFilters && (
-          <div className="mt-2 bg-paper border border-line rounded-xl p-3 space-y-2">
+        {viewMode === 'smartprep' && showMobileFilters && (
+          <div className="mt-2 bg-white border border-gray-100 rounded-xl p-3 space-y-2">
             <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -836,32 +860,33 @@ export default function PrepPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between gap-6">
           <div>
-            <p className="font-mono text-[10.5px] text-ink-3 tracking-wide mb-2 flex items-center gap-2">
-              <ChefHat size={13} className="text-ink-3" />
-              TODAY / PREP
+            <p className="font-mono text-[10.5px] uppercase tracking-[0.02em] text-ink-3 mb-2.5 flex items-center gap-1.5">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
+              Today / Prep
             </p>
-            <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
+            <h1 className="text-[34px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              {countdown && <> · dinner service in <b className="text-ink font-medium">{countdown.serviceLabel}</b></>}
             </p>
           </div>
 
           {/* Desktop tabs — centered, branded pill */}
-          <div className="inline-flex bg-bg-2 border border-line rounded-[10px] p-[3px] gap-0.5">
+          <div className="inline-flex bg-bg-2 border border-line rounded-[11px] p-[3px] gap-[2px]">
             <button onClick={() => setViewMode('today')} id="dtab-today"
-              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'today' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'today' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M7 13h4M7 16h6"/></svg>
               To do
-              {todayItems.length > 0 && <span className="font-mono text-[10px] bg-red text-white px-1.5 py-0.5 rounded-full font-semibold">{todayItems.length}</span>}
+              {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className={`font-mono text-[10px] text-white px-1.5 rounded-full font-semibold ${viewMode === 'today' ? 'bg-red' : 'bg-ink-4'}`}>{shiftSummary.total - shiftSummary.resolved}</span>}
             </button>
             <button onClick={() => setViewMode('smartprep')} id="dtab-smartprep"
-              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
               Smart prep
-              {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono text-[10px] bg-red text-white px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length + spNeeded.length}</span>}
+              {(shiftSummary.critical + spNeeded.length) > 0 && <span className={`font-mono text-[10px] text-white px-1.5 rounded-full font-semibold ${viewMode === 'smartprep' ? 'bg-red' : 'bg-ink-4'}`}>{shiftSummary.critical + spNeeded.length}</span>}
             </button>
             <button onClick={() => setViewMode('history')} id="dtab-history"
-              className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
+              className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <History size={13} />
               History
             </button>
@@ -878,70 +903,32 @@ export default function PrepPage() {
               <BookOpen size={13} className={`text-ink-3 ${syncing ? 'animate-pulse' : ''}`} />
               {syncing ? 'Syncing…' : 'Sync from recipes'}
             </button>
-            <button onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
-              <Settings size={13} className="text-ink-3" />
-              Settings
+            <button onClick={() => setShowSettings(true)} title="Settings"
+              className="inline-flex items-center justify-center p-2.5 rounded-[9px] border border-line bg-paper text-ink-2 hover:border-ink-3 transition-colors">
+              <Settings size={15} className="text-ink-3" />
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap">
+              className="inline-flex items-center gap-[7px] px-4 py-2.5 rounded-[9px] border border-ink bg-ink text-paper text-[13px] font-medium hover:bg-[#18181b] transition-colors whitespace-nowrap">
               <span className="text-gold font-semibold text-base leading-none">+</span>
               Add item
             </button>
           </div>
         </div>
 
-        {/* Desktop filter bar (Today only — Smart Prep has its own branded tools row) */}
-        {viewMode === 'today' && (
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-              <input
-                className="w-full bg-paper border border-line rounded-[9px] pl-9 pr-3 py-2.5 text-[13px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors tracking-[-0.005em]"
-                placeholder="Search prep items…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            <select
-              value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
-            >
-              <option value="ALL">All categories</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select
-              value={filterStation}
-              onChange={e => setFilterStation(e.target.value)}
-              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
-            >
-              <option value="ALL">All stations</option>
-              <option value="UNASSIGNED">Unassigned</option>
-              {stations.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <label className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 transition-colors flex items-center gap-2 cursor-pointer tracking-[-0.005em]">
-              <span className={`w-[14px] h-[14px] border-[1.5px] rounded-[3px] grid place-items-center text-[9px] ${activeOnly ? 'bg-ink border-ink text-paper' : 'border-line-2 bg-paper'}`}>
-                {activeOnly && '✓'}
-              </span>
-              <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="hidden" />
-              Active only
-            </label>
-          </div>
-        )}
+        {/* Today filter is rendered once by <PrepToolbar> in the shared content block below. */}
       </div>
 
       {/* ── System banners ── */}
       {actionError && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-soft border border-red-soft rounded-xl text-sm text-red-text">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
           <span>{actionError}</span>
-          <button onClick={() => setActionError(null)} className="shrink-0 text-red hover:text-red">✕</button>
+          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
 
       {(isOffline || pendingCount > 0) && (
         <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
-          isOffline ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gold/10 border-gold/30 text-blue-text'
+          isOffline ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gold/10 border-gold/30 text-blue-800'
         }`}>
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff size={14} className="shrink-0" />
@@ -953,7 +940,7 @@ export default function PrepPage() {
             )}
           </div>
           {pendingCount > 0 && !isOffline && !offlineSyncing && (
-            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-text">
+            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-900">
               <RefreshCcw size={12} /> Sync now
             </button>
           )}
@@ -961,14 +948,14 @@ export default function PrepPage() {
       )}
 
       {syncResult && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-soft border border-green-soft rounded-xl text-sm text-green-text">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
           <span>
             {(syncResult.created > 0 || syncResult.updated > 0)
               ? <>{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}{syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}</>
               : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
             }
           </span>
-          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green hover:text-green-text">✕</button>
+          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green-500 hover:text-green-700">✕</button>
         </div>
       )}
 
@@ -976,202 +963,54 @@ export default function PrepPage() {
           TODAY TAB
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'today' && (
-        <div className="space-y-2.5 md:space-y-4">
-
-          {/* Desktop KPI strip */}
-          <div className="hidden md:block">
-            <PrepKpiStrip items={todayItems} />
-          </div>
-
-          {/* Priority-change alert — full on desktop, one compact line on mobile */}
-          {priorityAlerts.length > 0 && (
-            <>
-              <div className="hidden md:flex bg-gold-soft border border-[#fcd34d] rounded-xl px-4 py-3 items-start gap-3">
-                <AlertTriangle size={16} className="text-gold-2 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-[#78350f]">Stock changed since scheduling</p>
-                  <p className="text-sm text-gold-2 mt-0.5">
-                    {priorityAlerts.length === 1
-                      ? <><strong>{priorityAlerts[0].name}</strong> is now Critical — theoretical stock at or below 0.</>
-                      : <><strong>{priorityAlerts.map(i => i.name).join(', ')}</strong> — now Critical, stock depleted.</>
-                    }
-                  </p>
-                </div>
-              </div>
-              <div className="md:hidden flex items-center gap-2 bg-gold-soft border border-[#fcd34d] rounded-[10px] px-3 py-2">
-                <AlertTriangle size={14} className="text-gold-2 shrink-0" />
-                <span className="text-[12.5px] text-[#78350f] font-medium truncate">
-                  {priorityAlerts.length} item{priorityAlerts.length > 1 ? 's' : ''} now critical — stock depleted
-                </span>
-              </div>
-            </>
+        <div className="space-y-0">
+          <PrepShiftBand summary={shiftSummary} countdown={countdown} workloadLabel={workloadLabel} />
+          {priorityAlerts.length > 0 && !alertDismissed && (
+            <PrepAlertBanner
+              onDismiss={() => setAlertDismissed(true)}
+              message={
+                priorityAlerts.length === 1
+                  ? <><b>Stock changed since this list was scheduled.</b> {priorityAlerts[0].name} dropped to Critical — theoretical stock at or below 0.</>
+                  : <><b>Stock changed since this list was scheduled.</b> {priorityAlerts.map(i => i.name).join(', ')} — now Critical, stock depleted.</>
+              }
+            />
           )}
-
+          <PrepToolbar
+            search={search} onSearch={setSearch}
+            categories={categories} stations={stations}
+            filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
+            onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
+            filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
+            onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
+            activeOnly={activeOnly} onActiveOnly={setActiveOnly}
+            forceOpen={todayItems.length > 3}
+          />
           {loading ? (
-            <div className="flex justify-center py-16">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
-            </div>
+            <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
-            <div className="bg-paper border border-line rounded-xl py-16 text-center">
+            <div className="bg-white border border-line rounded-xl py-16 text-center">
               <ChefHat size={32} className="mx-auto text-ink-4 mb-3" />
-              <p className="text-ink-2 text-sm font-medium">Nothing on today&apos;s list yet.</p>
-              <p className="font-mono text-[11px] text-ink-3 mt-2">
-                Go to{' '}
-                <button onClick={() => setViewMode('smartprep')} className="text-gold-2 hover:underline">
-                  Smart Prep
-                </button>
-                {' '}and add items to your list.
-              </p>
+              <p className="text-ink-3 text-sm">Nothing on today&apos;s list yet.</p>
+              <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
             </div>
+          ) : shiftSummary.resolved === shiftSummary.total ? (
+            <PrepRestState total={shiftSummary.total} />
           ) : (
             <>
-              {/* Desktop: flat card list */}
-              <div className="hidden md:flex flex-col gap-2">
-                {filteredToday.map(item => (
-                  <PrepItemRow
-                    key={item.id}
-                    item={item}
-                    onClick={() => setSelected(item)}
-                    onStatusChange={handleStatusChange}
-                    onPriorityChange={handlePriorityChange}
-                    onDelete={handleDelete}
-                    onToggleOnList={handleToggleOnList}
-                  />
-                ))}
-              </div>
-
-              {/* Mobile: status-grouped To-Do (matches mockup) */}
-              <div className="md:hidden">
-                {(() => {
-                  const doing = filteredToday.filter(i => i.todayLog?.status === 'IN_PROGRESS')
-                  const done  = filteredToday.filter(i => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL')
-                  const todo  = filteredToday.filter(i => {
-                    const s = i.todayLog?.status ?? 'NOT_STARTED'
-                    return s !== 'IN_PROGRESS' && s !== 'DONE' && s !== 'PARTIAL' && s !== 'SKIPPED'
-                  })
-                  const total = doing.length + done.length + todo.length
-                  const seg = (n: number) => total ? (n / total) * 100 : 0
-                  return (
-                    <>
-                      {/* progress overview — slim strip */}
-                      <div className="pt-0.5">
-                        <div className="flex items-center justify-between gap-2 mb-1.5 font-mono text-[10.5px] whitespace-nowrap">
-                          <span className="text-ink-2"><b className="text-ink font-semibold">{done.length}/{total}</b> done</span>
-                          <span className="text-ink-3">{doing.length ? <span className="text-blue-text">{doing.length} in progress</span> : '0 in progress'} · {todo.length} to do</span>
-                        </div>
-                        <div className="flex h-1.5 rounded-full overflow-hidden bg-bg-2 gap-[2px]">
-                          {done.length > 0 && <div className="bg-green" style={{ width: `${seg(done.length)}%` }} />}
-                          {doing.length > 0 && <div className="bg-blue" style={{ width: `${seg(doing.length)}%` }} />}
-                        </div>
-                      </div>
-
-                      {/* In progress */}
-                      {doing.length > 0 && (
-                        <>
-                          <GroupHead dot="#2563eb" title="In progress" count={`${doing.length}`} sub="Cooking now — log the yield when finished" />
-                          <div className="flex flex-col gap-2 mt-2.5">
-                            {doing.map(p => (
-                              <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className="bg-blue-soft border border-[#93c5fd] rounded-xl px-3.5 py-3 cursor-pointer">
-                                <div className="flex items-center gap-3">
-                                  <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-blue grid place-items-center"><Flame size={16} className="text-white" /></span>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-blue-text ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
-                                    <div className="font-mono text-[10.5px] text-blue-text mt-1 flex items-center gap-1.5 whitespace-nowrap">
-                                      <span className="w-[7px] h-[7px] rounded-full bg-blue shrink-0 animate-pulse" />
-                                      {p.todayLog?.updatedAt ? `${elapsedStr(nowTs - new Date(p.todayLog.updatedAt).getTime())} elapsed` : 'in progress'}{p.station ? ` · ${p.station}` : ''}
-                                    </div>
-                                  </div>
-                                  {p.linkedRecipeId && (
-                                    <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-[#93c5fd] text-blue-text">
-                                      <BookOpen size={16} />
-                                    </button>
-                                  )}
-                                  <button onClick={e => { e.stopPropagation(); setMobileLog({ item: p, qty: p.suggestedQty > 0 ? p.suggestedQty : 0 }) }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3 py-2 text-[12.5px] font-semibold">
-                                    <Check size={14} className="text-gold" strokeWidth={2.8} /> Done
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-
-                      {/* To do */}
-                      {todo.length > 0 && (
-                        <>
-                          <GroupHead dot="#09090b" title="To do" count={`${todo.length}`} sub="Tap for recipe · start when you begin" />
-                          <div className="flex flex-col gap-2 mt-2.5">
-                            {todo.map(p => {
-                              const isCrit = p.priority === '911'
-                              const isNeeded = p.priority === 'NEEDED_TODAY'
-                              const edge = isCrit ? '#dc2626' : isNeeded ? '#d97706' : null
-                              const cardCls = isCrit
-                                ? 'bg-[#fef2f2] border-[#fca5a5]'
-                                : isNeeded
-                                  ? 'bg-gold-soft/40 border-[#fcd34d]'
-                                  : 'bg-paper border-line'
-                              const tileCls = isCrit
-                                ? 'bg-red-soft border-red-soft text-red'
-                                : isNeeded
-                                  ? 'bg-gold-soft border-[#fcd34d] text-gold-2'
-                                  : 'bg-bg-2 border-line text-ink-3'
-                              return (
-                                <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className={`${cardCls} border rounded-xl px-3.5 py-3 cursor-pointer`} style={edge ? { borderLeftWidth: 4, borderLeftColor: edge } : undefined}>
-                                  <div className="flex items-center gap-3">
-                                    <span className={`w-[30px] h-[30px] rounded-[9px] shrink-0 border grid place-items-center ${tileCls}`}><ChefHat size={16} /></span>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-ink-3 ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
-                                      <div className="mt-1 flex items-center gap-1.5">
-                                        {isCrit && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-red text-white uppercase tracking-[0.04em]">Critical</span>}
-                                        {isNeeded && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-gold text-ink uppercase tracking-[0.04em]">Low stock</span>}
-                                        <span className="whitespace-nowrap font-mono text-[10.5px] text-ink-3">{p.station || 'Prep'}{p.linkedRecipeId ? ' · recipe' : ''}</span>
-                                      </div>
-                                    </div>
-                                    {p.linkedRecipeId && (
-                                      <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-line text-ink-2">
-                                        <BookOpen size={16} />
-                                      </button>
-                                    )}
-                                    <button onClick={e => { e.stopPropagation(); handleStatusChange(p.id, 'IN_PROGRESS') }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3 py-2 text-[12.5px] font-semibold">
-                                      <Zap size={13} className="text-gold" /> Start
-                                    </button>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </>
-                      )}
-
-                      {/* Done */}
-                      {done.length > 0 && (
-                        <>
-                          <GroupHead dot="#16a34a" title="Done" count={`${done.length}`} sub="Logged → feeds history & yield insights" />
-                          <div className="flex flex-col gap-1.5 mt-2.5">
-                            {done.map(p => (
-                              <div key={p.id} className="flex items-center gap-3 bg-paper border border-line rounded-[10px] px-3.5 py-2.5">
-                                <span className="w-6 h-6 rounded-[7px] bg-green grid place-items-center shrink-0"><Check size={14} className="text-white" strokeWidth={3} /></span>
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-[13.5px] font-medium text-ink-3 line-through truncate">{p.name}</div>
-                                  <div className="font-mono text-[10px] text-ink-4 mt-0.5">{p.station || 'Prep'} · done</div>
-                                </div>
-                                <span className="font-mono text-[11.5px] font-semibold text-green-text shrink-0">{fq(p.todayLog?.actualPrepQty ?? p.suggestedQty)} {p.unit}</span>
-                                <button onClick={() => handleStatusChange(p.id, 'NOT_STARTED')} title="Reopen" className="w-7 h-7 rounded-[8px] border border-line grid place-items-center shrink-0 text-ink-3">
-                                  <RotateCcw size={13} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )
-                })()}
-              </div>
-
-              <p className="text-center font-mono text-[10.5px] text-ink-3 mt-3">
-                This list carries over each day — items stay until marked done or removed.
-              </p>
+              {todayGroups.critical.length > 0 && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
+              )}
+              {todayGroups.critical.map(item => (
+                <PrepTaskRow key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+              ))}
+              {todayGroups.needed.length > 0 && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
+              )}
+              {todayGroups.needed.map(item => (
+                <PrepTaskRow key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+              ))}
+              <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
+              <p className="text-center text-xs text-ink-4 mt-4">This list carries over each day — items stay until marked done or removed.</p>
             </>
           )}
         </div>
@@ -1253,7 +1092,7 @@ export default function PrepPage() {
           })()}
 
           {/* Info banner (branded) */}
-          <div className="hidden md:flex items-center gap-3 px-4 py-3 bg-gold-soft border border-[#fcd34d] rounded-[10px]">
+          <div className="hidden md:flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-[#fffbeb] to-[#fef9ec] border border-[#fcd34d] rounded-xl">
             <div className="w-7 h-7 rounded-[7px] bg-paper border border-[#fcd34d] grid place-items-center text-gold-2 shrink-0">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
             </div>
@@ -1262,36 +1101,13 @@ export default function PrepPage() {
             </p>
           </div>
 
-          {/* Mobile Smart Prep summary — compact context strip (mirrors desktop cards) */}
-          {(() => {
-            const actionItems = [...spCritical, ...spNeeded]
-            const totalPrepMinutes = actionItems.reduce((sum, i) => sum + (i.estimatedPrepTime ?? 0), 0)
-            return (
-              <div className="md:hidden bg-ink text-paper rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-mono text-[9px] text-ink-4 uppercase tracking-[0.05em]">To prep</div>
-                  <div className="text-[18px] font-semibold tracking-[-0.03em] leading-none mt-1 whitespace-nowrap">
-                    {actionItems.length}
-                    <span className="text-[11px] font-normal text-ink-4 ml-1">item{actionItems.length !== 1 ? 's' : ''}{totalPrepMinutes > 0 ? ` · ~${totalPrepMinutes >= 90 ? `${Math.round(totalPrepMinutes / 60)}h` : `${totalPrepMinutes}m`}` : ''}</span>
-                  </div>
-                </div>
-                <div className="flex items-stretch gap-0 shrink-0 font-mono text-center divide-x divide-zinc-700">
-                  <div className="px-3">
-                    <div className="text-[16px] font-semibold leading-none text-[#fca5a5]">{spCritical.length}</div>
-                    <div className="text-[8px] text-ink-4 uppercase tracking-[0.04em] mt-1">Crit</div>
-                  </div>
-                  <div className="px-3">
-                    <div className="text-[16px] font-semibold leading-none text-gold">{spNeeded.length}</div>
-                    <div className="text-[8px] text-ink-4 uppercase tracking-[0.04em] mt-1">Need</div>
-                  </div>
-                  <div className="px-3">
-                    <div className="text-[16px] font-semibold leading-none text-[#86efac]">{spLookingGood.length}</div>
-                    <div className="text-[8px] text-ink-4 uppercase tracking-[0.04em] mt-1">Par</div>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
+          {/* Mobile info banner */}
+          <div className="md:hidden flex items-start gap-2.5 bg-gradient-to-b from-[#fffbeb] to-[#fef9ec] border border-[#fcd34d] rounded-xl px-4 py-3">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold-2 shrink-0 mt-0.5"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+            <p className="text-[12.5px] text-[#78350f] leading-[1.4]">
+              Computed live from <b className="font-semibold text-ink">theoretical stock</b> — sales, wastage &amp; invoices since the last count. Resets each count.
+            </p>
+          </div>
 
           {/* Desktop tools row: search + dropdowns + segmented control */}
           <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center">
@@ -1364,7 +1180,7 @@ export default function PrepPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
 
                   {/* Critical column */}
-                  <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-gray-100 rounded-xl flex flex-col min-h-[480px]">
+                  <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-line rounded-xl flex flex-col min-h-[480px]">
                     <div className="px-4 py-3.5 border-b border-[#fca5a5] flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
                         <span className="w-2 h-2 rounded-full bg-red" />
@@ -1373,7 +1189,7 @@ export default function PrepPage() {
                       </div>
                       {spCritical.some(i => !i.isOnList) && (
                         <button onClick={() => handleAddAll('911')}
-                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red bg-red text-paper hover:bg-red whitespace-nowrap">
+                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red bg-red text-paper hover:bg-red-text whitespace-nowrap">
                           + Add all
                         </button>
                       )}
@@ -1464,7 +1280,7 @@ export default function PrepPage() {
                                     title={isAdded ? "Remove from today's list" : "Add to today's list"}
                                     className={`px-2.5 py-1 rounded-[7px] text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
                                       isAdded
-                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
+                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                                         : 'bg-ink text-paper hover:bg-ink-2'
                                     }`}
                                   >
@@ -1495,7 +1311,7 @@ export default function PrepPage() {
                                   title={isAdded ? "Remove from today's list" : "Add to today's list"}
                                   className={`w-6 h-6 grid place-items-center rounded-[6px] text-[12px] font-medium transition-colors group ${
                                     isAdded
-                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
+                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
                                       : 'bg-ink text-paper hover:bg-ink-2'
                                   }`}
                                 >
@@ -1629,17 +1445,17 @@ export default function PrepPage() {
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'history' && (
         <div className="space-y-4">
-          <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-3 flex-wrap">
-            <History size={16} className="text-gray-400 shrink-0" />
-            <span className="text-sm font-medium text-gray-700">View date:</span>
+          <div className="bg-paper border border-line rounded-xl p-4 flex items-center gap-3 flex-wrap">
+            <History size={16} className="text-ink-4 shrink-0" />
+            <span className="text-sm font-medium text-ink-2">View date:</span>
             <input
               type="date"
               max={new Date().toISOString().slice(0, 10)}
               value={historyDate}
               onChange={e => setHistoryDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+              className="bg-paper border border-line rounded-[10px] px-3 py-2 text-[13px] text-ink-2 font-mono focus:outline-none focus:ring-2 focus:ring-gold"
             />
-            <span className="text-xs text-gray-400 ml-auto">
+            <span className="text-[11px] text-ink-3 font-mono ml-auto">
               {new Date(historyDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </span>
           </div>
@@ -1649,19 +1465,19 @@ export default function PrepPage() {
               <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-gold" />
             </div>
           ) : historyLogs.length === 0 ? (
-            <div className="bg-white border border-gray-100 rounded-xl py-14 text-center">
-              <History size={28} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500 text-sm">No prep was logged on this date.</p>
-              <p className="text-xs text-gray-400 mt-1">Try a different date.</p>
+            <div className="bg-paper border border-line rounded-xl py-12 text-center">
+              <History size={28} className="mx-auto text-ink-4 mb-3" />
+              <p className="text-ink-3 text-sm">No prep was logged on this date.</p>
+              <p className="text-xs text-ink-3 mt-1">Try a different date.</p>
             </div>
           ) : (() => {
             const STATUS_HIST: Record<string, { label: string; cls: string }> = {
               DONE:        { label: 'Done',        cls: 'bg-green-soft text-green-text' },
-              PARTIAL:     { label: 'Partial',     cls: 'bg-amber-100 text-amber-700' },
-              IN_PROGRESS: { label: 'In Progress', cls: 'bg-gold/15 text-gold' },
+              PARTIAL:     { label: 'Partial',     cls: 'bg-gold-soft text-gold-2' },
+              IN_PROGRESS: { label: 'In Progress', cls: 'bg-blue-soft text-blue-text' },
               BLOCKED:     { label: 'Blocked',     cls: 'bg-red-soft text-red-text' },
-              SKIPPED:     { label: 'Skipped',     cls: 'bg-gray-100 text-gray-400' },
-              NOT_STARTED: { label: 'Not Started', cls: 'bg-gray-100 text-gray-400' },
+              SKIPPED:     { label: 'Skipped',     cls: 'bg-bg-2 text-ink-3' },
+              NOT_STARTED: { label: 'Not Started', cls: 'bg-bg-2 text-ink-3' },
             }
             const done    = historyLogs.filter(l => l.status === 'DONE').length
             const partial = historyLogs.filter(l => l.status === 'PARTIAL').length
@@ -1670,16 +1486,16 @@ export default function PrepPage() {
             const completionRate = total > 0 ? Math.round(((done + partial) / total) * 100) : 0
             return (
               <>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { label: 'Total', value: total, cls: 'text-gray-800' },
+                    { label: 'Total', value: total, cls: 'text-ink' },
                     { label: 'Done', value: done, cls: 'text-green-text' },
-                    { label: 'Partial', value: partial, cls: 'text-amber-700' },
-                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-text' : completionRate >= 50 ? 'text-amber-700' : 'text-red' },
+                    { label: 'Partial', value: partial, cls: 'text-gold-2' },
+                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-text' : completionRate >= 50 ? 'text-gold-2' : 'text-red-text' },
                   ].map(c => (
-                    <div key={c.label} className="bg-white border border-gray-100 rounded-xl p-3 text-center">
-                      <div className="text-xs text-gray-400 mb-1">{c.label}</div>
-                      <div className={`text-lg font-bold ${c.cls}`}>{c.value}</div>
+                    <div key={c.label} className="bg-paper border border-line rounded-xl p-3 text-center">
+                      <div className="text-[11px] text-ink-3 font-mono uppercase tracking-wide mb-1">{c.label}</div>
+                      <div className={`text-lg font-bold font-mono ${c.cls}`}>{c.value}</div>
                     </div>
                   ))}
                 </div>
@@ -1690,28 +1506,26 @@ export default function PrepPage() {
                   </div>
                 )}
 
-                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Items Logged</span>
-                    <span className="text-xs text-gray-400">{total}</span>
+                <div className="bg-paper border border-line rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-bg-2 border-b border-line flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-ink-3 font-mono uppercase tracking-wide">Items Logged</span>
+                    <span className="text-[11px] text-ink-4 font-mono">{total}</span>
                   </div>
-                  <div className="divide-y divide-gray-50">
+                  <div className="divide-y divide-line">
                     {historyLogs.map(log => {
                       const meta = STATUS_HIST[log.status] ?? STATUS_HIST.NOT_STARTED
                       return (
                         <div key={log.id} className="px-4 py-3 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-gray-800 truncate">{log.prepItem.name}</div>
-                            {log.note && <div className="text-xs text-gray-400 mt-0.5 truncate">{log.note}</div>}
-                            {log.assignedTo && <div className="text-xs text-gray-400">by {log.assignedTo}</div>}
+                            <div className="text-sm font-semibold text-ink truncate">{log.prepItem.name}</div>
+                            {log.note && <div className="text-xs text-ink-3 mt-0.5 truncate">{log.note}</div>}
+                            {log.assignedTo && <div className="text-[11px] text-ink-3 font-mono">by {log.assignedTo}</div>}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            {log.actualPrepQty != null && (
-                              <span className="text-sm text-gray-600 font-medium">
-                                {Number(log.actualPrepQty).toFixed(1)} {log.prepItem.unit}
-                              </span>
-                            )}
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${meta.cls}`}>{meta.label}</span>
+                            <span className="font-mono text-[13px] text-ink-2">
+                              {log.actualPrepQty != null ? Number(log.actualPrepQty).toFixed(1) : '—'} {log.prepItem.unit}
+                            </span>
+                            <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-medium ${meta.cls}`}>{meta.label}</span>
                           </div>
                         </div>
                       )
@@ -1734,6 +1548,27 @@ export default function PrepPage() {
         />
       )}
 
+      {/* Redesigned To-do tab — drawer, cook-along modal, toast */}
+      <PrepDrawer
+        item={drawerItem}
+        detail={drawerDetail}
+        countdown={countdown}
+        recipeCost={null}
+        onClose={closeDrawer}
+        onStatusChange={onRowStatusChange}
+        onOpenRecipe={openRecipeModal}
+      />
+      <RecipeCookAlongModal
+        open={recipeModal !== null}
+        recipe={recipeModal?.recipe ?? null}
+        ingredients={recipeModal?.ings ?? []}
+        initialMakeQty={recipeModal?.makeQty ?? 0}
+        unit={recipeModal?.unit ?? ''}
+        onClose={() => setRecipeModal(null)}
+        onAddToPrep={onAddToPrep}
+      />
+      {toastNode}
+
       {showAdd && (
         <PrepItemForm onClose={() => setShowAdd(false)} onSaved={load} />
       )}
@@ -1752,68 +1587,6 @@ export default function PrepPage() {
           onSaved={() => { load(); loadSettings(); setShowSettings(false) }}
         />
       )}
-
-      {/* Recipe view (from a To-Do card) — scaled ingredients with check-off + flow to start/log */}
-      {recipeItem && recipeItem.linkedRecipeId && (
-        <RecipeViewModal
-          recipeId={recipeItem.linkedRecipeId}
-          recipeName={recipeItem.name}
-          suggestedQty={recipeItem.suggestedQty > 0 ? recipeItem.suggestedQty : undefined}
-          yieldUnit={recipeItem.unit}
-          baseYieldQty={recipeItem.linkedRecipe?.baseYieldQty}
-          checkedIngredients={checkedIng[recipeItem.id] ?? new Set()}
-          onToggleIngredient={(ingId) => toggleIngredient(recipeItem.id, ingId)}
-          onClose={() => setRecipeItem(null)}
-          footerAction={
-            recipeItem.todayLog?.status === 'IN_PROGRESS'
-              ? { label: 'Log yield made', onClick: () => { const it = recipeItem; setRecipeItem(null); setMobileLog({ item: it, qty: it.suggestedQty > 0 ? it.suggestedQty : 0 }) } }
-              : { label: 'Start prep', onClick: () => { handleStatusChange(recipeItem.id, 'IN_PROGRESS'); setRecipeItem(null) } }
-          }
-        />
-      )}
-
-      {/* Mobile log-yield sheet (from an in-progress To-Do card) */}
-      {mobileLog && (() => {
-        const { item, qty } = mobileLog
-        const isFine = item.unit === 'kg' || item.unit === 'L'
-        const step = isFine ? 0.1 : 1
-        const setQty = (q: number) => setMobileLog(m => m ? { ...m, qty: Math.max(0, +q.toFixed(1)) } : m)
-        const meetsPar = qty >= item.parLevel
-        return (
-          <div className="md:hidden fixed inset-0 z-[80] flex items-end">
-            <div className="absolute inset-0 bg-black/40" onClick={() => setMobileLog(null)} />
-            <div className="relative w-full bg-paper rounded-t-2xl shadow-xl pb-8 animate-[slide-up_.25s_ease]">
-              <div className="flex justify-center pt-2.5"><div className="w-9 h-[5px] rounded-full bg-line-2" /></div>
-              <div className="flex items-center justify-between px-5 pt-3 pb-1">
-                <div className="text-[18px] font-semibold tracking-[-0.02em]">Log · {item.name}</div>
-                <button onClick={() => setMobileLog(null)} className="w-8 h-8 rounded-full bg-bg-2 grid place-items-center text-ink-3"><X size={16} /></button>
-              </div>
-              <div className="px-5 pt-2">
-                <div className="font-mono text-[11px] text-ink-3 mb-3">
-                  {(item.station || 'PREP').toUpperCase()} · PLANNED {fq(item.suggestedQty)} {item.unit} · PAR {fq(item.parLevel)} {item.unit}
-                </div>
-                <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] text-center mb-3">Yield made · {item.unit}</div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setQty(qty - step)} className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0"><Minus size={26} className="text-ink-2" /></button>
-                  <div className="flex-1 text-center">
-                    <div className="text-[44px] font-semibold tracking-[-0.04em] leading-none">{isFine ? qty.toFixed(1) : qty.toFixed(0)}</div>
-                  </div>
-                  <button onClick={() => setQty(qty + step)} className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0"><Plus size={26} className="text-gold" /></button>
-                </div>
-                <div className="font-mono text-[11px] text-center mt-3 mb-4" style={{ color: meetsPar ? '#15803d' : '#b45309' }}>
-                  par {fq(item.parLevel)} {item.unit} · {meetsPar ? 'meets par ✓' : `short ${fq(Math.max(0, item.parLevel - qty))}${item.unit}`}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setMobileLog(null)} className="flex-1 h-12 rounded-xl border border-line text-ink-2 text-[14px] font-medium">Cancel</button>
-                  <button onClick={() => { handleStatusChange(item.id, 'DONE', qty > 0 ? qty : undefined); setMobileLog(null) }} className="flex-1 h-12 rounded-xl bg-ink text-paper text-[14px] font-semibold inline-flex items-center justify-center gap-2">
-                    <Check size={16} className="text-gold" strokeWidth={2.6} /> Mark done
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
     </div>
   )
 }

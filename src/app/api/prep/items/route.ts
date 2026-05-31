@@ -46,6 +46,17 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'asc' },
   })
 
+  const itemIds = items.map(i => i.id)
+  const doneLogs = await prisma.prepLog.findMany({
+    where: { prepItemId: { in: itemIds }, status: { in: ['DONE', 'PARTIAL'] } },
+    orderBy: { logDate: 'desc' },
+    select: { prepItemId: true, logDate: true },
+  })
+  const lastMadeByItem = new Map<string, string>()
+  for (const l of doneLogs) {
+    if (!lastMadeByItem.has(l.prepItemId)) lastMadeByItem.set(l.prepItemId, l.logDate.toISOString())
+  }
+
   const enriched = items.map(item => {
     // Resolve onHand
     let onHand = 0
@@ -63,10 +74,18 @@ export async function GET(req: NextRequest) {
     const suggestedQty = computeSuggestedQty(onHand, parLevel, targetToday)
 
     // Blocked check — any ingredient at zero stock?
+    // The recipe ingredients are already resolved (with stockOnHand) via recipeInclude.
     let isBlocked   = false
     let blockedReason: string | null = null
+    let ingredientTotalCount: number | null = null
+    let ingredientShortCount: number | null = null
     if (item.linkedRecipe) {
-      const low = item.linkedRecipe.ingredients
+      const ings = item.linkedRecipe.ingredients
+      ingredientTotalCount = ings.length
+      ingredientShortCount = ings.filter(
+        ing => ing.inventoryItem != null && Number(ing.inventoryItem.stockOnHand) <= 0,
+      ).length
+      const low = ings
         .filter(ing => ing.inventoryItem && parseFloat(String(ing.inventoryItem.stockOnHand)) <= 0)
         .map(ing => ing.inventoryItem!.itemName)
       if (low.length > 0) {
@@ -105,6 +124,9 @@ export async function GET(req: NextRequest) {
       suggestedQty,
       isBlocked,
       blockedReason,
+      ingredientTotalCount,
+      ingredientShortCount,
+      lastMadeAt: lastMadeByItem.get(item.id) ?? null,
       todayLog: item.logs[0] ?? null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,

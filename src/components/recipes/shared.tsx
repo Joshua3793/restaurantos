@@ -69,6 +69,7 @@ export interface Recipe {
   menuPrice: number | null
   isActive: boolean
   notes: string | null
+  steps: string[]
   createdAt: string
   updatedAt: string
   ingredients: IngredientWithCost[]
@@ -1474,6 +1475,36 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   placeholder="Recipe notes, storage instructions…" />
               </div>
             )}
+          </div>
+
+          {/* Method steps — ordered, persists via patchRecipe */}
+          <div className="mt-5">
+            <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">Method · steps</div>
+            <ol className="flex flex-col gap-2">
+              {(recipe.steps ?? []).map((s, i) => (
+                <li key={i} className="flex gap-2 items-start">
+                  <span className="font-mono text-[11px] font-semibold text-gold-2 bg-gold-soft w-[22px] h-[22px] rounded-[7px] grid place-items-center shrink-0">{i + 1}</span>
+                  <textarea
+                    defaultValue={s}
+                    rows={2}
+                    onBlur={e => {
+                      const next = [...(recipe.steps ?? [])]; next[i] = e.target.value
+                      patchRecipe({ steps: next.filter(x => x.trim() !== '') })
+                    }}
+                    className="flex-1 text-sm border border-line rounded-lg px-3 py-2 resize-y outline-none focus:border-ink-3"
+                  />
+                  <button
+                    onClick={() => patchRecipe({ steps: (recipe.steps ?? []).filter((_, j) => j !== i) })}
+                    className="text-ink-3 hover:text-red-text px-2 py-1"
+                    aria-label="Remove step"
+                  >✕</button>
+                </li>
+              ))}
+            </ol>
+            <button
+              onClick={() => patchRecipe({ steps: [...(recipe.steps ?? []), ''] })}
+              className="mt-2 text-[12.5px] font-medium text-ink-2 hover:text-ink"
+            >+ Add step</button>
           </div>
 
           {!isMenu && (

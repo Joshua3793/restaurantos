@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Recipe" ADD COLUMN "steps" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

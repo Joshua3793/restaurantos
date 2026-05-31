@@ -158,6 +158,7 @@ model Recipe {
   menuPrice       Decimal?
   isActive        Boolean            @default(true)
   notes            String?
+  steps           String[]           @default([])
   baseIngredientId String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
