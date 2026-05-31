@@ -6,7 +6,7 @@
  * Same data + handlers as the desktop PrepTaskRow. Rendered under md:hidden.
  */
 import { Loader2 } from 'lucide-react'
-import { IcCheck, IcAlert, IcClock, IcSkip, IcChevron, IcSync } from '@/components/prep/icons'
+import { IcCheck, IcAlert, IcClock, IcSkip, IcSync, IcPlay, IcUndo } from '@/components/prep/icons'
 import { PrepItemRich, PrepStatus } from '@/components/prep/types'
 import { PREP_STATE_META } from '@/lib/prep-utils'
 
@@ -28,7 +28,7 @@ function fmt(n: number): string {
   return s.replace(/\.0+$/, '')
 }
 
-export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe }: Props) {
+export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, onStatusChange }: Props) {
   const status: PrepStatus = item.todayLog?.status ?? 'NOT_STARTED'
   const state = PREP_STATE_META[status].key as 'not-started' | 'in-progress' | 'done' | 'skipped'
   const isCrit = item.priority === '911'
@@ -86,12 +86,29 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe }:
           title="View recipe"
           onClick={(e) => { e.stopPropagation(); onOpenRecipe(item) }}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenRecipe(item) } }}
-          className="w-8 h-8 rounded-[9px] grid place-items-center shrink-0 bg-ink text-gold active:scale-95"
+          className="w-9 h-9 rounded-[10px] grid place-items-center shrink-0 bg-paper border border-line text-ink-2 active:scale-95"
         >
-          <IcSync size={15} />
+          <span className="w-6 h-6 rounded-[7px] bg-ink text-gold grid place-items-center"><IcSync size={13} /></span>
         </span>
       )}
-      <IcChevron size={15} className="text-ink-4 shrink-0" />
+      {(() => {
+        const next: PrepStatus = state === 'in-progress' ? 'DONE' : isDoneState ? 'NOT_STARTED' : 'IN_PROGRESS'
+        const cls = state === 'in-progress' ? 'bg-green text-white' : isDoneState ? 'bg-paper border border-line text-ink-3' : 'bg-ink text-gold'
+        const Icon = state === 'in-progress' ? IcCheck : isDoneState ? IcUndo : IcPlay
+        const label = state === 'in-progress' ? 'Mark done' : isDoneState ? 'Reopen' : item.isBlocked ? 'Start anyway' : 'Start prep'
+        return (
+          <span
+            role="button"
+            tabIndex={0}
+            title={label}
+            onClick={(e) => { e.stopPropagation(); onStatusChange(item, next, next === 'DONE' ? item.suggestedQty : undefined) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onStatusChange(item, next, next === 'DONE' ? item.suggestedQty : undefined) } }}
+            className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${cls}`}
+          >
+            <Icon size={16} />
+          </span>
+        )
+      })()}
     </button>
   )
 }
