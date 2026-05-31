@@ -761,13 +761,6 @@ export default function PrepPage() {
           ))}
         </div>
 
-        {/* Mobile KPI strip (Today only) */}
-        {viewMode === 'today' && (
-          <div className="mt-2">
-            <PrepKpiStrip items={todayItems} />
-          </div>
-        )}
-
         {/* Search + filter toggle */}
         {viewMode !== 'history' && (
           <div className="flex gap-2 mt-3">
@@ -960,20 +953,28 @@ export default function PrepPage() {
             <PrepKpiStrip items={todayItems} />
           </div>
 
-          {/* Priority-change alert */}
+          {/* Priority-change alert — full on desktop, one compact line on mobile */}
           {priorityAlerts.length > 0 && (
-            <div className="bg-gold-soft border border-[#fcd34d] rounded-xl px-4 py-3 flex items-start gap-3">
-              <AlertTriangle size={16} className="text-gold-2 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-[#78350f]">Stock changed since scheduling</p>
-                <p className="text-sm text-gold-2 mt-0.5">
-                  {priorityAlerts.length === 1
-                    ? <><strong>{priorityAlerts[0].name}</strong> is now Critical — theoretical stock at or below 0.</>
-                    : <><strong>{priorityAlerts.map(i => i.name).join(', ')}</strong> — now Critical, stock depleted.</>
-                  }
-                </p>
+            <>
+              <div className="hidden md:flex bg-gold-soft border border-[#fcd34d] rounded-xl px-4 py-3 items-start gap-3">
+                <AlertTriangle size={16} className="text-gold-2 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-[#78350f]">Stock changed since scheduling</p>
+                  <p className="text-sm text-gold-2 mt-0.5">
+                    {priorityAlerts.length === 1
+                      ? <><strong>{priorityAlerts[0].name}</strong> is now Critical — theoretical stock at or below 0.</>
+                      : <><strong>{priorityAlerts.map(i => i.name).join(', ')}</strong> — now Critical, stock depleted.</>
+                    }
+                  </p>
+                </div>
               </div>
-            </div>
+              <div className="md:hidden flex items-center gap-2 bg-gold-soft border border-[#fcd34d] rounded-[10px] px-3 py-2">
+                <AlertTriangle size={14} className="text-gold-2 shrink-0" />
+                <span className="text-[12.5px] text-[#78350f] font-medium truncate">
+                  {priorityAlerts.length} item{priorityAlerts.length > 1 ? 's' : ''} now critical — stock depleted
+                </span>
+              </div>
+            </>
           )}
 
           {loading ? (
@@ -1217,48 +1218,30 @@ export default function PrepPage() {
           {/* Mobile Smart Prep summary — compact context strip (mirrors desktop cards) */}
           {(() => {
             const actionItems = [...spCritical, ...spNeeded]
-            const topAction = actionItems[0]
             const totalPrepMinutes = actionItems.reduce((sum, i) => sum + (i.estimatedPrepTime ?? 0), 0)
             return (
-              <div className="md:hidden space-y-2">
-                {/* Dark hero — today's suggested prep */}
-                <div className="bg-ink text-paper rounded-xl border border-ink p-4 relative overflow-hidden">
-                  <div className="absolute top-4 right-4 flex items-end gap-[2px] h-[16px]">
-                    {[11, 14, 8, 16, 10, 13, 17, 12].map((h, i) => (
-                      <span key={i} className="w-[3px] rounded-[1px]" style={{ height: h, background: '#3f3f46' }} />
-                    ))}
-                  </div>
-                  <p className="font-mono text-[10px] text-ink-4 tracking-[0.04em] uppercase">Today&apos;s suggested prep</p>
-                  <p className="text-[34px] font-semibold tracking-[-0.045em] leading-none mt-1.5">
+              <div className="md:hidden bg-ink text-paper rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono text-[9px] text-ink-4 uppercase tracking-[0.05em]">To prep</div>
+                  <div className="text-[18px] font-semibold tracking-[-0.03em] leading-none mt-1 whitespace-nowrap">
                     {actionItems.length}
-                    <span className="text-[16px] font-medium text-gold ml-1.5 tracking-[-0.02em]">item{actionItems.length !== 1 ? 's' : ''}</span>
-                  </p>
-                  <p className="font-mono text-[11px] text-ink-4 mt-2">
-                    {topAction
-                      ? <>{topAction.suggestedQty % 1 === 0 ? topAction.suggestedQty.toFixed(0) : topAction.suggestedQty.toFixed(1)} {topAction.unit} {topAction.name.toLowerCase()}{totalPrepMinutes > 0 ? <> · <b className="text-paper font-medium">~{totalPrepMinutes} min</b></> : null}</>
-                      : 'nothing to prep right now'}
-                  </p>
-                </div>
-                {/* Critical / Needed / On-par stat chips */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-[#fef2f2] border border-[#fca5a5] rounded-xl px-3 py-2.5 relative">
-                    {spCritical.length > 0 && <span className="absolute top-2.5 right-2.5 w-[6px] h-[6px] rounded-full bg-red" />}
-                    <p className="font-mono text-[9.5px] text-red-700 tracking-[0.03em] uppercase">Critical</p>
-                    <p className="text-[22px] font-semibold tracking-[-0.03em] text-red-700 leading-none mt-1">{spCritical.length}</p>
-                  </div>
-                  <div className="bg-paper border border-line rounded-xl px-3 py-2.5">
-                    <p className="font-mono text-[9.5px] text-ink-3 tracking-[0.03em] uppercase">Needed</p>
-                    <p className={`text-[22px] font-semibold tracking-[-0.03em] leading-none mt-1 ${spNeeded.length > 0 ? 'text-ink' : 'text-ink-3'}`}>{spNeeded.length}</p>
-                  </div>
-                  <div className="bg-paper border border-line rounded-xl px-3 py-2.5">
-                    <p className="font-mono text-[9.5px] text-ink-3 tracking-[0.03em] uppercase">On par</p>
-                    <p className="text-[22px] font-semibold tracking-[-0.03em] text-green-700 leading-none mt-1">{spLookingGood.length}</p>
+                    <span className="text-[11px] font-normal text-ink-4 ml-1">item{actionItems.length !== 1 ? 's' : ''}{totalPrepMinutes > 0 ? ` · ~${totalPrepMinutes}m` : ''}</span>
                   </div>
                 </div>
-                {/* Live-source caption */}
-                <p className="font-mono text-[10px] text-ink-3 leading-[1.5] px-0.5">
-                  Live from <b className="text-ink-2 font-medium">theoretical stock</b> · resets at each count
-                </p>
+                <div className="flex items-stretch gap-0 shrink-0 font-mono text-center divide-x divide-zinc-700">
+                  <div className="px-3">
+                    <div className="text-[16px] font-semibold leading-none text-[#fca5a5]">{spCritical.length}</div>
+                    <div className="text-[8px] text-ink-4 uppercase tracking-[0.04em] mt-1">Crit</div>
+                  </div>
+                  <div className="px-3">
+                    <div className="text-[16px] font-semibold leading-none text-gold">{spNeeded.length}</div>
+                    <div className="text-[8px] text-ink-4 uppercase tracking-[0.04em] mt-1">Need</div>
+                  </div>
+                  <div className="px-3">
+                    <div className="text-[16px] font-semibold leading-none text-[#86efac]">{spLookingGood.length}</div>
+                    <div className="text-[8px] text-ink-4 uppercase tracking-[0.04em] mt-1">Par</div>
+                  </div>
+                </div>
               </div>
             )
           })()}
