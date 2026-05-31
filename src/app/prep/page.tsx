@@ -536,9 +536,9 @@ export default function PrepPage() {
     const parPct = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
     const isCritical = item.priority === '911'
     const isNeeded = item.priority === 'NEEDED_TODAY'
-    const barColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
-    const suggestColor = isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-green-700'
-    const suggestAccent = isCritical ? 'text-red-500' : isNeeded ? 'text-gold' : 'text-green-500'
+    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-green-text'
+    const suggestAccent = isCritical ? 'text-red' : isNeeded ? 'text-gold' : 'text-green'
     const isAdded = item.isOnList
     const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
 
@@ -563,12 +563,12 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
             {isAdded
-              ? <><Check size={13} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              ? <><Check size={13} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
               : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
@@ -577,7 +577,7 @@ export default function PrepPage() {
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
             <span><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
-            <span className={isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
+            <span className={isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
           </div>
           <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
             <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
@@ -598,7 +598,7 @@ export default function PrepPage() {
             </div>
           )
         ) : (
-          <div className="font-mono text-[11.5px] text-green-700 tracking-[0]">At or above par — looking good</div>
+          <div className="font-mono text-[11.5px] text-green-text tracking-[0]">At or above par — looking good</div>
         )}
 
         {/* Override pills */}
@@ -608,7 +608,7 @@ export default function PrepPage() {
             const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
             const isActive = (item.manualPriorityOverride ?? item.priority) === p
             const activeCls = p === '911'
-              ? 'bg-red-100 text-red-700 border-red-100'
+              ? 'bg-red-soft text-red-text border-red-soft'
               : p === 'NEEDED_TODAY'
                 ? 'bg-gold-soft text-gold-2 border-gold-soft'
                 : 'bg-bg-2 text-ink-2 border-bg-2'
@@ -634,16 +634,16 @@ export default function PrepPage() {
     const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
     const isCritical = item.priority === '911'
     const isNeeded = item.priority === 'NEEDED_TODAY'
-    const dotColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
-    const barColor = isCritical ? 'bg-red-500' : isNeeded ? 'bg-gold' : 'bg-green-500'
-    const suggestColor = isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-3'
+    const dotColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'
     const isAdded = item.isOnList
 
     const labels: Record<string, string>     = { '911': 'CRITICAL', 'NEEDED_TODAY': 'NEEDED', 'LATER': 'ON PAR' }
     const badgeStyles: Record<string, string> = {
-      '911': 'bg-red-100 text-red-700',
+      '911': 'bg-red-soft text-red-text',
       'NEEDED_TODAY': 'bg-gold-soft text-gold-2',
-      'LATER': 'bg-green-100 text-green-700',
+      'LATER': 'bg-green-soft text-green-text',
     }
 
     return (
@@ -672,7 +672,7 @@ export default function PrepPage() {
         <div className="font-mono text-[12.5px] text-ink-2 tracking-[-0.01em] whitespace-nowrap">
           {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
         </div>
-        <div className={`font-mono text-[12.5px] font-medium tracking-[-0.01em] ${isCritical ? 'text-red-700' : isNeeded ? 'text-gold-2' : 'text-ink-4'}`}>
+        <div className={`font-mono text-[12.5px] font-medium tracking-[-0.01em] ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-4'}`}>
           {item.priority !== 'LATER' && item.suggestedQty > 0
             ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}`
             : '—'
@@ -683,7 +683,7 @@ export default function PrepPage() {
             const chipLabels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed', 'LATER': 'Later' }
             const isActive = (item.manualPriorityOverride ?? item.priority) === p
             const activeCls = p === '911'
-              ? 'bg-red-100 text-red-700 border-red-100'
+              ? 'bg-red-soft text-red-text border-red-soft'
               : p === 'NEEDED_TODAY'
                 ? 'bg-gold-soft text-gold-2 border-gold-soft'
                 : 'bg-bg-2 text-ink-2 border-bg-2'
@@ -706,12 +706,12 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
             {isAdded
-              ? <><Check size={12} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              ? <><Check size={12} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
               : <><span className="text-gold font-semibold">+</span> Add</>}
           </button>
         </div>
@@ -831,13 +831,13 @@ export default function PrepPage() {
               className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'today' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M7 13h4M7 16h6"/></svg>
               To do
-              {todayItems.length > 0 && <span className="font-mono text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{todayItems.length}</span>}
+              {todayItems.length > 0 && <span className="font-mono text-[10px] bg-red text-white px-1.5 py-0.5 rounded-full font-semibold">{todayItems.length}</span>}
             </button>
             <button onClick={() => setViewMode('smartprep')} id="dtab-smartprep"
               className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
               Smart prep
-              {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length + spNeeded.length}</span>}
+              {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono text-[10px] bg-red text-white px-1.5 py-0.5 rounded-full font-semibold">{spCritical.length + spNeeded.length}</span>}
             </button>
             <button onClick={() => setViewMode('history')} id="dtab-history"
               className={`px-3.5 py-1.5 text-[13px] font-medium rounded-[7px] transition-colors flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
@@ -912,15 +912,15 @@ export default function PrepPage() {
 
       {/* ── System banners ── */}
       {actionError && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-soft border border-red-soft rounded-xl text-sm text-red-text">
           <span>{actionError}</span>
-          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+          <button onClick={() => setActionError(null)} className="shrink-0 text-red hover:text-red">✕</button>
         </div>
       )}
 
       {(isOffline || pendingCount > 0) && (
         <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
-          isOffline ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gold/10 border-gold/30 text-blue-800'
+          isOffline ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gold/10 border-gold/30 text-blue-text'
         }`}>
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff size={14} className="shrink-0" />
@@ -932,7 +932,7 @@ export default function PrepPage() {
             )}
           </div>
           {pendingCount > 0 && !isOffline && !offlineSyncing && (
-            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-900">
+            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-text">
               <RefreshCcw size={12} /> Sync now
             </button>
           )}
@@ -940,14 +940,14 @@ export default function PrepPage() {
       )}
 
       {syncResult && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-soft border border-green-soft rounded-xl text-sm text-green-text">
           <span>
             {(syncResult.created > 0 || syncResult.updated > 0)
               ? <>{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}{syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}</>
               : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
             }
           </span>
-          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green-500 hover:text-green-700">✕</button>
+          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green hover:text-green-text">✕</button>
         </div>
       )}
 
@@ -1040,33 +1040,33 @@ export default function PrepPage() {
                             <div className="text-[16px] font-semibold tracking-[-0.02em] mt-1">{done.length} of {total} done</div>
                           </div>
                           <div className="font-mono text-[10.5px] text-ink-3 text-right whitespace-nowrap">
-                            {doing.length ? <span className="text-gold-2">{doing.length} in progress</span> : '0 in progress'} · {todo.length} to do
+                            {doing.length ? <span className="text-blue-text">{doing.length} in progress</span> : '0 in progress'} · {todo.length} to do
                           </div>
                         </div>
                         <div className="flex h-2 rounded-full overflow-hidden bg-bg-2 mt-3 gap-[2px]">
-                          {done.length > 0 && <div className="bg-green-500" style={{ width: `${seg(done.length)}%` }} />}
-                          {doing.length > 0 && <div className="bg-gold" style={{ width: `${seg(doing.length)}%` }} />}
+                          {done.length > 0 && <div className="bg-green" style={{ width: `${seg(done.length)}%` }} />}
+                          {doing.length > 0 && <div className="bg-blue" style={{ width: `${seg(doing.length)}%` }} />}
                         </div>
                       </div>
 
                       {/* In progress */}
                       {doing.length > 0 && (
                         <>
-                          <GroupHead dot="#d97706" title="In progress" count={`${doing.length}`} sub="Cooking now — log the yield when finished" />
+                          <GroupHead dot="#2563eb" title="In progress" count={`${doing.length}`} sub="Cooking now — log the yield when finished" />
                           <div className="flex flex-col gap-2 mt-2.5">
                             {doing.map(p => (
-                              <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className="bg-gold-soft border border-gold rounded-xl px-3.5 py-3 cursor-pointer">
+                              <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className="bg-blue-soft border border-[#93c5fd] rounded-xl px-3.5 py-3 cursor-pointer">
                                 <div className="flex items-center gap-3">
-                                  <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-ink grid place-items-center"><Flame size={16} className="text-gold" /></span>
+                                  <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-blue grid place-items-center"><Flame size={16} className="text-white" /></span>
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-gold-2 ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
-                                    <div className="font-mono text-[10.5px] text-gold-2 mt-1 flex items-center gap-1.5 whitespace-nowrap">
-                                      <span className="w-[7px] h-[7px] rounded-full bg-gold shrink-0 animate-pulse" />
+                                    <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-blue-text ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
+                                    <div className="font-mono text-[10.5px] text-blue-text mt-1 flex items-center gap-1.5 whitespace-nowrap">
+                                      <span className="w-[7px] h-[7px] rounded-full bg-blue shrink-0 animate-pulse" />
                                       {p.todayLog?.updatedAt ? `${elapsedStr(nowTs - new Date(p.todayLog.updatedAt).getTime())} elapsed` : 'in progress'}{p.station ? ` · ${p.station}` : ''}
                                     </div>
                                   </div>
                                   {p.linkedRecipeId && (
-                                    <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-gold/40 text-gold-2">
+                                    <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-[#93c5fd] text-blue-text">
                                       <BookOpen size={16} />
                                     </button>
                                   )}
@@ -1095,7 +1095,7 @@ export default function PrepPage() {
                                   ? 'bg-gold-soft/40 border-[#fcd34d]'
                                   : 'bg-paper border-line'
                               const tileCls = isCrit
-                                ? 'bg-red-100 border-red-200 text-red-600'
+                                ? 'bg-red-soft border-red-soft text-red'
                                 : isNeeded
                                   ? 'bg-gold-soft border-[#fcd34d] text-gold-2'
                                   : 'bg-bg-2 border-line text-ink-3'
@@ -1134,12 +1134,12 @@ export default function PrepPage() {
                           <div className="flex flex-col gap-1.5 mt-2.5">
                             {done.map(p => (
                               <div key={p.id} className="flex items-center gap-3 bg-paper border border-line rounded-[10px] px-3.5 py-2.5">
-                                <span className="w-6 h-6 rounded-[7px] bg-green-600 grid place-items-center shrink-0"><Check size={14} className="text-white" strokeWidth={3} /></span>
+                                <span className="w-6 h-6 rounded-[7px] bg-green grid place-items-center shrink-0"><Check size={14} className="text-white" strokeWidth={3} /></span>
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[13.5px] font-medium text-ink-3 line-through truncate">{p.name}</div>
                                   <div className="font-mono text-[10px] text-ink-4 mt-0.5">{p.station || 'Prep'} · done</div>
                                 </div>
-                                <span className="font-mono text-[11.5px] font-semibold text-green-700 shrink-0">{fq(p.todayLog?.actualPrepQty ?? p.suggestedQty)} {p.unit}</span>
+                                <span className="font-mono text-[11.5px] font-semibold text-green-text shrink-0">{fq(p.todayLog?.actualPrepQty ?? p.suggestedQty)} {p.unit}</span>
                                 <button onClick={() => handleStatusChange(p.id, 'NOT_STARTED')} title="Reopen" className="w-7 h-7 rounded-[8px] border border-line grid place-items-center shrink-0 text-ink-3">
                                   <RotateCcw size={13} />
                                 </button>
@@ -1199,14 +1199,14 @@ export default function PrepPage() {
 
                 {/* Critical */}
                 <div className="rounded-xl p-[18px] flex flex-col justify-between min-h-[128px] relative bg-[#fef2f2] border border-[#fca5a5]">
-                  {spCritical.length > 0 && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-red-500" />}
+                  {spCritical.length > 0 && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-red" />}
                   <div>
-                    <p className="font-mono text-[10.5px] tracking-[0.01em] text-red-700">CRITICAL</p>
-                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-red-700">{spCritical.length}</p>
+                    <p className="font-mono text-[10.5px] tracking-[0.01em] text-red-text">CRITICAL</p>
+                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-red-text">{spCritical.length}</p>
                   </div>
                   <p className="font-mono text-[11px] text-ink-3 mt-2">
                     {spCritical.length > 0
-                      ? <><b className="text-red-700 font-medium">Stock depleted</b> · needs prep now</>
+                      ? <><b className="text-red-text font-medium">Stock depleted</b> · needs prep now</>
                       : <>no critical items</>}
                   </p>
                 </div>
@@ -1226,10 +1226,10 @@ export default function PrepPage() {
                 <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[128px]">
                   <div>
                     <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">LOOKING GOOD</p>
-                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-green-700">{spLookingGood.length}</p>
+                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-green-text">{spLookingGood.length}</p>
                   </div>
                   <p className="font-mono text-[11px] text-ink-3 mt-2">
-                    <b className="text-green-700 font-medium">on par or above</b>{stationsCount > 0 ? ` · across ${stationsCount} station${stationsCount !== 1 ? 's' : ''}` : ''}
+                    <b className="text-green-text font-medium">on par or above</b>{stationsCount > 0 ? ` · across ${stationsCount} station${stationsCount !== 1 ? 's' : ''}` : ''}
                   </p>
                 </div>
               </div>
@@ -1351,18 +1351,18 @@ export default function PrepPage() {
                   <div className="bg-[#fffafa] md:bg-[#fffafa] border md:border-[#fca5a5] border-gray-100 rounded-xl flex flex-col min-h-[480px]">
                     <div className="px-4 py-3.5 border-b border-[#fca5a5] flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-red-500" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-700">CRITICAL</span>
+                        <span className="w-2 h-2 rounded-full bg-red" />
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-text">CRITICAL</span>
                         <span className="font-mono text-[11px] text-ink-3 font-normal">· {spCritical.length} item{spCritical.length !== 1 ? 's' : ''}</span>
                       </div>
                       {spCritical.some(i => !i.isOnList) && (
                         <button onClick={() => handleAddAll('911')}
-                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red-500 bg-red-500 text-paper hover:bg-red-600 whitespace-nowrap">
+                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red bg-red text-paper hover:bg-red whitespace-nowrap">
                           + Add all
                         </button>
                       )}
                     </div>
-                    <p className="font-mono text-[10.5px] text-red-700 px-4 pt-2 pb-1">Stock depleted — make now</p>
+                    <p className="font-mono text-[10.5px] text-red-text px-4 pt-2 pb-1">Stock depleted — make now</p>
                     <div className="flex-1 px-3 pb-3 pt-2 flex flex-col gap-2 overflow-auto">
                       {spCritical.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
@@ -1416,8 +1416,8 @@ export default function PrepPage() {
                       className="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2.5 hover:bg-bg-2/40 transition-colors"
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-green-700">LOOKING GOOD</span>
+                        <span className="w-2 h-2 rounded-full bg-green" />
+                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-green-text">LOOKING GOOD</span>
                         <span className="font-mono text-[11px] text-ink-3 font-normal">· {spLookingGood.length} item{spLookingGood.length !== 1 ? 's' : ''}</span>
                       </div>
                       <span className="font-mono text-[11px] text-ink-3">{lookingGoodOpen ? '▾' : '→'}</span>
@@ -1442,18 +1442,18 @@ export default function PrepPage() {
                                   </span>
                                 </button>
                                 <div className="flex items-center gap-2.5 shrink-0">
-                                  <span className="font-mono text-[11px] text-green-700 font-medium">{label}</span>
+                                  <span className="font-mono text-[11px] text-green-text font-medium">{label}</span>
                                   <button
                                     onClick={() => handleToggleOnList(item.id, !isAdded)}
                                     title={isAdded ? "Remove from today's list" : "Add to today's list"}
                                     className={`px-2.5 py-1 rounded-[7px] text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
                                       isAdded
-                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
                                         : 'bg-ink text-paper hover:bg-ink-2'
                                     }`}
                                   >
                                     {isAdded
-                                      ? <><Check size={11} className="text-green-600 group-hover:text-red-500" /> On list <span className="opacity-50">✕</span></>
+                                      ? <><Check size={11} className="text-green group-hover:text-red" /> On list <span className="opacity-50">✕</span></>
                                       : <><span className="text-gold font-semibold">+</span> Add</>}
                                   </button>
                                 </div>
@@ -1473,18 +1473,18 @@ export default function PrepPage() {
                               className="bg-bg border border-line rounded-lg px-3 py-2 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors">
                               <button onClick={() => setSelected(item)} className="text-[12.5px] font-medium text-ink tracking-[-0.01em] truncate min-w-0 text-left hover:opacity-80 transition-opacity">{item.name}</button>
                               <div className="flex items-center gap-2 shrink-0">
-                                <span className="font-mono text-[10.5px] text-green-700 font-medium">{label}</span>
+                                <span className="font-mono text-[10.5px] text-green-text font-medium">{label}</span>
                                 <button
                                   onClick={() => handleToggleOnList(item.id, !isAdded)}
                                   title={isAdded ? "Remove from today's list" : "Add to today's list"}
                                   className={`w-6 h-6 grid place-items-center rounded-[6px] text-[12px] font-medium transition-colors group ${
                                     isAdded
-                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-soft hover:bg-red-soft hover:text-red'
                                       : 'bg-ink text-paper hover:bg-ink-2'
                                   }`}
                                 >
                                   {isAdded
-                                    ? <Check size={12} className="text-green-600 group-hover:text-red-500" />
+                                    ? <Check size={12} className="text-green group-hover:text-red" />
                                     : <span className="text-gold font-semibold leading-none">+</span>}
                                 </button>
                               </div>
@@ -1521,7 +1521,7 @@ export default function PrepPage() {
                           </div>
                           {(criticalCount > 0 || neededCount > 0) && (
                             <div className="flex items-center gap-1.5">
-                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
+                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-soft text-red-text px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
                               {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
                             </div>
                           )}
@@ -1563,7 +1563,7 @@ export default function PrepPage() {
                           </div>
                           {hasUrgent && (
                             <div className="flex items-center gap-1.5">
-                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
+                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-soft text-red-text px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
                               {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
                             </div>
                           )}
@@ -1640,10 +1640,10 @@ export default function PrepPage() {
             </div>
           ) : (() => {
             const STATUS_HIST: Record<string, { label: string; cls: string }> = {
-              DONE:        { label: 'Done',        cls: 'bg-green-100 text-green-700' },
+              DONE:        { label: 'Done',        cls: 'bg-green-soft text-green-text' },
               PARTIAL:     { label: 'Partial',     cls: 'bg-amber-100 text-amber-700' },
               IN_PROGRESS: { label: 'In Progress', cls: 'bg-gold/15 text-gold' },
-              BLOCKED:     { label: 'Blocked',     cls: 'bg-red-100 text-red-700' },
+              BLOCKED:     { label: 'Blocked',     cls: 'bg-red-soft text-red-text' },
               SKIPPED:     { label: 'Skipped',     cls: 'bg-gray-100 text-gray-400' },
               NOT_STARTED: { label: 'Not Started', cls: 'bg-gray-100 text-gray-400' },
             }
@@ -1657,9 +1657,9 @@ export default function PrepPage() {
                 <div className="grid grid-cols-4 gap-3">
                   {[
                     { label: 'Total', value: total, cls: 'text-gray-800' },
-                    { label: 'Done', value: done, cls: 'text-green-700' },
+                    { label: 'Done', value: done, cls: 'text-green-text' },
                     { label: 'Partial', value: partial, cls: 'text-amber-700' },
-                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-700' : completionRate >= 50 ? 'text-amber-700' : 'text-red-600' },
+                    { label: 'Completion', value: `${completionRate}%`, cls: completionRate >= 80 ? 'text-green-text' : completionRate >= 50 ? 'text-amber-700' : 'text-red' },
                   ].map(c => (
                     <div key={c.label} className="bg-white border border-gray-100 rounded-xl p-3 text-center">
                       <div className="text-xs text-gray-400 mb-1">{c.label}</div>
@@ -1669,7 +1669,7 @@ export default function PrepPage() {
                 </div>
 
                 {blocked > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-700">
+                  <div className="bg-red-soft border border-red-soft rounded-xl px-4 py-2.5 text-sm text-red-text">
                     {blocked} item{blocked !== 1 ? 's were' : ' was'} blocked — see notes below.
                   </div>
                 )}

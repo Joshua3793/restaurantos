@@ -18,9 +18,9 @@ interface Props {
 // New design language (matches SmartPrepCard): cool neutral + amber, canonical tokens.
 // Priority → left edge accent + bar + badge colour.
 const PRIORITY: Record<string, { edge: string; bar: string; badge: string; suggest: string; label: string }> = {
-  '911':          { edge: 'border-l-red-500',  bar: 'bg-red-500',   badge: 'bg-red-100 text-red-700',   suggest: 'text-red-700',  label: 'Critical' },
+  '911':          { edge: 'border-l-red',  bar: 'bg-red',   badge: 'bg-red-soft text-red-text',   suggest: 'text-red-text',  label: 'Critical' },
   'NEEDED_TODAY': { edge: 'border-l-gold',     bar: 'bg-gold',      badge: 'bg-gold-soft text-gold-2',  suggest: 'text-gold-2',   label: 'Needed today' },
-  'LATER':        { edge: 'border-l-line-2',   bar: 'bg-green-500', badge: 'bg-bg-2 text-ink-3',        suggest: 'text-green-700', label: 'Later' },
+  'LATER':        { edge: 'border-l-line-2',   bar: 'bg-green', badge: 'bg-bg-2 text-ink-3',        suggest: 'text-green-text', label: 'Later' },
 }
 
 export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, onDelete, onToggleOnList }: Props) {
@@ -86,7 +86,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   if (confirmingDone) {
     const isDoneStatus = pendingStatus === 'DONE'
     return (
-      <div className={`bg-paper border border-line border-l-[3px] ${isDoneStatus ? 'border-l-green-500' : 'border-l-gold'} rounded-[10px] p-3.5`}>
+      <div className={`bg-paper border border-line border-l-[3px] ${isDoneStatus ? 'border-l-green' : 'border-l-gold'} rounded-[10px] p-3.5`}>
         <p className="font-mono text-[11px] text-ink-3 mb-2.5">
           {isDoneStatus ? 'HOW MUCH DID YOU MAKE?' : 'HOW MUCH WAS PARTIAL?'} <span className="text-ink-4">({item.unit})</span>
         </p>
@@ -143,9 +143,9 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   if (isCompleted) {
     return (
       <>
-        <div className={`bg-paper border border-line border-l-[3px] ${isDone ? 'border-l-green-500' : 'border-l-gold'} rounded-[10px] px-3.5 py-3`}>
+        <div className={`bg-paper border border-line border-l-[3px] ${isDone ? 'border-l-green' : 'border-l-gold'} rounded-[10px] px-3.5 py-3`}>
           <div className="flex items-center gap-2.5">
-            <span className={`w-5 h-5 rounded-full grid place-items-center shrink-0 ${isDone ? 'bg-green-600' : 'bg-gold'}`}>
+            <span className={`w-5 h-5 rounded-full grid place-items-center shrink-0 ${isDone ? 'bg-green' : 'bg-gold'}`}>
               {isDone
                 ? <Check size={11} strokeWidth={3} className="text-white" />
                 : <span className="text-white text-[10px] font-bold leading-none">◐</span>}
@@ -177,12 +177,12 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   // ── Blocked row ──────────────────────────────────────────────────────────
   if (isBlocked) {
     return (
-      <div className="bg-paper border border-[#fca5a5] border-l-[3px] border-l-red-500 rounded-[10px] px-3.5 py-3">
+      <div className="bg-paper border border-[#fca5a5] border-l-[3px] border-l-red rounded-[10px] px-3.5 py-3">
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-mono text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0 uppercase tracking-[0.02em]">Blocked</span>
+          <span className="font-mono text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-red-soft text-red-text shrink-0 uppercase tracking-[0.02em]">Blocked</span>
           <button onClick={onClick} className="text-[14px] font-medium text-ink flex-1 truncate text-left">{item.name}</button>
         </div>
-        {item.blockedReason && <p className="font-mono text-[11px] text-red-700 mb-2">{item.blockedReason}</p>}
+        {item.blockedReason && <p className="font-mono text-[11px] text-red-text mb-2">{item.blockedReason}</p>}
         <button
           onClick={() => onStatusChange(item.id, 'IN_PROGRESS')}
           className="font-mono text-[11px] font-medium bg-bg-2 text-ink-2 border border-line hover:border-ink-3 px-3 py-1.5 rounded-[8px] inline-flex items-center gap-1.5 transition-colors"
@@ -219,8 +219,8 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
 
           <div className="flex items-center gap-1.5 shrink-0">
             {isInProgress ? (
-              <span className="font-mono text-[9.5px] font-medium text-gold-2 bg-gold-soft px-2 py-0.5 rounded-full inline-flex items-center gap-1 uppercase tracking-[0.02em]">
-                <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse inline-block" />
+              <span className="font-mono text-[9.5px] font-medium text-blue-text bg-blue-soft px-2 py-0.5 rounded-full inline-flex items-center gap-1 uppercase tracking-[0.02em]">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue animate-pulse inline-block" />
                 In progress
               </span>
             ) : (
@@ -243,7 +243,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
           <div className="flex flex-col gap-1.5">
             <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
               <span><b className="text-ink font-medium">{fmtQty(item.onHand)}</b> / {fmtQty(item.parLevel)} {item.unit} on hand</span>
-              <span className={isCritical ? 'text-red-700' : item.priority === 'NEEDED_TODAY' ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
+              <span className={isCritical ? 'text-red-text' : item.priority === 'NEEDED_TODAY' ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
             </div>
             <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
               <div className={`h-full ${p.bar} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
@@ -257,7 +257,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
             System suggests → {item.suggestedQty > 0 ? `make ${fmtQty(item.suggestedQty)} ${item.unit}` : 'review stock'}
           </div>
         ) : (
-          <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 ${item.priority !== 'LATER' ? p.suggest : 'text-green-700'}`}>
+          <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 ${item.priority !== 'LATER' ? p.suggest : 'text-green-text'}`}>
             {item.priority !== 'LATER' && (
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
             )}
