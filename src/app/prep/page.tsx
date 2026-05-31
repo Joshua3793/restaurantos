@@ -12,6 +12,7 @@ import { prepDeadline, fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import { PrepKpiStrip }    from '@/components/prep/PrepKpiStrip'
 import { PrepItemRow }     from '@/components/prep/PrepItemRow'
+import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
@@ -89,9 +90,17 @@ export default function PrepPage() {
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
 
-  // Mobile To-Do: live clock for elapsed timers + log-yield sheet
+  // Mobile To-Do: live clock for elapsed timers + log-yield sheet + recipe view
   const [nowTs, setNowTs] = useState(() => Date.now())
   const [mobileLog, setMobileLog] = useState<{ item: PrepItemRich; qty: number } | null>(null)
+  const [recipeItem, setRecipeItem] = useState<PrepItemRich | null>(null)
+  // Per-item checked-ingredient sets (persist while the recipe is being worked through)
+  const [checkedIng, setCheckedIng] = useState<Record<string, Set<string>>>({})
+  const toggleIngredient = (itemId: string, ingId: string) => setCheckedIng(prev => {
+    const next = new Set(prev[itemId] ?? [])
+    next.has(ingId) ? next.delete(ingId) : next.add(ingId)
+    return { ...prev, [itemId]: next }
+  })
   useEffect(() => {
     const t = setInterval(() => setNowTs(Date.now()), 30_000)
     return () => clearInterval(t)
@@ -1046,7 +1055,7 @@ export default function PrepPage() {
                           <GroupHead dot="#d97706" title="In progress" count={`${doing.length}`} sub="Cooking now — log the yield when finished" />
                           <div className="flex flex-col gap-2 mt-2.5">
                             {doing.map(p => (
-                              <div key={p.id} onClick={() => setSelected(p)} className="bg-gold-soft border border-gold rounded-xl px-3.5 py-3 cursor-pointer">
+                              <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className="bg-gold-soft border border-gold rounded-xl px-3.5 py-3 cursor-pointer">
                                 <div className="flex items-center gap-3">
                                   <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-ink grid place-items-center"><Flame size={16} className="text-gold" /></span>
                                   <div className="flex-1 min-w-0">
@@ -1056,7 +1065,12 @@ export default function PrepPage() {
                                       {p.todayLog?.updatedAt ? `${elapsedStr(nowTs - new Date(p.todayLog.updatedAt).getTime())} elapsed` : 'in progress'}{p.station ? ` · ${p.station}` : ''}
                                     </div>
                                   </div>
-                                  <button onClick={e => { e.stopPropagation(); setMobileLog({ item: p, qty: p.suggestedQty > 0 ? p.suggestedQty : 0 }) }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold">
+                                  {p.linkedRecipeId && (
+                                    <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-gold/40 text-gold-2">
+                                      <BookOpen size={16} />
+                                    </button>
+                                  )}
+                                  <button onClick={e => { e.stopPropagation(); setMobileLog({ item: p, qty: p.suggestedQty > 0 ? p.suggestedQty : 0 }) }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3 py-2 text-[12.5px] font-semibold">
                                     <Check size={14} className="text-gold" strokeWidth={2.8} /> Done
                                   </button>
                                 </div>
@@ -1075,7 +1089,7 @@ export default function PrepPage() {
                               const isCrit = p.priority === '911'
                               const edge = isCrit ? '#dc2626' : p.priority === 'NEEDED_TODAY' ? '#d97706' : null
                               return (
-                                <div key={p.id} onClick={() => setSelected(p)} className="bg-paper border border-line rounded-xl px-3.5 py-3 cursor-pointer" style={edge ? { borderLeft: `3px solid ${edge}` } : undefined}>
+                                <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className="bg-paper border border-line rounded-xl px-3.5 py-3 cursor-pointer" style={edge ? { borderLeft: `3px solid ${edge}` } : undefined}>
                                   <div className="flex items-center gap-3">
                                     <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-bg-2 border border-line grid place-items-center"><ChefHat size={16} className="text-ink-3" /></span>
                                     <div className="flex-1 min-w-0">
@@ -1085,7 +1099,12 @@ export default function PrepPage() {
                                         <span className="whitespace-nowrap font-mono text-[10.5px] text-ink-3">{p.station || 'Prep'}{p.linkedRecipeId ? ' · recipe' : ''}</span>
                                       </div>
                                     </div>
-                                    <button onClick={e => { e.stopPropagation(); handleStatusChange(p.id, 'IN_PROGRESS') }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold">
+                                    {p.linkedRecipeId && (
+                                      <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-bg-2 border border-line text-ink-2">
+                                        <BookOpen size={16} />
+                                      </button>
+                                    )}
+                                    <button onClick={e => { e.stopPropagation(); handleStatusChange(p.id, 'IN_PROGRESS') }} className="shrink-0 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[9px] px-3 py-2 text-[12.5px] font-semibold">
                                       <Zap size={13} className="text-gold" /> Start
                                     </button>
                                   </div>
@@ -1703,6 +1722,25 @@ export default function PrepPage() {
         <PrepSettingsModal
           onClose={() => setShowSettings(false)}
           onSaved={() => { load(); loadSettings(); setShowSettings(false) }}
+        />
+      )}
+
+      {/* Recipe view (from a To-Do card) — scaled ingredients with check-off + flow to start/log */}
+      {recipeItem && recipeItem.linkedRecipeId && (
+        <RecipeViewModal
+          recipeId={recipeItem.linkedRecipeId}
+          recipeName={recipeItem.name}
+          suggestedQty={recipeItem.suggestedQty > 0 ? recipeItem.suggestedQty : undefined}
+          yieldUnit={recipeItem.unit}
+          baseYieldQty={recipeItem.linkedRecipe?.baseYieldQty}
+          checkedIngredients={checkedIng[recipeItem.id] ?? new Set()}
+          onToggleIngredient={(ingId) => toggleIngredient(recipeItem.id, ingId)}
+          onClose={() => setRecipeItem(null)}
+          footerAction={
+            recipeItem.todayLog?.status === 'IN_PROGRESS'
+              ? { label: 'Log yield made', onClick: () => { const it = recipeItem; setRecipeItem(null); setMobileLog({ item: it, qty: it.suggestedQty > 0 ? it.suggestedQty : 0 }) } }
+              : { label: 'Start prep', onClick: () => { handleStatusChange(recipeItem.id, 'IN_PROGRESS'); setRecipeItem(null) } }
+          }
         />
       )}
 

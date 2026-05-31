@@ -4,7 +4,7 @@
  * Shows all ingredients scaled by a user-controlled multiplier.
  */
 import { useEffect, useState } from 'react'
-import { X, Minus, Plus, ChefHat, AlertTriangle } from 'lucide-react'
+import { X, Minus, Plus, ChefHat, AlertTriangle, Check } from 'lucide-react'
 
 interface Ingredient {
   id: string
@@ -37,9 +37,11 @@ interface Props {
   checkedIngredients: Set<string>
   onToggleIngredient: (id: string) => void
   onClose: () => void
+  /** Optional sticky footer action (e.g. "Log yield made") shown at the bottom of the sheet. */
+  footerAction?: { label: string; onClick: () => void }
 }
 
-export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit, baseYieldQty, checkedIngredients, onToggleIngredient, onClose }: Props) {
+export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit, baseYieldQty, checkedIngredients, onToggleIngredient, onClose, footerAction }: Props) {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [loading, setLoading] = useState(true)
   const [scale, setScale] = useState(1)
@@ -215,6 +217,18 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
             <div className="flex items-center justify-center py-12 text-gray-400 text-sm">Recipe not found</div>
           )}
         </div>
+
+        {/* Optional sticky footer action */}
+        {footerAction && (
+          <div className="border-t border-line px-4 py-3 pb-safe">
+            <button
+              onClick={footerAction.onClick}
+              className="w-full h-12 rounded-xl bg-ink text-paper text-[14px] font-semibold inline-flex items-center justify-center gap-2 hover:bg-ink-2 transition-colors"
+            >
+              <Check size={16} className="text-gold" strokeWidth={2.6} /> {footerAction.label}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
