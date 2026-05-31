@@ -27,7 +27,8 @@ export default function PrepGetAhead({ items, onAdd, totalCount }: PrepGetAheadP
           View all {totalCount ?? items.length} →
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      {/* Desktop — card grid */}
+      <div className="hidden md:grid grid-cols-3 gap-3">
         {items.slice(0, 3).map(item => {
           const onHand = Number(item.onHand)
           const parLevel = Number(item.parLevel)
@@ -53,6 +54,32 @@ export default function PrepGetAhead({ items, onAdd, totalCount }: PrepGetAheadP
               >
                 <IcPlus className="w-[13px] h-[13px] text-ink-3 group-hover:text-gold" />
                 Add to list
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Mobile — compact rows */}
+      <div className="md:hidden flex flex-col gap-1.5">
+        {items.slice(0, 5).map(item => {
+          const onHand = Number(item.onHand)
+          const parLevel = Number(item.parLevel)
+          const pct = parLevel > 0 ? Math.round((onHand / parLevel - 1) * 100) : 0
+          return (
+            <div key={item.id} className="flex items-center gap-2.5 bg-paper border border-line rounded-xl pl-3 pr-2 py-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-semibold tracking-[-0.01em] text-ink truncate">{item.name}</div>
+                <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
+                  {item.category} · {fmt(onHand)}/{fmt(parLevel)} {item.unit}{pct > 0 ? <span className="text-green-text"> · +{pct}%</span> : ''}
+                </div>
+              </div>
+              <button
+                onClick={() => onAdd(item)}
+                className="h-8 px-3 rounded-[9px] border border-line bg-paper text-ink-2 text-[12.5px] font-semibold inline-flex items-center gap-1.5 shrink-0 active:bg-bg-2"
+              >
+                <IcPlus className="w-[13px] h-[13px] text-gold" />
+                Add
               </button>
             </div>
           )

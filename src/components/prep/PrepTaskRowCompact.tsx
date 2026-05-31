@@ -6,7 +6,7 @@
  * Same data + handlers as the desktop PrepTaskRow. Rendered under md:hidden.
  */
 import { Loader2 } from 'lucide-react'
-import { IcCheck, IcAlert, IcClock, IcSkip, IcChevron } from '@/components/prep/icons'
+import { IcCheck, IcAlert, IcClock, IcSkip, IcChevron, IcSync } from '@/components/prep/icons'
 import { PrepItemRich, PrepStatus } from '@/components/prep/types'
 import { PREP_STATE_META } from '@/lib/prep-utils'
 
@@ -28,7 +28,7 @@ function fmt(n: number): string {
   return s.replace(/\.0+$/, '')
 }
 
-export default function PrepTaskRowCompact({ item, kind, onOpen }: Props) {
+export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe }: Props) {
   const status: PrepStatus = item.todayLog?.status ?? 'NOT_STARTED'
   const state = PREP_STATE_META[status].key as 'not-started' | 'in-progress' | 'done' | 'skipped'
   const isCrit = item.priority === '911'
@@ -78,6 +78,18 @@ export default function PrepTaskRowCompact({ item, kind, onOpen }: Props) {
 
       {item.isBlocked && !isDoneState && (
         <span className="font-mono text-[8.5px] font-bold px-1.5 py-0.5 rounded-full bg-gold-soft text-gold-2 uppercase tracking-[0.03em] shrink-0">Stock out</span>
+      )}
+      {item.linkedRecipeId && (
+        <span
+          role="button"
+          tabIndex={0}
+          title="View recipe"
+          onClick={(e) => { e.stopPropagation(); onOpenRecipe(item) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenRecipe(item) } }}
+          className="w-8 h-8 rounded-[9px] grid place-items-center shrink-0 bg-ink text-gold active:scale-95"
+        >
+          <IcSync size={15} />
+        </span>
       )}
       <IcChevron size={15} className="text-ink-4 shrink-0" />
     </button>
