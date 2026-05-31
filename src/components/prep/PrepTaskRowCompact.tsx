@@ -1,11 +1,12 @@
 'use client'
 /**
- * PrepTaskRowCompact — mobile-only compact card for the To-Do list.
- * Same data + handlers as the desktop PrepTaskRow; just a tight, scannable layout
- * so many tasks fit on a phone screen. Rendered under md:hidden; PrepTaskRow stays on desktop.
+ * PrepTaskRowCompact — mobile-only prep task card, optimised for a chef working
+ * from a phone: full item name (never truncated), clear "make X", one priority
+ * signal, and large Start/Done + Recipe tap targets on their own row.
+ * Same data + handlers as the desktop PrepTaskRow. Rendered under md:hidden.
  */
 import { Loader2 } from 'lucide-react'
-import { IcPlay, IcCheck, IcUndo, IcSync, IcChevron, IcAlert, IcClock, IcSkip } from '@/components/prep/icons'
+import { IcPlay, IcCheck, IcUndo, IcSync, IcAlert, IcClock, IcSkip } from '@/components/prep/icons'
 import { PrepItemRich, PrepStatus } from '@/components/prep/types'
 import { PREP_STATE_META } from '@/lib/prep-utils'
 
@@ -36,96 +37,102 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
   const par = Number(item.parLevel) || 0
   const stop = (e: React.MouseEvent) => e.stopPropagation()
 
-  // edge + wash + tile by state, then by priority
+  // edge + wash + tile glyph by state, then priority
   let edge: string | null = null
   let wash = 'bg-paper'
   let border = 'border-line'
   let tileCls = 'bg-bg-2 text-ink-3'
-  let glyph = <IcClock size={16} />
+  let glyph = <IcClock size={18} />
   if (state === 'in-progress') {
     edge = '#2563eb'; wash = 'bg-blue-soft/50'; border = 'border-[#93c5fd]'; tileCls = 'bg-blue text-white'
-    glyph = <Loader2 size={16} className="animate-spin" />
+    glyph = <Loader2 size={18} className="animate-spin" />
   } else if (state === 'done') {
     edge = '#16a34a'; wash = 'bg-paper'; border = 'border-line'; tileCls = 'bg-green text-white'
-    glyph = <IcCheck size={16} />
+    glyph = <IcCheck size={19} />
   } else if (state === 'skipped') {
-    edge = '#a1a1aa'; wash = 'bg-bg-2/60'; border = 'border-line'; tileCls = 'bg-bg-2 text-ink-4'
-    glyph = <IcSkip size={15} />
+    edge = '#a1a1aa'; wash = 'bg-bg-2/50'; border = 'border-line'; tileCls = 'bg-bg-2 text-ink-4'
+    glyph = <IcSkip size={17} />
   } else if (isCrit) {
     edge = '#dc2626'; wash = 'bg-red-soft/40'; border = 'border-[#fca5a5]'; tileCls = 'bg-red-soft text-red'
-    glyph = <IcAlert size={16} />
+    glyph = <IcAlert size={18} />
   } else if (needed) {
     edge = '#d97706'; wash = 'bg-gold-soft/40'; border = 'border-[#fcd34d]'; tileCls = 'bg-gold-soft text-gold-2'
-    glyph = <IcClock size={16} />
+    glyph = <IcClock size={18} />
   }
 
-  const done = state === 'done' || state === 'skipped'
+  const isDoneState = state === 'done' || state === 'skipped'
+  const qty = `${fmt(Number(item.suggestedQty))} ${item.unit}`
+
+  // meta detail by state
+  const detail =
+    state === 'in-progress' ? 'prepping now'
+    : state === 'done' ? `${fmt(Number(item.todayLog?.actualPrepQty ?? item.suggestedQty))} ${item.unit} made`
+    : state === 'skipped' ? 'skipped for today'
+    : `${fmt(onHand)} / ${fmt(par)} ${item.unit} on hand`
 
   return (
     <div
       onClick={() => onOpen(item)}
-      className={`${wash} border ${border} rounded-xl px-3 py-2.5 mb-2 cursor-pointer`}
+      className={`${wash} border ${border} rounded-2xl px-3.5 py-3 mb-2.5 cursor-pointer active:scale-[0.99] transition-transform`}
       style={edge ? { borderLeft: `4px solid ${edge}` } : undefined}
     >
-      <div className="flex items-center gap-2.5">
-        <span className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 ${tileCls}`}>{glyph}</span>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className={`text-[14.5px] font-semibold tracking-[-0.01em] truncate ${state === 'skipped' ? 'line-through text-ink-3' : 'text-ink'}`}>
-              {item.name}
-            </span>
-            <span className="font-mono text-[11px] font-normal text-ink-3 shrink-0">{fmt(Number(item.suggestedQty))} {item.unit}</span>
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-            {isCrit && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-red text-white uppercase tracking-[0.04em]">Critical</span>}
-            {item.isBlocked && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-gold-soft text-gold-2 uppercase tracking-[0.04em]">Blocked</span>}
-            {!isCrit && needed && !item.isBlocked && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-gold text-ink uppercase tracking-[0.04em]">Low stock</span>}
-            <span className="font-mono text-[10.5px] text-ink-3 whitespace-nowrap">
-              {item.station || item.category}
-              {state === 'in-progress' ? ' · prepping' : state === 'done' ? ' · done' : ` · ${fmt(onHand)}/${fmt(par)}`}
+      {/* Row 1 — tile + full name (never truncated) */}
+      <div className="flex items-start gap-3">
+        <span className={`w-10 h-10 rounded-[12px] grid place-items-center shrink-0 ${tileCls}`}>{glyph}</span>
+        <div className="flex-1 min-w-0 pt-0.5">
+          <h3 className={`text-[15.5px] font-semibold tracking-[-0.01em] leading-[1.25] ${state === 'skipped' ? 'line-through text-ink-3' : 'text-ink'}`}>
+            {item.name}
+          </h3>
+          {/* Row 2 — priority + make + stock */}
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            {isCrit && <span className="font-mono text-[9px] font-bold px-2 py-0.5 rounded-full bg-red text-white uppercase tracking-[0.04em]">Critical</span>}
+            {!isCrit && needed && <span className="font-mono text-[9px] font-bold px-2 py-0.5 rounded-full bg-gold text-ink uppercase tracking-[0.04em]">Low stock</span>}
+            {item.isBlocked && <span className="font-mono text-[9px] font-bold px-2 py-0.5 rounded-full bg-gold-soft text-gold-2 uppercase tracking-[0.04em]">Stock out</span>}
+            <span className="font-mono text-[11px] text-ink-3 leading-tight">
+              {!isDoneState && <b className="text-ink font-semibold">Make {qty}</b>}
+              {!isDoneState && <span className="text-ink-4"> · </span>}
+              {detail}
             </span>
           </div>
         </div>
+      </div>
 
-        {item.linkedRecipeId && (
+      {/* Row 3 — actions (large tap targets, own row so the name has full width) */}
+      <div className="mt-3 flex items-center gap-2" onClick={stop}>
+        {state === 'not-started' && (
           <button
-            onClick={(e) => { stop(e); onOpenRecipe(item) }}
-            title="View recipe"
-            className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-line text-ink-2"
+            onClick={() => onStatusChange(item, 'IN_PROGRESS')}
+            className="flex-1 h-11 rounded-xl bg-ink text-paper text-[14px] font-semibold inline-flex items-center justify-center gap-2 active:bg-ink-2"
           >
-            <span className="w-6 h-6 rounded-[7px] bg-ink text-gold grid place-items-center"><IcSync size={13} /></span>
+            <IcPlay size={15} className="text-gold" /> {item.isBlocked ? 'Start anyway' : 'Start prep'}
+          </button>
+        )}
+        {state === 'in-progress' && (
+          <button
+            onClick={() => onStatusChange(item, 'DONE', item.suggestedQty)}
+            className="flex-1 h-11 rounded-xl bg-green text-white text-[14px] font-semibold inline-flex items-center justify-center gap-2"
+          >
+            <IcCheck size={16} /> Mark done
+          </button>
+        )}
+        {isDoneState && (
+          <button
+            onClick={() => onStatusChange(item, 'NOT_STARTED')}
+            className="flex-1 h-11 rounded-xl bg-paper border border-line text-ink-2 text-[14px] font-semibold inline-flex items-center justify-center gap-2"
+          >
+            <IcUndo size={15} /> {state === 'skipped' ? 'Restore' : 'Reopen'}
           </button>
         )}
 
-        <div onClick={stop} className="shrink-0">
-          {state === 'not-started' && (
-            <button
-              onClick={() => onStatusChange(item, 'IN_PROGRESS')}
-              className="h-9 px-3 rounded-[9px] bg-ink text-paper text-[12.5px] font-semibold inline-flex items-center gap-1.5"
-            >
-              <IcPlay size={13} className="text-gold" /> {item.isBlocked ? 'Anyway' : 'Start'}
-            </button>
-          )}
-          {state === 'in-progress' && (
-            <button
-              onClick={() => onStatusChange(item, 'DONE', item.suggestedQty)}
-              className="h-9 px-3 rounded-[9px] bg-green text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5"
-            >
-              <IcCheck size={13} /> Done
-            </button>
-          )}
-          {done && (
-            <button
-              onClick={() => onStatusChange(item, 'NOT_STARTED')}
-              className="h-9 w-9 grid place-items-center rounded-[9px] bg-paper border border-line text-ink-3"
-              title={state === 'skipped' ? 'Restore' : 'Reopen'}
-            >
-              <IcUndo size={15} />
-            </button>
-          )}
-        </div>
-        {!item.linkedRecipeId && <IcChevron size={14} className="text-ink-4 shrink-0" />}
+        {item.linkedRecipeId && (
+          <button
+            onClick={() => onOpenRecipe(item)}
+            className="h-11 px-4 rounded-xl bg-paper border border-line text-ink-2 text-[13.5px] font-medium inline-flex items-center gap-2 shrink-0 active:bg-bg-2"
+          >
+            <span className="w-6 h-6 rounded-[7px] bg-ink text-gold grid place-items-center shrink-0"><IcSync size={13} /></span>
+            Recipe
+          </button>
+        )}
       </div>
     </div>
   )

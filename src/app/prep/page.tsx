@@ -976,16 +976,19 @@ export default function PrepPage() {
               }
             />
           )}
-          <PrepToolbar
-            search={search} onSearch={setSearch}
-            categories={categories} stations={stations}
-            filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
-            onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
-            filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
-            onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
-            activeOnly={activeOnly} onActiveOnly={setActiveOnly}
-            forceOpen={todayItems.length > 3}
-          />
+          {/* Desktop gets the full filter toolbar; mobile chefs scan the grouped list, so it's hidden there. */}
+          <div className="hidden md:block">
+            <PrepToolbar
+              search={search} onSearch={setSearch}
+              categories={categories} stations={stations}
+              filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
+              onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
+              filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
+              onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
+              activeOnly={activeOnly} onActiveOnly={setActiveOnly}
+              forceOpen={todayItems.length > 3}
+            />
+          </div>
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
