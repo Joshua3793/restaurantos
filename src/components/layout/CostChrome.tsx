@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { AlertsBell } from '@/components/AlertsBell'
+import { RcSelector } from '@/components/navigation/RcSelector'
 import { SpineAuditDrawer } from './SpineAuditDrawer'
 
 /**
@@ -67,6 +68,11 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
         </span>
         Controla OS
       </Link>
+
+      {/* Active revenue center — always visible (desktop) next to the brand */}
+      <div className="hidden md:flex items-center">
+        <RcSelector compact />
+      </div>
 
       {onSpine && (
         <>

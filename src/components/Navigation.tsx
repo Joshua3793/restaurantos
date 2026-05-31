@@ -9,7 +9,6 @@ import {
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
   ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff,
 } from 'lucide-react'
-import { RcSelector } from '@/components/navigation/RcSelector'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
@@ -178,13 +177,8 @@ function NavigationInner() {
         } ${pinned || peeking ? 'translate-x-0' : '-translate-x-full'} ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
         style={{ background: '#09090b' }}
       >
-        {/* Brand + bell moved to the top KPI bar (CostChrome) so they stay
-            pinned when the nav collapses. */}
-
-        {/* Workspace switcher pill (RC selector) */}
-        <div className="-mx-0.5">
-          <RcSelector />
-        </div>
+        {/* Brand + bell + revenue-center selector moved to the top KPI bar
+            (CostChrome) so they stay pinned when the nav collapses. */}
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto -mx-0.5 px-0.5 flex flex-col gap-[6px]">
