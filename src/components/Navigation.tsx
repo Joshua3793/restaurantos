@@ -15,6 +15,7 @@ import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
+import { useSidebar } from '@/contexts/SidebarContext'
 import { createClient } from '@/lib/supabase/client'
 
 type NavItem = {
@@ -116,6 +117,7 @@ function TenantName() {
 function NavigationInner() {
   const pathname  = usePathname()
   const router    = useRouter()
+  const { pinned, peeking, setPeeking } = useSidebar()
   const [moreOpen, setMoreOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
@@ -169,7 +171,11 @@ function NavigationInner() {
     <>
       {/* ── Desktop Sidebar (v2) ─────────────────────────────────── */}
       <aside
-        className="hidden md:flex flex-col w-[240px] h-screen fixed left-0 top-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300"
+        onMouseEnter={() => { if (!pinned) setPeeking(true) }}
+        onMouseLeave={() => { if (!pinned) setPeeking(false) }}
+        className={`hidden md:flex flex-col w-[240px] h-screen fixed left-0 top-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300 transition-transform duration-200 ${
+          pinned || peeking ? 'translate-x-0' : '-translate-x-full'
+        } ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
         style={{ background: '#09090b' }}
       >
         {/* Brand + bell */}
@@ -207,6 +213,7 @@ function NavigationInner() {
                     <Link
                       key={`${href}-${label}`}
                       href={href}
+                      onClick={() => setPeeking(false)}
                       className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                         active
                           ? 'bg-paper text-ink'
@@ -243,6 +250,7 @@ function NavigationInner() {
                 <Link
                   key={href}
                   href={href}
+                  onClick={() => setPeeking(false)}
                   className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                     active
                       ? 'bg-paper text-ink'
