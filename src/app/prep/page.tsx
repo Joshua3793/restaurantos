@@ -1087,20 +1087,32 @@ export default function PrepPage() {
                           <div className="flex flex-col gap-2 mt-2.5">
                             {todo.map(p => {
                               const isCrit = p.priority === '911'
-                              const edge = isCrit ? '#dc2626' : p.priority === 'NEEDED_TODAY' ? '#d97706' : null
+                              const isNeeded = p.priority === 'NEEDED_TODAY'
+                              const edge = isCrit ? '#dc2626' : isNeeded ? '#d97706' : null
+                              const cardCls = isCrit
+                                ? 'bg-[#fef2f2] border-[#fca5a5]'
+                                : isNeeded
+                                  ? 'bg-gold-soft/40 border-[#fcd34d]'
+                                  : 'bg-paper border-line'
+                              const tileCls = isCrit
+                                ? 'bg-red-100 border-red-200 text-red-600'
+                                : isNeeded
+                                  ? 'bg-gold-soft border-[#fcd34d] text-gold-2'
+                                  : 'bg-bg-2 border-line text-ink-3'
                               return (
-                                <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className="bg-paper border border-line rounded-xl px-3.5 py-3 cursor-pointer" style={edge ? { borderLeft: `3px solid ${edge}` } : undefined}>
+                                <div key={p.id} onClick={() => p.linkedRecipeId ? setRecipeItem(p) : setSelected(p)} className={`${cardCls} border rounded-xl px-3.5 py-3 cursor-pointer`} style={edge ? { borderLeftWidth: 4, borderLeftColor: edge } : undefined}>
                                   <div className="flex items-center gap-3">
-                                    <span className="w-[30px] h-[30px] rounded-[9px] shrink-0 bg-bg-2 border border-line grid place-items-center"><ChefHat size={16} className="text-ink-3" /></span>
+                                    <span className={`w-[30px] h-[30px] rounded-[9px] shrink-0 border grid place-items-center ${tileCls}`}><ChefHat size={16} /></span>
                                     <div className="flex-1 min-w-0">
                                       <div className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink truncate">{p.name} <span className="font-mono text-[11px] font-normal text-ink-3 ml-0.5">{fq(p.suggestedQty)} {p.unit}</span></div>
                                       <div className="mt-1 flex items-center gap-1.5">
-                                        {isCrit && <span className="font-mono text-[8.5px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 uppercase tracking-[0.02em]">Critical</span>}
+                                        {isCrit && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-red text-white uppercase tracking-[0.04em]">Critical</span>}
+                                        {isNeeded && <span className="font-mono text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-gold text-ink uppercase tracking-[0.04em]">Low stock</span>}
                                         <span className="whitespace-nowrap font-mono text-[10.5px] text-ink-3">{p.station || 'Prep'}{p.linkedRecipeId ? ' · recipe' : ''}</span>
                                       </div>
                                     </div>
                                     {p.linkedRecipeId && (
-                                      <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-bg-2 border border-line text-ink-2">
+                                      <button onClick={e => { e.stopPropagation(); setRecipeItem(p) }} title="View recipe" className="shrink-0 w-9 h-9 grid place-items-center rounded-[9px] bg-paper border border-line text-ink-2">
                                         <BookOpen size={16} />
                                       </button>
                                     )}
