@@ -15,35 +15,12 @@ interface Props {
   showReason?: boolean
 }
 
-// Priority frames: left border accent + subtle bg tint
-const PRIORITY_FRAME: Record<string, { border: string; bg: string }> = {
-  '911':          { border: 'border-l-[4px] border-l-red-500',    bg: 'bg-red-50/30'    },
-  'NEEDED_TODAY': { border: 'border-l-[4px] border-l-orange-400', bg: 'bg-orange-50/20' },
-  'LATER':        { border: 'border-l-[4px] border-l-gray-200',   bg: ''                },
-}
-
-const PRIORITY_BADGE: Record<string, string> = {
-  '911':          'bg-red-100 text-red-700',
-  'NEEDED_TODAY': 'bg-orange-100 text-orange-700',
-  'LATER':        'bg-gray-100 text-gray-600',
-}
-
-const PRIORITY_LABEL: Record<string, string> = {
-  '911':          'Critical',
-  'NEEDED_TODAY': 'Needed Today',
-  'LATER':        'Later',
-}
-
-const PRIORITY_SUGGEST_COLOR: Record<string, string> = {
-  '911':          'text-red-600',
-  'NEEDED_TODAY': 'text-orange-600',
-  'LATER':        'text-green-600',
-}
-
-const PRIORITY_BAR_COLOR: Record<string, string> = {
-  '911':          'bg-red-400',
-  'NEEDED_TODAY': 'bg-orange-400',
-  'LATER':        'bg-green-400',
+// New design language (matches SmartPrepCard): cool neutral + amber, canonical tokens.
+// Priority → left edge accent + bar + badge colour.
+const PRIORITY: Record<string, { edge: string; bar: string; badge: string; suggest: string; label: string }> = {
+  '911':          { edge: 'border-l-red-500',  bar: 'bg-red-500',   badge: 'bg-red-100 text-red-700',   suggest: 'text-red-700',  label: 'Critical' },
+  'NEEDED_TODAY': { edge: 'border-l-gold',     bar: 'bg-gold',      badge: 'bg-gold-soft text-gold-2',  suggest: 'text-gold-2',   label: 'Needed today' },
+  'LATER':        { edge: 'border-l-line-2',   bar: 'bg-green-500', badge: 'bg-bg-2 text-ink-3',        suggest: 'text-green-700', label: 'Later' },
 }
 
 export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, onDelete, onToggleOnList }: Props) {
@@ -61,9 +38,10 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   const isInProgress  = currentStatus === 'IN_PROGRESS'
   const isBlocked     = currentStatus === 'BLOCKED'
 
-  const priority  = PREP_PRIORITY_META[item.priority]
-  const frame     = PRIORITY_FRAME[item.priority] ?? { border: 'border-l-[4px] border-l-transparent', bg: '' }
+  const p         = PRIORITY[item.priority] ?? { edge: 'border-l-line-2', bar: 'bg-bg-2', badge: 'bg-bg-2 text-ink-3', suggest: 'text-ink-3', label: item.priority }
+  const isCritical = item.priority === '911'
   const stockPct  = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
+  const parPct    = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
   const fmtQty    = (n: number) => n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)
 
   useEffect(() => {
@@ -91,16 +69,26 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
     if (e.key === 'Enter')  handleConfirm()
   }
 
-  // ── Qty entry prompt ──────────────────────────────────────────────────────
+  const recipeModal = showRecipe && item.linkedRecipeId && (
+    <RecipeViewModal
+      recipeId={item.linkedRecipeId}
+      recipeName={item.name}
+      suggestedQty={item.suggestedQty > 0 ? item.suggestedQty : undefined}
+      yieldUnit={item.unit}
+      baseYieldQty={item.linkedRecipe?.baseYieldQty}
+      checkedIngredients={new Set()}
+      onToggleIngredient={() => {}}
+      onClose={() => setShowRecipe(false)}
+    />
+  )
+
+  // ── Qty entry prompt (log yield) ──────────────────────────────────────────
   if (confirmingDone) {
-    const promptFrame = isDone || pendingStatus === 'DONE'
-      ? 'border-l-[4px] border-l-green-500 bg-green-50/30'
-      : 'border-l-[4px] border-l-amber-400 bg-amber-50/30'
+    const isDoneStatus = pendingStatus === 'DONE'
     return (
-      <div className={`px-3 py-3 border-b border-gray-50 ${promptFrame}`}>
-        <p className="text-xs text-gray-500 mb-2">
-          {pendingStatus === 'DONE' ? 'How much did you make?' : 'How much was partial?'}{' '}
-          <span className="text-gray-400">({item.unit})</span>
+      <div className={`bg-paper border border-line border-l-[3px] ${isDoneStatus ? 'border-l-green-500' : 'border-l-gold'} rounded-[10px] p-3.5`}>
+        <p className="font-mono text-[11px] text-ink-3 mb-2.5">
+          {isDoneStatus ? 'HOW MUCH DID YOU MAKE?' : 'HOW MUCH WAS PARTIAL?'} <span className="text-ink-4">({item.unit})</span>
         </p>
         <div className="flex items-center gap-2">
           <input
@@ -111,22 +99,22 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
             value={confirmQty}
             onChange={e => setConfirmQty(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="h-9 w-28 rounded-lg border border-gray-300 px-3 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gold"
+            className="h-11 flex-1 rounded-[9px] border-2 border-gold px-3 text-[18px] font-semibold text-center text-ink focus:outline-none"
             placeholder={item.unit}
           />
           <button
             onClick={handleConfirm}
-            className={`h-9 px-4 rounded-lg text-white text-sm font-semibold transition-colors ${
-              pendingStatus === 'DONE' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600'
+            className={`h-11 px-4 rounded-[9px] text-paper text-[13px] font-semibold inline-flex items-center gap-1.5 transition-colors ${
+              isDoneStatus ? 'bg-ink hover:bg-ink-2' : 'bg-gold hover:bg-gold-2'
             }`}
           >
-            {pendingStatus === 'DONE' ? '✓ Done' : '◐ Partial'}
+            {isDoneStatus ? <><Check size={14} className="text-gold" /> Done</> : <>◐ Partial</>}
           </button>
           <button
             onClick={() => setConfirmingDone(false)}
-            className="h-9 px-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+            className="h-11 w-10 grid place-items-center text-ink-4 hover:text-ink-2 hover:bg-bg-2 rounded-[9px]"
           >
-            <X size={14} />
+            <X size={16} />
           </button>
         </div>
       </div>
@@ -136,16 +124,16 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   // ── Skipped row ──────────────────────────────────────────────────────────
   if (isSkipped) {
     return (
-      <div className="border-l-[4px] border-l-gray-200 border-b border-gray-50 opacity-50 px-3 py-2.5">
+      <div className="bg-bg-2/60 border border-line rounded-[10px] px-3.5 py-3 opacity-70">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-400 flex-1 line-through truncate">{item.name}</span>
-          <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">Removed</span>
+          <span className="text-[14px] font-medium text-ink-4 flex-1 line-through truncate">{item.name}</span>
+          <span className="font-mono text-[9.5px] text-ink-3 bg-bg-2 px-2 py-0.5 rounded-full shrink-0 uppercase tracking-[0.02em]">Removed</span>
         </div>
         <button
           onClick={() => onStatusChange(item.id, 'NOT_STARTED')}
-          className="mt-1.5 text-xs text-gray-500 border border-gray-200 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors"
+          className="mt-2 font-mono text-[11px] text-ink-2 border border-line hover:border-ink-3 px-3 py-1.5 rounded-[8px] inline-flex items-center gap-1.5 transition-colors"
         >
-          ↩ Restore to list
+          <RotateCcw size={11} /> Restore to list
         </button>
       </div>
     )
@@ -153,57 +141,35 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
 
   // ── Completed row (Done / Partial) ──────────────────────────────────────
   if (isCompleted) {
-    const completedFrame = isDone
-      ? 'border-l-[4px] border-l-green-500 bg-green-50/40'
-      : 'border-l-[4px] border-l-amber-400 bg-amber-50/40'
     return (
       <>
-        <div className={`${completedFrame} border-b border-gray-50 px-3 py-2.5 opacity-70`}>
-          <div className="flex items-center gap-2">
-            <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${isDone ? 'bg-green-600' : 'bg-amber-500'}`}>
+        <div className={`bg-paper border border-line border-l-[3px] ${isDone ? 'border-l-green-500' : 'border-l-gold'} rounded-[10px] px-3.5 py-3`}>
+          <div className="flex items-center gap-2.5">
+            <span className={`w-5 h-5 rounded-full grid place-items-center shrink-0 ${isDone ? 'bg-green-600' : 'bg-gold'}`}>
               {isDone
                 ? <Check size={11} strokeWidth={3} className="text-white" />
-                : <span className="text-white text-[10px] font-bold leading-none">◐</span>
-              }
+                : <span className="text-white text-[10px] font-bold leading-none">◐</span>}
             </span>
-            <span className={`text-sm font-semibold flex-1 line-through truncate cursor-pointer ${isDone ? 'text-green-900' : 'text-amber-900'}`} onClick={onClick}>
+            <button onClick={onClick} className="text-[14px] font-medium flex-1 line-through truncate text-left text-ink-3 hover:opacity-80">
               {item.name}
-            </span>
-            <span className={`text-xs font-semibold shrink-0 ${isDone ? 'text-green-700' : 'text-amber-700'}`}>
+            </button>
+            <span className="font-mono text-[11px] font-medium shrink-0 text-ink-2">
               {isDone ? 'Done' : 'Partial'}
               {item.todayLog?.actualPrepQty != null && (
-                <span className="font-normal ml-1">— {item.todayLog.actualPrepQty} {item.unit}</span>
+                <span className="text-ink-3 ml-1">· {item.todayLog.actualPrepQty} {item.unit}</span>
               )}
             </span>
           </div>
-          <div className="pl-7 mt-1 flex items-center gap-2">
-            <span className={`text-xs ${isDone ? 'text-green-600' : 'text-amber-600'}`}>
-              {isDone ? 'Completed this session' : 'Partially completed'}
-            </span>
+          <div className="pl-[30px] mt-1.5">
             <button
               onClick={() => onStatusChange(item.id, 'NOT_STARTED')}
-              className={`text-xs border px-2.5 py-0.5 rounded-lg transition-colors flex items-center gap-1 ${
-                isDone
-                  ? 'text-green-600 border-green-200 hover:bg-green-100'
-                  : 'text-amber-600 border-amber-200 hover:bg-amber-100'
-              }`}
+              className="font-mono text-[10.5px] text-ink-3 border border-line hover:border-ink-3 px-2.5 py-1 rounded-[7px] inline-flex items-center gap-1 transition-colors"
             >
               <RotateCcw size={10} /> Reset
             </button>
           </div>
         </div>
-        {showRecipe && item.linkedRecipeId && (
-          <RecipeViewModal
-            recipeId={item.linkedRecipeId}
-            recipeName={item.name}
-            suggestedQty={item.suggestedQty > 0 ? item.suggestedQty : undefined}
-            yieldUnit={item.unit}
-            baseYieldQty={item.linkedRecipe?.baseYieldQty}
-            checkedIngredients={new Set()}
-            onToggleIngredient={() => {}}
-            onClose={() => setShowRecipe(false)}
-          />
-        )}
+        {recipeModal}
       </>
     )
   }
@@ -211,117 +177,113 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
   // ── Blocked row ──────────────────────────────────────────────────────────
   if (isBlocked) {
     return (
-      <div className="border-l-[4px] border-l-red-500 bg-red-50/30 border-b border-gray-50 px-3 py-2.5">
+      <div className="bg-paper border border-[#fca5a5] border-l-[3px] border-l-red-500 rounded-[10px] px-3.5 py-3">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">Blocked</span>
-          <span className="text-sm font-semibold text-gray-800 flex-1 truncate cursor-pointer" onClick={onClick}>{item.name}</span>
+          <span className="font-mono text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0 uppercase tracking-[0.02em]">Blocked</span>
+          <button onClick={onClick} className="text-[14px] font-medium text-ink flex-1 truncate text-left">{item.name}</button>
         </div>
-        {item.blockedReason && <p className="text-xs text-red-600 mb-2">{item.blockedReason}</p>}
+        {item.blockedReason && <p className="font-mono text-[11px] text-red-700 mb-2">{item.blockedReason}</p>}
         <button
           onClick={() => onStatusChange(item.id, 'IN_PROGRESS')}
-          className="text-xs font-medium bg-gold/10 text-gold border border-gold/30 hover:bg-gold/15 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+          className="font-mono text-[11px] font-medium bg-bg-2 text-ink-2 border border-line hover:border-ink-3 px-3 py-1.5 rounded-[8px] inline-flex items-center gap-1.5 transition-colors"
         >
-          <Play size={10} fill="currentColor" /> Resume
+          <Play size={11} className="text-gold" fill="currentColor" /> Resume
         </button>
       </div>
     )
   }
 
   // ── Active row (NOT_STARTED / IN_PROGRESS) ──────────────────────────────
-  const suggestColor  = PRIORITY_SUGGEST_COLOR[item.priority] ?? 'text-gray-500'
-  const barColor      = PRIORITY_BAR_COLOR[item.priority] ?? 'bg-gray-300'
-  const badgeClass    = PRIORITY_BADGE[item.priority] ?? 'bg-gray-100 text-gray-600'
-  const priorityLabel = item.manualPriorityOverride
-    ? PRIORITY_LABEL[item.priority] ?? item.priority
-    : PRIORITY_LABEL[item.priority] ?? item.priority
-
   const suggestionText = item.priority !== 'LATER'
     ? item.suggestedQty > 0
-      ? `Make ${fmtQty(item.suggestedQty)} ${item.unit}${item.priority === '911' ? ' — stock depleted' : ' — below par'}`
-      : 'Review stock levels'
-    : 'At or above par — looking good'
+      ? `make ${fmtQty(item.suggestedQty)} ${item.unit}${item.priority === '911' ? ' — stock depleted' : ' — below par'}`
+      : 'review stock'
+    : 'at or above par — looking good'
 
   return (
     <>
-      <div className={`${frame.border} ${frame.bg} border-b border-gray-50 px-3 py-2.5`}>
-        {/* Header: priority badge + name + status indicator */}
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${badgeClass}`}>
-            {priorityLabel}
-          </span>
+      <div className={`bg-paper border ${isCritical ? 'border-[#fca5a5]' : 'border-line'} border-l-[3px] ${p.edge} rounded-[10px] p-3.5 flex flex-col gap-2.5`}>
+        {/* Header: priority badge + name + status */}
+        <div className="flex items-start justify-between gap-2.5">
           <button onClick={onClick} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-            <span className="text-sm font-semibold text-gray-800 truncate block">
-              {item.name}
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className={`font-mono text-[9.5px] font-medium px-2 py-0.5 rounded-full shrink-0 uppercase tracking-[0.02em] ${p.badge}`}>
+                {p.label}
+              </span>
               {item.manualPriorityOverride && (
-                <span className="ml-1.5 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full font-medium not-italic">✎</span>
+                <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>
               )}
-            </span>
+            </div>
+            <div className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink leading-[1.2] truncate">{item.name}</div>
           </button>
 
-          {/* Status chip */}
-          {isInProgress ? (
-            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block" />
-              In Progress
-            </span>
-          ) : (
-            <span className="text-[10px] text-gray-400 shrink-0">Not started</span>
-          )}
-
-          {/* Recipe icon */}
-          {item.linkedRecipeId && (
-            <button
-              onClick={e => { e.stopPropagation(); setShowRecipe(true) }}
-              className="shrink-0 p-1 text-gray-400 hover:text-gold hover:bg-gold/10 rounded-lg transition-colors"
-              title="View recipe"
-            >
-              <BookOpen size={13} />
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isInProgress ? (
+              <span className="font-mono text-[9.5px] font-medium text-gold-2 bg-gold-soft px-2 py-0.5 rounded-full inline-flex items-center gap-1 uppercase tracking-[0.02em]">
+                <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse inline-block" />
+                In progress
+              </span>
+            ) : (
+              <span className="font-mono text-[10px] text-ink-4">Not started</span>
+            )}
+            {item.linkedRecipeId && (
+              <button
+                onClick={e => { e.stopPropagation(); setShowRecipe(true) }}
+                className="p-1 text-ink-4 hover:text-gold hover:bg-gold-soft rounded-[7px] transition-colors"
+                title="View recipe"
+              >
+                <BookOpen size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Stock bar + qty */}
+        {/* Progress */}
         {item.parLevel > 0 && (
-          <div className="flex items-center gap-2 mb-1">
-            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${stockPct}%` }} />
+          <div className="flex flex-col gap-1.5">
+            <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 whitespace-nowrap">
+              <span><b className="text-ink font-medium">{fmtQty(item.onHand)}</b> / {fmtQty(item.parLevel)} {item.unit} on hand</span>
+              <span className={isCritical ? 'text-red-700' : item.priority === 'NEEDED_TODAY' ? 'text-gold-2' : 'text-ink-3'}>{parPct}% of par</span>
             </div>
-            <span className="text-[11px] text-gray-500 shrink-0 font-medium tabular-nums">
-              {fmtQty(item.onHand)} / {fmtQty(item.parLevel)} {item.unit}
-            </span>
+            <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
+              <div className={`h-full ${p.bar} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
+            </div>
           </div>
         )}
 
-        {/* Suggestion text */}
+        {/* Suggestion */}
         {item.manualPriorityOverride ? (
-          <p className={`text-xs mb-2 line-through text-gray-400`}>
-            {item.suggestedQty > 0 ? `System → Make ${fmtQty(item.suggestedQty)} ${item.unit}` : 'System → review stock'}
-          </p>
+          <div className="font-mono text-[11.5px] text-ink-3 line-through tracking-[0]">
+            System suggests → {item.suggestedQty > 0 ? `make ${fmtQty(item.suggestedQty)} ${item.unit}` : 'review stock'}
+          </div>
         ) : (
-          <p className={`text-xs font-medium mb-2 ${item.priority !== 'LATER' ? suggestColor : 'text-green-600'}`}>
-            {suggestionText}
-          </p>
+          <div className={`font-mono text-[11.5px] tracking-[0] flex items-center gap-1.5 ${item.priority !== 'LATER' ? p.suggest : 'text-green-700'}`}>
+            {item.priority !== 'LATER' && (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+            )}
+            <span><b className="font-semibold">{item.priority !== 'LATER' ? 'System suggests → ' : ''}</b>{suggestionText}{item.estimatedPrepTime && item.priority !== 'LATER' ? ` · ~${item.estimatedPrepTime} min` : ''}</span>
+          </div>
         )}
 
         {/* Action buttons */}
-        <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
+        <div className="flex gap-1.5 pt-0.5" onClick={e => e.stopPropagation()}>
           {currentStatus === 'NOT_STARTED' && (
             <>
               <button
                 onClick={() => onStatusChange(item.id, 'IN_PROGRESS')}
-                className="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors flex items-center justify-center gap-1"
+                className="flex-1 h-9 rounded-[9px] text-[12.5px] font-medium bg-bg-2 text-ink-2 border border-line hover:border-ink-3 transition-colors inline-flex items-center justify-center gap-1.5"
               >
-                <Play size={10} fill="currentColor" /> Start
+                <Play size={11} className="text-gold" fill="currentColor" /> Start
               </button>
               <button
                 onClick={() => openDonePrompt('DONE')}
-                className="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1"
+                className="flex-1 h-9 rounded-[9px] text-[12.5px] font-semibold bg-ink text-paper hover:bg-ink-2 transition-colors inline-flex items-center justify-center gap-1.5"
               >
-                <Check size={10} strokeWidth={3} /> Done
+                <Check size={12} strokeWidth={3} className="text-gold" /> Done
               </button>
               <button
                 onClick={() => onStatusChange(item.id, 'SKIPPED')}
-                className="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="px-3 h-9 rounded-[9px] text-[12.5px] text-ink-3 border border-line hover:bg-bg-2 transition-colors"
                 title="Remove from today's list"
               >
                 Skip
@@ -333,19 +295,19 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
             <>
               <button
                 onClick={() => openDonePrompt('DONE')}
-                className="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1"
+                className="flex-1 h-9 rounded-[9px] text-[12.5px] font-semibold bg-ink text-paper hover:bg-ink-2 transition-colors inline-flex items-center justify-center gap-1.5"
               >
-                <Check size={10} strokeWidth={3} /> Done
+                <Check size={12} strokeWidth={3} className="text-gold" /> Done
               </button>
               <button
                 onClick={() => openDonePrompt('PARTIAL')}
-                className="btn-action flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                className="flex-1 h-9 rounded-[9px] text-[12.5px] font-medium bg-gold-soft text-gold-2 border border-gold/30 hover:bg-[#fde68a] transition-colors"
               >
                 ◐ Partial
               </button>
               <button
                 onClick={() => onStatusChange(item.id, 'SKIPPED')}
-                className="btn-action px-3 py-1.5 rounded-lg text-xs text-gray-400 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="px-3 h-9 rounded-[9px] text-[12.5px] text-ink-3 border border-line hover:bg-bg-2 transition-colors"
                 title="Remove from today's list"
               >
                 Skip
@@ -355,18 +317,7 @@ export function PrepItemRow({ item, onClick, onStatusChange, onPriorityChange, o
         </div>
       </div>
 
-      {showRecipe && item.linkedRecipeId && (
-        <RecipeViewModal
-          recipeId={item.linkedRecipeId}
-          recipeName={item.name}
-          suggestedQty={item.suggestedQty > 0 ? item.suggestedQty : undefined}
-          yieldUnit={item.unit}
-          baseYieldQty={item.linkedRecipe?.baseYieldQty}
-          checkedIngredients={new Set()}
-          onToggleIngredient={() => {}}
-          onClose={() => setShowRecipe(false)}
-        />
-      )}
+      {recipeModal}
     </>
   )
 }

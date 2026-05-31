@@ -931,11 +931,11 @@ export default function PrepPage() {
 
           {/* Priority-change alert */}
           {priorityAlerts.length > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-3">
-              <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5" />
+            <div className="bg-gold-soft border border-[#fcd34d] rounded-xl px-4 py-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-gold-2 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-orange-800">Stock changed since scheduling</p>
-                <p className="text-sm text-orange-700 mt-0.5">
+                <p className="text-sm font-semibold text-[#78350f]">Stock changed since scheduling</p>
+                <p className="text-sm text-gold-2 mt-0.5">
                   {priorityAlerts.length === 1
                     ? <><strong>{priorityAlerts[0].name}</strong> is now Critical — theoretical stock at or below 0.</>
                     : <><strong>{priorityAlerts.map(i => i.name).join(', ')}</strong> — now Critical, stock depleted.</>
@@ -950,12 +950,12 @@ export default function PrepPage() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
             </div>
           ) : todayItems.length === 0 ? (
-            <div className="bg-white border border-gray-100 rounded-xl py-16 text-center">
-              <ChefHat size={32} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500 text-sm">Nothing on today&apos;s list yet.</p>
-              <p className="text-xs text-gray-400 mt-2">
+            <div className="bg-paper border border-line rounded-xl py-16 text-center">
+              <ChefHat size={32} className="mx-auto text-ink-4 mb-3" />
+              <p className="text-ink-2 text-sm font-medium">Nothing on today&apos;s list yet.</p>
+              <p className="font-mono text-[11px] text-ink-3 mt-2">
                 Go to{' '}
-                <button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">
+                <button onClick={() => setViewMode('smartprep')} className="text-gold-2 hover:underline">
                   Smart Prep
                 </button>
                 {' '}and add items to your list.
@@ -963,8 +963,8 @@ export default function PrepPage() {
             </div>
           ) : (
             <>
-              {/* Today list */}
-              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+              {/* Today list — self-contained cards, stacked with gaps */}
+              <div className="flex flex-col gap-2">
                 {filteredToday.map(item => (
                   <PrepItemRow
                     key={item.id}
@@ -977,7 +977,7 @@ export default function PrepPage() {
                   />
                 ))}
               </div>
-              <p className="text-center text-xs text-gray-400">
+              <p className="text-center font-mono text-[10.5px] text-ink-3">
                 This list carries over each day — items stay until marked done or removed.
               </p>
             </>
