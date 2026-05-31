@@ -721,11 +721,11 @@ export default function PrepPage() {
         </div>
 
         {/* Mobile view tabs */}
-        <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
+        <div className="flex bg-bg-2 rounded-xl p-1 mt-3">
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
-              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow text-ink' : 'text-ink-3'}`}>
+              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
@@ -741,9 +741,9 @@ export default function PrepPage() {
         {viewMode !== 'history' && (
           <div className="flex gap-2 mt-3">
             <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
               <input
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-line rounded-xl focus:outline-none focus:ring-2 focus:ring-gold"
                 placeholder="Search prep items…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -753,17 +753,17 @@ export default function PrepPage() {
               onClick={() => setShowMobileFilters(v => !v)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
                 showMobileFilters || activeFilterCount > 0
-                  ? 'border-blue-300 bg-gold/10 text-gold'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  ? 'border-gold/40 bg-gold-soft text-gold-2'
+                  : 'border-line text-ink-2 hover:bg-bg-2'
               }`}>
               <SlidersHorizontal size={15} />
-              {activeFilterCount > 0 ? <span className="bg-gold text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
+              {activeFilterCount > 0 ? <span className="bg-gold text-ink text-[10px] font-bold px-1.5 py-0.5 rounded-full">{activeFilterCount}</span> : 'Filter'}
             </button>
           </div>
         )}
 
         {showMobileFilters && (
-          <div className="mt-2 bg-white border border-gray-100 rounded-xl p-3 space-y-2">
+          <div className="mt-2 bg-paper border border-line rounded-xl p-3 space-y-2">
             <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="ALL">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
