@@ -126,7 +126,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}>
         <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
           <h2 className="font-semibold text-gray-900">{item ? 'Edit Prep Item' : 'New Prep Item'}</h2>
           <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={18} /></button>

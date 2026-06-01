@@ -222,7 +222,8 @@ export default function RecipeCookAlongModal({
       <div
         role="dialog"
         aria-label="Recipe"
-        className="w-full max-w-[660px] max-h-[90vh] bg-paper rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-[660px] bg-paper rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 1.5rem)' }}
       >
         {/* HEAD */}
         <div className="px-[22px] pt-5 pb-[18px] border-b border-line flex items-start gap-3.5">

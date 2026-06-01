@@ -71,7 +71,7 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       {/* Sheet */}
-      <div className="relative z-10 bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl flex flex-col max-h-[90dvh] shadow-2xl">
+      <div className="relative z-10 bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl flex flex-col shadow-2xl" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - 1rem)' }}>
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4 border-b border-gray-100">
@@ -134,7 +134,7 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
         </div>
 
         {/* Ingredients */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto pb-safe">
           {loading ? (
             <div className="flex justify-center py-12">
               <div className="w-8 h-8 rounded-full border-2 border-gold/30 border-t-blue-600 animate-spin" />

@@ -157,7 +157,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
       aria-labelledby="prep-settings-title"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}>
         <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
           <div>
             <h2 id="prep-settings-title" className="font-semibold text-gray-900">Prep Settings</h2>

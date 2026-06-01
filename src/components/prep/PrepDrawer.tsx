@@ -196,7 +196,7 @@ export default function PrepDrawer({
         {item && (
           <>
             {/* HEAD */}
-            <div className="px-[22px] py-[18px] bg-paper border-b border-line flex items-start gap-3.5">
+            <div className="px-[22px] py-[18px] bg-paper border-b border-line flex items-start gap-3.5" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}>
               <button
                 type="button"
                 aria-label="Close"
@@ -382,7 +382,7 @@ export default function PrepDrawer({
             </div>
 
             {/* FOOTER */}
-            <div className="bg-paper border-t border-line px-[22px] py-3.5 flex flex-col gap-2.5">
+            <div className="bg-paper border-t border-line px-[22px] py-3.5 flex flex-col gap-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)' }}>
               {showPartial && (
                 <div className="flex flex-col gap-[7px]">
                   <label className="font-mono text-[10px] uppercase text-ink-3">
