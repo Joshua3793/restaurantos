@@ -1779,6 +1779,7 @@ export default function PrepPage() {
           onToggleOnList={handleToggleOnList}
           onStatusChange={(item, status) => onRowStatusChange(item, status)}
           onPriorityChange={handlePriorityChange}
+          onEdit={(item) => { closeDrawer(); setEditing(item) }}
         />
       </div>
       <RecipeCookAlongModal

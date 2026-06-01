@@ -12,8 +12,7 @@ export interface RowHandlers {
 }
 
 const Recipe = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z"/><path d="M4 16a4 4 0 0 1 4-4h12"/></svg>)
-const Prio = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 21V4M4 4h13l-2 4 2 4H4"/></svg>)
-const More = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>)
+const OpenPanel = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>)
 
 export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
   const { item, urgency: u } = row
@@ -51,15 +50,13 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
       <span className="r-name">
         <span className="nm" onClick={() => h.onOpen(item)}>{row.name}</span>
         {row.stockOut && <span className="tag out">STOCK OUT</span>}
-        {row.overridden && <span className="r-edit" title="Priority overridden by chef">✎</span>}
         {statusChip}
       </span>
       <span className="r-stock">{stock}</span>
       <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>
       <span className="r-reveal">
-        <button onClick={() => h.onOpenRecipe(item)} title="View recipe"><Recipe /></button>
-        <button onClick={() => h.onOpen(item)} title="Change priority"><Prio /></button>
-        <button onClick={() => h.onOpen(item)} title="More"><More /></button>
+        {item.linkedRecipeId && <button onClick={() => h.onOpenRecipe(item)} title="View recipe"><Recipe /></button>}
+        <button onClick={() => h.onOpen(item)} title="Open details"><OpenPanel /></button>
       </span>
       <span className="r-act">{act}</span>
     </div>

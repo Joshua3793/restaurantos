@@ -12,9 +12,10 @@ export interface DrawerProps {
   onToggleOnList: (id: string, next: boolean) => void
   onStatusChange: (item: PrepItemRich, status: string) => void
   onPriorityChange: (id: string, priority: string) => void
+  onEdit: (item: PrepItemRich) => void
 }
 
-export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusChange, onPriorityChange }: DrawerProps) {
+export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit }: DrawerProps) {
   const [detail, setDetail] = useState<PrepItemDetail | null>(null)
   const [steps, setSteps] = useState<string[]>([])
 
@@ -128,6 +129,10 @@ export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusC
                 : (r.status === 'not-started' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
                   : r.status === 'in-progress' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'DONE'); onClose() }}><span className="ic">✓</span> Mark done</button>
                   : <button className="btn" onClick={onClose}>Close</button>)}
+              <button className="btn" onClick={() => onEdit(item)}>
+                <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                Edit prep settings
+              </button>
             </div>
           </>
         )}
