@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={`${pinned ? 'md:ml-[240px]' : 'md:pl-12'} ${topBar ? 'md:pt-11' : 'md:pt-0'} pb-20 md:pb-0 mobile-content-top min-h-screen bg-[#fafaf9] flex flex-col transition-[margin,padding] duration-200`}
       >
         <CostChromeGate />
-        <div className="flex-1 p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
+        <div className="flex-1 p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full min-w-0 overflow-x-clip">
           {children}
         </div>
       </main>

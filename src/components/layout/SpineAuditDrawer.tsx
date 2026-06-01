@@ -69,7 +69,7 @@ export function SpineAuditDrawer({ open, onClose }: SpineAuditDrawerProps) {
   return (
     <div className="fixed inset-0 z-[80] flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <aside className="w-full md:w-[640px] bg-paper h-full overflow-y-auto flex flex-col shadow-2xl">
+      <aside className="w-full max-w-[100vw] md:w-[640px] bg-paper h-full overflow-y-auto overflow-x-hidden flex flex-col shadow-2xl">
         <header className="sticky top-0 bg-paper z-10 border-b border-line px-6 py-4 flex items-center gap-3">
           <button
             onClick={onClose}

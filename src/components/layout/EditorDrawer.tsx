@@ -47,7 +47,7 @@ export function EditorDrawer({
   return (
     <div className={`fixed inset-0 ${zClassName} flex`}>
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className={`w-full ${w} bg-bg h-full overflow-y-auto flex flex-col shadow-2xl`}>
+      <div className={`w-full max-w-[100vw] ${w} bg-bg h-full overflow-y-auto overflow-x-hidden flex flex-col shadow-2xl`}>
         <div className="sticky top-0 z-10 bg-paper">
           <div
             className="border-b border-line px-5 py-4 flex items-center gap-3"

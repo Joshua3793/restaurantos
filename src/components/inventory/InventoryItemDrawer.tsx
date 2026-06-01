@@ -325,7 +325,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     <div className={`fixed inset-0 ${zClassName} flex items-end sm:items-stretch sm:justify-end`} onClick={onClose}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
       <div
-        className="relative bg-bg w-full sm:max-w-md h-[92vh] sm:h-full overflow-y-auto shadow-2xl rounded-t-2xl sm:rounded-none"
+        className="relative bg-bg w-full max-w-[100vw] sm:max-w-md h-[92vh] sm:h-full overflow-y-auto overflow-x-hidden shadow-2xl rounded-t-2xl sm:rounded-none"
         onClick={e => e.stopPropagation()}
       >
         {loading ? (

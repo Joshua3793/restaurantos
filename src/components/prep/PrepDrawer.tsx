@@ -189,7 +189,7 @@ export default function PrepDrawer({
         role="dialog"
         aria-label="Prep item detail"
         aria-hidden={!open}
-        className={`fixed top-0 right-0 bottom-0 z-50 w-full max-w-[580px] bg-bg border-l border-line-2 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300 ${
+        className={`fixed top-0 right-0 bottom-0 z-50 w-full max-w-[100vw] sm:max-w-[580px] bg-bg border-l border-line-2 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300 ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
