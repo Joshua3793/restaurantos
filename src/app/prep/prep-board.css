@@ -75,8 +75,11 @@
 /* ══════════ BOARD ══════════ */
 .pb .board{display:flex;flex-direction:column;gap:14px;}
 .pb .actionable{display:grid;grid-template-columns:1fr;gap:14px;}
-@container (min-width:1260px){ .pb .actionable{grid-template-columns:1fr 1fr;} }
-@container (min-width:1600px){ .pb .actionable.tri{grid-template-columns:1fr 1fr 1fr;} }
+/* Breakpoints tuned to our content container (max-w-7xl ≈ 1163px collapsed,
+   ≈ 976px when the nav is summoned) so the board is 2-up with the nav
+   collapsed and reflows to 1-up when the nav is summoned. */
+@container (min-width:1040px){ .pb .actionable{grid-template-columns:1fr 1fr;} }
+@container (min-width:1240px){ .pb .actionable.tri{grid-template-columns:1fr 1fr 1fr;} }
 
 /* Block card */
 .pb .block{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;align-self:start;}
@@ -176,8 +179,8 @@
 .pb .later-body{display:none;border-top:1px solid var(--line);}
 .pb .later.open .later-body{display:block;}
 .pb .later-grid{display:grid;grid-template-columns:1fr;}
-@container (min-width:760px){ .pb .later-grid{grid-template-columns:1fr 1fr;} }
-@container (min-width:1240px){ .pb .later-grid{grid-template-columns:1fr 1fr 1fr;} }
+@container (min-width:640px){ .pb .later-grid{grid-template-columns:1fr 1fr;} }
+@container (min-width:1000px){ .pb .later-grid{grid-template-columns:1fr 1fr 1fr;} }
 .pb .later-grid .row{border-right:1px solid var(--line);}
 .pb .later-note{padding:9px 16px;font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10px;color:var(--ink-4);letter-spacing:0.02em;border-top:1px solid var(--line);background:var(--bg);}
 
