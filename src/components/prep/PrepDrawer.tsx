@@ -135,6 +135,9 @@ export default function PrepDrawer({
 }: PrepDrawerProps) {
   const [showPartial, setShowPartial] = useState(false)
   const [partialValue, setPartialValue] = useState('')
+  // doneMode = the qty prompt was opened by "Mark done" (pre-filled w/ suggested, always completes as DONE).
+  // Otherwise it's the "Log partial" path (DONE only if qty ≥ suggested, else PARTIAL).
+  const [doneMode, setDoneMode] = useState(false)
 
   const open = item !== null
 
@@ -152,6 +155,7 @@ export default function PrepDrawer({
   useEffect(() => {
     setShowPartial(false)
     setPartialValue('')
+    setDoneMode(false)
   }, [item?.id])
 
   const status: PrepStatus = item?.todayLog?.status ?? 'NOT_STARTED'
@@ -164,13 +168,14 @@ export default function PrepDrawer({
     item?.ingredientTotalCount ??
     0
 
-  const logPartial = () => {
+  const logQty = () => {
     if (!item) return
     const v = parseFloat(partialValue)
     if (!v || v <= 0) return
-    if (v >= item.suggestedQty) onStatusChange(item, 'DONE', v)
+    if (doneMode || v >= item.suggestedQty) onStatusChange(item, 'DONE', v)
     else onStatusChange(item, 'PARTIAL', v)
     setShowPartial(false)
+    setDoneMode(false)
   }
 
   return (
@@ -386,28 +391,39 @@ export default function PrepDrawer({
               {showPartial && (
                 <div className="flex flex-col gap-[7px]">
                   <label className="font-mono text-[10px] uppercase text-ink-3">
-                    Actual qty made ({item.unit})
+                    {doneMode ? 'How much did you make' : 'Actual qty made'} ({item.unit})
                   </label>
                   <div className="flex gap-[7px]">
                     <input
                       type="number"
+                      inputMode="decimal"
+                      autoFocus
                       value={partialValue}
                       onChange={(e) => setPartialValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') logQty() }}
                       placeholder="e.g. 6.5"
                       className="flex-1 min-w-0 border border-line-2 rounded-[9px] px-3 py-2.5 text-sm font-mono outline-none focus:border-ink-3"
                     />
                     <button
                       type="button"
-                      onClick={logPartial}
-                      className="bg-green text-white px-4 rounded-[9px] text-[13px] font-semibold"
+                      onClick={logQty}
+                      className="bg-green text-white px-4 rounded-[9px] text-[13px] font-semibold whitespace-nowrap"
                     >
-                      Log
+                      {doneMode ? 'Mark done' : 'Log'}
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => { setShowPartial(false); setDoneMode(false) }}
+                    className="self-start font-mono text-[11px] text-ink-3 hover:text-ink"
+                  >
+                    Cancel
+                  </button>
                 </div>
               )}
 
-              {(stateKey === 'not-started') && (
+              {/* primary actions hidden while the qty prompt is open */}
+              {!showPartial && stateKey === 'not-started' && (
                 <>
                   <button
                     type="button"
@@ -419,7 +435,7 @@ export default function PrepDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowPartial(true)}
+                    onClick={() => { setDoneMode(false); setPartialValue(''); setShowPartial(true) }}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
                   >
                     Log partial
@@ -434,11 +450,11 @@ export default function PrepDrawer({
                 </>
               )}
 
-              {stateKey === 'in-progress' && (
+              {!showPartial && stateKey === 'in-progress' && (
                 <>
                   <button
                     type="button"
-                    onClick={() => onStatusChange(item, 'DONE', item.suggestedQty)}
+                    onClick={() => { setDoneMode(true); setPartialValue(item.suggestedQty ? String(item.suggestedQty) : ''); setShowPartial(true) }}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
                   >
                     <IcCheck size={16} />
@@ -446,7 +462,7 @@ export default function PrepDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowPartial(true)}
+                    onClick={() => { setDoneMode(false); setPartialValue(''); setShowPartial(true) }}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
                   >
                     Log partial
@@ -472,7 +488,7 @@ export default function PrepDrawer({
                 </>
               )}
 
-              {stateKey === 'done' && (
+              {!showPartial && stateKey === 'done' && (
                 <button
                   type="button"
                   onClick={() => onStatusChange(item, 'NOT_STARTED')}
@@ -483,7 +499,7 @@ export default function PrepDrawer({
                 </button>
               )}
 
-              {stateKey === 'skipped' && (
+              {!showPartial && stateKey === 'skipped' && (
                 <button
                   type="button"
                   onClick={() => onStatusChange(item, 'NOT_STARTED')}

@@ -583,16 +583,14 @@ export default function PrepPage() {
     handleStatusChange(item.id, status, qty)
   }
 
-  // Add-to-prep from the cook-along modal: persist planned qty on today's log, then refresh
-  const onAddToPrep = useCallback(async (qty: number) => {
-    const targetId = recipeModal?.sourceItemId
-    if (!targetId) { toast(`Set to make ${qty}`); return }
-    try {
-      await fetch('/api/prep/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prepItemId: targetId, requiredQty: qty }) })
-    } catch { /* ignore */ }
-    toast(`Task set to make ${qty}`)
-    load()
-  }, [recipeModal, toast, load])
+  // Complete from the cook-along modal: marks the prep DONE with the made (yield)
+  // qty, which credits the output inventory item and deducts ingredients.
+  const onRecipeComplete = useCallback((qty: number) => {
+    const target = recipeModal?.sourceItemId ? items.find(i => i.id === recipeModal.sourceItemId) : null
+    if (!target) { toast(`Made ${qty}`); return }
+    handleStatusChange(target.id, 'DONE', qty)
+    toast(`Done · added ${qty} ${target.unit}`)
+  }, [recipeModal, items, toast])
 
   // Keep the open drawer's item in sync across the auto-refresh poll
   useEffect(() => {
@@ -1795,7 +1793,7 @@ export default function PrepPage() {
         initialMakeQty={recipeModal?.makeQty ?? 0}
         unit={recipeModal?.unit ?? ''}
         onClose={() => setRecipeModal(null)}
-        onAddToPrep={onAddToPrep}
+        onComplete={onRecipeComplete}
         onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
       />
       {subRecipeView && (

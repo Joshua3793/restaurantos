@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
-import { IcX, IcCheck, IcPlus, IcSync } from '@/components/prep/icons'
+import { IcX, IcCheck, IcSync } from '@/components/prep/icons'
 
 interface RecipeCookAlongModalProps {
   open: boolean
@@ -11,7 +11,8 @@ interface RecipeCookAlongModalProps {
   initialMakeQty: number
   unit: string
   onClose: () => void
-  onAddToPrep: (qty: number) => void
+  /** Completes the prep with the made qty (the cook-along yield) and credits inventory. */
+  onComplete: (qty: number) => void
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe?: (recipeId: string, name: string) => void
 }
@@ -146,7 +147,7 @@ export default function RecipeCookAlongModal({
   initialMakeQty,
   unit,
   onClose,
-  onAddToPrep,
+  onComplete,
   onOpenSubRecipe,
 }: RecipeCookAlongModalProps) {
   const [makeQty, setMakeQty] = useState(initialMakeQty)
@@ -353,13 +354,13 @@ export default function RecipeCookAlongModal({
             <button
               type="button"
               onClick={() => {
-                onAddToPrep(makeQty)
+                onComplete(makeQty)
                 onClose()
               }}
-              className="bg-ink text-paper h-[42px] px-[18px] rounded-[10px] text-[13px] font-semibold inline-flex items-center gap-2"
+              className="bg-green text-white h-[42px] px-[18px] rounded-[10px] text-[13px] font-semibold inline-flex items-center gap-2"
             >
-              <IcPlus size={15} strokeWidth={2.4} className="text-gold" />
-              Add {fmtAmt(makeQty)} {unit} to prep
+              <IcCheck size={15} strokeWidth={2.4} />
+              Done · add {fmtAmt(makeQty)} {unit}
             </button>
           </div>
         </div>

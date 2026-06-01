@@ -92,17 +92,21 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
         </span>
       )}
       {(() => {
-        const next: PrepStatus = state === 'in-progress' ? 'DONE' : isDoneState ? 'NOT_STARTED' : 'IN_PROGRESS'
-        const cls = state === 'in-progress' ? 'bg-green text-white' : isDoneState ? 'bg-paper border border-line text-ink-3' : 'bg-ink text-gold'
-        const Icon = state === 'in-progress' ? IcCheck : isDoneState ? IcUndo : IcPlay
-        const label = state === 'in-progress' ? 'Mark done' : isDoneState ? 'Reopen' : item.isBlocked ? 'Start anyway' : 'Start prep'
+        // In-progress completion goes through the drawer so the chef confirms the
+        // actual yield (the drawer's "Mark done" prompt) rather than silently
+        // logging the suggested qty. Start / Reopen stay one-tap.
+        const inProgress = state === 'in-progress'
+        const cls = inProgress ? 'bg-green text-white' : isDoneState ? 'bg-paper border border-line text-ink-3' : 'bg-ink text-gold'
+        const Icon = inProgress ? IcCheck : isDoneState ? IcUndo : IcPlay
+        const label = inProgress ? 'Mark done' : isDoneState ? 'Reopen' : item.isBlocked ? 'Start anyway' : 'Start prep'
+        const act = () => { if (inProgress) onOpen(item); else onStatusChange(item, isDoneState ? 'NOT_STARTED' : 'IN_PROGRESS') }
         return (
           <span
             role="button"
             tabIndex={0}
             title={label}
-            onClick={(e) => { e.stopPropagation(); onStatusChange(item, next, next === 'DONE' ? item.suggestedQty : undefined) }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onStatusChange(item, next, next === 'DONE' ? item.suggestedQty : undefined) } }}
+            onClick={(e) => { e.stopPropagation(); act() }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); act() } }}
             className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${cls}`}
           >
             <Icon size={16} />
