@@ -1781,7 +1781,7 @@ export default function PrepPage() {
           view={viewMode === 'today' ? 'todo' : 'smart'}
           onClose={closeDrawer}
           onToggleOnList={handleToggleOnList}
-          onStatusChange={(item, status) => onRowStatusChange(item, status)}
+          onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
           onPriorityChange={handlePriorityChange}
           onEdit={(item) => { closeDrawer(); setEditing(item) }}
         />

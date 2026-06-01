@@ -10,7 +10,7 @@ export interface DrawerProps {
   view: 'todo' | 'smart'
   onClose: () => void
   onToggleOnList: (id: string, next: boolean) => void
-  onStatusChange: (item: PrepItemRich, status: string) => void
+  onStatusChange: (item: PrepItemRich, status: string, qty?: number) => void
   onPriorityChange: (id: string, priority: string) => void
   onEdit: (item: PrepItemRich) => void
 }
@@ -18,9 +18,11 @@ export interface DrawerProps {
 export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit }: DrawerProps) {
   const [detail, setDetail] = useState<PrepItemDetail | null>(null)
   const [steps, setSteps] = useState<string[]>([])
+  // doneQty !== null → the "How much did you make?" prompt is open (in-progress completion).
+  const [doneQty, setDoneQty] = useState<string | null>(null)
 
   useEffect(() => {
-    setDetail(null); setSteps([])
+    setDetail(null); setSteps([]); setDoneQty(null)
     if (!item) return
     let cancelled = false
     ;(async () => {
@@ -124,15 +126,39 @@ export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusC
               )}
             </div>
             <div className="dr-foot">
-              {view === 'smart'
-                ? (r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
-                : (r.status === 'not-started' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
-                  : r.status === 'in-progress' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'DONE'); onClose() }}><span className="ic">✓</span> Mark done</button>
-                  : <button className="btn" onClick={onClose}>Close</button>)}
-              <button className="btn" onClick={() => onEdit(item)}>
-                <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
-                Edit prep settings
-              </button>
+              {view !== 'smart' && r.status === 'in-progress' && doneQty !== null ? (
+                // Yield prompt — ask how much was actually made before crediting inventory.
+                (() => {
+                  const confirm = () => { const v = parseFloat(doneQty); if (v > 0) { onStatusChange(item, 'DONE', v); onClose() } }
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                      <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">How much did you make? ({r.unit})</label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          type="number" inputMode="decimal" autoFocus value={doneQty}
+                          onChange={e => setDoneQty(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') confirm() }}
+                          className="flex-1 min-w-0 bg-paper border border-line rounded-[9px] px-3 py-2 text-[13px] font-mono outline-none focus:border-ink-3"
+                        />
+                        <button className="btn btn-primary" onClick={confirm}><span className="ic">✓</span> Mark done</button>
+                      </div>
+                      <button className="font-mono text-[11px] text-ink-3 hover:text-ink self-start" onClick={() => setDoneQty(null)}>Cancel</button>
+                    </div>
+                  )
+                })()
+              ) : (
+                <>
+                  {view === 'smart'
+                    ? (r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
+                    : (r.status === 'not-started' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
+                      : r.status === 'in-progress' ? <button className="btn btn-primary" onClick={() => setDoneQty(item.suggestedQty ? String(item.suggestedQty) : '')}><span className="ic">✓</span> Mark done</button>
+                      : <button className="btn" onClick={onClose}>Close</button>)}
+                  <button className="btn" onClick={() => onEdit(item)}>
+                    <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                    Edit prep settings
+                  </button>
+                </>
+              )}
             </div>
           </>
         )}

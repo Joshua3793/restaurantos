@@ -36,7 +36,7 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
     else act = <button className={`act-btn ${u === 'par' ? 'act-ghost' : 'act-add'}`} onClick={() => h.onToggleOnList(row.id, true)}><span className="ic">+</span> Add</button>
   } else {
     if (row.status === 'not-started') act = <button className="act-btn act-start" onClick={() => h.onStatusChange(item, 'IN_PROGRESS')}><span className="ic">▶</span> Start</button>
-    else if (row.status === 'in-progress') act = <button className="act-btn act-done" onClick={() => h.onStatusChange(item, 'DONE')}>✓ Done</button>
+    else if (row.status === 'in-progress') act = <button className="act-btn act-done" onClick={() => h.onOpen(item)}>✓ Done</button>
     else if (row.status === 'done') act = <button className="act-btn act-ghost" onClick={() => h.onStatusChange(item, 'NOT_STARTED')}>↻ Reset</button>
     else act = <button className="act-btn act-ghost" onClick={() => h.onStatusChange(item, 'NOT_STARTED')}>↩ Restore</button>
   }
