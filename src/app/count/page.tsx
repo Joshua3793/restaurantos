@@ -16,7 +16,7 @@ import { useUser } from '@/contexts/UserContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
   enqueueCountMutation, flushCountQueue, loadCountQueue,
-  saveCountSessionCache, pendingCountForSession,
+  saveCountSessionCache, loadCountSessionCache, pendingCountForSession,
 } from '@/lib/count-offline'
 import {
   getCountableUoms, convertCountQtyToBase, convertBaseToCountUom,
@@ -184,6 +184,9 @@ export default function CountPage() {
   const [view,          setView]          = useState<View>('list')
   const [sessions,      setSessions]      = useState<Session[]>([])
   const [active,        setActive]        = useState<Session | null>(null)
+  // Mirror of `active` for use inside event listeners registered once (avoids a stale closure).
+  const activeRef = useRef<Session | null>(null)
+  useEffect(() => { activeRef.current = active }, [active])
   const [toast,         setToast]         = useState<string | null>(null)
   const [showModal,     setShowModal]     = useState(false)
   const [finalizing,    setFinalizing]    = useState(false)
@@ -267,7 +270,17 @@ export default function CountPage() {
   }, [activeRcId, activeRc])
 
   const loadSession = useCallback(async (id: string): Promise<Session | null> => {
-    return fetch(`/api/count/sessions/${id}`).then(r => r.json()).catch(() => null)
+    try {
+      const res = await fetch(`/api/count/sessions/${id}`)
+      if (!res.ok) throw new Error(String(res.status))
+      const data = (await res.json()) as Session
+      saveCountSessionCache(id, data)            // keep a fresh offline copy on every successful load
+      return data
+    } catch {
+      // Offline / fetch failed — fall back to the last cached copy so a count
+      // survives a page reload and can be reopened without a connection.
+      return loadCountSessionCache<Session>(id)
+    }
   }, [])
 
   const loadCountAreas = useCallback(async () => {
@@ -300,9 +313,11 @@ export default function CountPage() {
       setOfflineSyncing(false)
       setPendingCount(0)
       if (synced > 0) setToast(`Synced ${synced} offline update${synced !== 1 ? 's' : ''}.`)
-      // Refresh active session after sync so variances update
-      if (active) {
-        const refreshed = await loadSession(active.id)
+      // Refresh active session after sync so variances update (use the ref — the
+      // listener is registered once, so `active` in this closure would be stale).
+      const cur = activeRef.current
+      if (cur) {
+        const refreshed = await loadSession(cur.id)
         if (refreshed) setActive(refreshed)
       }
     }
@@ -422,7 +437,6 @@ export default function CountPage() {
   const openSession = async (s: Session, target: View) => {
     const full = await loadSession(s.id)
     if (!full) return
-    saveCountSessionCache(s.id, full)
     setPendingCount(pendingCountForSession(s.id))
     setActive(full)
     setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null)
@@ -448,7 +462,6 @@ export default function CountPage() {
     await loadSessions(); loadCountAreas()
     const full = await loadSession(session.id)
     if (full) {
-      saveCountSessionCache(session.id, full)
       setPendingCount(0)
       setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count')
     }
@@ -500,7 +513,6 @@ export default function CountPage() {
     await loadSessions()
     const full = await loadSession(session.id)
     if (full) {
-      saveCountSessionCache(session.id, full)
       setPendingCount(0)
       setActive(full); setCatFilter(null); setLocFilter(null); setStatusFilter('all'); setOpenId(null); setView('count')
     }
@@ -530,6 +542,11 @@ export default function CountPage() {
     if (isOffline) {
       enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty })
       setPendingCount(c => c + 1)
+      // Persist the optimistic state so the count survives a reload while offline.
+      if (active) saveCountSessionCache(active.id, {
+        ...active,
+        lines: active.lines!.map(l => l.id === line.id ? { ...l, countedQty: qty, skipped: false, variancePct: vPct, varianceCost: vCost } : l),
+      })
       return
     }
     const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
@@ -571,6 +588,11 @@ export default function CountPage() {
     if (isOffline) {
       enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'skip' })
       setPendingCount(c => c + 1)
+      // Persist the optimistic state so the skip survives a reload while offline.
+      if (active) saveCountSessionCache(active.id, {
+        ...active,
+        lines: active.lines!.map(l => l.id === line.id ? { ...l, skipped: true } : l),
+      })
       return
     }
     await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
