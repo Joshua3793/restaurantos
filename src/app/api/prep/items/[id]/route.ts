@@ -66,6 +66,7 @@ export async function GET(
     return {
       id: ing.id,
       inventoryItemId: ing.inventoryItemId,
+      linkedRecipeId: ing.linkedRecipe?.id ?? ing.linkedRecipeId ?? null,
       itemName: ing.inventoryItem?.itemName ?? ing.linkedRecipe?.name ?? 'Sub-recipe',
       qtyBase: parseFloat(String(ing.qtyBase)),
       unit: ing.unit,

@@ -65,6 +65,8 @@ export interface PrepItemRich {
 export interface IngredientAvailability {
   id: string
   inventoryItemId: string | null
+  /** Set when this ingredient is itself a sub-recipe (e.g. Custard) — links to its recipe. */
+  linkedRecipeId: string | null
   itemName: string
   qtyBase: number
   unit: string

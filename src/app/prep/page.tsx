@@ -23,6 +23,7 @@ import PrepGetAhead from '@/components/prep/PrepGetAhead'
 import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
 import RecipeCookAlongModal from '@/components/prep/RecipeCookAlongModal'
+import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, groupPrepItems, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
@@ -56,6 +57,9 @@ export default function PrepPage() {
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
   const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string } | null>(null)
+  // Sub-recipe peek (e.g. opening "Custard" linked inside French Toast)
+  const [subRecipeView, setSubRecipeView] = useState<{ recipeId: string; name: string } | null>(null)
+  const [subRecipeChecked, setSubRecipeChecked] = useState<Set<string>>(new Set())
   const [alertDismissed, setAlertDismissed] = useState(false)
 
   // View state
@@ -1790,7 +1794,21 @@ export default function PrepPage() {
         unit={recipeModal?.unit ?? ''}
         onClose={() => setRecipeModal(null)}
         onAddToPrep={onAddToPrep}
+        onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
       />
+      {subRecipeView && (
+        // Higher stacking context so the sub-recipe peek sits above the
+        // cook-along modal (z-[60]) it was opened from.
+        <div className="relative z-[70]">
+          <RecipeViewModal
+            recipeId={subRecipeView.recipeId}
+            recipeName={subRecipeView.name}
+            checkedIngredients={subRecipeChecked}
+            onToggleIngredient={(id) => setSubRecipeChecked(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })}
+            onClose={() => setSubRecipeView(null)}
+          />
+        </div>
+      )}
       {toastNode}
 
       {showAdd && (

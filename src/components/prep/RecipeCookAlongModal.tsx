@@ -12,6 +12,8 @@ interface RecipeCookAlongModalProps {
   unit: string
   onClose: () => void
   onAddToPrep: (qty: number) => void
+  /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
+  onOpenSubRecipe?: (recipeId: string, name: string) => void
 }
 
 const SLIDER_MIN = 0.25
@@ -47,43 +49,62 @@ interface IngRowProps {
   factor: number
   checked: boolean
   onToggle: () => void
+  onOpenSubRecipe?: (recipeId: string, name: string) => void
 }
 
-function IngRow({ ing, factor, checked, onToggle }: IngRowProps) {
+function IngRow({ ing, factor, checked, onToggle, onOpenSubRecipe }: IngRowProps) {
+  const isSub = !!ing.linkedRecipeId && !!onOpenSubRecipe
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="flex items-center gap-3 w-full px-2.5 py-2.5 rounded-[9px] text-left border-b border-bg-2 last:border-0 hover:bg-bg"
-    >
-      <span
+    <div className="flex items-center gap-3 w-full px-2.5 py-2.5 rounded-[9px] border-b border-bg-2 last:border-0 hover:bg-bg">
+      <button
+        type="button"
+        onClick={onToggle}
+        title={checked ? 'Uncheck' : 'Check off'}
         className={`w-6 h-6 rounded-[7px] border-2 grid place-items-center flex-shrink-0 ${
           checked ? 'bg-green border-green text-white' : 'border-line-2'
         }`}
       >
         {checked && <IcCheck size={13} strokeWidth={3} />}
-      </span>
-      <span
-        className={`flex-1 text-sm font-medium ${
-          checked ? 'text-ink-4 line-through' : 'text-ink'
-        }`}
-      >
-        {ing.itemName}
-      </span>
+      </button>
+      {isSub ? (
+        <button
+          type="button"
+          onClick={() => onOpenSubRecipe!(ing.linkedRecipeId!, ing.itemName)}
+          title="Open sub-recipe"
+          className={`flex-1 min-w-0 text-left text-sm font-medium inline-flex items-center gap-1.5 ${
+            checked ? 'text-ink-4 line-through' : 'text-gold-2 hover:underline'
+          }`}
+        >
+          <span className="truncate">{ing.itemName}</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+            <path d="M7 17 17 7M8 7h9v9" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`flex-1 min-w-0 text-left text-sm font-medium truncate ${
+            checked ? 'text-ink-4 line-through' : 'text-ink'
+          }`}
+        >
+          {ing.itemName}
+        </button>
+      )}
       {!ing.isAvailable && (
-        <span className="font-mono text-[9.5px] text-red-text bg-red-soft px-1.5 py-px rounded font-semibold uppercase">
+        <span className="font-mono text-[9.5px] text-red-text bg-red-soft px-1.5 py-px rounded font-semibold uppercase shrink-0">
           out
         </span>
       )}
       <span
-        className={`font-mono text-[14.5px] font-semibold min-w-[82px] text-right ${
+        className={`font-mono text-[14.5px] font-semibold min-w-[82px] text-right shrink-0 ${
           checked ? 'text-ink-4' : 'text-ink'
         }`}
       >
         {fmtAmt(Number(ing.qtyBase) * factor)}
         <span className="text-ink-3 font-normal text-[11px] ml-0.5">{ing.unit}</span>
       </span>
-    </button>
+    </div>
   )
 }
 
@@ -126,6 +147,7 @@ export default function RecipeCookAlongModal({
   unit,
   onClose,
   onAddToPrep,
+  onOpenSubRecipe,
 }: RecipeCookAlongModalProps) {
   const [makeQty, setMakeQty] = useState(initialMakeQty)
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set())
@@ -282,6 +304,7 @@ export default function RecipeCookAlongModal({
                   factor={factor}
                   checked={checkedIngredients.has(idx)}
                   onToggle={() => toggleIngredient(idx)}
+                  onOpenSubRecipe={onOpenSubRecipe}
                 />
               ))}
             </div>
