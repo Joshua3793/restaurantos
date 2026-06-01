@@ -1,0 +1,69 @@
+'use client'
+import type { PrepItemRich } from '@/components/prep/types'
+import { toBoardRow, BoardRow } from './prep-board-utils'
+import { PrepBlock } from './PrepBlock'
+import { PrepLater } from './PrepLater'
+import { RowHandlers } from './PrepRow'
+
+export interface PrepBoardProps {
+  view: 'todo' | 'smart'
+  groupBy: 'urgency' | 'category' | 'station'
+  items: PrepItemRich[]          // already RC/active-filtered by the page
+  todayItems: PrepItemRich[]     // isOnList items (for To Do)
+  handlers: Omit<RowHandlers, 'view'>
+  onAddAll: (priority: '911' | 'NEEDED_TODAY') => void
+}
+
+export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll }: PrepBoardProps) {
+  const h: RowHandlers = { ...handlers, view }
+
+  if (view === 'todo') {
+    const list = todayItems.map(toBoardRow)
+    const crit = list.filter(r => r.urgency === 'critical' && r.status !== 'done' && r.status !== 'skipped')
+    const low = list.filter(r => r.urgency !== 'critical' && r.status !== 'done' && r.status !== 'skipped')
+    const closed = list.filter(r => r.status === 'done' || r.status === 'skipped')
+    return (
+      <div className="board">
+        <div className="actionable">
+          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} emptyText="No critical items" />
+          <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
+        </div>
+        <PrepLater variant="closed" rows={closed} h={h} />
+      </div>
+    )
+  }
+
+  // SMART PREP
+  const rows = items.map(toBoardRow)
+  if (groupBy === 'urgency') {
+    const crit = rows.filter(r => r.urgency === 'critical')
+    const low = rows.filter(r => r.urgency === 'low')
+    const par = rows.filter(r => r.urgency === 'par')
+    return (
+      <div className="board">
+        <div className="actionable">
+          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll('911')} />
+          <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll('NEEDED_TODAY')} />
+        </div>
+        <PrepLater variant="par" rows={par} h={h} />
+      </div>
+    )
+  }
+
+  // category / station grouping → tri grid of tinted blocks
+  const keyOf = (r: BoardRow) => (groupBy === 'category' ? r.cat : r.station)
+  const groupKeys = Array.from(new Set(rows.map(keyOf))).sort((a, b) => a.localeCompare(b))
+  return (
+    <div className="board">
+      <div className="actionable tri">
+        {groupKeys.map(g => {
+          const grp = rows.filter(r => keyOf(r) === g)
+          const hasCrit = grp.some(r => r.urgency === 'critical')
+          const hasLow = grp.some(r => r.urgency === 'low')
+          const kind = hasCrit ? 'crit' : hasLow ? 'low' : ''
+          return <PrepBlock key={g} kind={kind} title={g.toUpperCase()} rows={grp} h={h} addAll={hasCrit || hasLow} onAddAll={() => onAddAll(hasCrit ? '911' : 'NEEDED_TODAY')} />
+        })}
+      </div>
+    </div>
+  )
+}
