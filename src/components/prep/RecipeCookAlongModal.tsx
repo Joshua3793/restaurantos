@@ -131,12 +131,12 @@ export default function RecipeCookAlongModal({
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set())
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set())
 
-  // Reset on open / recipe change
+  // Reset on open / recipe change. Default the making scale to ×1 (a full base
+  // batch) every time a recipe opens; the chef can scale up/down from there.
   useEffect(() => {
     if (!open || !recipe) return
     const base = recipe.baseYieldQty > 0 ? recipe.baseYieldQty : 1
-    const seededFactor = clamp(initialMakeQty / base, SLIDER_MIN, SLIDER_MAX)
-    setMakeQty(seededFactor * base)
+    setMakeQty(base)
     setCheckedIngredients(new Set())
     setDoneSteps(new Set())
     // eslint-disable-next-line react-hooks/exhaustive-deps
