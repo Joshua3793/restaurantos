@@ -451,6 +451,24 @@ export default function PrepDrawer({
                   >
                     Log partial
                   </button>
+                  {/* Stop = abandon the in-progress prep without logging any qty (back to the to-do list); Skip = drop it for today. */}
+                  <div className="flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => onStatusChange(item, 'NOT_STARTED')}
+                      className="flex-1 h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
+                    >
+                      <IcUndo size={16} />
+                      Stop
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onStatusChange(item, 'SKIPPED')}
+                      className="flex-1 h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
+                    >
+                      Skip today
+                    </button>
+                  </div>
                 </>
               )}
 
