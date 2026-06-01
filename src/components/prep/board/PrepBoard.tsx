@@ -11,8 +11,10 @@ export interface PrepBoardProps {
   items: PrepItemRich[]          // already RC/active-filtered by the page
   todayItems: PrepItemRich[]     // isOnList items (for To Do)
   handlers: Omit<RowHandlers, 'view'>
-  onAddAll: (priority: '911' | 'NEEDED_TODAY') => void
+  onAddAll: (ids: string[]) => void
 }
+
+const notOnListIds = (rows: BoardRow[]) => rows.filter(r => !r.onList).map(r => r.id)
 
 export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll }: PrepBoardProps) {
   const h: RowHandlers = { ...handlers, view }
@@ -42,8 +44,8 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
     return (
       <div className="board">
         <div className="actionable">
-          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll('911')} />
-          <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll('NEEDED_TODAY')} />
+          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll(notOnListIds(crit))} />
+          <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll(notOnListIds(low))} />
         </div>
         <PrepLater variant="par" rows={par} h={h} />
       </div>
@@ -61,7 +63,7 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
           const hasCrit = grp.some(r => r.urgency === 'critical')
           const hasLow = grp.some(r => r.urgency === 'low')
           const kind = hasCrit ? 'crit' : hasLow ? 'low' : ''
-          return <PrepBlock key={g} kind={kind} title={g.toUpperCase()} rows={grp} h={h} addAll={hasCrit || hasLow} onAddAll={() => onAddAll(hasCrit ? '911' : 'NEEDED_TODAY')} />
+          return <PrepBlock key={g} kind={kind} title={g.toUpperCase()} rows={grp} h={h} addAll={hasCrit || hasLow} onAddAll={() => onAddAll(notOnListIds(grp))} />
         })}
       </div>
     </div>

@@ -508,6 +508,22 @@ export default function PrepPage() {
     ))
   }
 
+  // Add an explicit set of items to today's list (used by the board's per-block
+  // "Add all" — adds every not-on-list row in the block regardless of priority,
+  // and only what's actually visible after filters).
+  async function handleAddIds(ids: string[]) {
+    const targets = items.filter(i => ids.includes(i.id) && !i.isOnList)
+    if (targets.length === 0) return
+    setItems(prev => prev.map(i => targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i))
+    await Promise.all(targets.map(i =>
+      fetch(`/api/prep/items/${i.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isOnList: true }),
+      })
+    ))
+  }
+
   // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
 
   // Drawer open: set item, fetch its detail (ingredients + counts)
@@ -1146,7 +1162,7 @@ export default function PrepPage() {
               </div>
             )}
           </div>
-          <PrepSummaryLine items={items} view={viewMode === 'today' ? 'todo' : 'smart'} />
+          <PrepSummaryLine items={viewMode === 'today' ? filteredToday : filteredSmart} view={viewMode === 'today' ? 'todo' : 'smart'} />
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : (
@@ -1156,7 +1172,7 @@ export default function PrepPage() {
               items={filteredSmart}
               todayItems={filteredToday}
               handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onPriorityChange: handlePriorityChange }}
-              onAddAll={handleAddAll}
+              onAddAll={handleAddIds}
             />
           )}
         </div>
