@@ -12,6 +12,10 @@ import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } 
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
+import './prep-board.css'
+import { PrepBoard } from '@/components/prep/board/PrepBoard'
+import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
+import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import PrepToolbar from '@/components/prep/PrepToolbar'
 import PrepTaskRow from '@/components/prep/PrepTaskRow'
 import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
@@ -273,6 +277,20 @@ export default function PrepPage() {
       return true
     })
   }, [todayItems, search, filterCategory, filterStation])
+
+  // Smart-prep filter (all active items respecting search + category/station)
+  const filteredSmart = useMemo(() => {
+    return items.filter(item => {
+      if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
+      if (filterCategory !== 'ALL' && item.category !== filterCategory) return false
+      if (filterStation === 'UNASSIGNED') {
+        if (item.station && item.station.trim() !== '') return false
+      } else if (filterStation !== 'ALL') {
+        if (item.station !== filterStation) return false
+      }
+      return true
+    })
+  }, [items, search, filterCategory, filterStation])
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
@@ -1089,8 +1107,63 @@ export default function PrepPage() {
       {/* ══════════════════════════════════════════════════════
           TODAY TAB
       ══════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════
+          DESKTOP BOARD — dense redesign (To Do + Smart Prep)
+          Replaces the old desktop renderers below (now md:hidden).
+      ══════════════════════════════════════════════════════ */}
+      {viewMode !== 'history' && (
+        <div className="pb hidden md:block" style={{ containerType: 'inline-size' }}>
+          {viewMode === 'today' && priorityAlerts.length > 0 && !alertDismissed && (
+            <div className="mb-2.5">
+              <PrepAlertBanner
+                onDismiss={() => setAlertDismissed(true)}
+                compact={<><b className="font-semibold">Stock changed.</b> {priorityAlerts.length} item{priorityAlerts.length !== 1 ? 's' : ''} now Critical.</>}
+                message={priorityAlerts.length === 1
+                  ? <><b>Stock changed since this list was scheduled.</b> {priorityAlerts[0].name} dropped to Critical — theoretical stock at or below 0.</>
+                  : <><b>Stock changed since this list was scheduled.</b> {priorityAlerts.map(i => i.name).join(', ')} — now Critical, stock depleted.</>}
+              />
+            </div>
+          )}
+          <div className="toolbar">
+            <div className="search">
+              <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
+              <input placeholder="Search prep items, recipes, stations…" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <select className="ddown" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+              <option value="ALL">All categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className="ddown" value={filterStation} onChange={e => setFilterStation(e.target.value)}>
+              <option value="ALL">All stations</option>
+              {stations.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button className="ddown" onClick={() => setActiveOnly(a => !a)}><span className="cb">{activeOnly ? '✓' : ''}</span> Active only</button>
+            {viewMode === 'smartprep' && (
+              <div className="seg" style={{ marginLeft: 'auto' }}>
+                {(['urgency', 'category', 'station'] as const).map(g => (
+                  <div key={g} className={`s${smartPrepView === g ? ' active' : ''}`} onClick={() => setSmartPrepView(g)}>{g[0].toUpperCase() + g.slice(1)}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <PrepSummaryLine items={items} view={viewMode === 'today' ? 'todo' : 'smart'} />
+          {loading ? (
+            <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
+          ) : (
+            <PrepBoard
+              view={viewMode === 'today' ? 'todo' : 'smart'}
+              groupBy={smartPrepView}
+              items={filteredSmart}
+              todayItems={filteredToday}
+              handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onPriorityChange: handlePriorityChange }}
+              onAddAll={handleAddAll}
+            />
+          )}
+        </div>
+      )}
+
       {viewMode === 'today' && (
-        <div className="space-y-0">
+        <div className="space-y-0 md:hidden">
           <PrepShiftBand summary={shiftSummary} countdown={countdown} workloadLabel={workloadLabel} />
           {priorityAlerts.length > 0 && !alertDismissed && (
             <PrepAlertBanner
@@ -1159,7 +1232,7 @@ export default function PrepPage() {
           SMART PREP TAB
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'smartprep' && (
-        <div className="space-y-4">
+        <div className="space-y-4 md:hidden">
           {/* ── Desktop KPI strip (Smart Prep context cards) ── */}
           {(() => {
             const actionItems = [...spCritical, ...spNeeded]
@@ -1670,15 +1743,28 @@ export default function PrepPage() {
       )}
 
       {/* Redesigned To-do tab — drawer, cook-along modal, toast */}
-      <PrepDrawer
-        item={drawerItem}
-        detail={drawerDetail}
-        countdown={countdown}
-        recipeCost={null}
-        onClose={closeDrawer}
-        onStatusChange={onRowStatusChange}
-        onOpenRecipe={openRecipeModal}
-      />
+      {/* Mobile keeps the existing drawer; desktop uses the rebuilt board drawer. */}
+      <div className="md:hidden">
+        <PrepDrawer
+          item={drawerItem}
+          detail={drawerDetail}
+          countdown={countdown}
+          recipeCost={null}
+          onClose={closeDrawer}
+          onStatusChange={onRowStatusChange}
+          onOpenRecipe={openRecipeModal}
+        />
+      </div>
+      <div className="hidden md:block">
+        <PrepBoardDrawer
+          item={drawerItem}
+          view={viewMode === 'today' ? 'todo' : 'smart'}
+          onClose={closeDrawer}
+          onToggleOnList={handleToggleOnList}
+          onStatusChange={(item, status) => onRowStatusChange(item, status)}
+          onPriorityChange={handlePriorityChange}
+        />
+      </div>
       <RecipeCookAlongModal
         open={recipeModal !== null}
         recipe={recipeModal?.recipe ?? null}
