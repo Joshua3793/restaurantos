@@ -22,6 +22,15 @@ export async function GET(
                   baseUnit: true, pricePerBaseUnit: true,
                 },
               },
+              // Sub-recipe ingredients (e.g. Custard inside French Toast) carry a
+              // linkedRecipe instead of an inventoryItem — pull its name + the
+              // stock of its synced inventory item for availability.
+              linkedRecipe: {
+                select: {
+                  id: true, name: true,
+                  inventoryItem: { select: { stockOnHand: true } },
+                },
+              },
             },
             orderBy: { sortOrder: 'asc' },
           },
@@ -47,15 +56,23 @@ export async function GET(
   const priority     = computePriority(onHand, parLevel, minThreshold, targetToday, item.manualPriorityOverride)
   const suggestedQty = computeSuggestedQty(onHand, parLevel, targetToday)
 
-  const ingredients = (item.linkedRecipe?.ingredients ?? []).map(ing => ({
-    id: ing.id,
-    inventoryItemId: ing.inventoryItemId,
-    itemName: ing.inventoryItem?.itemName ?? 'Sub-recipe',
-    qtyBase: parseFloat(String(ing.qtyBase)),
-    unit: ing.unit,
-    stockOnHand: ing.inventoryItem ? parseFloat(String(ing.inventoryItem.stockOnHand)) : null,
-    isAvailable: ing.inventoryItem ? parseFloat(String(ing.inventoryItem.stockOnHand)) > 0 : null,
-  }))
+  const ingredients = (item.linkedRecipe?.ingredients ?? []).map(ing => {
+    const subStock = ing.linkedRecipe?.inventoryItem?.stockOnHand
+    const stock = ing.inventoryItem
+      ? parseFloat(String(ing.inventoryItem.stockOnHand))
+      : subStock != null
+        ? parseFloat(String(subStock))
+        : null
+    return {
+      id: ing.id,
+      inventoryItemId: ing.inventoryItemId,
+      itemName: ing.inventoryItem?.itemName ?? ing.linkedRecipe?.name ?? 'Sub-recipe',
+      qtyBase: parseFloat(String(ing.qtyBase)),
+      unit: ing.unit,
+      stockOnHand: stock,
+      isAvailable: stock != null ? stock > 0 : null,
+    }
+  })
 
   const lowIngredients = ingredients.filter(i => i.isAvailable === false).map(i => i.itemName)
 
