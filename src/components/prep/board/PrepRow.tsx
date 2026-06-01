@@ -42,11 +42,25 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
   }
 
   const cls = `row${h.view === 'todo' && row.status === 'in-progress' ? ' inprog' : ''}${h.view === 'todo' && row.status === 'done' ? ' done' : ''}${h.view === 'todo' && row.status === 'skipped' ? ' skipped' : ''}`
-  const progStyle = h.view === 'todo' && row.status === 'in-progress' ? ({ ['--pw' as string]: `${Math.max(8, row.pct)}%` } as React.CSSProperties) : undefined
+
+  // Highlight accent — matches the mobile rows: status (To-Do) overrides urgency.
+  // in-progress → blue, done → green, removed → gray; else critical → red,
+  // low/needed → gold, on-par → green.
+  const accent =
+    h.view === 'todo' && row.status === 'in-progress' ? '#2563eb'
+    : h.view === 'todo' && row.status === 'done' ? '#16a34a'
+    : h.view === 'todo' && row.status === 'skipped' ? '#a1a1aa'
+    : u === 'critical' ? '#dc2626'
+    : u === 'low' ? '#d97706'
+    : '#16a34a'
+  const rowStyle = { boxShadow: `inset 3px 0 0 ${accent}` } as React.CSSProperties
+  if (h.view === 'todo' && row.status === 'in-progress') {
+    (rowStyle as Record<string, string>)['--pw'] = `${Math.max(8, row.pct)}%`
+  }
 
   return (
-    <div className={cls} style={progStyle}>
-      <span className={`r-dot ${dotClass(u)}`} />
+    <div className={cls} style={rowStyle}>
+      <span className={`r-dot ${dotClass(u)}`} style={{ background: accent }} />
       <span className="r-name">
         <span className="nm" onClick={() => h.onOpen(item)}>{row.name}</span>
         {row.stockOut && <span className="tag out">STOCK OUT</span>}
