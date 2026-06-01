@@ -168,8 +168,8 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
   if (base === 'g' && hasItemWeight) {
     uoms.push(
       { label: 'kg', toBase: 1000, hint: '1,000 g', display: 'kg' },
-      { label: 'g',  toBase: 1, display: 'g' },
       { label: 'lb', toBase: 453.592, hint: '454 g', display: 'lb' },
+      { label: 'g',  toBase: 1, display: 'g' },
     )
   }
   if (base === 'ml' && hasItemWeight) {

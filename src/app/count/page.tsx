@@ -1863,7 +1863,7 @@ export default function CountPage() {
       const f = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
 
       const uoms        = getCountableUoms(item)
-      const unitLabels  = Array.from(new Set([line.selectedUom, ...uoms.map(u => u.label)]))
+      const unitLabels  = Array.from(new Set([...uoms.map(u => u.label), line.selectedUom]))   // size order (case→pkg→each→units); selectedUom only appended if it's a legacy unit not in the list
       const uomDisplay  = (lbl: string) => uoms.find(u => u.label === lbl)?.display ?? lbl   // chip text ("case (25kg)") vs stored token
       const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
       const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
