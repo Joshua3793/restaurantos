@@ -92,8 +92,10 @@ export default function PrepPage() {
   // Prevent duplicate concurrent status mutations per item
   const pendingItems = useRef<Set<string>>(new Set())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // `silent` = background refresh (auto-poll): update data in place without the
+  // full-screen loading state or wiping the list on a transient failure.
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       if (!navigator.onLine) throw new Error('offline')
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`)
@@ -116,9 +118,9 @@ export default function PrepPage() {
         setIsOffline(true)
       }
       console.error('Failed to load prep items', e)
-      setItems([])
+      if (!silent) setItems([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [activeOnly])
 
@@ -208,7 +210,7 @@ export default function PrepPage() {
   // Auto-refresh every 60 seconds (paused while offline)
   useEffect(() => {
     if (isOffline) return
-    const id = setInterval(load, 60_000)
+    const id = setInterval(() => load(true), 60_000)
     return () => clearInterval(id)
   }, [load, isOffline])
 

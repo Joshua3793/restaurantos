@@ -106,7 +106,7 @@
 /* ══════════ DENSE ROW ══════════ */
 .pb .row{
   display:grid;
-  grid-template-columns:14px minmax(80px,1fr) 96px 72px 70px 84px;
+  grid-template-columns:14px minmax(150px,1fr) 78px 60px 46px 84px;
   align-items:center;gap:8px;
   padding:7px 14px;border-bottom:1px solid var(--line);
   font-size:13px;min-height:35px;position:relative;
@@ -115,7 +115,8 @@
 .pb .row:hover{background:#fafaf9;}
 .pb .row .r-dot{width:8px;height:8px;border-radius:99px;}
 .pb .row .r-name{display:flex;align-items:center;gap:7px;min-width:0;}
-.pb .row .r-name .nm{font-weight:500;color:var(--ink);letter-spacing:-0.01em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* Let long names use the space: wrap up to 2 lines instead of hard-truncating. */
+.pb .row .r-name .nm{font-weight:500;color:var(--ink);letter-spacing:-0.01em;cursor:pointer;min-width:0;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .pb .row .r-name .nm:hover{text-decoration:underline;text-decoration-color:var(--line-2);text-underline-offset:2px;}
 .pb .row .r-name .cat{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10px;color:var(--ink-4);letter-spacing:0;flex-shrink:0;}
 .pb .tag{display:inline-flex;align-items:center;font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:9px;padding:2px 5px;border-radius:4px;font-weight:600;letter-spacing:0.04em;flex-shrink:0;white-space:nowrap;}
