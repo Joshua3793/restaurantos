@@ -6,6 +6,8 @@ import { InvoiceKpiStripV2 } from '@/components/invoices/InvoiceKpiStripV2'
 import { InvoiceListV2 } from '@/components/invoices/InvoiceListV2'
 import { InboxViewV2 } from '@/components/invoices/InboxViewV2'
 import { InboxSubNav } from '@/components/invoices/InboxSubNav'
+import { MobileInbox } from '@/components/invoices/mobile/MobileInbox'
+import { Signal } from '@/lib/invoices/inbox-items'
 import { PageHead } from '@/components/layout/PageHead'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -35,6 +37,7 @@ export default function InvoicesPage() {
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [signals, setSignals] = useState<Signal[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
@@ -91,6 +94,11 @@ export default function InvoicesPage() {
       prevStatusesRef.current = next
 
       setSessions(data)
+      // Mobile inbox also surfaces signals (prices / variance / exceptions).
+      fetch('/api/signals', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.signals) setSignals(j.signals) })
+        .catch(() => {})
       return data
     } catch {
       // silent — keeps existing sessions on screen, polling continues
@@ -144,6 +152,17 @@ export default function InvoicesPage() {
     setKpiRefreshKey(k => k + 1)
   }, [fetchSessions])
 
+  const handleSignalAct = useCallback(async (id: string, action: 'apply' | 'snooze' | 'dismiss') => {
+    setSignals(prev => prev.filter(s => s.id !== id)) // optimistic
+    try {
+      await fetch('/api/signals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [id], action }),
+      })
+    } catch { /* poll will resync */ }
+  }, [])
+
   const handleDelete = useCallback(async (id: string, _status: SessionStatus): Promise<void> => {
     await fetch(`/api/invoices/sessions/${id}`, { method: 'DELETE' })
     fetchSessions()
@@ -174,9 +193,23 @@ export default function InvoicesPage() {
 
   return (
     <>
-    <InboxSubNav />
+    <div className="hidden sm:block"><InboxSubNav /></div>
     <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
 
+      {/* ── Mobile: unified inbox feed ── */}
+      <div className="block sm:hidden">
+        <MobileInbox
+          sessions={sessions}
+          signals={signals}
+          onSelectSession={setSelectedSessionId}
+          onUploadClick={() => setShowUpload(true)}
+          onScanClick={isNative() ? triggerScan : undefined}
+          onSignalAct={handleSignalAct}
+        />
+      </div>
+
+      {/* ── Desktop: existing V2 (unchanged) ── */}
+      <div className="hidden sm:block">
       <PageHead
         crumbs={<><Mail size={12} /> INBOX / INVOICES</>}
         title="Invoices"
@@ -234,6 +267,7 @@ export default function InvoicesPage() {
           onRetry={handleRetry}
         />
       )}
+      </div>{/* /desktop */}
       {scanError && (
         <button
           onClick={clearError}
