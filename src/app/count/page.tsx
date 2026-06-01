@@ -1772,7 +1772,7 @@ export default function CountPage() {
                           className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] font-medium text-ink-2 bg-paper focus:outline-none focus:border-ink-3 transition-colors"
                         >
                           {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{uomOptionLabel(opt, line.inventoryItem.baseUnit)}</option>
+                            <option key={opt.label} value={opt.label}>{opt.display ?? uomOptionLabel(opt, line.inventoryItem.baseUnit)}</option>
                           ))}
                         </select>
                       </div>
@@ -1864,6 +1864,7 @@ export default function CountPage() {
 
       const uoms        = getCountableUoms(item)
       const unitLabels  = Array.from(new Set([line.selectedUom, ...uoms.map(u => u.label)]))
+      const uomDisplay  = (lbl: string) => uoms.find(u => u.label === lbl)?.display ?? lbl   // chip text ("case (25kg)") vs stored token
       const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
       const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
       const effectiveQty = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
@@ -1942,7 +1943,7 @@ export default function CountPage() {
                     {unitLabels.map(label => (
                       <button key={label} onClick={() => { if (label !== line.selectedUom) { changeUom(line, label); setInputQty(0); setCaseQty(0) } }}
                         className={`flex-1 min-w-[56px] py-1.5 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
-                        {label}
+                        {uomDisplay(label)}
                       </button>
                     ))}
                   </div>

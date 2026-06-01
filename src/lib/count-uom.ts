@@ -16,6 +16,8 @@ export interface CountableUom {
   toBase: number
   /** Human-readable description of what 1 of this unit contains, e.g. "20 kg" or "12 each". */
   hint?: string
+  /** Chip/option text shown in the UI — e.g. "case (25kg)", "pkg (9 × 85g)". Falls back to label. */
+  display?: string
 }
 
 interface ItemDims {
@@ -107,35 +109,73 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
   const hasWeight = base === 'g' || base === 'ml'
   const hasItemWeight = hasWeight && ps > 0
 
-  // Purchase unit (case / bag / etc.)
-  uoms.push({ label: item.purchaseUnit, toBase: calcConversionFactorForItem(item), hint: buildCaseHint(item) })
+  // ── display helpers ────────────────────────────────────────────────────────
+  const WV_W = ['g', 'kg', 'lb', 'oz', 'mg']
+  const WV_V = ['ml', 'l', 'lt', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp', 'gal']
+  const isWV = (u: string) => { const x = (u || '').toLowerCase(); return WV_W.includes(x) || WV_V.includes(x) }
+  const fmtWV = (val: number, unit: string) => {
+    const x = (unit || '').toLowerCase()
+    // keep up to 2 decimals (trim trailing zeros) so a 3.25kg wheel reads "3.25kg", not "3.3kg"
+    const n = Number.isInteger(val) ? val.toString() : parseFloat(val.toFixed(2)).toString()
+    return `${n}${x === 'l' || x === 'lt' ? 'L' : x}`
+  }
+
+  const qty = Number(item.qtyPerPurchaseUnit)
+  const purchaseToBase = calcConversionFactorForItem(item)
+
+  // Describe what the purchase unit contains so we can label it "case (…)".
+  // isContainer = false → the purchase unit is a bare UOM (e.g. "kg") — keep its raw name.
+  let isContainer = false
+  let caseFmt = ''
+  if (qtyUOM === 'pack' && hasInnerQty) {
+    isContainer = true; caseFmt = `${fmtNum(qty)} pkg`
+  } else if (isWV(qtyUOM)) {
+    if (qty > 1) { isContainer = true; caseFmt = fmtWV(qty, qtyUOM) }   // e.g. 25kg bag, 2L carton
+  } else { // qtyUOM === 'each'
+    if (isWV(pu) && ps > 0) {                                          // each = a weight chunk (Millet 25kg, Havarti 3.25kg)
+      isContainer = true; caseFmt = qty > 1 ? `${fmtNum(qty)} × ${fmtWV(ps, pu)}` : fmtWV(ps, pu)
+    } else if ((pu ?? 'each').toLowerCase() === 'each' && ps > 1) {    // case of N pieces (60 each)
+      isContainer = true; caseFmt = `${fmtNum(qty > 1 ? qty * ps : ps)} each`
+    }
+  }
+
+  // Purchase unit (case / bag / etc.) — label stays the conversion token; display adds the container word.
+  uoms.push({
+    label: item.purchaseUnit,
+    toBase: purchaseToBase,
+    hint: buildCaseHint(item),
+    display: isContainer ? `case (${caseFmt})` : item.purchaseUnit,
+  })
 
   // Pack level (only when qtyUOM = "pack")
   if (qtyUOM === 'pack' && hasInnerQty) {
     const packBaseUnits = innerQty! * ps * getUnitConv(pu)
     const hint = packBaseUnits > 0 ? `${fmtNum(packBaseUnits)} ${base}` : `${innerQty} each`
-    uoms.push({ label: 'pack', toBase: packBaseUnits > 0 ? packBaseUnits : innerQty!, hint })
+    uoms.push({ label: 'pack', toBase: packBaseUnits > 0 ? packBaseUnits : innerQty!, hint, display: `pkg (${fmtNum(innerQty!)} × ${fmtWV(ps, pu)})` })
   }
 
-  // Each (individual item)
+  // Each (individual item) — omitted when redundant: 1 case/pkg = 1 each, or there is no real per-each weight
   if (hasItemWeight) {
-    uoms.push({ label: 'each', toBase: ps * getUnitConv(pu), hint: `${ps} ${pu}` })
+    const eachToBase = ps * getUnitConv(pu)
+    const redundant = eachToBase >= purchaseToBase || eachToBase <= 1
+    if (!redundant) uoms.push({ label: 'each', toBase: eachToBase, hint: `${ps} ${pu}`, display: `each (${fmtWV(ps, pu)})` })
   } else if (qtyUOM === 'each' || qtyUOM === 'pack') {
-    uoms.push({ label: 'each', toBase: 1 })
+    // count-based each (e.g. individual shells) — drop only when the purchase unit is itself a single each
+    if (!(qtyUOM === 'each' && purchaseToBase <= 1)) uoms.push({ label: 'each', toBase: 1, display: 'each' })
   }
 
   // Weight/volume options — only when item actually has a weight/volume per each
   if (base === 'g' && hasItemWeight) {
     uoms.push(
-      { label: 'kg', toBase: 1000, hint: '1,000 g' },
-      { label: 'g',  toBase: 1 },
-      { label: 'lb', toBase: 453.592, hint: '454 g' },
+      { label: 'kg', toBase: 1000, hint: '1,000 g', display: 'kg' },
+      { label: 'g',  toBase: 1, display: 'g' },
+      { label: 'lb', toBase: 453.592, hint: '454 g', display: 'lb' },
     )
   }
   if (base === 'ml' && hasItemWeight) {
     uoms.push(
-      { label: 'l',  toBase: 1000, hint: '1,000 ml' },
-      { label: 'ml', toBase: 1 },
+      { label: 'l',  toBase: 1000, hint: '1,000 ml', display: 'l' },
+      { label: 'ml', toBase: 1, display: 'ml' },
     )
   }
 
