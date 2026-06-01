@@ -1004,9 +1004,10 @@ export default function CountPage() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowCountMenu(false)} />
                   <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-44 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1" role="menu">
-                    <button onClick={() => { setShowHistory(true); setShowCountMenu(false) }}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M3 5h18M3 12h18M3 19h12"/></svg>
+                    <button onClick={() => { setShowHistory(v => !v); setShowCountMenu(false) }}
+                      aria-pressed={showHistory}
+                      className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] active:bg-bg-2 ${showHistory ? 'text-ink font-medium' : 'text-ink-2'}`} role="menuitem">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={showHistory ? 'text-gold' : 'text-ink-3'}><path d="M3 5h18M3 12h18M3 19h12"/></svg>
                       History
                     </button>
                     <button onClick={() => setShowCountMenu(false)}
@@ -1071,8 +1072,8 @@ export default function CountPage() {
           </div>
         ) : (
           <>
-            {/* ── Mobile hero — resume/start + slim stats ── */}
-            <div className="md:hidden space-y-2.5 mb-4">
+            {/* ── Mobile hero — resume/start + slim stats (hidden in History view) ── */}
+            <div className={`md:hidden space-y-2.5 mb-4 ${showHistory ? 'hidden' : ''}`}>
               {inProgressSess ? (
                 <button
                   onClick={() => openSession(inProgressSess, inProgressSess.status === 'PENDING_REVIEW' ? 'review' : 'count')}
@@ -1284,8 +1285,8 @@ export default function CountPage() {
               SHOWING {filteredSessions.length} OF {sessions.length} COUNT{sessions.length !== 1 ? 'S' : ''} · NEWEST FIRST
             </p>
 
-            {/* ── Mobile areas overview (taps start/resume an area-scoped count) ── */}
-            <div className="md:hidden space-y-2.5 mb-4">
+            {/* ── Mobile areas overview (taps start/resume an area-scoped count; hidden in History view) ── */}
+            <div className={`md:hidden space-y-2.5 mb-4 ${showHistory ? 'hidden' : ''}`}>
               <div className="flex items-center justify-between px-0.5">
                 <span className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3">Storage areas</span>
                 <span className="font-mono text-[10.5px] text-ink-4">{countAreas.length} area{countAreas.length !== 1 ? 's' : ''}</span>
@@ -1334,6 +1335,11 @@ export default function CountPage() {
 
             {/* ── Mobile list (session history; desktop always; mobile behind "Recent counts") ── */}
             <div className={`md:hidden flex-col gap-2 mb-4 ${showHistory ? 'flex' : 'hidden'}`}>
+              <button onClick={() => setShowHistory(false)}
+                className="flex items-center gap-1.5 text-[13px] font-medium text-ink-2 active:text-ink mb-1 -ml-0.5">
+                <ArrowLeft size={16} className="text-ink-3" /> Back to count
+              </button>
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 px-0.5 mb-0.5">Recent counts · {filteredSessions.length}</span>
               {filteredSessions.map(s => {
                 const counts = s.counts ?? { total: 0, counted: 0, skipped: 0 }
                 const isUpdating = s.status === 'UPDATING'
