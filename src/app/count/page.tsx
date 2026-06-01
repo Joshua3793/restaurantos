@@ -1004,7 +1004,7 @@ export default function CountPage() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowCountMenu(false)} />
                   <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-44 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1" role="menu">
-                    <button onClick={() => setShowCountMenu(false)}
+                    <button onClick={() => { setShowHistory(true); setShowCountMenu(false) }}
                       className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M3 5h18M3 12h18M3 19h12"/></svg>
                       History
@@ -1033,8 +1033,14 @@ export default function CountPage() {
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">Track inventory accuracy and COGS by counting your stock regularly.</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M3 5h18M3 12h18M3 19h12"/></svg>
+            <button
+              onClick={() => setShowHistory(v => !v)}
+              aria-pressed={showHistory}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border text-[13px] font-medium transition-colors whitespace-nowrap ${
+                showHistory ? 'bg-ink text-paper border-ink' : 'border-line bg-paper text-ink-2 hover:border-ink-3'
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={showHistory ? 'text-gold' : 'text-ink-3'}><path d="M3 5h18M3 12h18M3 19h12"/></svg>
               History
             </button>
             <button className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors whitespace-nowrap">
@@ -1197,8 +1203,54 @@ export default function CountPage() {
               </div>
             </div>
 
-            {/* ── Filter chips (desktop) ── */}
-            <div className="hidden md:flex flex-wrap gap-1.5 mb-3">
+            {/* ── Desktop areas overview (primary landing; hidden when History is on) ── */}
+            {!showHistory && (
+              <div className="hidden md:block mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-ink-3">Storage areas · count by area</span>
+                  <span className="font-mono text-[11px] text-ink-4">{countAreas.length} area{countAreas.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  {countAreas.map(a => {
+                    const days = a.lastCountDate ? Math.floor((Date.now() - new Date(a.lastCountDate).getTime()) / 86_400_000) : null
+                    const stale = days === null || days >= 7
+                    const active = !!a.activeSessionId
+                    const lastLabel = days === 0 ? 'today' : days === 1 ? '1d ago' : `${days}d ago`
+                    return (
+                      <button key={a.id} disabled={!!startingArea} onClick={() => startAreaCount(a)}
+                        className="text-left bg-paper border border-line rounded-xl p-4 hover:border-ink-3 transition-colors disabled:opacity-60 flex flex-col gap-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green-500'}`} />
+                            <span className="text-[15px] font-semibold text-ink truncate tracking-[-0.01em]">{a.name}</span>
+                          </div>
+                          <span className="font-mono text-[12.5px] text-ink-2 shrink-0">{formatCurrency(a.onHandValue)}</span>
+                        </div>
+                        <div className="font-mono text-[11px] text-ink-3 leading-relaxed">
+                          {a.itemCount} items · {active
+                            ? <span className="text-gold-2 font-medium">in progress</span>
+                            : days === null ? 'never counted' : <>last {lastLabel}{stale ? ' · stale' : ''}</>}
+                          {!active && a.drift >= 1 && <span className="text-red-text"> · drift ~${Math.round(a.drift).toLocaleString()}</span>}
+                        </div>
+                        <span className={`font-mono text-[11px] font-medium mt-auto pt-1 ${active ? 'text-gold-2' : 'text-ink-2'}`}>
+                          {active ? 'Resume →' : startingArea === a.id ? 'Starting…' : 'Count ›'}
+                        </span>
+                      </button>
+                    )
+                  })}
+                  {countAreas.length === 0 && (
+                    <div className="col-span-full bg-paper border border-line rounded-xl px-4 py-12 text-center font-mono text-[12px] text-ink-4">No storage areas with items</div>
+                  )}
+                </div>
+                <button disabled={!!startingArea} onClick={startFullCount}
+                  className="mt-3 inline-flex items-center gap-2 px-4 py-2.5 rounded-[9px] border border-dashed border-line-2 text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-60">
+                  <Plus size={15} className="text-ink-3" /> {startingArea === '__full__' ? 'Starting…' : 'Full count · all areas'}
+                </button>
+              </div>
+            )}
+
+            {/* ── Filter chips (desktop; History view only) ── */}
+            <div className={`${showHistory ? 'md:flex' : ''} hidden flex-wrap gap-1.5 mb-3`}>
               {sessionFilterChips.map(({ key, label }) => (
                 <button
                   key={key}
@@ -1214,8 +1266,8 @@ export default function CountPage() {
               ))}
             </div>
 
-            {/* ── Search + filters (desktop) ── */}
-            <div className="hidden md:flex gap-2 mb-3">
+            {/* ── Search + filters (desktop; History view only) ── */}
+            <div className={`${showHistory ? 'md:flex' : ''} hidden gap-2 mb-3`}>
               <div className="relative flex-1">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
                 <input
@@ -1228,7 +1280,7 @@ export default function CountPage() {
               </div>
             </div>
 
-            <p className="hidden md:block font-mono text-[11px] text-ink-3 mb-3 tracking-wide">
+            <p className={`${showHistory ? 'md:block' : ''} hidden font-mono text-[11px] text-ink-3 mb-3 tracking-wide`}>
               SHOWING {filteredSessions.length} OF {sessions.length} COUNT{sessions.length !== 1 ? 'S' : ''} · NEWEST FIRST
             </p>
 
@@ -1356,8 +1408,8 @@ export default function CountPage() {
               })}
             </div>
 
-            {/* ── Desktop table ── */}
-            <div className="hidden md:block bg-paper border border-line rounded-xl overflow-hidden mb-5">
+            {/* ── Desktop table (session history; History view only) ── */}
+            <div className={`${showHistory ? 'md:block' : ''} hidden bg-paper border border-line rounded-xl overflow-hidden mb-5`}>
               <div className="grid grid-cols-[100px_1.6fr_0.7fr_1.4fr_1fr_220px] px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
                 <span>DATE</span>
                 <span>SESSION</span>
