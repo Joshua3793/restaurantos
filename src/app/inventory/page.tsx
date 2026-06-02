@@ -11,6 +11,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
 import { InventoryImportModal } from '@/components/inventory/InventoryImportModal'
+import { useToast } from '@/components/Toast'
 import {
   Search, Plus, X, Download, Loader2,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
@@ -207,6 +208,7 @@ function InventoryPageInner() {
   const searchParams = useSearchParams()
   const { revenueCenters, activeRcId, activeRc } = useRc()
   const { setDrawerOpen } = useDrawer()
+  const { show: showToast, dismiss: dismissToast } = useToast()
   const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
   const [items,        setItems]        = useState<InventoryItem[]>([])
   const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
@@ -464,9 +466,26 @@ function InventoryPageInner() {
 
   const syncAllPrepd = async () => {
     setSyncingPrepd(true)
-    await fetch('/api/inventory/sync-prepd', { method: 'POST' })
-    fetchItems()
-    setSyncingPrepd(false)
+    const pending = showToast({ type: 'info', title: 'Syncing PREPD…', message: 'Pulling prep recipes into inventory', duration: 60_000 })
+    try {
+      const res = await fetch('/api/inventory/sync-prepd', { method: 'POST' })
+      const j = await res.json().catch(() => null)
+      await fetchItems()
+      dismissToast(pending)
+      if (!res.ok || !j) {
+        showToast({ type: 'error', title: 'Sync failed', message: 'Could not sync PREPD items — try again.' })
+      } else {
+        const parts = [`${j.synced} synced`]
+        if (j.created) parts.push(`${j.created} new`)
+        if (j.failed)  parts.push(`${j.failed} failed`)
+        showToast({ type: j.failed ? 'warning' : 'success', title: 'PREPD synced', message: parts.join(' · ') })
+      }
+    } catch {
+      dismissToast(pending)
+      showToast({ type: 'error', title: 'Sync failed', message: 'Check your connection and try again.' })
+    } finally {
+      setSyncingPrepd(false)
+    }
   }
 
   const handleToggleActive = async (e: React.MouseEvent, item: InventoryItem) => {

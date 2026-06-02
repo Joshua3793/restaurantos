@@ -51,15 +51,24 @@ export async function POST() {
     select: { id: true, name: true },
   })
 
-  const results: { name: string; ok: boolean; error?: string }[] = []
-  for (const recipe of prepRecipes) {
-    try {
-      await syncPrepToInventory(recipe.id)
-      results.push({ name: recipe.name, ok: true })
-    } catch (err) {
-      results.push({ name: recipe.name, ok: false, error: String(err) })
+  // Run in bounded-concurrency batches: ~6× faster than sequential while staying
+  // well under the pgBouncer transaction-pool connection limit (13).
+  const results: { name: string; ok: boolean; error?: string }[] = new Array(prepRecipes.length)
+  const CONCURRENCY = 6
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < prepRecipes.length) {
+      const idx = cursor++
+      const recipe = prepRecipes[idx]
+      try {
+        await syncPrepToInventory(recipe.id)
+        results[idx] = { name: recipe.name, ok: true }
+      } catch (err) {
+        results[idx] = { name: recipe.name, ok: false, error: String(err) }
+      }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, prepRecipes.length) }, worker))
 
   const succeeded = results.filter(r => r.ok).length
   const failed    = results.filter(r => !r.ok).length
