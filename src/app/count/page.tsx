@@ -1187,8 +1187,11 @@ export default function CountPage() {
                 </p>
               </div>
 
-              {/* In progress */}
-              <div className="bg-paper border border-ink-2 rounded-xl p-[18px] flex flex-col justify-between min-h-[120px] relative overflow-hidden">
+              {/* In progress — click to resume the active count */}
+              <div
+                onClick={inProgressSess ? () => openSession(inProgressSess, inProgressSess.status === 'PENDING_REVIEW' ? 'review' : 'count') : undefined}
+                className={`bg-paper border border-ink-2 rounded-xl p-[18px] flex flex-col justify-between min-h-[120px] relative overflow-hidden ${inProgressSess ? 'cursor-pointer hover:border-ink-3 transition-colors' : ''}`}
+              >
                 <div className="absolute top-0 left-0 w-8 h-0.5 bg-gold" />
                 <div>
                   <p className="font-mono text-[10.5px] text-gold-2 tracking-[0.01em]">IN PROGRESS</p>
@@ -1209,11 +1212,18 @@ export default function CountPage() {
                     <p className="text-[28px] font-semibold tracking-[-0.035em] leading-none mt-2 text-ink-4">—</p>
                   )}
                 </div>
-                <p className="font-mono text-[11px] text-ink-3 mt-2">
-                  {inProgressSess
-                    ? `${inProgressSess.countedBy} · ${fmtDate(inProgressSess.sessionDate)}`
-                    : 'No active session'}
-                </p>
+                <div className="flex items-center justify-between gap-2 mt-2">
+                  <p className="font-mono text-[11px] text-ink-3 truncate">
+                    {inProgressSess
+                      ? `${inProgressSess.countedBy} · ${fmtDate(inProgressSess.sessionDate)}`
+                      : 'No active session'}
+                  </p>
+                  {inProgressSess && (
+                    <span className="font-mono text-[11px] font-semibold text-gold-2 inline-flex items-center gap-1 shrink-0">
+                      {inProgressSess.status === 'PENDING_REVIEW' ? 'Review' : 'Continue'} →
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Next count due */}
