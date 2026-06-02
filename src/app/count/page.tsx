@@ -100,9 +100,9 @@ function uomOptionLabel(opt: { label: string; hint?: string }, baseUnit: string)
 function varColor(pct: number | null) {
   if (pct === null) return ''
   const a = Math.abs(pct)
-  if (a <= 5)  return 'text-green-600'
+  if (a <= 5)  return 'text-green-text'
   if (a <= 15) return 'text-amber-600'
-  return 'text-red-600'
+  return 'text-red-text'
 }
 
 // Returns false when expectedQty is so small in display units that the % is meaningless
@@ -518,6 +518,20 @@ export default function CountPage() {
     }
   }
 
+  // After a successful line PATCH, sync the local line's updatedAt so the next
+  // save's optimistic-concurrency check matches the server. Without this, changing
+  // the UOM (or any prior edit) left a stale updatedAt → the next save 409'd and
+  // the count reset to uncounted. Also keeps the offline cache current.
+  const syncLineFromResponse = (lineId: string, updated: { updatedAt?: string } | null) => {
+    if (!updated?.updatedAt) return
+    setActive(prev => {
+      if (!prev) return prev
+      const next = { ...prev, lines: prev.lines!.map(l => l.id === lineId ? { ...l, updatedAt: updated.updatedAt! } : l) }
+      saveCountSessionCache(prev.id, next)
+      return next
+    })
+  }
+
   const confirmLine = async (line: Line, qty: number) => {
     // qty is in line.selectedUom — convert to baseUnit for variance (expectedQty is in baseUnit)
     const qtyBase = convertCountQtyToBase(qty, line.selectedUom, line.inventoryItem)
@@ -559,6 +573,8 @@ export default function CountPage() {
       setToast('This item was just counted on another device. Refreshing…')
       const fresh = await loadSession(active!.id)
       if (fresh) setActive(fresh)
+    } else if (res.ok) {
+      syncLineFromResponse(line.id, await res.json().catch(() => null))
     }
   }
 
@@ -572,11 +588,12 @@ export default function CountPage() {
       ...prev!, lines: prev!.lines!.map(l => l.id === line.id ? { ...l, selectedUom: newUom } : l),
     }))
     if (!isOffline) {
-      await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selectedUom: newUom }),
       })
+      if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
     }
   }
 
@@ -595,11 +612,12 @@ export default function CountPage() {
       })
       return
     }
-    await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+    const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ skipped: true }),
     })
+    if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
   }
 
   const unskipLine = async (line: Line) => {
@@ -1683,6 +1701,10 @@ export default function CountPage() {
       const isCounted = line.countedQty !== null && !line.skipped
       const isSkipped = line.skipped
       const locLabel  = line.inventoryItem.storageArea?.name ?? line.inventoryItem.location
+      // Last counted amount (previous session) shown on the card for reference.
+      const lastQty   = line.inventoryItem.lastCountQty != null
+        ? convertBaseToCountUom(Number(line.inventoryItem.lastCountQty), line.selectedUom, line.inventoryItem)
+        : null
 
       // inputQty is in line.selectedUom; expectedQty is in baseUnit — convert before comparing
       const inputBase = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
@@ -1722,10 +1744,10 @@ export default function CountPage() {
           <div key={line.id} id={`ln-${line.id}`}
             ref={el => { cardRefs.current[`d-${line.id}`] = el }}
             onClick={() => setOpenId(line.id)}
-            className={`mx-4 mb-2 rounded-xl bg-green-50 border border-green-200 cursor-pointer ${large ? 'border-l-[3px] border-l-gold' : ''}`}
+            className={`mx-4 mb-2 rounded-xl bg-green-soft border border-[#86efac] cursor-pointer ${large ? 'border-l-[3px] border-l-gold' : ''}`}
           >
             <div className="flex items-center gap-3 px-4 py-3">
-              <CheckCircle2 size={18} className="text-green-600 shrink-0" />
+              <CheckCircle2 size={18} className="text-green-text shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-[13.5px] font-medium text-ink">{line.inventoryItem.itemName}</div>
                 <div className="font-mono text-[11px] text-ink-3 mt-0.5 flex items-center gap-1.5">
@@ -1733,13 +1755,14 @@ export default function CountPage() {
                   {vPct !== null && (
                     <span className={varColor(vPct)}>· {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%</span>
                   )}
+                  {lastQty != null && <span className="text-ink-4">· last {lastQty.toFixed(2)}</span>}
                 </div>
               </div>
               <CategoryBadge category={line.inventoryItem.category} />
               {locLabel && <span className="font-mono text-[11px] text-ink-3 ml-1 hidden sm:block">{locLabel}</span>}
               <button
                 onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
-                className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-green-100 ml-1"
+                className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-green-soft ml-1"
                 title="Edit item"
               >
                 <Pencil size={13} />
@@ -1765,7 +1788,10 @@ export default function CountPage() {
             onClick={() => setOpenId(isOpen ? null : line.id)}
           >
             <Circle size={16} className="text-line-2 shrink-0" />
-            <span className="flex-1 text-[13.5px] font-medium text-ink">{line.inventoryItem.itemName}</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13.5px] font-medium text-ink truncate">{line.inventoryItem.itemName}</div>
+              {lastQty != null && <div className="font-mono text-[11px] text-ink-4 mt-0.5">last count {lastQty.toFixed(2)} {line.selectedUom}</div>}
+            </div>
             <CategoryBadge category={line.inventoryItem.category} />
             {locLabel && <span className="font-mono text-[11px] text-ink-3 ml-1">{locLabel}</span>}
             <button
@@ -1897,9 +1923,9 @@ export default function CountPage() {
       const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, item)
       const lastDisplay = item.lastCountQty != null ? convertBaseToCountUom(Number(item.lastCountQty), line.selectedUom, item) : null
       const bigVar = isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
-      const dotColor = isSkipped ? 'bg-ink-4' : isCounted ? (bigVar ? 'bg-gold' : 'bg-green-500') : 'bg-ink-4'
+      const dotColor = isSkipped ? 'bg-ink-4' : isCounted ? (bigVar ? 'bg-gold' : 'bg-green') : 'bg-ink-4'
       const rowBg = isSkipped ? 'bg-bg-2 border-line opacity-60'
-        : isCounted ? (bigVar ? 'bg-amber-50/60 border-amber-200' : 'bg-green-50/60 border-green-200')
+        : isCounted ? (bigVar ? 'bg-amber-50 border-amber-200' : 'bg-green-soft border-[#86efac]')
         : isOpen ? 'border-gold bg-paper' : 'bg-paper border-line'
       const sub = [item.category, lastDisplay != null ? `last ${f(lastDisplay)} ${line.selectedUom}` : locLabel].filter(Boolean).join(' · ')
 
