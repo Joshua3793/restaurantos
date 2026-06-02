@@ -4,17 +4,54 @@ import { syncPrepToInventory } from '@/lib/recipeCosts'
 
 /**
  * POST /api/inventory/sync-prepd
- * Re-syncs ALL PREP recipes to their linked InventoryItems.
- * Call this after bulk data imports or whenever PREPD prices look stale.
+ * Pulls PREP recipes into Inventory:
+ *  1. Backfill — every ACTIVE PREP recipe with no linked InventoryItem gets a
+ *     PREPD inventory item created (find-or-create by name) and linked. Mirrors
+ *     the auto-link the recipe-create route does, so prep recipes that predate it
+ *     (or were imported) finally appear in inventory.
+ *  2. Sync — recompute every linked PREP recipe's cost back to its InventoryItem.
+ * Call after bulk imports or whenever PREPD items are missing / prices look stale.
  */
 export async function POST() {
+  // ── 1. Backfill missing inventory links for active PREP recipes ────────────
+  const unlinked = await prisma.recipe.findMany({
+    where: { type: 'PREP', isActive: true, inventoryItemId: null },
+    select: { id: true, name: true, yieldUnit: true, baseYieldQty: true },
+  })
+
+  let created = 0
+  for (const r of unlinked) {
+    const yieldUnit = r.yieldUnit || 'each'
+    const existing = await prisma.inventoryItem.findFirst({
+      where: { itemName: r.name, category: 'PREPD' },
+    })
+    const invItem = existing ?? await prisma.inventoryItem.create({
+      data: {
+        itemName: r.name,
+        category: 'PREPD',
+        purchaseUnit: yieldUnit,
+        qtyPerPurchaseUnit: Number(r.baseYieldQty) > 0 ? Number(r.baseYieldQty) : 1,
+        purchasePrice: 0,
+        baseUnit: yieldUnit,
+        packSize: 1,
+        packUOM: yieldUnit,
+        countUOM: yieldUnit,
+        conversionFactor: 1,
+        pricePerBaseUnit: 0,
+        stockOnHand: 0,
+      },
+    })
+    await prisma.recipe.update({ where: { id: r.id }, data: { inventoryItemId: invItem.id } })
+    if (!existing) created++
+  }
+
+  // ── 2. Sync cost for every linked PREP recipe (existing + newly linked) ─────
   const prepRecipes = await prisma.recipe.findMany({
     where: { type: 'PREP', inventoryItemId: { not: null } },
     select: { id: true, name: true },
   })
 
   const results: { name: string; ok: boolean; error?: string }[] = []
-
   for (const recipe of prepRecipes) {
     try {
       await syncPrepToInventory(recipe.id)
@@ -27,5 +64,5 @@ export async function POST() {
   const succeeded = results.filter(r => r.ok).length
   const failed    = results.filter(r => !r.ok).length
 
-  return NextResponse.json({ synced: succeeded, failed, results })
+  return NextResponse.json({ created, linked: unlinked.length, synced: succeeded, failed, results })
 }
