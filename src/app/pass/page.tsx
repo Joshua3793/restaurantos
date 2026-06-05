@@ -197,7 +197,7 @@ export default function PassPage() {
         tabs={[
           { href: '/pass', label: 'Pass' },
           { href: '/preshift', label: 'Pre-shift', icon: <Activity size={14} /> },
-          { href: '/cost', label: 'End-of-day', icon: <Clock size={14} /> },
+          { href: '/reports', label: 'End-of-day', icon: <Clock size={14} /> },
         ]}
       />
       <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
@@ -212,7 +212,7 @@ export default function PassPage() {
           </>}
           actions={
             <>
-              <Link href="/cost" className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
+              <Link href="/reports" className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <Clock size={13} className="text-ink-3" /> End-of-day
               </Link>
               <Link href="/preshift" className="inline-flex items-center gap-1.5 bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors">

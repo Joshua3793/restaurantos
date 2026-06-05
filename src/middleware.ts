@@ -23,7 +23,7 @@ const REDIRECTS: Array<[string, string]> = [
   ['/settings',                '/setup'],
   ['/reports/theoretical-usage','/variance'],
   ['/reports/signals',         '/signals'],
-  ['/reports',                 '/cost'],
+  ['/cost',                    '/reports'],
 ]
 
 export async function middleware(request: NextRequest) {

@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
  *   ⌘1 → /pass        (Today)
  *   ⌘2 → /invoices    (Inbox)
  *   ⌘3 → /inventory   (Library)
- *   ⌘4 → /cost        (Insights)
+ *   ⌘4 → /reports     (Insights)
  *   ⌘5 → /setup       (Setup)
  *
  * ⌘K is owned by GlobalSearch.
@@ -16,7 +16,7 @@ const ROUTES: Record<string, string> = {
   '1': '/pass',
   '2': '/invoices',
   '3': '/inventory',
-  '4': '/cost',
+  '4': '/reports',
   '5': '/setup',
 }
 

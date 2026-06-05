@@ -59,7 +59,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'INSIGHTS',
     items: [
-      { href: '/cost',     label: 'Cost',     icon: BarChart3 },
+      { href: '/reports',  label: 'Reports',  icon: BarChart3 },
       { href: '/variance', label: 'Variance', icon: Activity },
       { href: '/signals',  label: 'Signals',  icon: Zap },
       { href: '/sales',                     label: 'Sales',    icon: ShoppingBag },

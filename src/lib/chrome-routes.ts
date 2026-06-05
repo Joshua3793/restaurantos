@@ -14,7 +14,7 @@ export const SPINE_ROUTES = [
   '/recipes',
   '/menu',
   '/invoices',
-  '/cost',
+  '/reports',
   '/variance',
   '/signals',
   '/sales',
