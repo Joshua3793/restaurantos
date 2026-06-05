@@ -10,13 +10,13 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { nextServiceStart, currentWindow, fmtDuration } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
+import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
+import { SafetyTempsSummary } from '@/components/preshift/SafetyTempsSummary'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
 type Tint = 'ok' | 'warn' | 'bad' | 'neutral'
 type SectionKey = 'safety' | 'line' | 'service'
-
-interface TempSpec { unit: '°C'; max?: number; min?: number }
 
 interface CheckItem {
   id: string
@@ -29,8 +29,6 @@ interface CheckItem {
   right?: { value: string; sub?: string; tint?: Tint }
   /** Hard blocker — gates service until checked off. */
   blocker?: boolean
-  /** If present, the row logs a temperature and auto-judges it. */
-  temp?: TempSpec
   custom?: boolean
 }
 
@@ -51,9 +49,6 @@ const SECTIONS: { key: SectionKey; title: string; icon: typeof Thermometer }[] =
 
 // Generic opening checks — shipped as editable defaults.
 const SAFETY_DEFAULTS: CheckItem[] = [
-  { id: 'safety:walkin-a', section: 'safety', title: 'Walk-in A — fridge temp logged', meta: 'TARGET ≤ 4°C · probe before service', temp: { unit: '°C', max: 4 } },
-  { id: 'safety:walkin-b', section: 'safety', title: 'Walk-in B — fridge temp logged', meta: 'TARGET ≤ 4°C', temp: { unit: '°C', max: 4 } },
-  { id: 'safety:hot-hold', section: 'safety', title: 'Hot hold above 63°C', meta: 'soups + sauces on the pass', temp: { unit: '°C', min: 63 } },
   { id: 'safety:probe',    section: 'safety', title: 'Probe thermometer calibrated', meta: 'ice / boil check · daily' },
   { id: 'safety:sanitiser', section: 'safety', title: 'Sanitiser buckets made & dated', meta: 'all stations' },
 ]
@@ -87,9 +82,9 @@ export default function PreshiftPage() {
   const storageKey = useMemo(() => `preshift:${ymd(new Date())}:${activeRcId || 'all'}`, [activeRcId])
 
   const [done, setDone] = useState<Record<string, boolean>>({})
-  const [temps, setTemps] = useState<Record<string, number | null>>({})
   const [custom, setCustom] = useState<CheckItem[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [tempUnits, setTempUnits] = useState<TempUnit[]>([])
 
   // Hydrate per-day state.
   useEffect(() => {
@@ -98,17 +93,16 @@ export default function PreshiftPage() {
       const raw = localStorage.getItem(storageKey)
       const p = raw ? JSON.parse(raw) : {}
       setDone(p.done ?? {})
-      setTemps(p.temps ?? {})
       setCustom(p.custom ?? [])
-    } catch { setDone({}); setTemps({}); setCustom([]) }
+    } catch { setDone({}); setCustom([]) }
     setHydrated(true)
   }, [storageKey])
 
   // Persist.
   useEffect(() => {
     if (!hydrated) return
-    try { localStorage.setItem(storageKey, JSON.stringify({ done, temps, custom })) } catch { /* noop */ }
-  }, [done, temps, custom, hydrated, storageKey])
+    try { localStorage.setItem(storageKey, JSON.stringify({ done, custom })) } catch { /* noop */ }
+  }, [done, custom, hydrated, storageKey])
 
   // Live prep.
   useEffect(() => {
@@ -118,6 +112,17 @@ export default function PreshiftPage() {
       .then(p => { if (!cancelled && Array.isArray(p)) setPrepItems(p) })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoaded(true) })
+    return () => { cancelled = true }
+  }, [activeRcId])
+
+  // Live temp units (mirror of the Temps page) for the safety gate.
+  useEffect(() => {
+    let cancelled = false
+    const today = ymd(new Date())
+    fetch(`/api/temps/units?rcId=${activeRcId ?? ''}&date=${today}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { if (!cancelled && Array.isArray(d)) setTempUnits(d) })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [activeRcId])
 
@@ -169,44 +174,27 @@ export default function PreshiftPage() {
     [itemsBySection],
   )
 
-  // ── Temp judging ──────────────────────────────────────────────────────────
-  const judgeTemp = useCallback((item: CheckItem): { tint: Tint; value: string; sub: string; over: boolean } => {
-    const v = temps[item.id]
-    const t = item.temp!
-    if (v === null || v === undefined || Number.isNaN(v)) return { tint: 'neutral', value: '—', sub: 'log it', over: false }
-    const over = (t.max !== undefined && v > t.max) || (t.min !== undefined && v < t.min)
-    return {
-      tint: over ? 'bad' : 'ok',
-      value: `${fmtQty(v)}°C`,
-      sub: over ? 'out of range' : 'good',
-      over,
-    }
-  }, [temps])
-
-  const isDone = useCallback((it: CheckItem) => {
-    if (done[it.id]) return true
-    // An in-range logged temp counts as done automatically.
-    if (it.temp) {
-      const j = judgeTemp(it)
-      if (j.tint === 'ok') return true
-    }
-    return false
-  }, [done, judgeTemp])
+  const isDone = useCallback((it: CheckItem) => !!done[it.id], [done])
 
   const isBlockingOpen = useCallback((it: CheckItem) => {
     if (isDone(it)) return false
-    if (it.blocker) return true
-    if (it.temp && judgeTemp(it).over) return true
-    return false
-  }, [isDone, judgeTemp])
+    return !!it.blocker
+  }, [isDone])
 
-  // ── Derived totals ────────────────────────────────────────────────────────
-  const total = allItems.length
-  const doneCount = allItems.filter(isDone).length
+  // Temps gate: ready when every unit is logged today and none is out of range
+  // (or there are no units configured yet).
+  const tempMetrics = useMemo(() => computeDayMetrics(tempUnits), [tempUnits])
+  const tempsReady = tempMetrics.total === 0
+    ? true
+    : tempMetrics.logged === tempMetrics.total && tempMetrics.flagged === 0
+
+  // ── Derived totals (temps counts as one gate item) ─────────────────────────
   const blockers = allItems.filter(isBlockingOpen)
-  const blockersOpen = blockers.length
+  const total = allItems.length + 1
+  const doneCount = allItems.filter(isDone).length + (tempsReady ? 1 : 0)
+  const blockersOpen = blockers.length + (tempsReady ? 0 : 1)
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
-  const ready = total > 0 && doneCount === total
+  const ready = doneCount === total
 
   const carries = useMemo(
     () => allItems.filter(it => !isDone(it) && !isBlockingOpen(it) && it.right?.tint === 'warn'),
@@ -215,17 +203,7 @@ export default function PreshiftPage() {
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const toggle = useCallback((it: CheckItem) => {
-    setDone(prev => {
-      const currentlyDone = prev[it.id] ?? (it.temp ? judgeTemp(it).tint === 'ok' : false)
-      return { ...prev, [it.id]: !currentlyDone }
-    })
-  }, [judgeTemp])
-
-  const logTemp = useCallback((it: CheckItem, raw: string) => {
-    const v = raw.trim() === '' ? null : Number(raw)
-    setTemps(prev => ({ ...prev, [it.id]: v === null || Number.isNaN(v) ? null : v }))
-    // Clear any manual done override so the auto-judge takes over.
-    setDone(prev => { const n = { ...prev }; delete n[it.id]; return n })
+    setDone(prev => ({ ...prev, [it.id]: !prev[it.id] }))
   }, [])
 
   const addCheck = useCallback((section: SectionKey, title: string, blocker: boolean) => {
@@ -240,7 +218,7 @@ export default function PreshiftPage() {
     setDone(prev => { const n = { ...prev }; delete n[id]; return n })
   }, [])
 
-  const resetAll = useCallback(() => { setDone({}); setTemps({}) }, [])
+  const resetAll = useCallback(() => { setDone({}) }, [])
 
   const openService = useCallback(() => { if (ready) router.push('/pass') }, [ready, router])
 
@@ -270,7 +248,7 @@ export default function PreshiftPage() {
         ]}
       />
 
-      <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
+      <div className="hidden md:block p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
         <PageHead
           className="mb-5 items-center"
           crumbs={
@@ -308,10 +286,21 @@ export default function PreshiftPage() {
           <div className="min-w-0">
             {SECTIONS.map(sec => {
               const items = itemsBySection[sec.key]
-              const d = items.filter(isDone).length
+              const isSafety = sec.key === 'safety'
+              const d = items.filter(isDone).length + (isSafety && tempsReady ? 1 : 0)
+              const t = items.length + (isSafety ? 1 : 0)
               return (
-                <Section key={sec.key} title={sec.title} Icon={sec.icon} done={d} total={items.length}>
-                  {items.length === 0 ? (
+                <Section key={sec.key} title={sec.title} Icon={sec.icon} done={d} total={t}>
+                  {isSafety && (
+                    <SafetyTempsSummary
+                      logged={tempMetrics.logged}
+                      total={tempMetrics.total}
+                      flagged={tempMetrics.flagged}
+                      blocking={!tempsReady}
+                      onLogTemps={() => router.push('/temps')}
+                    />
+                  )}
+                  {items.length === 0 && !isSafety ? (
                     <p className="text-[12.5px] text-ink-3 px-[18px] py-6 text-center">{loaded ? 'No checks here yet — add one above.' : 'Loading…'}</p>
                   ) : items.map(it => (
                     <CheckRow
@@ -319,10 +308,7 @@ export default function PreshiftPage() {
                       item={it}
                       done={isDone(it)}
                       blockingOpen={isBlockingOpen(it)}
-                      tempValue={temps[it.id] ?? null}
-                      judge={it.temp ? judgeTemp(it) : null}
                       onToggle={() => toggle(it)}
-                      onLogTemp={raw => logTemp(it, raw)}
                       onRemove={it.custom ? () => removeCustom(it.id) : undefined}
                     />
                   ))}
@@ -338,17 +324,28 @@ export default function PreshiftPage() {
             <GateCard pct={pct} ready={ready} blockersOpen={blockersOpen} remaining={total - doneCount} onOpen={openService} />
 
             <RailCard title="Open blockers" count={blockersOpen}>
-              {blockers.length === 0 ? (
+              {blockersOpen === 0 ? (
                 <p className="text-[12.5px] text-green-text py-1">No blockers — line is clear.</p>
-              ) : blockers.map(b => (
-                <div key={b.id} className="flex items-center gap-2.5 py-2 border-b border-dashed border-line last:border-0 text-[12.5px]">
-                  <span className="w-[7px] h-[7px] rounded-full bg-red shrink-0" />
-                  <span className="font-medium text-ink tracking-[-0.005em] truncate">{b.title}</span>
-                  <span className="font-mono text-[10px] text-ink-3 ml-auto whitespace-nowrap">
-                    {b.temp ? judgeTemp(b).value : b.right?.value ?? 'open'}
-                  </span>
-                </div>
-              ))}
+              ) : (
+                <>
+                  {!tempsReady && (
+                    <div className="flex items-center gap-2.5 py-2 border-b border-dashed border-line last:border-0 text-[12.5px]">
+                      <span className="w-[7px] h-[7px] rounded-full bg-red shrink-0" />
+                      <span className="font-medium text-ink tracking-[-0.005em] truncate">Temperatures</span>
+                      <span className="font-mono text-[10px] text-ink-3 ml-auto whitespace-nowrap">
+                        {tempMetrics.flagged > 0 ? `${tempMetrics.flagged} out` : `${tempMetrics.total - tempMetrics.logged} to log`}
+                      </span>
+                    </div>
+                  )}
+                  {blockers.map(b => (
+                    <div key={b.id} className="flex items-center gap-2.5 py-2 border-b border-dashed border-line last:border-0 text-[12.5px]">
+                      <span className="w-[7px] h-[7px] rounded-full bg-red shrink-0" />
+                      <span className="font-medium text-ink tracking-[-0.005em] truncate">{b.title}</span>
+                      <span className="font-mono text-[10px] text-ink-3 ml-auto whitespace-nowrap">{b.right?.value ?? 'open'}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </RailCard>
 
             <RailCard title="Carries into tonight">
@@ -478,14 +475,11 @@ function Section({ title, Icon, done, total, children }: {
   )
 }
 
-function CheckRow({ item, done, blockingOpen, tempValue, judge, onToggle, onLogTemp, onRemove }: {
+function CheckRow({ item, done, blockingOpen, onToggle, onRemove }: {
   item: CheckItem
   done: boolean
   blockingOpen: boolean
-  tempValue: number | null
-  judge: { tint: Tint; value: string; sub: string; over: boolean } | null
   onToggle: () => void
-  onLogTemp: (raw: string) => void
   onRemove?: () => void
 }) {
   const rightTint = (t?: Tint) =>
@@ -516,22 +510,7 @@ function CheckRow({ item, done, blockingOpen, tempValue, judge, onToggle, onLogT
         )}
       </div>
 
-      {item.temp ? (
-        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={tempValue ?? ''}
-            onChange={e => onLogTemp(e.target.value)}
-            placeholder="—"
-            className={`font-mono text-[12px] font-semibold border rounded-[7px] px-2 py-[5px] w-[64px] text-center bg-bg text-ink outline-none focus:border-ink-3 ${judge?.over ? 'border-red text-red-text' : judge?.tint === 'ok' ? 'border-green/50' : 'border-line'}`}
-          />
-          <div className={`text-right font-mono text-[10px] w-[58px] ${rightTint(judge?.tint)}`}>
-            {judge?.value !== '—' && <span className="block font-semibold">{item.temp.max !== undefined ? `≤${item.temp.max}°` : `≥${item.temp.min}°`}</span>}
-            <span className="block">{judge?.sub}</span>
-          </div>
-        </div>
-      ) : item.right ? (
+      {item.right ? (
         <div className={`text-right font-mono text-[11.5px] font-semibold tracking-[-0.01em] ${rightTint(item.right.tint)}`}>
           {item.right.value}
           {item.right.sub && <small className="block font-normal text-ink-3 text-[9.5px] mt-px">{item.right.sub}</small>}
