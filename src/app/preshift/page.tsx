@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   Clock, Sun, Activity, ChefHat, ClipboardList, Plus, Check,
-  Thermometer, UtensilsCrossed, RotateCcw, ArrowRight, ArrowLeft, X,
+  Thermometer, UtensilsCrossed, RotateCcw, ArrowRight, ArrowLeft, X, Pencil,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { nextServiceStart, currentWindow, fmtDuration } from '@/lib/service-hours'
@@ -81,29 +81,45 @@ export default function PreshiftPage() {
   const [loaded, setLoaded] = useState(false)
 
   const storageKey = useMemo(() => `preshift:${ymd(new Date())}:${activeRcId || 'all'}`, [activeRcId])
+  const templateKey = useMemo(() => `preshift:template:${activeRcId || 'all'}`, [activeRcId])
 
   const [done, setDone] = useState<Record<string, boolean>>({})
-  const [custom, setCustom] = useState<CheckItem[]>([])
+  const [template, setTemplate] = useState<CheckItem[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [tplHydrated, setTplHydrated] = useState(false)
   const [tempUnits, setTempUnits] = useState<TempUnit[]>([])
 
-  // Hydrate per-day state.
+  // Hydrate per-day done-state.
   useEffect(() => {
     setHydrated(false)
     try {
       const raw = localStorage.getItem(storageKey)
       const p = raw ? JSON.parse(raw) : {}
       setDone(p.done ?? {})
-      setCustom(p.custom ?? [])
-    } catch { setDone({}); setCustom([]) }
+    } catch { setDone({}) }
     setHydrated(true)
   }, [storageKey])
 
-  // Persist.
+  // Hydrate the editable checklist template (persists across days; seeded from defaults).
+  useEffect(() => {
+    setTplHydrated(false)
+    try {
+      const raw = localStorage.getItem(templateKey)
+      const p = raw ? JSON.parse(raw) : null
+      setTemplate(p && Array.isArray(p.items) ? p.items : seedTemplate())
+    } catch { setTemplate(seedTemplate()) }
+    setTplHydrated(true)
+  }, [templateKey])
+
+  // Persist done-state (per day) and template (per RC).
   useEffect(() => {
     if (!hydrated) return
-    try { localStorage.setItem(storageKey, JSON.stringify({ done, custom })) } catch { /* noop */ }
-  }, [done, custom, hydrated, storageKey])
+    try { localStorage.setItem(storageKey, JSON.stringify({ done })) } catch { /* noop */ }
+  }, [done, hydrated, storageKey])
+  useEffect(() => {
+    if (!tplHydrated) return
+    try { localStorage.setItem(templateKey, JSON.stringify({ items: template })) } catch { /* noop */ }
+  }, [template, tplHydrated, templateKey])
 
   // Live prep.
   useEffect(() => {
@@ -161,14 +177,11 @@ export default function PreshiftPage() {
   }, [prepItems])
 
   // ── All items, grouped by section ─────────────────────────────────────────
-  const itemsBySection = useMemo<Record<SectionKey, CheckItem[]>>(() => {
-    const customBy = (s: SectionKey) => custom.filter(c => c.section === s)
-    return {
-      safety:  [...SAFETY_DEFAULTS, ...customBy('safety')],
-      line:    [...lineItems,       ...customBy('line')],
-      service: [...SERVICE_DEFAULTS, ...customBy('service')],
-    }
-  }, [lineItems, custom])
+  const itemsBySection = useMemo<Record<SectionKey, CheckItem[]>>(() => ({
+    safety:  template.filter(c => c.section === 'safety'),
+    line:    lineItems,
+    service: template.filter(c => c.section === 'service'),
+  }), [lineItems, template])
 
   const allItems = useMemo(
     () => SECTIONS.flatMap(s => itemsBySection[s.key]),
@@ -210,13 +223,19 @@ export default function PreshiftPage() {
   const addCheck = useCallback((section: SectionKey, title: string, blocker: boolean) => {
     const t = title.trim()
     if (!t) return
-    const id = `custom:${section}:${slug(t)}-${custom.length}`
-    setCustom(prev => [...prev, { id, section, title: t, meta: 'Added by you', blocker, custom: true }])
-  }, [custom.length])
+    const id = `tpl:${section}:${slug(t)}-${Date.now().toString(36)}`
+    setTemplate(prev => [...prev, { id, section, title: t, meta: 'Added by you', blocker }])
+  }, [])
 
-  const removeCustom = useCallback((id: string) => {
-    setCustom(prev => prev.filter(c => c.id !== id))
+  const deleteItem = useCallback((id: string) => {
+    setTemplate(prev => prev.filter(c => c.id !== id))
     setDone(prev => { const n = { ...prev }; delete n[id]; return n })
+  }, [])
+
+  const editItem = useCallback((id: string, title: string) => {
+    const t = title.trim()
+    if (!t) return
+    setTemplate(prev => prev.map(c => c.id === id ? { ...c, title: t } : c))
   }, [])
 
   const resetAll = useCallback(() => { setDone({}) }, [])
@@ -290,7 +309,8 @@ export default function PreshiftPage() {
                   right={it.right?.value}
                   rightTint={it.right?.tint}
                   onToggle={() => toggle(it)}
-                  onRemove={it.custom ? () => removeCustom(it.id) : undefined}
+                  onEdit={sec.key === 'line' ? undefined : (title) => editItem(it.id, title)}
+                  onDelete={sec.key === 'line' ? undefined : () => deleteItem(it.id)}
                 />
               ))}
             </MSectionCard>
@@ -364,7 +384,8 @@ export default function PreshiftPage() {
                       done={isDone(it)}
                       blockingOpen={isBlockingOpen(it)}
                       onToggle={() => toggle(it)}
-                      onRemove={it.custom ? () => removeCustom(it.id) : undefined}
+                      onEdit={sec.key === 'line' ? undefined : (title) => editItem(it.id, title)}
+                      onDelete={sec.key === 'line' ? undefined : () => deleteItem(it.id)}
                     />
                   ))}
                 </Section>
@@ -478,7 +499,7 @@ function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountd
 
 function AddCheck({ onAdd }: { onAdd: (section: SectionKey, title: string, blocker: boolean) => void }) {
   const [open, setOpen] = useState(false)
-  const [section, setSection] = useState<SectionKey>('line')
+  const [section, setSection] = useState<SectionKey>('safety')
   const [title, setTitle] = useState('')
   const [blocker, setBlocker] = useState(false)
   const submit = () => { onAdd(section, title, blocker); setTitle(''); setBlocker(false) }
@@ -493,7 +514,7 @@ function AddCheck({ onAdd }: { onAdd: (section: SectionKey, title: string, block
   return (
     <div className="mt-4 flex items-center gap-2 bg-paper border border-line rounded-[12px] px-3.5 py-2.5 flex-wrap">
       <select value={section} onChange={e => setSection(e.target.value as SectionKey)} className="bg-bg-2 border border-line rounded-[7px] text-[12.5px] text-ink-2 px-2 py-1.5 outline-none">
-        {SECTIONS.map(s => <option key={s.key} value={s.key}>{s.title}</option>)}
+        {SECTIONS.filter(s => s.key !== 'line').map(s => <option key={s.key} value={s.key}>{s.title}</option>)}
       </select>
       <input
         autoFocus
@@ -530,20 +551,25 @@ function Section({ title, Icon, done, total, children }: {
   )
 }
 
-function CheckRow({ item, done, blockingOpen, onToggle, onRemove }: {
+function CheckRow({ item, done, blockingOpen, onToggle, onEdit, onDelete }: {
   item: CheckItem
   done: boolean
   blockingOpen: boolean
   onToggle: () => void
-  onRemove?: () => void
+  onEdit?: (title: string) => void
+  onDelete?: () => void
 }) {
   const rightTint = (t?: Tint) =>
     t === 'bad' ? 'text-red-text' : t === 'warn' ? 'text-gold-2' : t === 'ok' ? 'text-green-text' : 'text-ink-3'
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(item.title)
+  const editable = !!onEdit || !!onDelete
+  const commit = () => { const t = draft.trim(); if (t) onEdit?.(t); setEditing(false) }
 
   return (
     <div
       className="grid grid-cols-[26px_1fr_auto] items-center gap-3.5 px-[18px] py-[13px] border-b border-line last:border-0 hover:bg-bg/60 transition-colors cursor-pointer group"
-      onClick={onToggle}
+      onClick={() => { if (!editing) onToggle() }}
     >
       <div className={`w-[22px] h-[22px] rounded-[6px] border-[1.5px] grid place-items-center transition-all ${done ? 'bg-green border-green text-white' : 'border-line-2 text-transparent'}`}>
         <Check size={13} strokeWidth={3} />
@@ -551,12 +577,27 @@ function CheckRow({ item, done, blockingOpen, onToggle, onRemove }: {
 
       <div className="min-w-0">
         <div className={`text-[14px] font-medium tracking-[-0.01em] flex items-center gap-1.5 ${done ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink'}`}>
-          <span className="truncate">{item.title}</span>
-          {item.custom && onRemove && (
-            <button onClick={e => { e.stopPropagation(); onRemove() }} className="opacity-0 group-hover:opacity-100 text-ink-4 hover:text-red-text transition-opacity shrink-0"><X size={12} /></button>
+          {editing ? (
+            <input
+              autoFocus
+              value={draft}
+              onClick={e => e.stopPropagation()}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(item.title); setEditing(false) } }}
+              onBlur={commit}
+              className="flex-1 min-w-0 bg-bg border border-ink-3 rounded-[6px] px-2 py-0.5 text-[14px] text-ink outline-none"
+            />
+          ) : (
+            <span className="truncate">{item.title}</span>
+          )}
+          {editable && !editing && (
+            <span className="ml-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button onClick={e => { e.stopPropagation(); setDraft(item.title); setEditing(true) }} className="text-ink-4 hover:text-ink" aria-label="Edit"><Pencil size={12} /></button>
+              <button onClick={e => { e.stopPropagation(); onDelete?.() }} className="text-ink-4 hover:text-red-text" aria-label="Delete"><X size={12} /></button>
+            </span>
           )}
         </div>
-        {(item.meta || item.metaAlert) && (
+        {(item.meta || item.metaAlert) && !editing && (
           <div className="font-mono text-[10.5px] text-ink-3 mt-[3px] tracking-[0] flex items-center gap-1.5 flex-wrap">
             {item.meta}
             {item.meta && item.metaAlert && <span className="text-ink-4">·</span>}
@@ -631,6 +672,9 @@ function RailCard({ title, count, children }: { title: string; count?: number; c
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+function seedTemplate(): CheckItem[] {
+  return [...SAFETY_DEFAULTS, ...SERVICE_DEFAULTS].map(it => ({ ...it }))
+}
 function fmtQty(n: number): string { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1) }
 function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function slug(s: string): string { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) }

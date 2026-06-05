@@ -1,5 +1,6 @@
 'use client'
-import { Check, X, ArrowRight, AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
+import { Check, X, ArrowRight, AlertTriangle, Pencil } from 'lucide-react'
 
 export type MTint = 'ok' | 'warn' | 'bad' | 'neutral'
 
@@ -58,7 +59,7 @@ export function MSectionCard({ title, done, total, children }: {
   )
 }
 
-export function MCheckRow({ title, meta, metaAlert, done, right, rightTint, onToggle, onRemove }: {
+export function MCheckRow({ title, meta, metaAlert, done, right, rightTint, onToggle, onEdit, onDelete }: {
   title: string
   meta?: string
   metaAlert?: string
@@ -66,22 +67,36 @@ export function MCheckRow({ title, meta, metaAlert, done, right, rightTint, onTo
   right?: string
   rightTint?: MTint
   onToggle: () => void
-  onRemove?: () => void
+  onEdit?: (title: string) => void
+  onDelete?: () => void
 }) {
   const tintClass = rightTint === 'bad' ? 'text-red-text' : rightTint === 'warn' ? 'text-gold-2' : rightTint === 'ok' ? 'text-green-text' : 'text-ink-3'
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(title)
+  const editable = !!onEdit || !!onDelete
+  const commit = () => { const t = draft.trim(); if (t) onEdit?.(t); setEditing(false) }
   return (
-    <div className="flex items-center gap-3 px-3.5 py-3 border-b border-line last:border-0 active:bg-bg/60 group" onClick={onToggle}>
+    <div className="flex items-center gap-3 px-3.5 py-3 border-b border-line last:border-0 active:bg-bg/60 group" onClick={() => { if (!editing) onToggle() }}>
       <div className={`w-[22px] h-[22px] rounded-[6px] border-[1.5px] grid place-items-center shrink-0 ${done ? 'bg-green border-green text-white' : 'border-line-2 text-transparent'}`}>
         <Check size={13} strokeWidth={3} />
       </div>
       <div className="min-w-0 flex-1">
         <div className={`text-[14px] font-medium tracking-[-0.01em] flex items-center gap-1.5 ${done ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink'}`}>
-          <span className="truncate">{title}</span>
-          {onRemove && (
-            <button onClick={e => { e.stopPropagation(); onRemove() }} className="text-ink-4 active:text-red-text shrink-0"><X size={12} /></button>
+          {editing ? (
+            <input
+              autoFocus
+              value={draft}
+              onClick={e => e.stopPropagation()}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(title); setEditing(false) } }}
+              onBlur={commit}
+              className="flex-1 min-w-0 bg-bg border border-ink-3 rounded-[6px] px-2 py-1 text-[14px] text-ink outline-none"
+            />
+          ) : (
+            <span className="truncate">{title}</span>
           )}
         </div>
-        {(meta || metaAlert) && (
+        {(meta || metaAlert) && !editing && (
           <div className="font-mono text-[10px] text-ink-3 mt-[3px] flex items-center gap-1.5 flex-wrap">
             {meta}
             {meta && metaAlert && <span className="text-ink-4">·</span>}
@@ -89,7 +104,12 @@ export function MCheckRow({ title, meta, metaAlert, done, right, rightTint, onTo
           </div>
         )}
       </div>
-      {right && <span className={`font-mono text-[11px] font-semibold shrink-0 ${tintClass}`}>{right}</span>}
+      {editable && !editing ? (
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button onClick={e => { e.stopPropagation(); setDraft(title); setEditing(true) }} className="text-ink-4 active:text-ink" aria-label="Edit"><Pencil size={15} /></button>
+          <button onClick={e => { e.stopPropagation(); onDelete?.() }} className="text-ink-4 active:text-red-text" aria-label="Delete"><X size={15} /></button>
+        </div>
+      ) : (right && !editing && <span className={`font-mono text-[11px] font-semibold shrink-0 ${tintClass}`}>{right}</span>)}
     </div>
   )
 }
