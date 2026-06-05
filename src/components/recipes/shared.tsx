@@ -135,9 +135,9 @@ export const CATEGORY_PALETTE = [
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 export function foodCostClass(pct: number | null): string {
   if (pct === null) return 'text-gray-500'
-  if (pct < FOOD_COST_GREEN) return 'text-green-600'
+  if (pct < FOOD_COST_GREEN) return 'text-green'
   if (pct <= FOOD_COST_AMBER) return 'text-amber-500'
-  return 'text-red-600'
+  return 'text-red'
 }
 
 export function catDot(color: string | null) {
@@ -210,7 +210,7 @@ export function BulkActionBar({ count, onDeactivate, onDelete, onClear }: {
       </button>
       <button
         onClick={onDelete}
-        className="px-3 py-1.5 rounded-[10px] text-red-400 hover:bg-white/10 transition-colors font-medium"
+        className="px-3 py-1.5 rounded-[10px] text-[#f87171] hover:bg-white/10 transition-colors font-medium"
       >
         Delete
       </button>
@@ -346,10 +346,10 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
           const fcFill = fcPct === null
             ? 'bg-ink-4'
             : fcPct < FOOD_COST_GREEN
-              ? 'bg-green-500'
+              ? 'bg-green'
               : fcPct <= FOOD_COST_AMBER
                 ? 'bg-gold'
-                : 'bg-red-500'
+                : 'bg-red'
           return (
             <div className="hidden sm:flex flex-col items-end gap-1 text-right shrink-0">
               <div className="font-mono text-[13px] text-ink tracking-[-0.01em] flex items-center gap-1.5">
@@ -412,7 +412,7 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
                   <div className="flex gap-1.5">
                     <button
                       onClick={() => { setShowMore(false); setConfirmDelete(false); onDelete() }}
-                      className="flex-1 px-2 py-1 bg-red-600 text-paper text-[11px] rounded-[6px] hover:bg-red-700"
+                      className="flex-1 px-2 py-1 bg-red text-paper text-[11px] rounded-[6px] hover:bg-red-text"
                     >Delete</button>
                     <button
                       onClick={() => setConfirmDelete(false)}
@@ -423,7 +423,7 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
               ) : (
                 <button
                   onClick={() => setConfirmDelete(true)}
-                  className="w-full px-3 py-2 text-[13px] text-left text-red-600 hover:bg-red-50 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-[13px] text-left text-red hover:bg-red-soft flex items-center gap-2"
                 >
                   <Trash2 size={13} /> Delete
                 </button>
@@ -746,7 +746,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
               {formatUnitPrice(ppbu)}<span className="text-sm font-normal ml-1">/ {bu}</span>
             </div>
             {!isPrep && (
-              <div className="text-[11px] text-blue-500 mt-0.5">
+              <div className="text-[11px] text-blue mt-0.5">
                 ${pp.toFixed(2)} ÷ ({qty} × {ps} {pu})
               </div>
             )}
@@ -958,19 +958,19 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           <button
             onClick={() => setSubstituting(s => !s)}
             title="Substitute ingredient"
-            className={`transition-colors ${substituting ? 'text-blue-500' : 'text-gray-300 hover:text-blue-500'}`}
+            className={`transition-colors ${substituting ? 'text-blue' : 'text-gray-300 hover:text-blue'}`}
           >
             <Pencil size={12} />
           </button>
-          <button onClick={() => onDelete(ing.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>
+          <button onClick={() => onDelete(ing.id)} className="text-gray-300 hover:text-red"><Trash2 size={12} /></button>
         </div>
       </div>
 
       {/* Inline substitute search */}
       {substituting && (
         <div ref={subRef} className="relative px-3 pb-2">
-          <div className="flex items-center gap-2 border border-blue-300 rounded-lg px-2 py-1.5 bg-blue-50">
-            <Search size={13} className="text-blue-400 shrink-0" />
+          <div className="flex items-center gap-2 border border-[#93c5fd] rounded-lg px-2 py-1.5 bg-blue-soft">
+            <Search size={13} className="text-blue shrink-0" />
             <input
               ref={subInputRef}
               value={subQ}
@@ -992,7 +992,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
               {subResults.map(item => (
                 <button key={`${item.type}-${item.id}`} onClick={() => pickSubstitute(item)}
                   className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 text-left text-sm">
-                  {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue-500 shrink-0" />}
+                  {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue shrink-0" />}
                   <span className="flex-1 text-gray-800">{item.name}</span>
                   <span className="text-xs text-gray-400">{item.unit}</span>
                   <span className="text-xs text-gray-500">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
@@ -1241,7 +1241,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               <UtensilsCrossed size={10} /> Menu
             </span>
           ) : (
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-green-700 bg-green-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-green-text bg-green-soft px-2 py-0.5 rounded-full flex items-center gap-1">
               <BookOpen size={10} /> Recipe
             </span>
           )}
@@ -1284,7 +1284,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
                   <div className="flex flex-col shrink-0">
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Food cost</span>
-                    <span className={`font-mono text-[16px] font-bold leading-tight ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-green-400' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-red-400') : 'text-zinc-600'}`}>
+                    <span className={`font-mono text-[16px] font-bold leading-tight ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-[#4ade80]' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-[#f87171]') : 'text-zinc-600'}`}>
                       {menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}
                     </span>
                   </div>
@@ -1293,14 +1293,14 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                       <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
                       <div className="flex flex-col shrink-0">
                         <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Margin</span>
-                        <span className={`font-mono text-[16px] font-semibold leading-tight ${margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(margin)}</span>
+                        <span className={`font-mono text-[16px] font-semibold leading-tight ${margin >= 0 ? 'text-[#4ade80]' : 'text-[#f87171]'}`}>{formatCurrency(margin)}</span>
                       </div>
                     </>
                   )}
                   {menuFoodCostPct !== null && (
                     <div className="ml-auto relative h-1.5 w-32 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                       <div
-                        className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green-500' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-gold' : 'bg-red-500'}`}
+                        className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-gold' : 'bg-red'}`}
                         style={{ width: `${Math.min(100, menuFoodCostPct)}%` }}
                       />
                       <div className="absolute top-[-3px] w-px h-3.5 bg-gold" style={{ left: `${FOOD_COST_GREEN}%` }} />
@@ -1334,7 +1334,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                       <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
                       <div className="flex flex-col shrink-0">
                         <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Used in</span>
-                        <span className="font-mono text-[16px] font-semibold text-green-400 leading-tight">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
+                        <span className="font-mono text-[16px] font-semibold text-[#4ade80] leading-tight">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
                       </div>
                     </>
                   )}
@@ -1461,7 +1461,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
           <div>
             <button onClick={() => setShowNotes(s => !s)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700">
               {showNotes ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              Notes {recipe.notes && <span className="text-blue-500">•</span>}
+              Notes {recipe.notes && <span className="text-blue">•</span>}
             </button>
             {showNotes && (
               <div className="mt-2 space-y-2">
@@ -1554,7 +1554,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
           <div>
             <div className="text-sm font-semibold text-gray-700 mb-2">
-              Ingredients {sf !== 1 && <span className="text-blue-500 font-normal text-xs ml-1">scaled ×{sf}</span>}
+              Ingredients {sf !== 1 && <span className="text-blue font-normal text-xs ml-1">scaled ×{sf}</span>}
             </div>
             {baseIsSet && baseIngName && (
               <div className="flex items-center gap-1.5 mb-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 text-xs text-amber-700">
@@ -1635,7 +1635,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   {searchResults.map(item => (
                     <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
                       className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 text-left text-sm">
-                      {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue-500 shrink-0" />}
+                      {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue shrink-0" />}
                       <span className="flex-1 text-gray-800">{item.name}</span>
                       <span className="text-xs text-gray-400">{item.unit}</span>
                       <span className="text-xs text-gray-500">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
@@ -1654,7 +1654,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               <>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Total recipe cost</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(scaledTotal)}{sf !== 1 && <span className="text-xs text-blue-500 ml-1">at ×{sf}</span>}</span>
+                  <span className="font-bold text-gray-900">{formatCurrency(scaledTotal)}{sf !== 1 && <span className="text-xs text-blue ml-1">at ×{sf}</span>}</span>
                 </div>
                 <div className="flex justify-between text-sm items-center">
                   <span className="text-gray-600">Cost per {recipe.yieldUnit}</span>
@@ -1695,7 +1695,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 {margin !== null && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Margin / dish</span>
-                    <span className={`font-semibold ${margin >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatCurrency(margin)}</span>
+                    <span className={`font-semibold ${margin >= 0 ? 'text-green-text' : 'text-red'}`}>{formatCurrency(margin)}</span>
                   </div>
                 )}
                 {recipe.menuPrice !== null && (
@@ -1872,7 +1872,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                     {searchResults.map(item => (
                       <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
                         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left text-sm">
-                        {item.type === 'recipe' ? <ChefHat size={12} className="text-emerald-600 shrink-0" /> : <Package size={12} className="text-blue-500 shrink-0" />}
+                        {item.type === 'recipe' ? <ChefHat size={12} className="text-emerald-600 shrink-0" /> : <Package size={12} className="text-blue shrink-0" />}
                         <span className="flex-1 text-gray-800">{item.name}</span>
                         <span className="text-xs text-gray-400">{item.unit}</span>
                         <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
@@ -1923,13 +1923,13 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
       <div className="col-span-5 flex items-center gap-1.5 min-w-0">
         {ing.ingredientType === 'recipe'
           ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
-          : <Package size={11} className="text-blue-500 shrink-0" />}
+          : <Package size={11} className="text-blue shrink-0" />}
         <span className="text-sm text-gray-800 truncate">{ing.ingredientName}</span>
       </div>
       <div className="col-span-2">
         <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
           onKeyDown={e => e.key === 'Enter' && saveQty()}
-          className="w-full text-right border border-gray-200 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none focus:border-blue-300" />
+          className="w-full text-right border border-gray-200 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none focus:border-[#93c5fd]" />
       </div>
       <div className="col-span-2">
         <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
@@ -1944,7 +1944,7 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
       </div>
       <div className="col-span-2 text-right text-sm font-medium text-gray-700">{formatCurrency(ing.lineCost)}</div>
       <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100">
-        <button onClick={onDelete} className="text-gray-300 hover:text-red-500"><Trash2 size={13} /></button>
+        <button onClick={onDelete} className="text-gray-300 hover:text-red"><Trash2 size={13} /></button>
       </div>
     </div>
   )
@@ -2005,7 +2005,7 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
               <span className="text-xs text-gray-400">{cat._count?.recipes ?? 0} recipes</span>
               <button onClick={() => deleteCat(cat.id)} disabled={(cat._count?.recipes ?? 0) > 0}
                 title={(cat._count?.recipes ?? 0) > 0 ? 'Move recipes first' : 'Delete'}
-                className="text-gray-300 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed">
+                className="text-gray-300 hover:text-red disabled:opacity-30 disabled:cursor-not-allowed">
                 <Trash2 size={13} />
               </button>
             </div>
