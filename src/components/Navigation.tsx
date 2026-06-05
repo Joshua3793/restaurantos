@@ -7,7 +7,7 @@ import {
   Sun, Package, FileText, Trash2, BarChart3,
   BookOpen, UtensilsCrossed,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
-  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff,
+  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer,
 } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
@@ -39,6 +39,7 @@ const navGroups: NavGroup[] = [
       { href: '/preshift', label: 'Pre-shift', icon: Flame },
       { href: '/prep',     label: 'Prep',      icon: ChefHat },
       { href: '/count',    label: 'Count',     icon: ClipboardList },
+      { href: '/temps',    label: 'Temps',     icon: Thermometer },
     ],
   },
   {

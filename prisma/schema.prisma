@@ -506,6 +506,7 @@ model RevenueCenter {
   transfersFrom     StockTransfer[]   @relation("TransferFrom")
   transfersTo       StockTransfer[]   @relation("TransferTo")
   wastageLog        WastageLog[]      @relation("WastageRC")
+  tempUnits         TempUnit[]        @relation("TempUnitRC")
 }
 
 model StockAllocation {
@@ -595,4 +596,45 @@ model Signal {
 
   @@index([status, severity])
   @@index([fingerprint])
+}
+
+// ── Temp charts ──────────────────────────────────────────────────────────
+// Daily food-safety temperature logging. A TempUnit is a monitored piece of
+// equipment (fridge/freezer/hot-hold) with a safe range; TempReadings are the
+// timestamped temps logged against it. Out-of-range = temp below safeMin or
+// above safeMax (either bound may be null for a one-sided limit).
+enum TempUnitType {
+  FRIDGE
+  FREEZER
+  HOT
+}
+
+model TempUnit {
+  id              String         @id @default(cuid())
+  name            String
+  type            TempUnitType
+  safeMin         Decimal? // °C, null = no lower bound
+  safeMax         Decimal? // °C, null = no upper bound
+  revenueCenterId String? // null = shared across all centers (mirrors Count)
+  isActive        Boolean        @default(true) // soft-delete; readings stay in history
+  sortOrder       Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  readings        TempReading[]
+  revenueCenter   RevenueCenter? @relation("TempUnitRC", fields: [revenueCenterId], references: [id], onDelete: SetNull)
+
+  @@index([revenueCenterId, isActive])
+}
+
+model TempReading {
+  id         String   @id @default(cuid())
+  unitId     String
+  logDate    String // 'YYYY-MM-DD' local day key
+  time       String // 'HH:MM' local clock time of the reading
+  temp       Decimal
+  recordedBy String? // user name/email at log time
+  createdAt  DateTime @default(now())
+  unit       TempUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId, logDate])
 }
