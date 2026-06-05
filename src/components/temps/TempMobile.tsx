@@ -82,34 +82,7 @@ export function TempMobile(p: TempMobileProps) {
           </div>
         )
       })}
-      <div className="h-[78px]" />
-
-      {/* sticky log-next / status bar */}
-      <div className="fixed left-4 right-4 bottom-[84px] z-[35] md:hidden">
-        {m.nextWait ? (
-          <button
-            onClick={() => setSheet({ kind: 'log', uid: m.nextWait!.id })}
-            className="w-full h-[54px] rounded-2xl bg-ink flex items-center gap-3 pl-4 pr-2 text-paper shadow-[0_8px_24px_rgba(0,0,0,0.26)]"
-          >
-            <ArrowRight size={20} className="text-gold shrink-0" />
-            <div className="flex-1 text-left min-w-0">
-              <div className="text-[15px] font-semibold tracking-[-0.01em] truncate">Log {m.nextWait.name}</div>
-              <div className="font-mono text-[10px] text-[#a1a1aa] mt-px">{TEMP_TYPES[m.nextWait.type].label} · safe {rangeText(m.nextWait)}</div>
-            </div>
-            <span className="font-mono text-[11px] font-semibold text-ink bg-gold py-1.5 px-[11px] rounded-[10px]">{m.total - m.logged} LEFT</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => { p.ensureHistory(); setSheet({ kind: 'history' }) }}
-            className={`w-full h-[54px] rounded-2xl flex items-center justify-center gap-2 text-[15px] font-semibold tracking-[-0.01em] shadow-[0_8px_24px_rgba(0,0,0,0.12)] ${
-              m.flagged ? 'bg-red-soft text-red-text' : 'bg-green-soft text-green-text'
-            }`}
-          >
-            {m.flagged ? <AlertTriangle size={19} /> : <Check size={19} />}
-            {m.flagged ? `${m.flagged} out of range — review` : 'All units logged today'}
-          </button>
-        )}
-      </div>
+      <div className="h-3" />
 
       {/* log sheet */}
       <Sheet open={!!openUnit} onClose={() => setSheet(null)} title={openUnit?.name}>

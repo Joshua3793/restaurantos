@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
-import { Camera, ClipboardList, Flame, Bell, ChevronRight } from 'lucide-react'
+import { Camera, ClipboardList, Flame, Bell, ChevronRight, Thermometer } from 'lucide-react'
 import { MPageHead, MCard, MSectionLabel, MQuickAction, MProgressBar } from '@/components/mobile/kit'
 
 interface Kpis { awaitingApprovalCount: number; priceAlertCount: number }
@@ -86,7 +86,7 @@ export function TodayManager() {
         <MQuickAction label="Capture invoice" icon={<Camera size={20} />} onClick={() => router.push('/invoices')} />
         <MQuickAction label="Schedule count" icon={<ClipboardList size={20} />} onClick={() => router.push('/count')} />
         <MQuickAction label="Log waste" icon={<Flame size={20} />} onClick={() => router.push('/wastage')} />
-        <MQuickAction label="Signals" icon={<Bell size={20} />} badge={kpis?.priceAlertCount} onClick={() => router.push('/signals')} />
+        <MQuickAction label="Temps" icon={<Thermometer size={20} />} onClick={() => router.push('/temps')} />
       </div>
     </>
   )
