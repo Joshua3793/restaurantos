@@ -372,9 +372,10 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
 
         <button
           onClick={e => { e.stopPropagation(); onToggle() }}
-          className={`relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green' : 'bg-line-2'}`}
+          title={recipe.isActive ? 'Deactivate' : 'Activate'}
+          className={`relative inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-ink' : 'bg-line-2'}`}
         >
-          <span className={`pointer-events-none absolute top-[2px] inline-block h-[14px] w-[14px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
+          <span className={`pointer-events-none inline-block h-[14px] w-[14px] transform rounded-full bg-white shadow ring-0 transition duration-200 ${recipe.isActive ? 'translate-x-[12px]' : 'translate-x-0'}`} />
         </button>
 
         {/* Print Card — always visible */}
@@ -1257,8 +1258,9 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       </div>
       {saving && <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />}
       <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
-        className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green' : 'bg-line-2'}`}>
-        <span className={`pointer-events-none absolute top-[2px] inline-block h-[18px] w-[18px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
+        title={recipe.isActive ? 'Deactivate' : 'Activate'}
+        className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-ink' : 'bg-line-2'}`}>
+        <span className={`pointer-events-none inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow ring-0 transition duration-200 ${recipe.isActive ? 'translate-x-[14px]' : 'translate-x-0'}`} />
       </button>
       <button onClick={() => setShowPrint(true)} title="Print recipe card"
         className="p-1.5 rounded-[7px] text-ink-3 hover:text-ink hover:bg-bg-2 transition-colors">

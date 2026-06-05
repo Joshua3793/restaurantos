@@ -644,10 +644,10 @@ function InventoryPageInner() {
         </td>
         <td className="px-3 py-[13px] hidden sm:table-cell">
           {isOut
-            ? <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-red-100 text-red-800 font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />Out of stock</span>
+            ? <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-red-soft text-red-text font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />Out of stock</span>
             : isLow
             ? <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-gold-soft text-gold-2 font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />Low stock</span>
-            : <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-green-100 text-green-800 font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />In stock</span>
+            : <span className="font-mono text-[10px] px-[9px] py-[3px] rounded-full bg-green-soft text-green-text font-medium inline-flex items-center gap-[5px] whitespace-nowrap"><span className="w-[5px] h-[5px] rounded-full bg-current opacity-70 inline-block shrink-0" />In stock</span>
           }
         </td>
         <td className="px-3 py-[13px]" onClick={e => e.stopPropagation()}>
