@@ -372,7 +372,7 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
 
         <button
           onClick={e => { e.stopPropagation(); onToggle() }}
-          className={`relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-line-2'}`}
+          className={`relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green' : 'bg-line-2'}`}
         >
           <span className={`pointer-events-none absolute top-[2px] inline-block h-[14px] w-[14px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
         </button>
@@ -1257,7 +1257,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
       </div>
       {saving && <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />}
       <button onClick={() => patchRecipe({ isActive: !recipe.isActive })}
-        className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green-500' : 'bg-line-2'}`}>
+        className={`relative inline-flex h-[22px] w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-green' : 'bg-line-2'}`}>
         <span className={`pointer-events-none absolute top-[2px] inline-block h-[18px] w-[18px] rounded-full bg-paper shadow ring-0 transition-transform duration-200 ${recipe.isActive ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
       </button>
       <button onClick={() => setShowPrint(true)} title="Print recipe card"
