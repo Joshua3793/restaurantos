@@ -114,8 +114,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     }),
   ])
 
-  // Update StockAllocation for this RC if one is set
-  if (session.revenueCenterId) {
+  // Update StockAllocation for this RC if one is set.
+  // The default RC's stock lives in inventoryItem.stockOnHand (written above) —
+  // it must NOT also get a StockAllocation row, or the "All RCs" view double-counts it.
+  if (session.revenueCenterId && !session.revenueCenter?.isDefault) {
     const allocationUpdates = session.lines
       .filter(line => !line.skipped && line.countedQty !== null)
       .map(line => {

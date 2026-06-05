@@ -81,9 +81,14 @@ export async function GET(req: NextRequest) {
   }
 
   // "All Revenue Centers": total physical stock = stockOnHand (Cafe pool) + all RC allocations
+  // Exclude default-RC allocations: the default RC's stock already lives in stockOnHand, so
+  // summing its allocation on top would double-count it.
   const rawItems = await prisma.inventoryItem.findMany({
     where: itemWhere,
-    include: { ...itemInclude, stockAllocations: { select: { quantity: true } } },
+    include: {
+      ...itemInclude,
+      stockAllocations: { where: { revenueCenter: { isDefault: false } }, select: { quantity: true } },
+    },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
   const items = rawItems.map(({ stockAllocations, ...item }) => {
