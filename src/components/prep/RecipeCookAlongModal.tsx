@@ -8,6 +8,8 @@ interface RecipeCookAlongModalProps {
   open: boolean
   recipe: RecipeStepsData | null
   ingredients: IngredientAvailability[]
+  /** True while the recipe/ingredient data is still loading — renders a skeleton. */
+  loading?: boolean
   initialMakeQty: number
   unit: string
   onClose: () => void
@@ -42,6 +44,16 @@ function ProgressBar({ frac }: { frac: number }) {
         style={{ width: `${Math.round(frac * 100)}%` }}
       />
     </span>
+  )
+}
+
+function SkeletonRow() {
+  return (
+    <div className="flex items-center gap-3 w-full px-2.5 py-2.5 border-b border-bg-2 last:border-0">
+      <span className="w-6 h-6 rounded-[7px] bg-bg-2 animate-pulse flex-shrink-0" />
+      <span className="h-3.5 rounded bg-bg-2 animate-pulse flex-1 max-w-[160px]" />
+      <span className="h-3.5 w-12 rounded bg-bg-2 animate-pulse" />
+    </div>
   )
 }
 
@@ -144,6 +156,7 @@ export default function RecipeCookAlongModal({
   open,
   recipe,
   ingredients,
+  loading = false,
   initialMakeQty,
   unit,
   onClose,
@@ -238,7 +251,7 @@ export default function RecipeCookAlongModal({
           <div className="flex-1 min-w-0">
             <div className="text-[19px] font-semibold tracking-[-0.02em]">{recipe.name}</div>
             <div className="font-mono text-[11px] text-ink-3 mt-[5px]">
-              Base yield {recipe.baseYieldQty} {recipe.yieldUnit} · ${recipe.totalCost.toFixed(2)} / batch
+              Base yield {recipe.baseYieldQty} {recipe.yieldUnit} · {loading ? 'costing…' : `$${recipe.totalCost.toFixed(2)} / batch`}
             </div>
           </div>
           <button
@@ -278,45 +291,64 @@ export default function RecipeCookAlongModal({
           {/* COST line */}
           <div className="flex items-center gap-2 mt-3.5 text-[12.5px] text-ink-3">
             This batch{' '}
-            <b className="font-mono text-[15px] text-ink font-semibold">${batchCost.toFixed(2)}</b>
-            <span className="font-mono text-[11.5px] text-ink-3">
-              · ${costPerYield.toFixed(2)} / {recipe.yieldUnit} · {tubs} tubs
-            </span>
+            {loading ? (
+              <span className="inline-block h-3.5 w-32 rounded bg-bg-2 animate-pulse" />
+            ) : (
+              <>
+                <b className="font-mono text-[15px] text-ink font-semibold">${batchCost.toFixed(2)}</b>
+                <span className="font-mono text-[11.5px] text-ink-3">
+                  · ${costPerYield.toFixed(2)} / {recipe.yieldUnit} · {tubs} tubs
+                </span>
+              </>
+            )}
           </div>
 
           {/* GATHER INGREDIENTS */}
           <div className="mt-[22px]">
             <div className="flex justify-between items-center font-mono text-[10px] uppercase text-ink-3 mb-2 px-0.5 tracking-[0.05em]">
               <span>Gather ingredients</span>
-              <span className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={toggleAllIngredients}
-                  className="text-gold-2 font-semibold uppercase tracking-[0.03em] hover:underline"
-                >
-                  {allChecked ? 'Uncheck all' : 'Check all'}
-                </button>
-                <span className="inline-flex items-center gap-[7px] text-ink-2 font-semibold">
-                  {ingChecked} / {ingTotal}
-                  <ProgressBar frac={ingTotal > 0 ? ingChecked / ingTotal : 0} />
+              {!loading && (
+                <span className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={toggleAllIngredients}
+                    className="text-gold-2 font-semibold uppercase tracking-[0.03em] hover:underline"
+                  >
+                    {allChecked ? 'Uncheck all' : 'Check all'}
+                  </button>
+                  <span className="inline-flex items-center gap-[7px] text-ink-2 font-semibold">
+                    {ingChecked} / {ingTotal}
+                    <ProgressBar frac={ingTotal > 0 ? ingChecked / ingTotal : 0} />
+                  </span>
                 </span>
-              </span>
+              )}
             </div>
             <div className="flex flex-col">
-              {ingredients.map((ing, idx) => (
-                <IngRow
-                  key={ing.id}
-                  ing={ing}
-                  factor={factor}
-                  checked={checkedIngredients.has(idx)}
-                  onToggle={() => toggleIngredient(idx)}
-                  onOpenSubRecipe={onOpenSubRecipe}
-                />
-              ))}
+              {loading && ingredients.length === 0
+                ? Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)
+                : ingredients.map((ing, idx) => (
+                    <IngRow
+                      key={ing.id}
+                      ing={ing}
+                      factor={factor}
+                      checked={checkedIngredients.has(idx)}
+                      onToggle={() => toggleIngredient(idx)}
+                      onOpenSubRecipe={onOpenSubRecipe}
+                    />
+                  ))}
             </div>
           </div>
 
           {/* METHOD */}
+          {loading && stepTotal === 0 && (
+            <div className="mt-[22px]">
+              <div className="font-mono text-[10px] uppercase text-ink-3 mb-2 px-0.5 tracking-[0.05em]">Method</div>
+              <div className="flex flex-col gap-2 px-2.5">
+                <span className="h-3.5 w-full rounded bg-bg-2 animate-pulse" />
+                <span className="h-3.5 w-4/5 rounded bg-bg-2 animate-pulse" />
+              </div>
+            </div>
+          )}
           {stepTotal > 0 && (
             <div className="mt-[22px]">
               <div className="flex justify-between items-center font-mono text-[10px] uppercase text-ink-3 mb-2 px-0.5 tracking-[0.05em]">
@@ -345,7 +377,9 @@ export default function RecipeCookAlongModal({
         <div className="border-t border-line px-[22px] py-3.5 flex items-center justify-between gap-3 bg-bg">
           <div className="text-[12.5px] text-ink-3">
             This batch ·{' '}
-            <b className="font-mono text-base text-ink font-semibold">${batchCost.toFixed(2)}</b>
+            {loading
+              ? <span className="inline-block h-3.5 w-16 rounded bg-bg-2 animate-pulse align-middle" />
+              : <b className="font-mono text-base text-ink font-semibold">${batchCost.toFixed(2)}</b>}
           </div>
           <div className="flex gap-2">
             <button

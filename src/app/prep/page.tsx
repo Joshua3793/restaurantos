@@ -56,7 +56,9 @@ export default function PrepPage() {
   const { toast, toastNode } = usePrepToast()
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
-  const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string } | null>(null)
+  const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string; loading: boolean } | null>(null)
+  // Cache fetched cook-along data per prep item so reopening a recipe is instant.
+  const recipeCache = useRef<Map<string, { recipe: RecipeStepsData; ings: IngredientAvailability[] }>>(new Map())
   // Sub-recipe peek (e.g. opening "Custard" linked inside French Toast)
   const [subRecipeView, setSubRecipeView] = useState<{ recipeId: string; name: string } | null>(null)
   const [subRecipeChecked, setSubRecipeChecked] = useState<Set<string>>(new Set())
@@ -549,6 +551,27 @@ export default function PrepPage() {
   // Recipe cook-along: needs steps+cost (from recipe) and ingredient availability (from prep detail)
   const openRecipeModal = useCallback(async (item: PrepItemRich) => {
     if (!item.linkedRecipeId) return
+    // 1) Paint the modal instantly. Use cached data if we have it; otherwise build a
+    //    partial header from the prep item itself (name + base yield are already loaded)
+    //    and show a loading skeleton for ingredients/steps/cost.
+    const cached = recipeCache.current.get(item.id)
+    const partial: RecipeStepsData = {
+      id: item.linkedRecipeId,
+      name: item.linkedRecipe?.name ?? item.name,
+      steps: [],
+      baseYieldQty: Number(item.linkedRecipe?.baseYieldQty) || 0,
+      yieldUnit: item.linkedRecipe?.yieldUnit ?? item.unit,
+      totalCost: 0,
+    }
+    setRecipeModal({
+      sourceItemId: item.id,
+      recipe: cached?.recipe ?? partial,
+      ings: cached?.ings ?? [],
+      makeQty: item.suggestedQty,
+      unit: item.unit,
+      loading: !cached,
+    })
+    // 2) Fetch fresh data in the background (even on a cache hit — availability/cost drift).
     try {
       const [rRes, dRes] = await Promise.all([
         fetch(`/api/recipes/${item.linkedRecipeId}`),
@@ -556,7 +579,10 @@ export default function PrepPage() {
       ])
       const r = rRes.ok ? await rRes.json() : null
       const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
-      if (!r) return
+      if (!r) {
+        setRecipeModal(prev => prev && prev.sourceItemId === item.id ? { ...prev, loading: false } : prev)
+        return
+      }
       // Steps may be a structured array; otherwise fall back to parsing the recipe's
       // free-text notes (e.g. "Instructions: 1. … 2. …") so the method is always shown.
       const parsedSteps: string[] = (() => {
@@ -573,8 +599,13 @@ export default function PrepPage() {
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
       }
-      setRecipeModal({ sourceItemId: item.id, recipe, ings: d?.ingredients ?? [], makeQty: item.suggestedQty, unit: item.unit })
-    } catch { /* ignore */ }
+      const ings = d?.ingredients ?? []
+      recipeCache.current.set(item.id, { recipe, ings })
+      // Only patch if this modal is still the one open (user may have closed/switched).
+      setRecipeModal(prev => prev && prev.sourceItemId === item.id ? { ...prev, recipe, ings, loading: false } : prev)
+    } catch {
+      setRecipeModal(prev => prev && prev.sourceItemId === item.id ? { ...prev, loading: false } : prev)
+    }
   }, [])
 
   // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)
@@ -1792,6 +1823,7 @@ export default function PrepPage() {
         open={recipeModal !== null}
         recipe={recipeModal?.recipe ?? null}
         ingredients={recipeModal?.ings ?? []}
+        loading={recipeModal?.loading ?? false}
         initialMakeQty={recipeModal?.makeQty ?? 0}
         unit={recipeModal?.unit ?? ''}
         onClose={() => setRecipeModal(null)}
