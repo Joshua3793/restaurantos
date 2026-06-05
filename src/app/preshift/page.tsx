@@ -12,6 +12,7 @@ import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
 import { SafetyTempsSummary } from '@/components/preshift/SafetyTempsSummary'
+import { MGateBanner, MProgress, MSectionCard, MCheckRow, MSignoff } from '@/components/preshift/mobile'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -247,6 +248,60 @@ export default function PreshiftPage() {
           { href: '/count', label: 'Count', icon: <ClipboardList size={14} /> },
         ]}
       />
+
+      {/* ── Mobile (option A) ── */}
+      <div className="md:hidden p-4 max-w-lg mx-auto w-full">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h1 className="text-xl font-bold text-ink tracking-[-0.02em]">Pre-shift</h1>
+            <p className="font-mono text-[10.5px] text-ink-3 mt-0.5 uppercase tracking-[0.02em]">
+              {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · Walk the line
+            </p>
+          </div>
+          <button onClick={resetAll} className="font-mono text-[11px] text-ink-3 border border-line bg-paper rounded-full px-3 py-2">Reset</button>
+        </div>
+
+        <MGateBanner blockersOpen={blockersOpen} ready={ready} />
+        <MProgress done={doneCount} total={total} pct={pct} countdown={serviceCountdown} countdownLabel={inService != null ? (serviceLabel ?? 'in service') : (serviceLabel ? `to ${serviceLabel}` : null)} />
+
+        {SECTIONS.map(sec => {
+          const items = itemsBySection[sec.key]
+          const isSafety = sec.key === 'safety'
+          const d = items.filter(isDone).length + (isSafety && tempsReady ? 1 : 0)
+          const t = items.length + (isSafety ? 1 : 0)
+          return (
+            <MSectionCard key={sec.key} title={sec.title} done={d} total={t}>
+              {isSafety && (
+                <SafetyTempsSummary
+                  logged={tempMetrics.logged}
+                  total={tempMetrics.total}
+                  flagged={tempMetrics.flagged}
+                  blocking={!tempsReady}
+                  onLogTemps={() => router.push('/temps')}
+                />
+              )}
+              {items.map(it => (
+                <MCheckRow
+                  key={it.id}
+                  title={it.title}
+                  meta={it.meta}
+                  metaAlert={it.metaAlert}
+                  done={isDone(it)}
+                  right={it.right?.value}
+                  rightTint={it.right?.tint}
+                  onToggle={() => toggle(it)}
+                  onRemove={it.custom ? () => removeCustom(it.id) : undefined}
+                />
+              ))}
+            </MSectionCard>
+          )
+        })}
+
+        <AddCheck onAdd={addCheck} />
+        <div className="mt-3" />
+        <MSignoff ready={ready} onOpen={openService} />
+        <div className="h-6" />
+      </div>
 
       <div className="hidden md:block p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
         <PageHead
