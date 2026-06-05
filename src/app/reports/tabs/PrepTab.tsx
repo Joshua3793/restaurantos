@@ -114,9 +114,9 @@ export default function PrepTab() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: 'Total Logged',   value: report.totals.total,          icon: ChefHat,      cls: 'text-gray-800' },
-              { label: 'Completed',      value: report.totals.done + report.totals.partial, icon: CheckCircle2, cls: 'text-green-700' },
-              { label: 'Blocked',        value: report.totals.blocked,         icon: AlertTriangle,cls: 'text-red-600' },
-              { label: 'Completion Rate',value: `${report.totals.completionRate}%`, icon: TrendingUp, cls: report.totals.completionRate >= 80 ? 'text-green-700' : report.totals.completionRate >= 50 ? 'text-amber-700' : 'text-red-600' },
+              { label: 'Completed',      value: report.totals.done + report.totals.partial, icon: CheckCircle2, cls: 'text-green-text' },
+              { label: 'Blocked',        value: report.totals.blocked,         icon: AlertTriangle,cls: 'text-red' },
+              { label: 'Completion Rate',value: `${report.totals.completionRate}%`, icon: TrendingUp, cls: report.totals.completionRate >= 80 ? 'text-green-text' : report.totals.completionRate >= 50 ? 'text-amber-700' : 'text-red' },
             ].map(({ label, value, icon: Icon, cls }) => (
               <div key={label} className="bg-white border border-gray-100 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-1">
@@ -217,7 +217,7 @@ export default function PrepTab() {
           {report.topBlocked.length > 0 && (
             <div className="bg-white border border-gray-100 rounded-xl p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <AlertTriangle size={14} className="text-red-500" /> Frequently Blocked
+                <AlertTriangle size={14} className="text-red" /> Frequently Blocked
               </h3>
               <div className="space-y-2">
                 {report.topBlocked.map(item => (
@@ -230,7 +230,7 @@ export default function PrepTab() {
                         </div>
                       )}
                     </div>
-                    <span className="text-sm font-semibold text-red-600 shrink-0">{item.blockedCount}×</span>
+                    <span className="text-sm font-semibold text-red shrink-0">{item.blockedCount}×</span>
                   </div>
                 ))}
               </div>

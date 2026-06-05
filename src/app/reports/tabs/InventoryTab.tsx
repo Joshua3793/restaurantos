@@ -117,7 +117,7 @@ export default function InventoryTab({ period }: { period: number }) {
                     <td className="py-2.5 pr-3 text-right text-gray-500 text-xs">{formatCurrency(r.previousPrice)}</td>
                     <td className="py-2.5 pr-3 text-right text-gray-700 font-medium">{formatCurrency(r.newPrice)}</td>
                     <td className="py-2.5 text-right">
-                      <span className={`font-bold text-sm ${r.direction === 'UP' ? 'text-red-500' : 'text-green-600'}`}>
+                      <span className={`font-bold text-sm ${r.direction === 'UP' ? 'text-red' : 'text-green-text'}`}>
                         {r.direction === 'UP' ? '+' : ''}{Number(r.changePct).toFixed(1)}%
                       </span>
                     </td>
@@ -140,8 +140,8 @@ export default function InventoryTab({ period }: { period: number }) {
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-gray-800 truncate">{s.name}</div>
                     <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
-                      <span className="text-red-400">↑{s.ups} up</span>
-                      <span className="text-green-500">↓{s.downs} down</span>
+                      <span className="text-red">↑{s.ups} up</span>
+                      <span className="text-green-text">↓{s.downs} down</span>
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-3">

@@ -42,7 +42,7 @@ export default function CogsTab() {
     } finally { setLoading(false) }
   }, [startDate, endDate, activeRcId, activeRc])
 
-  const fcColor = (pct: number) => pct < 28 ? 'text-green-600' : pct < 35 ? 'text-amber-500' : 'text-red-500'
+  const fcColor = (pct: number) => pct < 28 ? 'text-green-text' : pct < 35 ? 'text-amber-500' : 'text-red'
 
   return (
     <div className="space-y-6">

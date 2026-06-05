@@ -19,7 +19,7 @@ export function DeltaBadge({ change, inverse = false }: { change: number | null;
   const good = inverse ? change < 0 : change > 0
   const Icon = change > 0 ? ChevronUp : change < 0 ? ChevronDown : Minus
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${good ? 'text-green-600' : change === 0 ? 'text-gray-400' : 'text-red-500'}`}>
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${good ? 'text-green-text' : change === 0 ? 'text-gray-400' : 'text-red'}`}>
       <Icon size={11} />
       {Math.abs(change).toFixed(1)}%
     </span>
@@ -29,8 +29,8 @@ export function DeltaBadge({ change, inverse = false }: { change: number | null;
 export function KpiCard({ label, value, sub, change, inverse = false, accent = 'blue', icon: Icon }:
   { label: string; value: string; sub?: string; change?: number | null; inverse?: boolean; accent?: string; icon?: React.ElementType }) {
   const accentMap: Record<string, string> = {
-    blue: 'text-gold', green: 'text-green-600', amber: 'text-amber-500',
-    red: 'text-red-500', purple: 'text-purple-600', gray: 'text-gray-600',
+    blue: 'text-gold', green: 'text-green-text', amber: 'text-amber-500',
+    red: 'text-red', purple: 'text-purple-600', gray: 'text-gray-600',
   }
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">

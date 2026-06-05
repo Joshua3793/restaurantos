@@ -1,10 +1,26 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { TrendingUp, ArrowRight, BarChart3 } from 'lucide-react'
+import { TrendingUp, ArrowRight, BarChart3, DollarSign, ShoppingCart, Package, ChefHat } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
+import { LoadingState } from '@/app/reports/report-components'
+
+// Deep-analytics sections restored from the retired Reports page. Lazy-loaded so
+// recharts stays out of the initial Cost bundle (the live view above loads instantly).
+const SectionFallback = () => <LoadingState />
+const CogsTab       = dynamic(() => import('@/app/reports/tabs/CogsTab'),       { ssr: false, loading: SectionFallback })
+const PurchasingTab = dynamic(() => import('@/app/reports/tabs/PurchasingTab'), { ssr: false, loading: SectionFallback })
+const InventoryTab  = dynamic(() => import('@/app/reports/tabs/InventoryTab'),  { ssr: false, loading: SectionFallback })
+const PrepTab       = dynamic(() => import('@/app/reports/tabs/PrepTab'),       { ssr: false, loading: SectionFallback })
+
+const PERIOD_OPTIONS = [
+  { label: '30 days', value: 30 },
+  { label: '90 days', value: 90 },
+  { label: '6 months', value: 180 },
+]
 
 interface ChromeData {
   foodCostPct: number | null
@@ -42,6 +58,7 @@ export default function CostPage() {
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
+  const [period, setPeriod] = useState(30)
 
   useEffect(() => {
     const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${activeRc?.isDefault ?? false}` : ''
@@ -167,7 +184,47 @@ export default function CostPage() {
       <div className="mt-5 font-mono text-[10.5px] text-ink-3 tracking-wide text-center">
         Every row ends with a verb. <kbd className="bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘R</kbd> refresh.
       </div>
+
+      {/* ── Business analytics (restored from the retired Reports page) ──────────── */}
+      <div className="mt-9 pt-6 border-t border-line">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-1">
+          <div>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink flex items-center gap-2">
+              <BarChart3 size={15} className="text-gold" /> Business analytics
+            </h2>
+            <p className="font-mono text-[10.5px] text-ink-3 mt-0.5">
+              COGS · purchasing · inventory · prep — period applies to purchasing &amp; inventory
+            </p>
+          </div>
+          <div className="flex items-center gap-0.5 border border-line rounded-lg p-0.5 bg-paper shrink-0">
+            {PERIOD_OPTIONS.map(opt => (
+              <button key={opt.value} onClick={() => setPeriod(opt.value)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  period === opt.value ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink hover:bg-bg-2'
+                }`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <AnalyticsSection title="Cost of goods sold" icon={DollarSign}><CogsTab /></AnalyticsSection>
+        <AnalyticsSection title="Purchasing" icon={ShoppingCart}><PurchasingTab period={period} /></AnalyticsSection>
+        <AnalyticsSection title="Inventory" icon={Package}><InventoryTab period={period} /></AnalyticsSection>
+        <AnalyticsSection title="Prep performance" icon={ChefHat}><PrepTab /></AnalyticsSection>
+      </div>
     </div>
+  )
+}
+
+function AnalyticsSection({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
+  return (
+    <section className="mt-7">
+      <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-ink flex items-center gap-2 mb-3 pb-2 border-b border-line/70">
+        <Icon size={14} className="text-gold" /> {title}
+      </h3>
+      {children}
+    </section>
   )
 }
 
