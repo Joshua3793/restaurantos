@@ -232,44 +232,6 @@ export default function PrepPage() {
     ),
   [items])
 
-  // Smart Prep urgency buckets (all active items)
-  const spCritical    = useMemo(() => items.filter(i => i.priority === '911'),          [items])
-  const spNeeded      = useMemo(() => items.filter(i => i.priority === 'NEEDED_TODAY'), [items])
-  const spLookingGood = useMemo(() => items.filter(i => i.priority === 'LATER'),        [items])
-
-  // Smart Prep — by-category groups (sorted by urgency within each group)
-  const PRIORITY_RANK: Record<string, number> = { '911': 0, 'NEEDED_TODAY': 1, 'LATER': 2 }
-  const spCategoryGroups = useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
-      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-      return pd !== 0 ? pd : a.name.localeCompare(b.name)
-    })
-    const map = new Map<string, PrepItemRich[]>()
-    for (const cat of [...new Set(sorted.map(i => i.category))].sort()) map.set(cat, [])
-    for (const item of sorted) map.get(item.category)!.push(item)
-    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items])
-
-  // Smart Prep — by-station groups
-  const spStationGroups = useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
-      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-      return pd !== 0 ? pd : a.name.localeCompare(b.name)
-    })
-    const groups: [string, PrepItemRich[]][] = []
-    for (const station of stations) {
-      const rows = sorted.filter(i => i.station === station)
-      if (rows.length > 0) groups.push([station, rows])
-    }
-    const unassigned = sorted.filter(i => !i.station || i.station.trim() === '')
-    if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
-    const other = sorted.filter(i => i.station && i.station.trim() !== '' && !stations.includes(i.station))
-    if (other.length > 0) groups.push(['Other', other])
-    return groups.length > 0 ? groups : null
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, stations])
-
   // Today filter (search + optional category/station filters)
   const filteredToday = useMemo(() => {
     return todayItems.filter(item => {
@@ -284,7 +246,9 @@ export default function PrepPage() {
     })
   }, [todayItems, search, filterCategory, filterStation])
 
-  // Smart-prep filter (all active items respecting search + category/station)
+  // Smart-prep filter (all active items respecting search + category/station).
+  // Defined here (above the buckets/groups below) because every Smart Prep derivation
+  // feeds off it — that's how the mobile search bar actually filters the list.
   const filteredSmart = useMemo(() => {
     return items.filter(item => {
       if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -297,6 +261,44 @@ export default function PrepPage() {
       return true
     })
   }, [items, search, filterCategory, filterStation])
+
+  // Smart Prep urgency buckets — driven by filteredSmart so search/category/station apply
+  const spCritical    = useMemo(() => filteredSmart.filter(i => i.priority === '911'),          [filteredSmart])
+  const spNeeded      = useMemo(() => filteredSmart.filter(i => i.priority === 'NEEDED_TODAY'), [filteredSmart])
+  const spLookingGood = useMemo(() => filteredSmart.filter(i => i.priority === 'LATER'),        [filteredSmart])
+
+  // Smart Prep — by-category groups (sorted by urgency within each group)
+  const PRIORITY_RANK: Record<string, number> = { '911': 0, 'NEEDED_TODAY': 1, 'LATER': 2 }
+  const spCategoryGroups = useMemo(() => {
+    const sorted = [...filteredSmart].sort((a, b) => {
+      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+      return pd !== 0 ? pd : a.name.localeCompare(b.name)
+    })
+    const map = new Map<string, PrepItemRich[]>()
+    for (const cat of [...new Set(sorted.map(i => i.category))].sort()) map.set(cat, [])
+    for (const item of sorted) map.get(item.category)!.push(item)
+    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredSmart])
+
+  // Smart Prep — by-station groups
+  const spStationGroups = useMemo(() => {
+    const sorted = [...filteredSmart].sort((a, b) => {
+      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+      return pd !== 0 ? pd : a.name.localeCompare(b.name)
+    })
+    const groups: [string, PrepItemRich[]][] = []
+    for (const station of stations) {
+      const rows = sorted.filter(i => i.station === station)
+      if (rows.length > 0) groups.push([station, rows])
+    }
+    const unassigned = sorted.filter(i => !i.station || i.station.trim() === '')
+    if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
+    const other = sorted.filter(i => i.station && i.station.trim() !== '' && !stations.includes(i.station))
+    if (other.length > 0) groups.push(['Other', other])
+    return groups.length > 0 ? groups : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredSmart, stations])
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])

@@ -214,8 +214,12 @@ export default function RecipeCookAlongModal({
   }
 
   return (
+    // NOTE: no backdrop-blur on this overlay. A full-viewport `backdrop-filter: blur()`
+    // over the large prep page forces the browser to re-blur the entire page behind the
+    // modal on every repaint (slider drag, row hover, checkbox toggle) — which froze the
+    // whole app. A plain dim overlay is GPU-cheap and visually equivalent.
     <div
-      className="fixed inset-0 z-[60] bg-[rgba(9,9,11,0.5)] backdrop-blur-[3px] grid place-items-center p-3 sm:p-10"
+      className="fixed inset-0 z-[60] bg-[rgba(9,9,11,0.6)] grid place-items-center p-3 sm:p-10"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
