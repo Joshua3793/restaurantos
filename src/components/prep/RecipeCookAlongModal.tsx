@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
-import { IcX, IcCheck, IcSync } from '@/components/prep/icons'
+import { IcX, IcCheck, IcSync, IcUndo } from '@/components/prep/icons'
 
 interface RecipeCookAlongModalProps {
   open: boolean
@@ -15,6 +15,10 @@ interface RecipeCookAlongModalProps {
   onClose: () => void
   /** Completes the prep with the made qty (the cook-along yield) and credits inventory. */
   onComplete: (qty: number) => void
+  /** True when the source prep is in progress — enables the "Stop prep" action. */
+  canStop?: boolean
+  /** Abandon the in-progress prep (no qty logged) and return it to the to-do list. */
+  onStop?: () => void
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe?: (recipeId: string, name: string) => void
 }
@@ -161,6 +165,8 @@ export default function RecipeCookAlongModal({
   unit,
   onClose,
   onComplete,
+  canStop = false,
+  onStop,
   onOpenSubRecipe,
 }: RecipeCookAlongModalProps) {
   const [makeQty, setMakeQty] = useState(initialMakeQty)
@@ -382,13 +388,26 @@ export default function RecipeCookAlongModal({
               : <b className="font-mono text-base text-ink font-semibold">${batchCost.toFixed(2)}</b>}
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="bg-paper border border-line h-[42px] px-4 rounded-[10px] text-[13px] font-medium"
-            >
-              Close
-            </button>
+            {/* When the prep is in progress, the footer's "Close" becomes "Stop prep"
+                (abandon → back to to-do). The top-right ✕ still just closes the modal. */}
+            {canStop && onStop ? (
+              <button
+                type="button"
+                onClick={() => { onStop(); onClose() }}
+                className="bg-paper border border-line h-[42px] px-4 rounded-[10px] text-[13px] font-medium text-ink-2 inline-flex items-center gap-2 hover:border-red-300 hover:text-red-text"
+              >
+                <IcUndo size={15} />
+                Stop prep
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="bg-paper border border-line h-[42px] px-4 rounded-[10px] text-[13px] font-medium"
+              >
+                Close
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

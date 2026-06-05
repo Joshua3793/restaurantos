@@ -153,6 +153,11 @@ export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusC
                     : (r.status === 'not-started' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
                       : r.status === 'in-progress' ? <button className="btn btn-primary" onClick={() => setDoneQty(item.suggestedQty ? String(item.suggestedQty) : '')}><span className="ic">✓</span> Mark done</button>
                       : <button className="btn" onClick={onClose}>Close</button>)}
+                  {/* Stop = abandon the in-progress prep (no qty logged) → back to the
+                      to-do list. No inventory effect (only DONE/PARTIAL credit). */}
+                  {view !== 'smart' && r.status === 'in-progress' && (
+                    <button className="btn" onClick={() => { onStatusChange(item, 'NOT_STARTED'); onClose() }}><span className="ic">↩</span> Stop prep</button>
+                  )}
                   <button className="btn" onClick={() => onEdit(item)}>
                     <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
                     Edit prep settings

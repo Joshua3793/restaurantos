@@ -625,6 +625,15 @@ export default function PrepPage() {
     toast(`Done · added ${qty} ${target.unit}`)
   }, [recipeModal, items, toast])
 
+  // Stop from the cook-along modal: abandon the in-progress prep (no qty logged),
+  // returning it to the to-do list. No inventory effect (only DONE/PARTIAL credit).
+  const onRecipeStop = useCallback(() => {
+    const target = recipeModal?.sourceItemId ? items.find(i => i.id === recipeModal.sourceItemId) : null
+    if (!target) return
+    handleStatusChange(target.id, 'NOT_STARTED')
+    toast(`Stopped · ${target.name} back on the list`)
+  }, [recipeModal, items, toast])
+
   // Keep the open drawer's item in sync across the auto-refresh poll
   useEffect(() => {
     if (!drawerItem) return
@@ -1826,6 +1835,11 @@ export default function PrepPage() {
         loading={recipeModal?.loading ?? false}
         initialMakeQty={recipeModal?.makeQty ?? 0}
         unit={recipeModal?.unit ?? ''}
+        canStop={(() => {
+          const src = recipeModal?.sourceItemId ? items.find(i => i.id === recipeModal.sourceItemId) : null
+          return (src?.todayLog?.status ?? 'NOT_STARTED') === 'IN_PROGRESS'
+        })()}
+        onStop={onRecipeStop}
         onClose={() => setRecipeModal(null)}
         onComplete={onRecipeComplete}
         onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
