@@ -3,7 +3,7 @@
  * PrepTaskRowCompact — dense, mobile-only prep row. Optimised so a chef sees MANY
  * items at once; tapping a row opens the detail drawer (recipe cook-along, start,
  * mark done, log, skip). No inline action buttons — interaction reveals actions.
- * Same data + handlers as the desktop PrepTaskRow. Rendered under md:hidden.
+ * Rendered under md:hidden; the desktop renderer is PrepBoard (board/PrepRow).
  */
 import { Loader2 } from 'lucide-react'
 import { IcCheck, IcAlert, IcClock, IcSkip, IcSync, IcPlay, IcUndo } from '@/components/prep/icons'

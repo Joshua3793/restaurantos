@@ -16,8 +16,6 @@ import './prep-board.css'
 import { PrepBoard } from '@/components/prep/board/PrepBoard'
 import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
-import PrepToolbar from '@/components/prep/PrepToolbar'
-import PrepTaskRow from '@/components/prep/PrepTaskRow'
 import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
 import PrepGetAhead from '@/components/prep/PrepGetAhead'
 import PrepRestState from '@/components/prep/PrepRestState'
@@ -837,96 +835,6 @@ export default function PrepPage() {
     )
   }
 
-  // ── Smart Prep grouped table row (category / station views) ───────────────
-  function SmartPrepTableRow({ item }: { item: PrepItemRich }) {
-    const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
-    const isCritical = item.priority === '911'
-    const isNeeded = item.priority === 'NEEDED_TODAY'
-    const dotColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
-    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
-    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'
-    const isAdded = item.isOnList
-
-    const labels: Record<string, string>     = { '911': 'CRITICAL', 'NEEDED_TODAY': 'NEEDED', 'LATER': 'ON PAR' }
-    const badgeStyles: Record<string, string> = {
-      '911': 'bg-red-soft text-red-text',
-      'NEEDED_TODAY': 'bg-gold-soft text-gold-2',
-      'LATER': 'bg-green-soft text-green-text',
-    }
-
-    return (
-      <div className="grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-[18px] py-3 border-b border-line last:border-0 hover:bg-bg/60 transition-colors text-[13.5px]">
-        <span className={`w-2 h-2 rounded-full ${dotColor} inline-block shrink-0`} />
-        <button onClick={() => setSelected(item)} className="text-left hover:opacity-80 transition-opacity min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[13.5px] font-medium text-ink tracking-[-0.01em]">{item.name}</span>
-            <span className={`font-mono text-[9.5px] px-1.5 py-0.5 rounded-[4px] font-semibold tracking-[0.02em] ${badgeStyles[item.priority]}`}>{labels[item.priority]}</span>
-            {item.station && <span className="font-mono text-[9.5px] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded-[4px] font-medium tracking-[0.02em] uppercase">{item.station}</span>}
-            {item.manualPriorityOverride && <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>}
-            {isAdded && <span className="font-mono text-[10px] text-ink-4 italic">on list</span>}
-          </div>
-          <div className={`font-mono text-[10.5px] mt-1 tracking-[0] whitespace-nowrap ${suggestColor}`}>
-            {item.priority !== 'LATER' && !item.manualPriorityOverride
-              ? `System suggests → ${item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}`
-              : item.priority === 'LATER' ? 'At or above par' : 'Chef override active'
-            }
-          </div>
-        </button>
-        <div>
-          <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
-          </div>
-        </div>
-        <div className="font-mono text-[12.5px] text-ink-2 tracking-[-0.01em] whitespace-nowrap">
-          {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
-        </div>
-        <div className={`font-mono text-[12.5px] font-medium tracking-[-0.01em] ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-4'}`}>
-          {item.priority !== 'LATER' && item.suggestedQty > 0
-            ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}`
-            : '—'
-          }
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
-            const chipLabels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed', 'LATER': 'Later' }
-            const isActive = (item.manualPriorityOverride ?? item.priority) === p
-            const activeCls = p === '911'
-              ? 'bg-red-soft text-red-text border-red-soft'
-              : p === 'NEEDED_TODAY'
-                ? 'bg-gold-soft text-gold-2 border-gold-soft'
-                : 'bg-bg-2 text-ink-2 border-bg-2'
-            return (
-              <button
-                key={p}
-                onClick={() => handlePriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
-                className={`font-mono text-[10px] px-2 py-0.5 rounded-full border font-medium tracking-[0] transition-colors ${
-                  isActive ? activeCls : 'bg-paper text-ink-2 border-line hover:border-ink-3'
-                }`}
-              >
-                {chipLabels[p]}
-              </button>
-            )
-          })}
-        </div>
-        <div className="flex justify-end">
-          <button
-            onClick={() => handleToggleOnList(item.id, !isAdded)}
-            title={isAdded ? "Remove from today's list" : "Add to today's list"}
-            className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-[-0.005em] inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
-              isAdded
-                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red-300 hover:bg-red-50 hover:text-red-600'
-                : 'bg-ink text-paper hover:bg-ink-2'
-            }`}
-          >
-            {isAdded
-              ? <><Check size={12} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
-              : <><span className="text-gold font-semibold">+</span> Add</>}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   // ── Page JSX ──────────────────────────────────────────────────────────────
 
   return (
@@ -1121,8 +1029,6 @@ export default function PrepPage() {
             </button>
           </div>
         </div>
-
-        {/* Today filter is rendered once by <PrepToolbar> in the shared content block below. */}
       </div>
 
       {/* ── System banners ── */}
@@ -1240,19 +1146,6 @@ export default function PrepPage() {
               }
             />
           )}
-          {/* Desktop gets the full filter toolbar; mobile chefs scan the grouped list, so it's hidden there. */}
-          <div className="hidden md:block">
-            <PrepToolbar
-              search={search} onSearch={setSearch}
-              categories={categories} stations={stations}
-              filterCategory={filterCategory === 'ALL' ? '' : filterCategory}
-              onFilterCategory={v => setFilterCategory(v === '' ? 'ALL' : v)}
-              filterStation={filterStation === 'ALL' ? '' : (filterStation as string)}
-              onFilterStation={v => setFilterStation(v === '' ? 'ALL' : v)}
-              activeOnly={activeOnly} onActiveOnly={setActiveOnly}
-              forceOpen={todayItems.length > 3}
-            />
-          </div>
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
@@ -1269,19 +1162,13 @@ export default function PrepPage() {
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
               )}
               {todayGroups.critical.map(item => (
-                <div key={item.id}>
-                  <div className="hidden md:block"><PrepTaskRow item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
-                  <div className="md:hidden"><PrepTaskRowCompact item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
-                </div>
+                <PrepTaskRowCompact key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
               ))}
               {todayGroups.needed.length > 0 && (
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
               )}
               {todayGroups.needed.map(item => (
-                <div key={item.id}>
-                  <div className="hidden md:block"><PrepTaskRow item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
-                  <div className="md:hidden"><PrepTaskRowCompact item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} /></div>
-                </div>
+                <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
               ))}
               <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
               <p className="text-center text-xs text-ink-4 mt-4 pb-24 sm:pb-0">This list carries over each day — items stay until marked done or removed.</p>
@@ -1295,136 +1182,6 @@ export default function PrepPage() {
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'smartprep' && (
         <div className="space-y-4 md:hidden">
-          {/* ── Desktop KPI strip (Smart Prep context cards) ── */}
-          {(() => {
-            const actionItems = [...spCritical, ...spNeeded]
-            const topAction = actionItems[0]
-            const totalPrepMinutes = actionItems.reduce((sum, i) => sum + (i.estimatedPrepTime ?? 0), 0)
-            const stationsCount = new Set(items.filter(i => i.station).map(i => i.station)).size
-            return (
-              <div className="hidden md:grid grid-cols-[1.35fr_1.1fr_1fr_1.1fr] gap-3">
-                {/* Hero — today's suggested prep */}
-                <div className="bg-ink text-paper rounded-xl border border-ink p-[18px] flex flex-col justify-between min-h-[128px] relative">
-                  <div className="absolute top-[18px] right-4 flex items-end gap-[2px] h-[18px]">
-                    {[11,14,8,16,10,13,17,12].map((h, i) => (
-                      <span key={i} className="w-[3px] rounded-[1px]" style={{ height: h, background: '#3f3f46' }} />
-                    ))}
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10.5px] text-[#a1a1aa] tracking-[0.01em]">TODAY&apos;S SUGGESTED PREP</p>
-                    <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2">
-                      {actionItems.length}
-                      <sub className="text-[20px] font-medium text-gold align-baseline ml-1 tracking-[-0.02em]">
-                        item{actionItems.length !== 1 ? 's' : ''}
-                      </sub>
-                    </p>
-                  </div>
-                  <p className="font-mono text-[11px] text-[#a1a1aa] mt-2">
-                    {topAction
-                      ? <>{topAction.suggestedQty % 1 === 0 ? topAction.suggestedQty.toFixed(0) : topAction.suggestedQty.toFixed(1)} {topAction.unit} {topAction.name.toLowerCase()}{totalPrepMinutes > 0 ? <> · <b className="text-paper font-medium">~{totalPrepMinutes} min</b></> : null}</>
-                      : 'nothing to prep right now'}
-                  </p>
-                </div>
-
-                {/* Critical */}
-                <div className="rounded-xl p-[18px] flex flex-col justify-between min-h-[128px] relative bg-[#fef2f2] border border-[#fca5a5]">
-                  {spCritical.length > 0 && <div className="absolute top-[18px] right-[18px] w-[7px] h-[7px] rounded-full bg-red" />}
-                  <div>
-                    <p className="font-mono text-[10.5px] tracking-[0.01em] text-red-text">CRITICAL</p>
-                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-red-text">{spCritical.length}</p>
-                  </div>
-                  <p className="font-mono text-[11px] text-ink-3 mt-2">
-                    {spCritical.length > 0
-                      ? <><b className="text-red-text font-medium">Stock depleted</b> · needs prep now</>
-                      : <>no critical items</>}
-                  </p>
-                </div>
-
-                {/* Needed today */}
-                <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[128px]">
-                  <div>
-                    <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">NEEDED TODAY</p>
-                    <p className={`text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 ${spNeeded.length > 0 ? 'text-ink' : 'text-ink-3'}`}>{spNeeded.length}</p>
-                  </div>
-                  <p className="font-mono text-[11px] text-ink-3 mt-2">
-                    {spNeeded.length > 0 ? 'below par — prep today' : 'no items below par right now'}
-                  </p>
-                </div>
-
-                {/* Looking good */}
-                <div className="bg-paper border border-line rounded-xl p-[18px] flex flex-col justify-between min-h-[128px]">
-                  <div>
-                    <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">LOOKING GOOD</p>
-                    <p className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-green-text">{spLookingGood.length}</p>
-                  </div>
-                  <p className="font-mono text-[11px] text-ink-3 mt-2">
-                    <b className="text-green-text font-medium">on par or above</b>{stationsCount > 0 ? ` · across ${stationsCount} station${stationsCount !== 1 ? 's' : ''}` : ''}
-                  </p>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Info banner (branded) */}
-          <div className="hidden md:flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-[#fffbeb] to-[#fef9ec] border border-[#fcd34d] rounded-xl">
-            <div className="w-7 h-7 rounded-[7px] bg-paper border border-[#fcd34d] grid place-items-center text-gold-2 shrink-0">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
-            </div>
-            <p className="text-[13px] text-[#78350f] tracking-[-0.005em] leading-[1.4] flex-1">
-              Suggestions are computed live from <b className="font-semibold text-ink">theoretical stock</b> — sales, wastage &amp; invoices since the last count. Resets at each stock count.
-            </p>
-          </div>
-
-          {/* Desktop tools row: search + dropdowns + segmented control */}
-          <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-              <input
-                className="w-full bg-paper border border-line rounded-[9px] pl-9 pr-3 py-2.5 text-[13px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink-3 transition-colors tracking-[-0.005em]"
-                placeholder="Search prep items, recipes, stations…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            <select
-              value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
-            >
-              <option value="ALL">All categories</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select
-              value={filterStation}
-              onChange={e => setFilterStation(e.target.value)}
-              className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 focus:outline-none focus:border-ink-3 transition-colors min-w-[140px] tracking-[-0.005em]"
-            >
-              <option value="ALL">All stations</option>
-              <option value="UNASSIGNED">Unassigned</option>
-              {stations.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <label className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 transition-colors flex items-center gap-2 cursor-pointer tracking-[-0.005em]">
-              <span className={`w-[14px] h-[14px] border-[1.5px] rounded-[3px] grid place-items-center text-[9px] ${activeOnly ? 'bg-ink border-ink text-paper' : 'border-line-2 bg-paper'}`}>
-                {activeOnly && '✓'}
-              </span>
-              <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="hidden" />
-              Active only
-            </label>
-            <div className="flex bg-paper border border-line rounded-[9px] p-[3px]">
-              {(['urgency', 'category', 'station'] as const).map(v => (
-                <button key={v} onClick={() => setSmartPrepView(v)}
-                  className={`px-3 py-1.5 font-mono text-[11px] rounded-[6px] transition-colors whitespace-nowrap ${smartPrepView === v ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'}`}>
-                  By {v}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Desktop "showing N items" mono label */}
-          <p className="hidden md:block font-mono text-[11px] text-ink-3 tracking-[0.01em]">
-            SHOWING {items.length} ITEMS · GROUPED BY {smartPrepView.toUpperCase()} · RESETS WITH NEXT COUNT
-          </p>
-
           {loading ? (
             <div className="flex justify-center py-16">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
@@ -1614,16 +1371,7 @@ export default function PrepPage() {
                             </div>
                           )}
                         </div>
-                        {/* Desktop table header */}
-                        <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
-                          <div /> <div>ITEM</div> <div>STOCK VS PAR</div> <div>ON HAND</div> <div>MAKE</div> <div>OVERRIDE</div> <div className="text-right">ACTION</div>
-                        </div>
-                        {/* Desktop rows */}
-                        <div className="hidden md:block">
-                          {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
-                        </div>
-                        {/* Mobile cards */}
-                        <div className="md:hidden pt-2 pb-1 flex flex-col gap-2">
+                        <div className="pt-2 pb-1 flex flex-col gap-2">
                           {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
                         </div>
                       </div>
@@ -1656,14 +1404,7 @@ export default function PrepPage() {
                             </div>
                           )}
                         </div>
-                        {/* Desktop table header */}
-                        <div className="hidden md:grid grid-cols-[16px_2fr_1fr_110px_1fr_220px_110px] gap-3 items-center px-[18px] py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">
-                          <div /> <div>ITEM</div> <div>STOCK VS PAR</div> <div>ON HAND</div> <div>MAKE</div> <div>OVERRIDE</div> <div className="text-right">ACTION</div>
-                        </div>
-                        <div className="hidden md:block">
-                          {rows.map(item => <SmartPrepTableRow key={item.id} item={item} />)}
-                        </div>
-                        <div className="md:hidden pt-2 pb-1 flex flex-col gap-2">
+                        <div className="pt-2 pb-1 flex flex-col gap-2">
                           {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
                         </div>
                       </div>
@@ -1681,16 +1422,6 @@ export default function PrepPage() {
                 </div>
               )}
 
-              {/* Footer hints */}
-              <div className="hidden md:flex justify-between font-mono text-[10.5px] text-ink-3 tracking-[0.02em] pt-2">
-                <span>
-                  SUGGESTIONS REFRESH WITH EACH COUNT · {spCritical.length} CRITICAL · {spNeeded.length} NEEDED · {spLookingGood.length} ON PAR
-                </span>
-                <span>
-                  <kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘R</kbd> REFRESH ·{' '}
-                  <kbd className="font-mono text-[10px] bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘N</kbd> NEW PREP ITEM
-                </span>
-              </div>
             </>
           )}
         </div>
