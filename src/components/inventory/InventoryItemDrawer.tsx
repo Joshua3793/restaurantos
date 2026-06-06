@@ -131,10 +131,10 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
         onChange={e => setQuery(e.target.value)}
         onFocus={() => { setOpen(true); setQuery('') }}
         placeholder={placeholder}
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+        className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
       />
       {open && (
-        <div className="absolute z-10 top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+        <div className="absolute z-10 top-full left-0 right-0 bg-white border border-line rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
           {filtered.map(i => (
             <button key={i.id} type="button"
               className="w-full text-left px-3 py-2 text-sm hover:bg-gold/10"
@@ -147,7 +147,7 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
               onClick={async () => { const r = await onAddNew(query); onSelect(r.id, r.name); setOpen(false); setQuery('') }}
             >+ Add &quot;{query}&quot;</button>
           )}
-          {filtered.length === 0 && !query && <div className="px-3 py-2 text-xs text-gray-400">No options</div>}
+          {filtered.length === 0 && !query && <div className="px-3 py-2 text-xs text-ink-4">No options</div>}
         </div>
       )}
     </div>
@@ -346,7 +346,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <input
                     value={editForm.itemName}
                     onChange={e => setEditForm(f => ({ ...f, itemName: e.target.value }))}
-                    className="w-full font-semibold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full font-semibold text-ink border border-line rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 ) : (
                   <h2 className="font-medium text-ink text-[19px] leading-[1.15] tracking-[-0.02em] truncate">{item.itemName}</h2>
@@ -386,15 +386,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     type="checkbox"
                     checked={editForm.isActive}
                     onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
-                    className="w-4 h-4 rounded border-gray-300 text-gold focus:ring-gold"
+                    className="w-4 h-4 rounded border-line-2 text-gold focus:ring-gold"
                   />
-                  <span className="text-sm font-medium text-gray-700">Active</span>
-                  <span className="text-xs text-gray-400">&mdash; uncheck to exclude from inventory totals</span>
+                  <span className="text-sm font-medium text-ink-2">Active</span>
+                  <span className="text-xs text-ink-4">&mdash; uncheck to exclude from inventory totals</span>
                 </label>
 
                 {/* Category */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
                   <Combobox
                     items={categories.map(c => ({ id: c.name, name: c.name }))}
                     value={editForm.category}
@@ -414,7 +414,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                 {/* Supplier */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Supplier</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Supplier</label>
                   <Combobox
                     items={suppliers}
                     value={editForm.supplierName}
@@ -434,7 +434,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                 {/* Storage Area */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Storage Area</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Storage Area</label>
                   <Combobox
                     items={storageAreas}
                     value={editForm.storageAreaName}
@@ -453,8 +453,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 </div>
 
                 {item.recipe && (
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-xs text-purple-700 flex items-start gap-2">
-                    <span className="text-purple-400 mt-0.5">⟳</span>
+                  <div className="bg-blue-soft border border-blue-soft rounded-lg px-3 py-2 text-xs text-blue-text flex items-start gap-2">
+                    <span className="text-blue mt-0.5">⟳</span>
                     <span><strong>Price is managed by recipe:</strong> {item.recipe.name}. Edit the recipe to change costs. You can only change Count UOM and stock fields here.</span>
                   </div>
                 )}
@@ -463,7 +463,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 {!item.recipe && (
                   <div className="space-y-3">
                     {/* Per Case / Per UOM toggle */}
-                    <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                    <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
                       {(['CASE', 'UOM'] as const).map(pt => (
                         <button
                           key={pt}
@@ -475,8 +475,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                           }))}
                           className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                             editForm.priceType === pt
-                              ? 'bg-white text-gray-900 shadow-sm'
-                              : 'text-gray-500 hover:text-gray-700'
+                              ? 'bg-white text-ink shadow-sm'
+                              : 'text-ink-3 hover:text-ink-2'
                           }`}
                         >
                           {pt === 'CASE' ? 'Per Case' : 'Per UOM'}
@@ -489,24 +489,24 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         {/* Row 1: Purchase Unit + Qty/Unit pair */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
+                            <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Unit</label>
                             <select value={editForm.purchaseUnit} onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                              className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                               {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
                             </select>
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Qty per {editForm.purchaseUnit}</label>
+                            <label className="block text-xs font-medium text-ink-3 mb-1">Qty per {editForm.purchaseUnit}</label>
                             <div className="flex">
                               <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
                                 onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                                className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                                className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.qtyUOM} onChange={e => setEditForm(f => {
                                   const newQtyUOM = e.target.value
                                   const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM, parseFloat(f.packSize) || 0), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 0, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
                                   return { ...f, qtyUOM: newQtyUOM, innerQty: newQtyUOM === 'pack' ? f.innerQty : '', countUOM: opts.includes(f.countUOM) ? f.countUOM : opts[0] }
                                 })}
-                                className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
+                                className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold">
                                 {QTY_UOMS.map(u => <option key={u}>{u}</option>)}
                               </select>
                             </div>
@@ -515,33 +515,33 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                         {/* Conditional: pack breakdown when qtyUOM = pack */}
                         {editForm.qtyUOM === 'pack' && (
-                          <div className="ml-3 pl-3 border-l-2 border-amber-300 space-y-2">
+                          <div className="ml-3 pl-3 border-l-2 border-gold-soft space-y-2">
                             <div className="grid grid-cols-2 gap-3">
                               <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Items per Pack</label>
+                                <label className="block text-xs font-medium text-ink-3 mb-1">Items per Pack</label>
                                 <div className="flex">
                                   <input type="number" step="any" min="1" value={editForm.innerQty}
                                     onChange={e => setEditForm(f => ({ ...f, innerQty: e.target.value }))}
-                                    className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                                  <span className="border border-gray-200 rounded-r-lg px-3 py-2 text-sm text-gray-500 bg-gray-50">each</span>
+                                    className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                                  <span className="border border-line rounded-r-lg px-3 py-2 text-sm text-ink-3 bg-bg">each</span>
                                 </div>
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                <label className="block text-xs font-medium text-ink-3 mb-1">
                                   Weight per Item
-                                  <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
+                                  <span className="ml-1 text-[10px] font-semibold bg-bg-2 text-ink-4 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                                 </label>
                                 <div className="flex">
                                   <input type="number" step="any" min="0" value={editForm.packSize}
                                     onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
                                     placeholder="e.g. 100"
-                                    className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                                    className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                                   <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                                    className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
+                                    className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold">
                                     {(['g', 'kg', 'ml', 'l', 'lb', 'oz']).map(u => <option key={u}>{u}</option>)}
                                   </select>
                                 </div>
-                                <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
+                                <p className="text-[10px] text-gold-2 bg-gold-soft rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
                               </div>
                             </div>
                           </div>
@@ -549,10 +549,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                         {/* Conditional: weight per item when qtyUOM = each */}
                         {editForm.qtyUOM === 'each' && (
-                          <div className="ml-3 pl-3 border-l-2 border-amber-300">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                          <div className="ml-3 pl-3 border-l-2 border-gold-soft">
+                            <label className="block text-xs font-medium text-ink-3 mb-1">
                               Weight per Each
-                              <span className="ml-1 text-[10px] font-semibold bg-gray-100 text-gray-400 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
+                              <span className="ml-1 text-[10px] font-semibold bg-bg-2 text-ink-4 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
                             </label>
                             <div className="flex">
                               <input type="number" step="any" min="0" value={editForm.packSize}
@@ -568,13 +568,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                                   }))
                                 }}
                                 placeholder="e.g. 290"
-                                className="w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
+                                className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
                               <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                                className="border border-gray-200 rounded-r-lg px-2 py-2 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gold">
+                                className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold">
                                 {(['g', 'kg', 'ml', 'l', 'lb', 'oz']).map(u => <option key={u}>{u}</option>)}
                               </select>
                             </div>
-                            <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
+                            <p className="text-[10px] text-gold-2 bg-gold-soft rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
                           </div>
                         )}
 
@@ -589,7 +589,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                             editForm.packUOM,
                           )
                           return (
-                            <p className="text-xs text-gray-400 italic">= {desc}</p>
+                            <p className="text-xs text-ink-4 italic">= {desc}</p>
                           )
                         })()}
                       </>
@@ -597,23 +597,23 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                     {editForm.priceType === 'UOM' && (
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Price Unit</label>
+                        <label className="block text-xs font-medium text-ink-3 mb-1">Price Unit</label>
                         <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                          className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                           {(['kg', 'g', 'lb', 'oz', 'l', 'ml']).map(u => <option key={u}>{u}</option>)}
                         </select>
-                        <p className="text-[10px] text-blue-600 bg-blue-50 rounded px-2 py-1 mt-1">Price is entered as cost per {editForm.packUOM} — ideal for produce and bulk items.</p>
+                        <p className="text-[10px] text-blue bg-blue-soft rounded px-2 py-1 mt-1">Price is entered as cost per {editForm.packUOM} — ideal for produce and bulk items.</p>
                       </div>
                     )}
 
                     {/* Purchase Price */}
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-ink-3 mb-1">
                         {editForm.priceType === 'UOM' ? `Price / ${editForm.packUOM} ($)` : 'Purchase Price ($)'}
                       </label>
                       <input type="number" step="any" value={editForm.purchasePrice}
                         onChange={e => setEditForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                   </div>
                 )}
@@ -621,16 +621,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 {/* Stock + Count fields */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-ink-3 mb-1">
                       Count UOM
                       {item.recipe && (
-                        <span className="ml-1 text-purple-500 font-normal">
+                        <span className="ml-1 text-blue font-normal">
                           ({getUnitDimension(item.baseUnit)}-compatible)
                         </span>
                       )}
                     </label>
                     <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                       {(() => {
                         const rawPs = parseFloat(editForm.packSize) || 0
                         const hasWpe = rawPs > 0
@@ -649,28 +649,28 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand ({editForm.countUOM})</label>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({editForm.countUOM})</label>
                     <input type="number" step="any" value={editForm.stockOnHand}
                       onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
 
                 {/* Barcode */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Barcode</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Barcode</label>
                   <input
                     type="text"
                     value={editForm.barcode ?? ''}
                     onChange={e => setEditForm(f => ({ ...f, barcode: e.target.value || null }))}
                     placeholder="Scan or type barcode"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
 
                 {/* Allergens */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-2">Allergens (Health Canada Big 9)</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-2">Allergens (Health Canada Big 9)</label>
                   <AllergenToggles
                     active={new Set(editForm.allergens)}
                     onToggle={key => setEditForm(f => ({
@@ -702,19 +702,19 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     ? parseFloat(String(item.conversionFactor ?? 1))
                     : calcConversionFactor(cu, qty, qu, iq, ps, pu)
                   return (
-                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-purple-50' : 'bg-gold/10'}`}>
-                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-purple-700' : 'text-gold'}`}>
+                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-blue-soft' : 'bg-gold/10'}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-blue-text' : 'text-gold'}`}>
                         {isPrep ? 'Recipe-derived cost' : 'Auto-calculated'}
                       </div>
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-gold'}`}>Price per {bu}:</span>
-                        <span className={`text-lg font-bold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>{formatUnitPrice(ppbu)}</span>
+                        <span className={`text-xs ${isPrep ? 'text-blue' : 'text-gold'}`}>Price per {bu}:</span>
+                        <span className={`text-lg font-bold ${isPrep ? 'text-blue-text' : 'text-gold'}`}>{formatUnitPrice(ppbu)}</span>
                       </div>
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-purple-600' : 'text-gold'}`}>1 {cu} =</span>
-                        <span className={`font-semibold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>{cf.toFixed(4)} {bu}</span>
+                        <span className={`text-xs ${isPrep ? 'text-blue' : 'text-gold'}`}>1 {cu} =</span>
+                        <span className={`font-semibold ${isPrep ? 'text-blue-text' : 'text-gold'}`}>{cf.toFixed(4)} {bu}</span>
                       </div>
-                      <div className={`text-xs ${isPrep ? 'text-purple-500' : 'text-blue-500'}`}>
+                      <div className={`text-xs ${isPrep ? 'text-blue' : 'text-blue'}`}>
                         {(() => {
                           if (isPrep) return `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
                           if (editForm.priceType === 'UOM') {
@@ -737,7 +737,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <CategoryBadge category={item.category} />
                   <StockStatus stock={displayStock(item)} />
                   {item.allergens && item.allergens.length > 0 && item.allergens.map(a => (
-                    <span key={a} className="px-2 py-0.5 rounded-full text-[11px] bg-orange-100 text-orange-700 font-medium">⚠ {a}</span>
+                    <span key={a} className="px-2 py-0.5 rounded-full text-[11px] bg-gold-soft text-gold-2 font-medium">⚠ {a}</span>
                   ))}
                   {item.isActive
                     ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-soft text-green-text font-medium">Active</span>
@@ -780,20 +780,20 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     ))
                   })()}
 
-                  <div className={`rounded-[10px] p-3 col-span-2 border ${item.recipe ? 'bg-purple-50 border-purple-200' : 'bg-gold-soft border-[#fcd34d]'}`}>
+                  <div className={`rounded-[10px] p-3 col-span-2 border ${item.recipe ? 'bg-blue-soft border-blue-soft' : 'bg-gold-soft border-[#fcd34d]'}`}>
                     {item.recipe && (
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full">Recipe</span>
-                        <span className="text-[11px] text-purple-700 font-medium">{item.recipe.name}</span>
+                        <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] bg-blue-soft text-blue-text px-1.5 py-0.5 rounded-full">Recipe</span>
+                        <span className="text-[11px] text-blue-text font-medium">{item.recipe.name}</span>
                       </div>
                     )}
-                    <div className={`font-mono text-[10px] font-semibold uppercase tracking-[0.04em] ${item.recipe ? 'text-purple-600' : 'text-gold-2'}`}>
+                    <div className={`font-mono text-[10px] font-semibold uppercase tracking-[0.04em] ${item.recipe ? 'text-blue' : 'text-gold-2'}`}>
                       Price per {item.baseUnit}
                     </div>
-                    <div className={`font-mono text-[17px] font-semibold tabular-nums mt-1 tracking-[-0.01em] ${item.recipe ? 'text-purple-700' : 'text-gold-2'}`}>
+                    <div className={`font-mono text-[17px] font-semibold tabular-nums mt-1 tracking-[-0.01em] ${item.recipe ? 'text-blue-text' : 'text-gold-2'}`}>
                       {formatUnitPrice(ppb)} / {item.baseUnit}
                     </div>
-                    <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-purple-500' : 'text-[#92722f]'}`}>
+                    <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-blue' : 'text-[#92722f]'}`}>
                       {item.recipe
                         ? <>Recipe total {formatCurrency(pp)} ÷ {parseFloat(String(item.packSize ?? 1)).toLocaleString()} {item.baseUnit} yield</>
                         : isUom
@@ -840,13 +840,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       {stockMovements.movements.slice(0, 12).map(m => {
                         const isPositive = m.qty >= 0
                         const typeConfig: Record<MovementType, { label: string; color: string }> = {
-                          SALE:     { label: 'Sale',        color: 'text-red-500' },
-                          WASTAGE:  { label: 'Wastage',     color: 'text-orange-500' },
-                          PREP_IN:  { label: 'Prep (used)', color: 'text-purple-600' },
-                          PREP_OUT: { label: 'Prep (yield)',color: 'text-green-600' },
-                          PURCHASE: { label: 'Purchase',    color: 'text-blue-600' },
+                          SALE:     { label: 'Sale',        color: 'text-red' },
+                          WASTAGE:  { label: 'Wastage',     color: 'text-gold' },
+                          PREP_IN:  { label: 'Prep (used)', color: 'text-blue' },
+                          PREP_OUT: { label: 'Prep (yield)',color: 'text-green' },
+                          PURCHASE: { label: 'Purchase',    color: 'text-blue' },
                         }
-                        const cfg = typeConfig[m.type] ?? { label: m.type, color: 'text-gray-600' }
+                        const cfg = typeConfig[m.type] ?? { label: m.type, color: 'text-ink-3' }
                         return (
                           <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-bg text-[12px] transition-colors">
                             <div className="flex items-center gap-2 min-w-0">
@@ -854,7 +854,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                               <span className="text-ink-4 truncate">{m.description}</span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
-                              <span className={`font-semibold ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
+                              <span className={`font-semibold ${isPositive ? 'text-green' : 'text-red'}`}>
                                 {isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
                               </span>
                               <span className="text-ink-4 w-14 text-right">

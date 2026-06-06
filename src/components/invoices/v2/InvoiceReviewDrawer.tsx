@@ -1240,8 +1240,8 @@ function ApprovedView({
                   const up        = pct > 0
                   return (
                     <div key={alert.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-orange-50' : 'bg-green-soft'}`}>
-                        <BookOpen size={13} className={up ? 'text-orange-500' : 'text-green-text'} />
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${up ? 'bg-gold-soft' : 'bg-green-soft'}`}>
+                        <BookOpen size={13} className={up ? 'text-gold' : 'text-green-text'} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <span className="text-[13px] font-medium text-ink-2">{alert.recipe.name}</span>
@@ -1253,7 +1253,7 @@ function ApprovedView({
                         <div className="flex items-center gap-1.5 justify-end">
                           <span className="text-[12px] text-ink-4 line-through tabular-nums">{formatCurrency(prevCost)}</span>
                           <span className="text-[12px] font-medium text-ink-2 tabular-nums">{formatCurrency(newCost)}</span>
-                          <span className={`text-[11px] font-semibold ${up ? 'text-orange-500' : 'text-green-text'}`}>
+                          <span className={`text-[11px] font-semibold ${up ? 'text-gold' : 'text-green-text'}`}>
                             {up ? '+' : ''}{pct.toFixed(1)}%
                           </span>
                         </div>

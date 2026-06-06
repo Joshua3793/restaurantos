@@ -82,8 +82,8 @@ export default function CategoriesPage() {
   return (
     <div className="space-y-4 max-w-2xl">
       <div>
-        <h2 className="text-xl font-bold text-gray-900">Categories</h2>
-        <p className="text-sm text-gray-500 mt-0.5">Manage inventory categories — these are assigned to items in your inventory</p>
+        <h2 className="text-xl font-bold text-ink">Categories</h2>
+        <p className="text-sm text-ink-3 mt-0.5">Manage inventory categories — these are assigned to items in your inventory</p>
       </div>
 
       {/* Add form */}
@@ -93,24 +93,24 @@ export default function CategoriesPage() {
             value={newName}
             onChange={e => { setNewName(e.target.value); setError('') }}
             placeholder="New category name (e.g. BAKERY)..."
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+            className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
-          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+          {error && <p className="text-xs text-red mt-1">{error}</p>}
         </div>
-        <button type="submit" className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] whitespace-nowrap">
+        <button type="submit" className="flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-3 py-2 rounded-lg text-sm hover:bg-ink-2 whitespace-nowrap">
           <Plus size={15} /> Add
         </button>
       </form>
 
       {/* List */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-50">
-        {cats.length === 0 && <div className="text-center py-12 text-gray-400">No categories yet</div>}
+      <div className="bg-white rounded-xl border border-line shadow-sm divide-y divide-line">
+        {cats.length === 0 && <div className="text-center py-12 text-ink-4">No categories yet</div>}
         {cats.map(cat => {
           const pct = totalValue > 0 ? (cat.totalValue / totalValue) * 100 : 0
-          const colors = CATEGORY_COLORS[cat.name] || 'bg-gray-100 text-gray-700'
+          const colors = CATEGORY_COLORS[cat.name] || 'bg-bg-2 text-ink-2'
           return (
             <div key={cat.id} className="px-4 py-3 flex items-center gap-3">
-              <Tag size={14} className="text-gray-300 shrink-0" />
+              <Tag size={14} className="text-ink-4 shrink-0" />
 
               {editId === cat.id ? (
                 <>
@@ -119,10 +119,10 @@ export default function CategoriesPage() {
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleEdit(cat.id); if (e.key === 'Escape') setEditId(null) }}
-                    className="flex-1 border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none"
+                    className="flex-1 border border-blue rounded px-2 py-1 text-sm focus:outline-none"
                   />
-                  <button onClick={() => handleEdit(cat.id)} className="text-green-600 hover:text-green-700 p-1"><Check size={15} /></button>
-                  <button onClick={() => setEditId(null)} className="text-gray-400 hover:text-gray-600 p-1"><X size={15} /></button>
+                  <button onClick={() => handleEdit(cat.id)} className="text-green hover:text-green-text p-1"><Check size={15} /></button>
+                  <button onClick={() => setEditId(null)} className="text-ink-4 hover:text-ink-3 p-1"><X size={15} /></button>
                 </>
               ) : (
                 <>
@@ -131,16 +131,16 @@ export default function CategoriesPage() {
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-500">{cat.count} item{cat.count !== 1 ? 's' : ''}</span>
-                      <span className="text-xs font-semibold text-gray-700">${cat.totalValue.toFixed(2)}</span>
+                      <span className="text-xs text-ink-3">{cat.count} item{cat.count !== 1 ? 's' : ''}</span>
+                      <span className="text-xs font-semibold text-ink-2">${cat.totalValue.toFixed(2)}</span>
                     </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
                       <div className="h-full bg-gold/100 rounded-full transition-all" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
-                  <span className="text-xs text-gray-400 w-9 text-right shrink-0">{pct.toFixed(1)}%</span>
-                  <button onClick={() => { setEditId(cat.id); setEditName(cat.name) }} className="text-gray-400 hover:text-gold p-1"><Pencil size={13} /></button>
-                  <button onClick={() => handleDelete(cat.id, cat.name)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 size={13} /></button>
+                  <span className="text-xs text-ink-4 w-9 text-right shrink-0">{pct.toFixed(1)}%</span>
+                  <button onClick={() => { setEditId(cat.id); setEditName(cat.name) }} className="text-ink-4 hover:text-gold p-1"><Pencil size={13} /></button>
+                  <button onClick={() => handleDelete(cat.id, cat.name)} className="text-ink-4 hover:text-red p-1"><Trash2 size={13} /></button>
                 </>
               )}
             </div>

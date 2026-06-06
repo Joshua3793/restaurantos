@@ -19,14 +19,14 @@ interface PageHeadProps {
  */
 export function PageHead({ crumbs, title, sub, actions, className = '' }: PageHeadProps) {
   return (
-    <div className={`flex justify-between items-end gap-6 mb-6 flex-wrap ${className}`}>
-      <div className="min-w-0 flex-1">
+    <div className={`flex flex-col gap-4 md:flex-row md:justify-between md:items-end md:gap-6 md:flex-wrap mb-6 ${className}`}>
+      <div className="min-w-0 md:flex-1">
         {crumbs && (
-          <div className="font-mono text-[10.5px] text-ink-3 mb-[10px] tracking-[0] flex items-center gap-2">
+          <div className="font-mono text-[10.5px] text-ink-3 mb-[10px] tracking-[0] flex items-center gap-2 flex-wrap">
             {crumbs}
           </div>
         )}
-        <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none mb-1.5 text-ink">
+        <h1 className="text-[28px] md:text-[36px] font-semibold tracking-[-0.04em] leading-none mb-1.5 text-ink text-balance">
           {title}
         </h1>
         {sub && (
@@ -36,7 +36,7 @@ export function PageHead({ crumbs, title, sub, actions, className = '' }: PageHe
         )}
       </div>
       {actions && (
-        <div className="flex gap-2 items-center shrink-0">
+        <div className="flex gap-2 items-center flex-wrap md:shrink-0">
           {actions}
         </div>
       )}

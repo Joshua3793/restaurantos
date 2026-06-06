@@ -13,9 +13,9 @@ interface Props {
 }
 
 const fileIcon = (fileType: string) => {
-  if (fileType.includes('pdf')) return <FileText size={16} className="text-red-500" />
-  if (fileType.includes('csv') || fileType.includes('text')) return <FileSpreadsheet size={16} className="text-green-500" />
-  return <Image size={16} className="text-blue-500" />
+  if (fileType.includes('pdf')) return <FileText size={16} className="text-red" />
+  if (fileType.includes('csv') || fileType.includes('text')) return <FileSpreadsheet size={16} className="text-green" />
+  return <Image size={16} className="text-blue" />
 }
 
 export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
@@ -198,14 +198,14 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}>
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-line shrink-0">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-gold/15 flex items-center justify-center">
                 <ScanLine size={16} className="text-gold" />
               </div>
-              <h2 className="text-base font-bold text-gray-900">Upload Invoice</h2>
+              <h2 className="text-base font-bold text-ink">Upload Invoice</h2>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100">
+            <button onClick={onClose} className="p-1.5 rounded-lg text-ink-4 hover:bg-bg-2">
               <X size={16} />
             </button>
           </div>
@@ -213,14 +213,14 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
             {scanError && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+              <div className="bg-red-soft border border-red-soft rounded-xl p-4 text-sm text-red-text">
                 <strong>Upload error:</strong> {scanError}
               </div>
             )}
 
             {noApiKey && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-                <strong>ANTHROPIC_API_KEY not set.</strong> Add your key to <code className="bg-amber-100 px-1 rounded">.env</code> and restart the server to enable OCR scanning.
+              <div className="bg-gold-soft border border-gold-soft rounded-xl p-4 text-sm text-gold-2">
+                <strong>ANTHROPIC_API_KEY not set.</strong> Add your key to <code className="bg-gold-soft px-1 rounded">.env</code> and restart the server to enable OCR scanning.
               </div>
             )}
 
@@ -238,13 +238,13 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                   onDragLeave={() => setIsDragging(false)}
                   onDrop={handleDrop}
                   className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors ${
-                    isDragging ? 'border-blue-400 bg-gold/10' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                    isDragging ? 'border-blue bg-gold/10' : 'border-line hover:border-blue hover:bg-bg'
                   }`}
                 >
-                  <Upload size={32} className="text-gray-300" />
+                  <Upload size={32} className="text-ink-4" />
                   <div className="text-center">
-                    <p className="font-medium text-gray-700">Drop files here or click to browse</p>
-                    <p className="text-xs text-gray-400 mt-1">JPEG, PNG, PDF, CSV supported</p>
+                    <p className="font-medium text-ink-2">Drop files here or click to browse</p>
+                    <p className="text-xs text-ink-4 mt-1">JPEG, PNG, PDF, CSV supported</p>
                   </div>
                   <input
                     id="invoice-file-input"
@@ -259,14 +259,14 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
                 </label>
 
                 {files.length > 0 && (
-                  <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
+                  <div className="bg-white rounded-xl border border-line divide-y divide-line">
                     {files.map((f, i) => (
                       <div key={i} className="flex items-center gap-3 px-4 py-3">
                         {fileIcon(f.type)}
-                        <span className="flex-1 text-sm text-gray-700 truncate">{f.name}</span>
-                        <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
+                        <span className="flex-1 text-sm text-ink-2 truncate">{f.name}</span>
+                        <span className="text-xs text-ink-4">{(f.size / 1024).toFixed(0)} KB</span>
                         <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>
-                          <X size={14} className="text-gray-300 hover:text-red-400" />
+                          <X size={14} className="text-ink-4 hover:text-red" />
                         </button>
                       </div>
                     ))}
@@ -277,11 +277,11 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
           </div>
 
           {/* Footer with Scan button */}
-          <div className="px-5 py-4 border-t border-gray-100 shrink-0">
+          <div className="px-5 py-4 border-t border-line shrink-0">
             <button
               onClick={handleStartScan}
               disabled={files.length === 0 || isCreating}
-              className="w-full bg-gold text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-[#a88930] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="w-full bg-ink text-paper [&_svg]:text-gold rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-ink-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isCreating ? <Loader2 size={18} className="animate-spin" /> : <ScanLine size={18} />}
               {uploadStep ?? (isCreating ? 'Starting…' : `Upload${files.length > 0 ? ` ${files.length} ${files.length > 1 ? 'files' : 'file'}` : ' Invoice'}`)}

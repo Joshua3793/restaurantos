@@ -144,14 +144,14 @@ export function formatQtyUnit(qty: number, unit: string): string {
 }
 
 export const CATEGORY_COLORS: Record<string, string> = {
-  BREAD: 'bg-amber-100 text-amber-800',
-  DAIRY: 'bg-blue-100 text-blue-800',
+  BREAD: 'bg-gold-soft text-gold-2',
+  DAIRY: 'bg-blue-soft text-blue-text',
   DRY: 'bg-yellow-100 text-yellow-800',
-  FISH: 'bg-cyan-100 text-cyan-800',
-  MEAT: 'bg-red-100 text-red-800',
-  PREPD: 'bg-purple-100 text-purple-800',
-  PROD: 'bg-green-100 text-green-800',
-  CHM: 'bg-gray-100 text-gray-800',
+  FISH: 'bg-blue-soft text-blue-text',
+  MEAT: 'bg-red-soft text-red-text',
+  PREPD: 'bg-blue-soft text-blue-text',
+  PROD: 'bg-green-soft text-green-text',
+  CHM: 'bg-bg-2 text-ink-2',
 }
 
 export const CATEGORIES = ['BREAD', 'DAIRY', 'DRY', 'FISH', 'MEAT', 'PREPD', 'PROD', 'CHM'] as const

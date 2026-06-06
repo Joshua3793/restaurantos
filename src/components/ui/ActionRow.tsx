@@ -28,7 +28,7 @@ export function ActionRow({ icon, title, titleMeta, caption, tone = 'default', r
             {titleMeta && <span className="ui-meta">{titleMeta}</span>}
           </div>
           {caption && (
-            <p className={`ui-meta mt-0.5 ${tone === 'alert' ? 'text-red-600' : ''}`}>{caption}</p>
+            <p className={`ui-meta mt-0.5 ${tone === 'alert' ? 'text-red' : ''}`}>{caption}</p>
           )}
         </div>
       </div>

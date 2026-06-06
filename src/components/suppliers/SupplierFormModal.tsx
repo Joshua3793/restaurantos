@@ -126,10 +126,10 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
     >
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 pb-4 shrink-0">
-          <h3 className="text-base font-bold text-gray-900">
+          <h3 className="text-base font-bold text-ink">
             {supplier ? 'Edit Supplier' : 'Add Supplier'}
           </h3>
-          <button onClick={onClose} className="p-2.5 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center rounded-lg text-ink-4 hover:bg-bg-2">
             <X size={16} />
           </button>
         </div>
@@ -137,7 +137,7 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
           <div className="space-y-3 px-6 flex-1 overflow-y-auto">
           {fields.map(f => (
             <div key={f.key}>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label className="block text-xs font-medium text-ink-3 mb-1">
                 {f.label}{f.required && ' *'}
               </label>
               <input
@@ -145,27 +145,27 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
                 value={form[f.key] as string}
                 onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                 placeholder={f.placeholder ?? ''}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
           ))}
 
           {/* Invoice Names section */}
           <div className="pt-1">
-            <label className="block text-xs font-medium text-gray-600 mb-2">Invoice Names</label>
-            <p className="text-xs text-gray-400 mb-2">OCR names from invoices that map to this supplier</p>
+            <label className="block text-xs font-medium text-ink-3 mb-2">Invoice Names</label>
+            <p className="text-xs text-ink-4 mb-2">OCR names from invoices that map to this supplier</p>
             {form.aliases.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {form.aliases.map(name => (
                   <span
                     key={name}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-md text-xs font-mono text-gray-700"
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-bg-2 rounded-md text-xs font-mono text-ink-2"
                   >
                     {name}
                     <button
                       type="button"
                       onClick={() => handleRemoveAlias(name)}
-                      className="text-gray-400 hover:text-red-500 transition-colors"
+                      className="text-ink-4 hover:text-red transition-colors"
                     >
                       <X size={10} />
                     </button>
@@ -179,12 +179,12 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
                 onChange={e => setNewAlias(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlias() } }}
                 placeholder="Add invoice name…"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold font-mono"
+                className="flex-1 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold font-mono"
               />
               <button
                 type="button"
                 onClick={handleAddAlias}
-                className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors"
+                className="px-3 py-2 bg-bg-2 text-ink-2 rounded-lg text-sm hover:bg-line transition-colors"
               >
                 <Plus size={14} />
               </button>
@@ -193,18 +193,18 @@ export function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
 
           </div>
 
-          <div className="flex gap-2 p-6 pt-4 border-t border-gray-100 shrink-0">
+          <div className="flex gap-2 p-6 pt-4 border-t border-line shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50"
+              className="flex-1 border border-line rounded-lg py-2 text-sm hover:bg-bg"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50"
+              className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-lg py-2 text-sm font-semibold hover:bg-ink-2 disabled:opacity-50"
             >
               {saving ? 'Saving…' : supplier ? 'Save Changes' : 'Add Supplier'}
             </button>

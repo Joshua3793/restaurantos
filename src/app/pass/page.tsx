@@ -204,7 +204,7 @@ export default function PassPage() {
 
         <PageHead
           crumbs={<><Clock size={12} /> TODAY / PASS · {fmtCrumbDate(new Date())}</>}
-          title={<>Good {greeting}, <em className="not-italic text-gold-2">{firstName}</em>.</>}
+          title={<>Good {greeting}, <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.</>}
           sub={<>
             {greeting === 'morning' ? 'Dinner' : 'Tomorrow'} service in <b>{remainingH}h {remainingM}m</b>
             {dashboard && <> · weekly food sales <b>{formatCurrency(dashboard.weeklyRevenue)}</b></>}
@@ -222,7 +222,7 @@ export default function PassPage() {
           }
         />
 
-        <div className="grid gap-3 mb-6" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>
+        <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <HeroKPI chrome={chrome} dashboard={dashboard} />
           <KPI label="ON HAND"
             value={dashboard ? formatCurrency(dashboard.totalInventoryValue) : '—'}
@@ -243,7 +243,7 @@ export default function PassPage() {
           />
         </div>
 
-        <div className="grid gap-5" style={{ gridTemplateColumns: '1fr 320px' }}>
+        <div className="grid gap-5 grid-cols-1 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5 min-w-0">
 
             <section className="bg-paper border border-line rounded-[12px] overflow-hidden">
@@ -323,15 +323,15 @@ function HeroKPI({ chrome, dashboard }: { chrome: CostChromeData | null; dashboa
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
-        <div className="font-mono text-[10.5px] text-zinc-500 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
         <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
           {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decimal}</sub>
         </div>
       </div>
-      <div className="font-mono text-[11px] text-zinc-500 tracking-[0]">
+      <div className="font-mono text-[11px] text-ink-3 tracking-[0]">
         target <b className="text-paper">{target.toFixed(1)}</b>
         {pct !== null && (
-          <> · <span className={pct > target ? 'text-red-300' : 'text-green-400'}>
+          <> · <span className={pct > target ? 'text-red' : 'text-green'}>
             {pct > target ? '+' : ''}{(pct - target).toFixed(1)}
           </span> vs target</>
         )}
@@ -365,11 +365,11 @@ function AttnRow({ item }: { item: AttnItem }) {
     : item.cost.tint === 'ok' ? 'text-green-text' : ''
   const Icon = item.icon
   return (
-    <Link href={item.ctaHref} className="grid grid-cols-[48px_1fr_auto_auto] items-center gap-3.5 px-[18px] py-3.5 border-b border-line last:border-0 cursor-pointer hover:bg-bg-2/40 transition-colors">
+    <Link href={item.ctaHref} className="grid grid-cols-[48px_minmax(0,1fr)_auto_auto] items-center gap-3.5 px-[18px] py-3.5 border-b border-line last:border-0 cursor-pointer hover:bg-bg-2/40 transition-colors">
       <div className={`w-9 h-9 rounded-[9px] grid place-items-center shrink-0 ${tint}`}>
         <Icon size={16} />
       </div>
-      <div>
+      <div className="min-w-0">
         <div className="text-[14px] font-medium tracking-[-0.01em] text-ink [&_b]:font-semibold [&_b]:text-red-text">{item.title}</div>
         <div className="font-mono text-[10.5px] text-ink-3 mt-1 tracking-[0]">{item.meta}</div>
       </div>
@@ -377,7 +377,7 @@ function AttnRow({ item }: { item: AttnItem }) {
         {item.cost.value}
         <small className="block font-normal text-ink-3 font-mono text-[10.5px] mt-0.5">{item.cost.sub}</small>
       </div>
-      <button className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-[#27272a] transition-colors">
+      <button className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-ink-2 transition-colors">
         {item.ctaLabel}
       </button>
     </Link>
@@ -454,15 +454,15 @@ function LoopStrip({ phase, weeklyRevenue }: { phase: number; weeklyRevenue?: nu
   return (
     <div className="bg-ink text-paper rounded-[12px] px-5 py-4 flex items-center gap-5 flex-wrap">
       <span className="font-mono text-[10.5px] text-gold uppercase tracking-[0.04em] font-semibold whitespace-nowrap">↻ THE LOOP</span>
-      <div className="text-[12.5px] text-zinc-300 tracking-[-0.005em] flex-1 min-w-[300px] [&_b]:text-paper [&_b]:font-medium">
+      <div className="text-[12.5px] text-line-2 tracking-[-0.005em] flex-1 min-w-[300px] [&_b]:text-paper [&_b]:font-medium">
         You&apos;re at <b>{labels[phase]}</b> — overnight invoices write prices, prep starts, sales drain theoretical, counts close the loop weekly.
         {typeof weeklyRevenue === 'number' && weeklyRevenue > 0 && <> WTD revenue: <b>{formatCurrency(weeklyRevenue)}</b>.</>}
       </div>
-      <div className="hidden xl:flex items-center gap-1.5 font-mono text-[11px] text-zinc-500">
+      <div className="hidden xl:flex items-center gap-1.5 font-mono text-[11px] text-ink-3">
         {labels.map((label, i) => (
           <span key={label} className="flex items-center gap-1.5">
-            <span className={`px-2.5 py-1 border rounded-full ${i === phase ? 'bg-gold text-ink border-gold font-semibold' : 'border-zinc-800 text-zinc-500'}`}>{label}</span>
-            {i < labels.length - 1 && <span className="text-zinc-700">→</span>}
+            <span className={`px-2.5 py-1 border rounded-full ${i === phase ? 'bg-gold text-ink border-gold font-semibold' : 'border-ink-2 text-ink-3'}`}>{label}</span>
+            {i < labels.length - 1 && <span className="text-ink-2">→</span>}
           </span>
         ))}
       </div>

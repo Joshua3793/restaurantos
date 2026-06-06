@@ -254,11 +254,11 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
           </span>
           <div className="flex-1" />
           <button onClick={clearSelection}
-            className="font-mono text-[11px] uppercase tracking-[0.04em] text-zinc-400 hover:text-paper inline-flex items-center gap-1 transition-colors">
+            className="font-mono text-[11px] uppercase tracking-[0.04em] text-ink-4 hover:text-paper inline-flex items-center gap-1 transition-colors">
             <X size={11} /> Clear
           </button>
           <button onClick={() => setBulkDeleteConfirm(true)}
-            className="inline-flex items-center gap-1.5 bg-red-600 text-white text-[12px] font-medium px-3 py-1.5 rounded-[8px] hover:bg-red-700 transition-colors">
+            className="inline-flex items-center gap-1.5 bg-red text-white text-[12px] font-medium px-3 py-1.5 rounded-[8px] hover:bg-red transition-colors">
             <Trash2 size={11} /> Delete {selectedInView.length}
           </button>
         </div>
@@ -506,7 +506,7 @@ function ConfirmModal({ onCancel, onConfirm, confirming, title, body, warning = 
             Cancel
           </button>
           <button onClick={onConfirm} disabled={confirming}
-            className="flex-1 px-3 py-2 rounded-[9px] bg-red-600 text-white text-[13px] font-medium hover:bg-red-700 disabled:opacity-50 transition-colors">
+            className="flex-1 px-3 py-2 rounded-[9px] bg-red text-white text-[13px] font-medium hover:bg-red disabled:opacity-50 transition-colors">
             {confirming ? 'Deleting…' : confirmLabel}
           </button>
         </div>

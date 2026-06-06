@@ -181,12 +181,12 @@ function HeroCard({ chrome, target }: { chrome: ChromeData | null; target: numbe
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
-        <div className="font-mono text-[10.5px] text-zinc-500 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
         <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
           {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decStr}</sub>
         </div>
       </div>
-      <div className="font-mono text-[11px] text-zinc-500 tracking-[0]">
+      <div className="font-mono text-[11px] text-ink-3 tracking-[0]">
         target <b className="text-paper">{target.toFixed(1)}</b>
         {pct !== null && <> · <span className={pct > target ? 'text-[#fca5a5]' : 'text-[#4ade80]'}>{pct > target ? '+' : ''}{(pct - target).toFixed(1)}</span></>}
       </div>

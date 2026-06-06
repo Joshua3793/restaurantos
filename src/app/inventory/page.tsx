@@ -102,11 +102,11 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
         onChange={e => setQuery(e.target.value)}
         onFocus={() => { setOpen(true); setQuery('') }}
         placeholder={placeholder}
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold"
+        className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
       />
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {filtered.length === 0 && !query && <div className="px-3 py-2 text-sm text-gray-400">No options</div>}
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          {filtered.length === 0 && !query && <div className="px-3 py-2 text-sm text-ink-4">No options</div>}
           {filtered.map(item => (
             <button key={item.id} type="button"
               onMouseDown={() => { onSelect(item.id, item.name); setQuery(''); setOpen(false) }}
@@ -119,7 +119,7 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
                 const r = await onAddNew(query)
                 onSelect(r.id, r.name); setQuery(''); setOpen(false)
               }}
-              className="block w-full text-left px-3 py-2 text-sm text-gold hover:bg-gold/10 border-t border-gray-100"
+              className="block w-full text-left px-3 py-2 text-sm text-gold hover:bg-gold/10 border-t border-line"
             >+ Add &ldquo;{query}&rdquo;</button>
           )}
         </div>
@@ -169,7 +169,7 @@ function isCountedThisWeek(item: InventoryItem) {
 
 function SortIcon({ col, colSort }: { col: ColKey; colSort: { col: ColKey; dir: ColDir } | null }) {
   if (!colSort || colSort.col !== col)
-    return <ChevronsUpDown size={9} className="text-zinc-400 ml-[3px] inline-block shrink-0" />
+    return <ChevronsUpDown size={9} className="text-ink-4 ml-[3px] inline-block shrink-0" />
   return colSort.dir === 'asc'
     ? <ChevronUp size={9} className="text-gold ml-[3px] inline-block shrink-0" />
     : <ChevronDown size={9} className="text-gold ml-[3px] inline-block shrink-0" />
@@ -600,11 +600,11 @@ function InventoryPageInner() {
     return (
       <tr
         key={item.id}
-        className={`hover:bg-[#fafaf9] cursor-pointer border-b border-line ${!item.isActive ? 'opacity-50' : ''}`}
+        className={`hover:bg-bg cursor-pointer border-b border-line ${!item.isActive ? 'opacity-50' : ''}`}
         onClick={() => setSelected(item)}
       >
         <td className="pl-4 py-[13px] pr-2" onClick={e => e.stopPropagation()}>
-          <button onClick={() => toggleCheck(item.id)} className="text-zinc-400 hover:text-gold">
+          <button onClick={() => toggleCheck(item.id)} className="text-ink-4 hover:text-gold">
             {checkedIds.has(item.id) ? <CheckSquare size={16} className="text-gold" /> : <Square size={16} />}
           </button>
         </td>
@@ -622,7 +622,7 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px] hidden md:table-cell">
           {item.supplier?.name
             ? <span className="text-[13px] text-ink-2">{item.supplier.name}</span>
-            : <span className="text-[13px] text-zinc-400">&mdash;</span>
+            : <span className="text-[13px] text-ink-4">&mdash;</span>
           }
         </td>
         <td className="px-3 py-[13px]">
@@ -638,7 +638,7 @@ function InventoryPageInner() {
           </span>
         </td>
         <td className="px-3 py-[13px]">
-          <span className={`font-mono text-[13px] whitespace-nowrap ${itemValue > 0 ? 'text-ink font-medium' : 'text-zinc-400 font-normal'}`}>
+          <span className={`font-mono text-[13px] whitespace-nowrap ${itemValue > 0 ? 'text-ink font-medium' : 'text-ink-4 font-normal'}`}>
             {formatCurrency(itemValue)}
           </span>
         </td>
@@ -661,11 +661,11 @@ function InventoryPageInner() {
             </button>
             {confirmDeleteId === item.id ? (
               <div className="flex items-center gap-1">
-                <button onClick={e => handleDeleteItem(e, item.id)} className="text-xs font-medium text-red-600 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50 transition-colors">Yes</button>
-                <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }} className="text-xs text-zinc-400 hover:text-ink-2 px-1 py-0.5 rounded hover:bg-bg-2 transition-colors">No</button>
+                <button onClick={e => handleDeleteItem(e, item.id)} className="text-xs font-medium text-red hover:text-red-text px-1 py-0.5 rounded hover:bg-red-soft transition-colors">Yes</button>
+                <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null) }} className="text-xs text-ink-4 hover:text-ink-2 px-1 py-0.5 rounded hover:bg-bg-2 transition-colors">No</button>
               </div>
             ) : (
-              <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(item.id) }} title="Delete item" className="text-zinc-400 hover:text-red-500 transition-colors">
+              <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(item.id) }} title="Delete item" className="text-ink-4 hover:text-red transition-colors">
                 <Trash2 size={13} />
               </button>
             )}
@@ -824,7 +824,7 @@ function InventoryPageInner() {
             ))}
           </div>
           <div>
-            <div className="font-mono text-[10.5px] text-[#a1a1aa] tracking-[0.01em]">CURRENT STOCK VALUE</div>
+            <div className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">CURRENT STOCK VALUE</div>
             <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2 whitespace-nowrap">
               {formatCurrency(kpis.totalValue).split('.')[0]}
               <sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline ml-[1px]">
@@ -832,7 +832,7 @@ function InventoryPageInner() {
               </sub>
             </div>
           </div>
-          <div className="font-mono text-[11px] text-[#a1a1aa] mt-2">
+          <div className="font-mono text-[11px] text-ink-4 mt-2">
             {kpis.activeCount} active items
           </div>
         </div>
@@ -892,14 +892,14 @@ function InventoryPageInner() {
         {/* Always-visible controls row */}
         <div className="flex items-center gap-1.5">
           {/* Grouped / Flat toggle */}
-          <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5 bg-white shrink-0">
+          <div className="flex items-center gap-0.5 border border-line rounded-lg p-0.5 bg-white shrink-0">
             {([['category', '⊞'], ['all', '≡']] as [SortMode, string][]).map(([mode, label]) => (
               <button
                 key={mode}
                 onClick={() => setSortBy(mode)}
                 title={mode === 'category' ? 'Grouped by category' : 'Flat list'}
                 className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                  sortBy === mode ? 'bg-gold text-white shadow-sm' : 'text-gray-500'
+                  sortBy === mode ? 'bg-ink text-paper [&_svg]:text-gold shadow-sm' : 'text-ink-3'
                 }`}
               >
                 {label}
@@ -910,7 +910,7 @@ function InventoryPageInner() {
           <button
             onClick={() => setShowMobileSortSheet(true)}
             className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-              colSort ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-gray-200 text-gray-600'
+              colSort ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-line text-ink-3'
             }`}
           >
             <ChevronsUpDown size={11} />
@@ -921,7 +921,7 @@ function InventoryPageInner() {
           <button
             onClick={() => setShowMobileFilterSheet(true)}
             className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-              (catFilter || supplierFilter || areaFilter) ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-gray-200 text-gray-600'
+              (catFilter || supplierFilter || areaFilter) ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-line text-ink-3'
             }`}
           >
             ▽ Filter{(catFilter || supplierFilter || areaFilter) ? ' ·' : ''}
@@ -991,7 +991,7 @@ function InventoryPageInner() {
                   : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
               }`}
             >
-              {p.label} <span className={activePill === p.key ? 'text-[#a1a1aa]' : 'text-ink-3'}>{count}</span>
+              {p.label} <span className={activePill === p.key ? 'text-ink-4' : 'text-ink-3'}>{count}</span>
             </button>
           )
         })}
@@ -1043,7 +1043,7 @@ function InventoryPageInner() {
 
       {/* needsReview banner */}
       {items.some(i => i.needsReview) && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="flex items-start gap-3 rounded-lg border border-gold-soft bg-gold-soft px-4 py-3 text-sm text-gold-2">
           <span className="text-base">⚠</span>
           <div className="flex-1">
             <span className="font-semibold">{items.filter(i => i.needsReview).length} items need purchase structure review</span>
@@ -1066,10 +1066,10 @@ function InventoryPageInner() {
               <span className="font-mono text-[11px] uppercase tracking-[0.04em] text-paper shrink-0"><span className="text-gold font-semibold">{checkedIds.size}</span> selected</span>
               <div className="flex gap-2 flex-wrap flex-1">
                 <button onClick={() => executeBulk('activate')}   className="px-3 py-1.5 bg-paper text-ink text-xs rounded-[8px] hover:bg-bg font-medium">Activate</button>
-                <button onClick={() => executeBulk('deactivate')} className="px-3 py-1.5 bg-zinc-800 text-paper text-xs rounded-[8px] hover:bg-zinc-700 border border-zinc-700">Deactivate</button>
+                <button onClick={() => executeBulk('deactivate')} className="px-3 py-1.5 bg-ink-2 text-paper text-xs rounded-[8px] hover:bg-ink-2 border border-ink-2">Deactivate</button>
                 <button
                   onClick={() => setShowBulkAllergen(true)}
-                  className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
+                  className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
                 >
                   Assign Allergens
                 </button>
@@ -1077,14 +1077,14 @@ function InventoryPageInner() {
                 <div className="relative">
                   <button
                     onClick={() => { setBulkAction('setCategory'); setShowBulkMenu(v => bulkAction === 'setCategory' ? !v : true) }}
-                    className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
                   >
                     Assign Category <ChevronDown size={12} />
                   </button>
                   {showBulkMenu && bulkAction === 'setCategory' && (
-                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-40 max-h-56 overflow-y-auto">
+                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-40 max-h-56 overflow-y-auto">
                       {categories.map(c => (
-                        <button key={c.id} onClick={() => executeBulk('setCategory', c.name)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">{c.name}</button>
+                        <button key={c.id} onClick={() => executeBulk('setCategory', c.name)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{c.name}</button>
                       ))}
                     </div>
                   )}
@@ -1093,14 +1093,14 @@ function InventoryPageInner() {
                 <div className="relative">
                   <button
                     onClick={() => { setBulkAction('setSupplier'); setShowBulkMenu(v => bulkAction === 'setSupplier' ? !v : true) }}
-                    className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
                   >
                     Assign Supplier <ChevronDown size={12} />
                   </button>
                   {showBulkMenu && bulkAction === 'setSupplier' && (
-                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-44 max-h-56 overflow-y-auto">
+                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-44 max-h-56 overflow-y-auto">
                       {suppliers.map(s => (
-                        <button key={s.id} onClick={() => executeBulk('setSupplier', s.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">{s.name}</button>
+                        <button key={s.id} onClick={() => executeBulk('setSupplier', s.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{s.name}</button>
                       ))}
                     </div>
                   )}
@@ -1109,14 +1109,14 @@ function InventoryPageInner() {
                 <div className="relative">
                   <button
                     onClick={() => { setBulkAction('setStorageArea'); setShowBulkMenu(v => bulkAction === 'setStorageArea' ? !v : true) }}
-                    className="px-3 py-1.5 bg-zinc-800 text-paper border border-zinc-700 text-xs rounded-[8px] hover:bg-zinc-700 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
                   >
                     Assign Area <ChevronDown size={12} />
                   </button>
                   {showBulkMenu && bulkAction === 'setStorageArea' && (
-                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-48 max-h-56 overflow-y-auto">
+                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-48 max-h-56 overflow-y-auto">
                       {storageAreas.map(a => (
-                        <button key={a.id} onClick={() => executeBulk('setStorageArea', a.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">{a.name}</button>
+                        <button key={a.id} onClick={() => executeBulk('setStorageArea', a.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{a.name}</button>
                       ))}
                     </div>
                   )}
@@ -1125,7 +1125,7 @@ function InventoryPageInner() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs rounded-[8px] hover:bg-red-700 font-medium"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red text-white text-xs rounded-[8px] hover:bg-red font-medium"
                 >
                   <Trash2 size={12} /> Delete
                 </button>
@@ -1146,19 +1146,19 @@ function InventoryPageInner() {
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-900">Sort by</h3>
-              <button onClick={() => setShowMobileSortSheet(false)}><X size={18} className="text-gray-400" /></button>
+              <h3 className="font-bold text-ink">Sort by</h3>
+              <button onClick={() => setShowMobileSortSheet(false)}><X size={18} className="text-ink-4" /></button>
             </div>
             {/* Grouped / Flat */}
             <div className="mb-4">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">View</div>
+              <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2">View</div>
               <div className="flex gap-2">
                 {([['category', '⊞ Grouped'], ['all', '≡ Flat']] as [SortMode, string][]).map(([mode, label]) => (
                   <button
                     key={mode}
                     onClick={() => { setSortBy(mode); setShowMobileSortSheet(false) }}
                     className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-                      sortBy === mode ? 'bg-gold text-white border-gold' : 'bg-white text-gray-600 border-gray-200'
+                      sortBy === mode ? 'bg-ink text-paper border-ink [&_svg]:text-gold' : 'bg-white text-ink-3 border-line'
                     }`}
                   >
                     {label}
@@ -1168,7 +1168,7 @@ function InventoryPageInner() {
             </div>
             {/* Column sort */}
             <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Sort column</div>
+              <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2">Sort column</div>
               <div className="space-y-1">
                 {([
                   ['item',     'Item name'],
@@ -1181,7 +1181,7 @@ function InventoryPageInner() {
                     key={col}
                     onClick={() => { toggleColSort(col); setShowMobileSortSheet(false) }}
                     className={`flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm transition-colors ${
-                      colSort?.col === col ? 'bg-gold/10 text-gold font-semibold' : 'bg-gray-50 text-gray-700'
+                      colSort?.col === col ? 'bg-gold/10 text-gold font-semibold' : 'bg-bg text-ink-2'
                     }`}
                   >
                     <span>{label}</span>
@@ -1206,38 +1206,38 @@ function InventoryPageInner() {
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative bg-white w-full rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-900">Filter</h3>
-              <button onClick={() => setShowMobileFilterSheet(false)}><X size={18} className="text-gray-400" /></button>
+              <h3 className="font-bold text-ink">Filter</h3>
+              <button onClick={() => setShowMobileFilterSheet(false)}><X size={18} className="text-ink-4" /></button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Category</label>
+                <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1.5">Category</label>
                 <select
                   value={catFilter}
                   onChange={e => setCatFilter(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">All Categories</option>
                   {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Supplier</label>
+                <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1.5">Supplier</label>
                 <select
                   value={supplierFilter}
                   onChange={e => setSupplierFilter(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">All Suppliers</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Storage Area</label>
+                <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1.5">Storage Area</label>
                 <select
                   value={areaFilter}
                   onChange={e => setAreaFilter(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">All Areas</option>
                   {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -1245,7 +1245,7 @@ function InventoryPageInner() {
               </div>
               <button
                 onClick={() => { setCatFilter(''); setSupplierFilter(''); setAreaFilter(''); setShowMobileFilterSheet(false) }}
-                className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 font-medium"
+                className="w-full py-2.5 border border-line rounded-xl text-sm text-ink-3 font-medium"
               >
                 Clear filters
               </button>
@@ -1292,23 +1292,23 @@ function InventoryPageInner() {
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
             <div className="bg-white w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
-              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100 shrink-0">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-line shrink-0">
                 <div className="flex items-center gap-2">
-                  <ShoppingCart size={18} className="text-green-600" />
-                  <h2 className="font-semibold text-gray-900">Order Guide</h2>
-                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{orderItems.length} items</span>
+                  <ShoppingCart size={18} className="text-green" />
+                  <h2 className="font-semibold text-ink">Order Guide</h2>
+                  <span className="text-xs bg-gold-soft text-gold-2 px-1.5 py-0.5 rounded-full">{orderItems.length} items</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => { navigator.clipboard.writeText(copyText) }}
-                    className="flex items-center gap-1.5 text-xs border border-gray-200 px-2.5 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50">
+                    className="flex items-center gap-1.5 text-xs border border-line px-2.5 py-1.5 rounded-lg text-ink-3 hover:bg-bg">
                     <Copy size={12} /> Copy
                   </button>
-                  <button onClick={() => setShowOrderList(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
+                  <button onClick={() => setShowOrderList(false)} className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={18} /></button>
                 </div>
               </div>
 
               {/* Filter tabs */}
-              <div className="flex gap-1.5 px-4 py-2 border-b border-gray-100 bg-gray-50 shrink-0">
+              <div className="flex gap-1.5 px-4 py-2 border-b border-line bg-bg shrink-0">
                 {([
                   { key: 'all' as OrderTab,        label: `All (${orderItems.length})` },
                   { key: 'belowPar' as OrderTab,   label: `⚠ Below Par (${belowPar.length})` },
@@ -1319,10 +1319,10 @@ function InventoryPageInner() {
                     onClick={() => setOrderTab(t.key)}
                     className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
                       orderTab === t.key
-                        ? 'bg-gray-900 text-white'
+                        ? 'bg-ink text-white'
                         : t.key === 'belowPar'
-                          ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                          : 'text-gray-500 hover:bg-gray-100'
+                          ? 'bg-gold-soft text-gold-2 hover:bg-gold-soft'
+                          : 'text-ink-3 hover:bg-bg-2'
                     }`}
                   >
                     {t.label}
@@ -1332,31 +1332,31 @@ function InventoryPageInner() {
 
               <div className="overflow-y-auto flex-1 p-4 space-y-4">
                 {tabItems.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400 text-sm">No items in this category</div>
+                  <div className="text-center py-12 text-ink-4 text-sm">No items in this category</div>
                 ) : (
                   Array.from(bySupplier.values()).map(({ supplierName, items: grp }) => (
                     <div key={supplierName}>
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{supplierName}</div>
+                      <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2">{supplierName}</div>
                       <div className="space-y-1">
                         {grp.map(item => {
                           const isOut = displayStock(item) <= 0
                           return (
-                            <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                            <div key={item.id} className="flex items-center gap-2 bg-bg rounded-lg px-3 py-2">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5">
-                                  <div className="text-sm font-medium text-gray-800 truncate">{item.itemName}</div>
+                                  <div className="text-sm font-medium text-ink-2 truncate">{item.itemName}</div>
                                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
-                                    isOut ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                                    isOut ? 'bg-red-soft text-red-text' : 'bg-gold-soft text-gold-2'
                                   }`}>
                                     {isOut ? 'Out' : 'Low'}
                                   </span>
                                 </div>
                                 {item.parLevel != null ? (
-                                  <div className="text-xs text-gray-400">
+                                  <div className="text-xs text-ink-4">
                                     Par {item.parLevel} {item.countUOM} · Have {displayStock(item).toFixed(1)}
                                   </div>
                                 ) : (
-                                  <div className="text-xs text-gray-400">
+                                  <div className="text-xs text-ink-4">
                                     {formatCurrency(parseFloat(String(item.purchasePrice)))} / {item.purchaseUnit}
                                   </div>
                                 )}
@@ -1366,8 +1366,8 @@ function InventoryPageInner() {
                                   value={orderQtys[item.id] ?? suggestedQty(item)}
                                   onChange={e => setOrderQtys(q => ({ ...q, [item.id]: e.target.value }))}
                                   placeholder="qty"
-                                  className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-400" />
-                                <span className="text-xs text-gray-500">{item.purchaseUnit}</span>
+                                  className="w-14 border border-line rounded-lg px-2 py-1 text-sm text-center text-ink focus:outline-none focus:ring-2 focus:ring-green" />
+                                <span className="text-xs text-ink-3">{item.purchaseUnit}</span>
                               </div>
                             </div>
                           )
@@ -1387,27 +1387,27 @@ function InventoryPageInner() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <Trash2 size={18} className="text-red-600" />
+              <div className="w-10 h-10 rounded-full bg-red-soft flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">Delete {checkedIds.size} item{checkedIds.size > 1 ? 's' : ''}?</h3>
-                <p className="text-xs text-gray-500 mt-0.5">This action cannot be undone.</p>
+                <h3 className="font-semibold text-ink">Delete {checkedIds.size} item{checkedIds.size > 1 ? 's' : ''}?</h3>
+                <p className="text-xs text-ink-3 mt-0.5">This action cannot be undone.</p>
               </div>
             </div>
-            <p className="text-sm text-gray-600 mb-5">
-              You are about to permanently delete <span className="font-semibold text-gray-900">{checkedIds.size} inventory item{checkedIds.size > 1 ? 's' : ''}</span>. This will remove them from all records.
+            <p className="text-sm text-ink-3 mb-5">
+              You are about to permanently delete <span className="font-semibold text-ink">{checkedIds.size} inventory item{checkedIds.size > 1 ? 's' : ''}</span>. This will remove them from all records.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="flex-1 px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg"
               >
                 Cancel
               </button>
               <button
                 onClick={async () => { setShowDeleteConfirm(false); await executeBulk('delete') }}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red text-white text-sm font-medium hover:bg-red"
               >
                 Yes, delete
               </button>
@@ -1457,7 +1457,7 @@ function InventoryPageInner() {
             <thead className="bg-bg-2 border-b border-line">
               <tr>
                 <th className="pl-4 py-[10px] pr-2 w-8">
-                  <button onClick={toggleAll} className="text-zinc-400 hover:text-gold">
+                  <button onClick={toggleAll} className="text-ink-4 hover:text-gold">
                     {checkedIds.size === sortedItems.length && sortedItems.length > 0
                       ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
                   </button>
@@ -1487,7 +1487,7 @@ function InventoryPageInner() {
                         onClick={() => setCollapsedCats(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n })}
                       >
                         <td className="pl-4 py-[10px] pr-2" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => toggleCatGroup(rows)} className="text-zinc-400 hover:text-gold-2">
+                          <button onClick={() => toggleCatGroup(rows)} className="text-ink-4 hover:text-gold-2">
                             {allChecked ? <CheckSquare size={15} className="text-gold-2" /> : <Square size={15} />}
                           </button>
                         </td>
@@ -1497,7 +1497,7 @@ function InventoryPageInner() {
                               ? <ChevronRight size={10} className="text-gold-2" />
                               : <ChevronDown size={10} className="text-gold-2" />}
                             <span className="font-mono text-[11.5px] text-gold-2 font-semibold tracking-[0.02em]">{cat}</span>
-                            <span className="font-mono text-[11px] text-amber-700">· {rows.length} items</span>
+                            <span className="font-mono text-[11px] text-gold-2">· {rows.length} items</span>
                           </div>
                         </td>
                         <td className="px-3 py-[10px] text-right" colSpan={2}>
@@ -1513,7 +1513,7 @@ function InventoryPageInner() {
               )}
             </tbody>
           </table>
-          {sortedItems.length === 0 && <div className="text-center py-12 text-gray-400">No items found</div>}
+          {sortedItems.length === 0 && <div className="text-center py-12 text-ink-4">No items found</div>}
         </div>
       </div>
 
@@ -1559,72 +1559,72 @@ function InventoryPageInner() {
             <form onSubmit={handleAdd} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Item Name *</label>
-                  <input required value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Item Name *</label>
+                  <input required value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
+                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Supplier</label>
-                  <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Supplier</label>
+                  <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     <option value="">None</option>
                     {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Storage Area</label>
-                  <select value={form.storageAreaId} onChange={e => setForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Storage Area</label>
+                  <select value={form.storageAreaId} onChange={e => setForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     <option value="">None</option>
                     {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                  <select required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Unit</label>
+                  <select required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                     {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Purchase Unit</label>
-                  <input type="number" required value={form.qtyPerPurchaseUnit} onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Qty per Purchase Unit</label>
+                  <input type="number" required value={form.qtyPerPurchaseUnit} onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Pack Size</label>
-                  <input type="number" step="any" value={form.packSize} onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Pack Size</label>
+                  <input type="number" step="any" value={form.packSize} onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Pack UOM</label>
-                  <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Pack UOM</label>
+                  <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                     {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Count UOM</label>
-                  <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Count UOM</label>
+                  <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                     {COUNT_UOMS.map(u => <option key={u}>{u}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
-                  <input type="number" required value={form.purchasePrice} onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Price ($)</label>
+                  <input type="number" required value={form.purchasePrice} onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Base Unit</label>
-                  <select value={form.baseUnit} onChange={e => setForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Base Unit</label>
+                  <select value={form.baseUnit} onChange={e => setForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                     {BASE_UNITS.map(u => <option key={u}>{u}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand ({form.countUOM})</label>
-                  <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({form.countUOM})</label>
+                  <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
-                  <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Location</label>
+                  <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
               </div>
               <div className="bg-gold/10 rounded-lg p-3 text-sm">
@@ -1632,8 +1632,8 @@ function InventoryPageInner() {
                 <span className="font-bold text-gold">{formatUnitPrice(pricePreview)} / {form.baseUnit}</span>
               </div>
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="flex-1 bg-gold text-white rounded-lg py-2 text-sm hover:bg-[#a88930]">Add Item</button>
+                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 border border-line rounded-lg py-2 text-sm hover:bg-bg">Cancel</button>
+                <button type="submit" className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-lg py-2 text-sm hover:bg-ink-2">Add Item</button>
               </div>
             </form>
           </div>

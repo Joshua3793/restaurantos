@@ -76,17 +76,17 @@ function Hero({ kpis }: { kpis: KpiData | null }) {
     return (
       <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px]">
         <div>
-          <div className="font-mono text-[10.5px] text-zinc-500 tracking-[0.01em]">THIS WEEK · INVOICE SPEND</div>
-          <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-zinc-600">—</div>
+          <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">THIS WEEK · INVOICE SPEND</div>
+          <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink-3">—</div>
         </div>
-        <div className="font-mono text-[11px] text-zinc-500">loading…</div>
+        <div className="font-mono text-[11px] text-ink-3">loading…</div>
       </div>
     )
   }
 
   const pct = kpis.weekSpendChangePct
   const trendIs = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'
-  const trendCls = trendIs === 'up' ? 'text-red-300' : trendIs === 'down' ? 'text-green-400' : 'text-zinc-400'
+  const trendCls = trendIs === 'up' ? 'text-red' : trendIs === 'down' ? 'text-green' : 'text-ink-4'
   const arrow = trendIs === 'up' ? '↑' : trendIs === 'down' ? '↓' : '·'
 
   const formatted = formatCurrency(kpis.weekSpend)
@@ -95,13 +95,13 @@ function Hero({ kpis }: { kpis: KpiData | null }) {
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
-        <div className="font-mono text-[10.5px] text-zinc-500 tracking-[0.01em]">THIS WEEK · INVOICE SPEND</div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">THIS WEEK · INVOICE SPEND</div>
         <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2">
           {whole}
           <sub className="text-[18px] font-medium text-gold tracking-[-0.02em] align-baseline">.{cents ?? '00'}</sub>
         </div>
       </div>
-      <div className="font-mono text-[11px] text-zinc-500 tracking-[0] flex items-center gap-1.5">
+      <div className="font-mono text-[11px] text-ink-3 tracking-[0] flex items-center gap-1.5">
         <span className={`font-semibold ${trendCls}`}>{arrow} {Math.abs(pct).toFixed(1)}%</span>
         <span>vs last week</span>
       </div>
@@ -121,7 +121,7 @@ function Card({
   const cardCls = tint === 'warn'
     ? 'bg-gold-soft border-[#fcd34d]/60'
     : tint === 'bad'
-      ? 'bg-red-soft border-red-200'
+      ? 'bg-red-soft border-red-soft'
       : 'bg-paper border-line'
   const accent = tint === 'warn' ? 'bg-gold-2' : tint === 'bad' ? 'bg-red' : 'bg-gold'
 

@@ -47,13 +47,14 @@ const config: Config = {
         fraunces: ['var(--font-fraunces)', 'Fraunces', 'ui-serif', 'Georgia', 'serif'],
       },
       borderRadius: {
-        sm:  '6px',
-        DEFAULT: '8px',
+        // Brand radius scale (Brand Summary §04 — "tight radii"): r-sm 7 · r 9 · r-md 10 · r-lg 12 · r-xl 14
+        sm:  '7px',
+        DEFAULT: '9px',
         md:  '10px',
         lg:  '12px',
-        xl:  '16px',
-        '2xl': '20px',
-        '3xl': '24px',
+        xl:  '14px',
+        '2xl': '18px',
+        '3xl': '22px',
         full: '9999px',
       },
       fontSize: {

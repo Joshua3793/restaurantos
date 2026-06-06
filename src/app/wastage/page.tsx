@@ -30,14 +30,14 @@ interface InventoryItem {
 }
 
 const REASON_COLORS: Record<string, string> = {
-  SPOILAGE:       'bg-red-100 text-red-700',
-  OVERPRODUCTION: 'bg-orange-100 text-orange-700',
+  SPOILAGE:       'bg-red-soft text-red-text',
+  OVERPRODUCTION: 'bg-gold-soft text-gold-2',
   PREP_TRIM:      'bg-yellow-100 text-yellow-700',
-  BURNT:          'bg-gray-100 text-gray-700',
+  BURNT:          'bg-bg-2 text-ink-2',
   DROPPED:        'bg-gold/15 text-gold',
-  EXPIRED:        'bg-purple-100 text-purple-700',
-  STAFF_MEAL:     'bg-green-100 text-green-700',
-  UNKNOWN:        'bg-gray-100 text-gray-600',
+  EXPIRED:        'bg-blue-soft text-blue-text',
+  STAFF_MEAL:     'bg-green-soft text-green-text',
+  UNKNOWN:        'bg-bg-2 text-ink-3',
 }
 
 
@@ -129,24 +129,24 @@ export default function WastagePage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h1 className="text-2xl font-bold text-gray-900">Wastage Log</h1>
+        <h1 className="text-2xl font-bold text-ink">Wastage Log</h1>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] transition-colors"
+          className="flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-3 py-2 rounded-lg text-sm hover:bg-ink-2 transition-colors"
         >
           <Plus size={16} /> Log Wastage
         </button>
       </div>
 
       {/* Summary */}
-      <div className="bg-red-50 border border-red-100 rounded-xl p-4 flex items-center gap-3">
-        <AlertTriangle size={20} className="text-red-500 shrink-0" />
+      <div className="bg-red-soft border border-red-soft rounded-xl p-4 flex items-center gap-3">
+        <AlertTriangle size={20} className="text-red shrink-0" />
         <div>
-          <div className="font-semibold text-red-700">Total Wastage Cost (filtered)</div>
-          <div className="text-2xl font-bold text-red-800">{formatCurrency(totalCost)}</div>
+          <div className="font-semibold text-red-text">Total Wastage Cost (filtered)</div>
+          <div className="text-2xl font-bold text-red-text">{formatCurrency(totalCost)}</div>
         </div>
         <div className="ml-auto text-right">
-          <div className="text-xs text-red-500">{logs.length} entries</div>
+          <div className="text-xs text-red">{logs.length} entries</div>
         </div>
       </div>
 
@@ -155,7 +155,7 @@ export default function WastagePage() {
         <select
           value={reasonFilter}
           onChange={e => setReasonFilter(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+          className="border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
         >
           <option value="">All Reasons</option>
           {WASTAGE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
@@ -165,20 +165,20 @@ export default function WastagePage() {
             type="date"
             value={startDate}
             onChange={e => setStartDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+            className="border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
-          <span className="text-gray-400 text-sm">to</span>
+          <span className="text-ink-4 text-sm">to</span>
           <input
             type="date"
             value={endDate}
             onChange={e => setEndDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+            className="border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
         </div>
         {(reasonFilter || startDate || endDate) && (
           <button
             onClick={() => { setReasonFilter(''); setStartDate(''); setEndDate('') }}
-            className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            className="text-sm text-ink-3 hover:text-ink-2 flex items-center gap-1"
           >
             <X size={14} /> Clear
           </button>
@@ -191,46 +191,46 @@ export default function WastagePage() {
       )}
 
       {/* Logs Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-line overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="bg-bg border-b border-line">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Date</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">Category</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Qty Wasted</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">Reason</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Cost Impact</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden lg:table-cell">Logged By</th>
+                <th className="text-left px-4 py-3 font-medium text-ink-3">Date</th>
+                <th className="text-left px-4 py-3 font-medium text-ink-3">Item</th>
+                <th className="text-left px-4 py-3 font-medium text-ink-3 hidden sm:table-cell">Category</th>
+                <th className="text-right px-4 py-3 font-medium text-ink-3">Qty Wasted</th>
+                <th className="text-left px-4 py-3 font-medium text-ink-3 hidden md:table-cell">Reason</th>
+                <th className="text-right px-4 py-3 font-medium text-ink-3">Cost Impact</th>
+                <th className="text-left px-4 py-3 font-medium text-ink-3 hidden lg:table-cell">Logged By</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-line">
               {logs.map(log => (
-                <tr key={log.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(log.date)}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{log.inventoryItem.itemName}</td>
+                <tr key={log.id} className="hover:bg-bg">
+                  <td className="px-4 py-3 text-ink-3 whitespace-nowrap">{formatDate(log.date)}</td>
+                  <td className="px-4 py-3 font-medium text-ink-2">{log.inventoryItem.itemName}</td>
                   <td className="px-4 py-3 hidden sm:table-cell">
                     <CategoryBadge category={log.inventoryItem.category} />
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-700">
+                  <td className="px-4 py-3 text-right text-ink-2">
                     {parseFloat(String(log.qtyWasted)).toFixed(1)} {log.unit}
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${REASON_COLORS[log.reason] || 'bg-gray-100 text-gray-600'}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${REASON_COLORS[log.reason] || 'bg-bg-2 text-ink-3'}`}>
                       {log.reason}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-red-600">
+                  <td className="px-4 py-3 text-right font-semibold text-red">
                     {formatCurrency(parseFloat(String(log.costImpact)))}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{log.loggedBy}</td>
+                  <td className="px-4 py-3 text-ink-3 hidden lg:table-cell">{log.loggedBy}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {logs.length === 0 && (
-            <div className="text-center py-12 text-gray-400">No wastage logs found</div>
+            <div className="text-center py-12 text-ink-4">No wastage logs found</div>
           )}
         </div>
       </div>
@@ -249,7 +249,7 @@ export default function WastagePage() {
             <h3 className="font-semibold mb-4 text-lg">Log Wastage</h3>
             <form onSubmit={handleAdd} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Item *</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Item *</label>
                 <select
                   required
                   value={form.inventoryItemId}
@@ -257,7 +257,7 @@ export default function WastagePage() {
                     const item = inventoryItems.find(i => i.id === e.target.value)
                     setForm(f => ({ ...f, inventoryItemId: e.target.value, unit: item?.baseUnit || 'g' }))
                   }}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   <option value="">Select item...</option>
                   {inventoryItems.map(item => (
@@ -267,22 +267,22 @@ export default function WastagePage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Qty Wasted *</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Qty Wasted *</label>
                   <input
                     type="number"
                     required
                     value={form.qtyWasted}
                     onChange={e => setForm(f => ({ ...f, qtyWasted: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                     step="any"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Unit</label>
                   <select
                     value={form.unit}
                     onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white"
                   >
                     {(compatibleCountUnits(inventoryItems.find(i => i.id === form.inventoryItemId)?.baseUnit ?? 'each')).map(u => (
                       <option key={u}>{u}</option>
@@ -291,61 +291,61 @@ export default function WastagePage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Reason</label>
                 <select
                   value={form.reason}
                   onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 >
                   {WASTAGE_REASONS.map(r => <option key={r}>{r}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Date</label>
                   <input
                     type="date"
                     value={form.date}
                     onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Logged By</label>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">Logged By</label>
                   <input
                     value={form.loggedBy}
                     onChange={e => setForm(f => ({ ...f, loggedBy: e.target.value }))}
                     placeholder="Name"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Notes</label>
                 <textarea
                   value={form.notes}
                   onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   rows={2}
                 />
               </div>
               {previewCost > 0 && (
-                <div className="bg-red-50 rounded-lg p-3 text-sm">
-                  <span className="text-red-600 font-medium">Estimated cost impact: </span>
-                  <span className="font-bold text-red-700">{formatCurrency(previewCost)}</span>
+                <div className="bg-red-soft rounded-lg p-3 text-sm">
+                  <span className="text-red font-medium">Estimated cost impact: </span>
+                  <span className="font-bold text-red-text">{formatCurrency(previewCost)}</span>
                 </div>
               )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAdd(false)}
-                  className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50"
+                  className="flex-1 border border-line rounded-lg py-2 text-sm hover:bg-bg"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm hover:bg-red-700"
+                  className="flex-1 bg-red text-white rounded-lg py-2 text-sm hover:bg-red"
                 >
                   Log Wastage
                 </button>

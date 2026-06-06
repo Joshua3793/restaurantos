@@ -25,9 +25,9 @@ interface RawResults {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
-  COMPLETE: 'bg-green-100 text-green-700',
+  COMPLETE: 'bg-green-soft text-green-text',
   PROCESSING: 'bg-gold/15 text-gold',
-  PENDING: 'bg-amber-100 text-amber-700',
+  PENDING: 'bg-gold-soft text-gold-2',
 }
 
 function buildResults(raw: RawResults): { group: string; items: SearchResult[] }[] {
@@ -39,7 +39,7 @@ function buildResults(raw: RawResults): { group: string; items: SearchResult[] }
       items: raw.inventory.map(i => ({
         id: i.id,
         href: `/inventory?search=${encodeURIComponent(i.itemName)}`,
-        icon: <Package size={14} className="text-blue-500 shrink-0" />,
+        icon: <Package size={14} className="text-blue shrink-0" />,
         title: i.itemName,
         subtitle: `${i.category} · ${parseFloat(String(i.stockOnHand)).toFixed(1)} ${i.baseUnit} on hand · ${formatCurrency(parseFloat(String(i.pricePerBaseUnit)))}/${i.baseUnit}`,
       })),
@@ -58,13 +58,13 @@ function buildResults(raw: RawResults): { group: string; items: SearchResult[] }
           id: r.id,
           href: isMenu ? `/menu` : `/recipes`,
           icon: isMenu
-            ? <UtensilsCrossed size={14} className="text-purple-500 shrink-0" />
-            : <BookOpen size={14} className="text-emerald-600 shrink-0" />,
+            ? <UtensilsCrossed size={14} className="text-blue shrink-0" />
+            : <BookOpen size={14} className="text-green shrink-0" />,
           title: r.name,
           subtitle: `${r.category?.name ?? ''} · ${formatCurrency(cost)} total cost${pct !== null ? ` · ${pct.toFixed(1)}% food cost` : ''}`,
           badge: isMenu
-            ? { label: 'Menu', color: 'bg-purple-50 text-purple-600' }
-            : { label: 'Prep', color: 'bg-emerald-50 text-emerald-600' },
+            ? { label: 'Menu', color: 'bg-blue-soft text-blue' }
+            : { label: 'Prep', color: 'bg-green-soft text-green' },
         }
       }),
     })
@@ -76,10 +76,10 @@ function buildResults(raw: RawResults): { group: string; items: SearchResult[] }
       items: raw.invoices.map(inv => ({
         id: inv.id,
         href: `/invoices`,
-        icon: <FileText size={14} className="text-gray-500 shrink-0" />,
+        icon: <FileText size={14} className="text-ink-3 shrink-0" />,
         title: inv.invoiceNumber || '(No number)',
         subtitle: `${inv.supplier.name} · ${new Date(inv.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })} · ${formatCurrency(parseFloat(String(inv.totalAmount)))}`,
-        badge: { label: inv.status, color: STATUS_COLORS[inv.status] ?? 'bg-gray-100 text-gray-500' },
+        badge: { label: inv.status, color: STATUS_COLORS[inv.status] ?? 'bg-bg-2 text-ink-3' },
       })),
     })
   }
@@ -90,7 +90,7 @@ function buildResults(raw: RawResults): { group: string; items: SearchResult[] }
       items: raw.suppliers.map(s => ({
         id: s.id,
         href: `/suppliers/${s.id}`,
-        icon: <Truck size={14} className="text-gray-400 shrink-0" />,
+        icon: <Truck size={14} className="text-ink-4 shrink-0" />,
         title: s.name,
         subtitle: 'Supplier',
       })),
@@ -192,26 +192,26 @@ export function GlobalSearch() {
       <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[70vh]">
 
         {/* Input row */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-          <Search size={17} className="text-gray-400 shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
+          <Search size={17} className="text-ink-4 shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search inventory, recipes, invoices, suppliers…"
-            className="flex-1 text-sm text-gray-900 placeholder-gray-400 outline-none bg-transparent"
+            className="flex-1 text-sm text-ink placeholder-ink-4 outline-none bg-transparent"
           />
           {loading && (
-            <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin shrink-0" />
+            <div className="w-3.5 h-3.5 border-2 border-line-2 border-t-blue-500 rounded-full animate-spin shrink-0" />
           )}
           {query && !loading && (
             <button onClick={() => { setQuery(''); setGroups([]); inputRef.current?.focus() }}
-              className="text-gray-300 hover:text-gray-500 shrink-0">
+              className="text-ink-4 hover:text-ink-3 shrink-0">
               <X size={15} />
             </button>
           )}
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-mono shrink-0">
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-ink-4 bg-bg-2 px-1.5 py-0.5 rounded font-mono shrink-0">
             esc
           </kbd>
         </div>
@@ -219,14 +219,14 @@ export function GlobalSearch() {
         {/* Results */}
         <div className="overflow-y-auto flex-1">
           {query.length < 2 && (
-            <div className="px-4 py-10 text-center text-sm text-gray-400">
+            <div className="px-4 py-10 text-center text-sm text-ink-4">
               Type to search across inventory, recipes, invoices and suppliers
             </div>
           )}
 
           {isEmpty && (
-            <div className="px-4 py-10 text-center text-sm text-gray-400">
-              No results for <span className="font-medium text-gray-600">&ldquo;{query}&rdquo;</span>
+            <div className="px-4 py-10 text-center text-sm text-ink-4">
+              No results for <span className="font-medium text-ink-3">&ldquo;{query}&rdquo;</span>
             </div>
           )}
 
@@ -234,7 +234,7 @@ export function GlobalSearch() {
             const groupStart = allItems.indexOf(items[0])
             return (
               <div key={group}>
-                <div className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                <div className="px-4 pt-3 pb-1 text-[10px] font-semibold text-ink-4 uppercase tracking-wider">
                   {group}
                 </div>
                 {items.map((item, j) => {
@@ -245,13 +245,13 @@ export function GlobalSearch() {
                       key={item.id}
                       onMouseEnter={() => setSelectedIdx(idx)}
                       onClick={() => navigate(item.href)}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-gold/10' : 'hover:bg-gray-50'}`}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${active ? 'bg-gold/10' : 'hover:bg-bg'}`}
                     >
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${active ? 'bg-gold/15' : 'bg-gray-100'}`}>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${active ? 'bg-gold/15' : 'bg-bg-2'}`}>
                         {item.icon}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 truncate flex items-center gap-2">
+                        <div className="text-sm font-medium text-ink truncate flex items-center gap-2">
                           {item.title}
                           {item.badge && (
                             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${item.badge.color}`}>
@@ -259,9 +259,9 @@ export function GlobalSearch() {
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-400 truncate mt-0.5">{item.subtitle}</div>
+                        <div className="text-xs text-ink-4 truncate mt-0.5">{item.subtitle}</div>
                       </div>
-                      <ArrowRight size={13} className={`shrink-0 transition-opacity ${active ? 'text-blue-400 opacity-100' : 'opacity-0'}`} />
+                      <ArrowRight size={13} className={`shrink-0 transition-opacity ${active ? 'text-blue opacity-100' : 'opacity-0'}`} />
                     </button>
                   )
                 })}
@@ -270,10 +270,10 @@ export function GlobalSearch() {
           })}
 
           {groups.length > 0 && (
-            <div className="px-4 py-2 border-t border-gray-50 flex items-center gap-3 text-[10px] text-gray-300">
-              <span><kbd className="font-mono bg-gray-100 px-1 rounded">↑↓</kbd> navigate</span>
-              <span><kbd className="font-mono bg-gray-100 px-1 rounded">↵</kbd> open</span>
-              <span><kbd className="font-mono bg-gray-100 px-1 rounded">esc</kbd> close</span>
+            <div className="px-4 py-2 border-t border-line flex items-center gap-3 text-[10px] text-ink-4">
+              <span><kbd className="font-mono bg-bg-2 px-1 rounded">↑↓</kbd> navigate</span>
+              <span><kbd className="font-mono bg-bg-2 px-1 rounded">↵</kbd> open</span>
+              <span><kbd className="font-mono bg-bg-2 px-1 rounded">esc</kbd> close</span>
             </div>
           )}
         </div>

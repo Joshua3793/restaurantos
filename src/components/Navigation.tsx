@@ -173,7 +173,7 @@ function NavigationInner() {
       <aside
         onMouseEnter={() => { if (!pinned) setPeeking(true) }}
         onMouseLeave={() => { if (!pinned) setPeeking(false) }}
-        className={`hidden md:flex flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-zinc-300 transition-transform duration-200 ${
+        className={`hidden md:flex flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-line-2 transition-transform duration-200 ${
           isAuthRoute(pathname) ? 'top-0 h-screen' : 'top-11 h-[calc(100vh-44px)]'
         } ${pinned || peeking ? 'translate-x-0' : '-translate-x-full'} ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
         style={{ background: '#09090b' }}
@@ -187,7 +187,7 @@ function NavigationInner() {
             const visibleItems = group.items.filter(i => !i.adminOnly || role === 'ADMIN')
             return (
               <div key={group.label} className="flex flex-col gap-[2px]">
-                <p className="font-mono text-[10px] text-zinc-600 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
+                <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
                   {group.label}
                 </p>
                 {visibleItems.map(item => {
@@ -202,10 +202,10 @@ function NavigationInner() {
                       className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                         active
                           ? 'bg-paper text-ink'
-                          : 'text-zinc-300 hover:bg-[#18181b] hover:text-zinc-50'
+                          : 'text-line-2 hover:bg-[#18181b] hover:text-bg'
                       }`}
                     >
-                      <span className={active ? 'text-ink' : 'text-zinc-500 group-hover:text-zinc-300'}>
+                      <span className={active ? 'text-ink' : 'text-ink-3 group-hover:text-line-2'}>
                         <Icon size={16} />
                       </span>
                       <span className="flex-1">{label}</span>
@@ -225,7 +225,7 @@ function NavigationInner() {
 
           {/* Setup group */}
           <div className="flex flex-col gap-[2px]">
-            <p className="font-mono text-[10px] text-zinc-600 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
+            <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
               SETUP
             </p>
             {visibleSetupItems.map(item => {
@@ -239,10 +239,10 @@ function NavigationInner() {
                   className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                     active
                       ? 'bg-paper text-ink'
-                      : 'text-zinc-300 hover:bg-[#18181b] hover:text-zinc-50'
+                      : 'text-line-2 hover:bg-[#18181b] hover:text-bg'
                   }`}
                 >
-                  <span className={active ? 'text-ink' : 'text-zinc-500 group-hover:text-zinc-300'}>
+                  <span className={active ? 'text-ink' : 'text-ink-3 group-hover:text-line-2'}>
                     <Icon size={16} />
                   </span>
                   {label}
@@ -253,18 +253,18 @@ function NavigationInner() {
         </nav>
 
         {/* User pill footer */}
-        <div className="flex items-center gap-[10px] px-[10px] py-2 rounded-[10px] bg-[#18181b] border border-[#27272a]">
+        <div className="flex items-center gap-[10px] px-[10px] py-2 rounded-[10px] bg-[#18181b] border border-ink-2">
           <UserAvatar />
-          <div className="min-w-0 flex-1 text-[12.5px] leading-tight text-[#fafaf9] font-medium truncate">
+          <div className="min-w-0 flex-1 text-[12.5px] leading-tight text-bg font-medium truncate">
             <UserName />
-            <small className="block font-mono text-[10.5px] text-zinc-500 font-normal tracking-normal mt-0.5">
+            <small className="block font-mono text-[10.5px] text-ink-3 font-normal tracking-normal mt-0.5">
               <TenantName />
             </small>
           </div>
           <button
             onClick={handleLogout}
             title="Log out"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-3 hover:text-white hover:bg-white/5 transition-colors"
           >
             <LogOut size={14} />
           </button>

@@ -27,12 +27,12 @@ interface HistoryLog {
 }
 
 const STATUS_SHORT: Record<string, { label: string; cls: string }> = {
-  DONE:        { label: 'Done',       cls: 'bg-green-100 text-green-700' },
-  PARTIAL:     { label: 'Partial',    cls: 'bg-amber-100 text-amber-700' },
+  DONE:        { label: 'Done',       cls: 'bg-green-soft text-green-text' },
+  PARTIAL:     { label: 'Partial',    cls: 'bg-gold-soft text-gold-2' },
   IN_PROGRESS: { label: 'In Progress',cls: 'bg-gold/15 text-gold' },
-  BLOCKED:     { label: 'Blocked',    cls: 'bg-red-100 text-red-700' },
-  SKIPPED:     { label: 'Skipped',    cls: 'bg-gray-100 text-gray-500' },
-  NOT_STARTED: { label: 'Not Started',cls: 'bg-gray-100 text-gray-400' },
+  BLOCKED:     { label: 'Blocked',    cls: 'bg-red-soft text-red-text' },
+  SKIPPED:     { label: 'Skipped',    cls: 'bg-bg-2 text-ink-3' },
+  NOT_STARTED: { label: 'Not Started',cls: 'bg-bg-2 text-ink-4' },
 }
 
 function fmtDate(iso: string) {
@@ -171,7 +171,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
           {/* Stock strip */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'ON HAND',   value: `${item.onHand.toFixed(1)} ${item.unit}`,     color: item.onHand <= 0 ? 'text-red-600' : 'text-ink' },
+              { label: 'ON HAND',   value: `${item.onHand.toFixed(1)} ${item.unit}`,     color: item.onHand <= 0 ? 'text-red' : 'text-ink' },
               { label: 'PAR LEVEL', value: `${item.parLevel.toFixed(1)} ${item.unit}`,   color: 'text-ink' },
               { label: 'MAKE',      value: `${item.suggestedQty.toFixed(1)} ${item.unit}`, color: item.suggestedQty > 0 ? 'text-gold-2' : 'text-ink-4' },
             ].map(c => (
@@ -210,26 +210,26 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
               </button>
               <button onClick={() => updateStatus('DONE')} disabled={loading}
                 className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] font-medium bg-ink text-paper rounded-[9px] hover:bg-ink-2 transition-colors disabled:opacity-50">
-                <CheckCircle size={14} className="text-green-400" /> Mark done
+                <CheckCircle size={14} className="text-green" /> Mark done
               </button>
               <button onClick={() => updateStatus('PARTIAL')} disabled={loading}
-                className="px-3 py-2.5 text-[13px] font-medium border border-amber-200 text-amber-700 bg-amber-50 rounded-[9px] hover:bg-amber-100 transition-colors disabled:opacity-50">
+                className="px-3 py-2.5 text-[13px] font-medium border border-gold-soft text-gold-2 bg-gold-soft rounded-[9px] hover:bg-gold-soft transition-colors disabled:opacity-50">
                 Partial
               </button>
               <button onClick={() => updateStatus('BLOCKED')} disabled={loading}
-                className="px-3 py-2.5 text-[13px] font-medium border border-red-200 text-red-700 bg-red-50 rounded-[9px] hover:bg-red-100 transition-colors disabled:opacity-50">
+                className="px-3 py-2.5 text-[13px] font-medium border border-red-soft text-red-text bg-red-soft rounded-[9px] hover:bg-red-soft transition-colors disabled:opacity-50">
                 Blocked
               </button>
             </div>
 
             {warning && (
-              <div className="mt-2 flex items-start gap-2 text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[9px] p-2.5">
+              <div className="mt-2 flex items-start gap-2 text-[12px] text-gold-2 bg-gold-soft border border-gold-soft rounded-[9px] p-2.5">
                 <AlertCircle size={13} className="shrink-0 mt-0.5" /> {warning}
               </div>
             )}
 
             {item.todayLog?.inventoryAdjusted && (
-              <div className="mt-2 flex items-center justify-between text-[12px] text-green-700 bg-green-50 border border-green-200 rounded-[9px] p-2.5">
+              <div className="mt-2 flex items-center justify-between text-[12px] text-green-text bg-green-soft border border-green-soft rounded-[9px] p-2.5">
                 <span className="flex items-center gap-1.5"><CheckCircle size={12} /> Inventory updated</span>
                 <button onClick={() => setShowRevert(v => !v)} className="underline hover:no-underline font-medium">
                   Correct qty
@@ -258,13 +258,13 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
               {(detail?.ingredients ?? []).filter(i => i.inventoryItemId).map(ing => (
                 <div key={ing.id} className="flex justify-between text-[#78350f] tabular-nums">
                   <span>− {(ing.qtyBase * scale).toFixed(2)} {ing.unit} {ing.itemName}</span>
-                  <span className={ing.isAvailable === false ? 'text-red-600 font-medium' : ''}>
+                  <span className={ing.isAvailable === false ? 'text-red font-medium' : ''}>
                     {ing.isAvailable === false ? '⚠ low stock' : ''}
                   </span>
                 </div>
               ))}
               {item.linkedRecipe.baseYieldQty && (
-                <div className="flex justify-between text-green-700 font-medium border-t border-[#fcd34d] pt-1.5 mt-1.5 tabular-nums">
+                <div className="flex justify-between text-green-text font-medium border-t border-[#fcd34d] pt-1.5 mt-1.5 tabular-nums">
                   <span>+ {(baseYield * scale).toFixed(2)} {yieldUnit} {item.linkedRecipe.name}</span>
                 </div>
               )}
@@ -281,8 +281,8 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
                     <span className="text-ink-2">{ing.itemName}</span>
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-ink-3 text-[11px] tabular-nums">{ing.qtyBase.toFixed(2)} {ing.unit}</span>
-                      {ing.isAvailable === true  && <span className="text-green-600 text-[12px]">✓</span>}
-                      {ing.isAvailable === false && <span className="text-red-600 text-[11px] font-medium">✗ out</span>}
+                      {ing.isAvailable === true  && <span className="text-green text-[12px]">✓</span>}
+                      {ing.isAvailable === false && <span className="text-red text-[11px] font-medium">✗ out</span>}
                     </div>
                   </div>
                 ))}

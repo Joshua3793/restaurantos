@@ -271,7 +271,7 @@ export default function InvoicesPage() {
       {scanError && (
         <button
           onClick={clearError}
-          className="fixed bottom-20 left-4 right-4 z-50 bg-red-600 text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:hidden text-left w-auto"
+          className="fixed bottom-20 left-4 right-4 z-50 bg-red text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:hidden text-left w-auto"
         >
           {scanError} — tap to dismiss
         </button>
@@ -280,7 +280,7 @@ export default function InvoicesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 sm:hidden">
           <div className="bg-white rounded-2xl px-8 py-6 flex flex-col items-center gap-3 shadow-xl">
             <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm font-semibold text-gray-700">Processing scan…</p>
+            <p className="text-sm font-semibold text-ink-2">Processing scan…</p>
           </div>
         </div>
       )}

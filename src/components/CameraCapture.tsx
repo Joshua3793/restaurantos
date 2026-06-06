@@ -317,7 +317,7 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
             {lightLevel !== 'ok' && (
               <div className="absolute inset-x-0 flex justify-center z-10 pointer-events-none" style={{ bottom: '22%' }}>
                 <div className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold backdrop-blur-sm shadow-lg ${
-                  lightLevel === 'dark' ? 'bg-amber-500 text-white' : 'bg-orange-400 text-white'
+                  lightLevel === 'dark' ? 'bg-gold text-white' : 'bg-gold text-white'
                 }`}>
                   {lightLevel === 'dark'
                     ? <><Moon size={13} /> Move to better lighting</>
@@ -331,7 +331,7 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
 
         {/* ── FALLBACK tips ── */}
         {mode === 'fallback' && !preview && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center px-8 gap-6 bg-gray-900">
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-8 gap-6 bg-ink">
             <div className="relative w-44 aspect-[3/4] border-2 border-white/20 rounded-xl flex items-center justify-center">
               {[
                 { top: -3, left: -3, transform: 'none' },
@@ -390,7 +390,7 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
               disabled={mode === 'loading'}
               className="w-20 h-20 rounded-full bg-white shadow-2xl flex items-center justify-center active:scale-95 transition-transform disabled:opacity-40"
             >
-              <div className="w-[68px] h-[68px] rounded-full border-[3px] border-gray-300 bg-white" />
+              <div className="w-[68px] h-[68px] rounded-full border-[3px] border-line-2 bg-white" />
             </button>
             <p className="text-white/60 text-xs">
               {mode === 'live'
@@ -407,13 +407,13 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
             {quality && (
               <div className="px-5 mb-3 space-y-2">
                 {quality.warnings.length === 0 ? (
-                  <div className="flex items-center gap-2.5 bg-green-500 rounded-2xl px-4 py-3">
+                  <div className="flex items-center gap-2.5 bg-green rounded-2xl px-4 py-3">
                     <CheckCircle2 size={16} className="text-white shrink-0" />
                     <span className="text-white text-sm font-semibold">Looks great — ready to add</span>
                   </div>
                 ) : (
                   quality.warnings.map((w, i) => (
-                    <div key={i} className="flex items-center gap-2.5 bg-amber-500 rounded-2xl px-4 py-3">
+                    <div key={i} className="flex items-center gap-2.5 bg-gold rounded-2xl px-4 py-3">
                       <AlertTriangle size={15} className="text-white shrink-0" />
                       <span className="text-white text-sm font-medium">{w}</span>
                     </div>
@@ -433,7 +433,7 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
               <button
                 onClick={confirmPhoto}
                 className={`flex-[2] flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white text-sm font-semibold active:scale-95 transition-transform ${
-                  hasWarnings ? 'bg-amber-500' : 'bg-green-500'
+                  hasWarnings ? 'bg-gold' : 'bg-green'
                 }`}
               >
                 <Check size={15} />

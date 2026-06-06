@@ -247,7 +247,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
               alt={file.fileName}
               draggable={false}
               onLoad={handleImageLoad}
-              className="rounded-lg shadow-sm border border-gray-200"
+              className="rounded-lg shadow-sm border border-line"
               style={{
                 position: 'absolute',
                 left: PADDING, top: PADDING, right: PADDING, bottom: PADDING,
@@ -305,12 +305,12 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
             <iframe
               src={file.fileUrl}
               title={file.fileName}
-              className="w-full h-full rounded-lg border border-gray-200 bg-paper"
+              className="w-full h-full rounded-lg border border-line bg-paper"
             />
           </div>
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-400">
-            <FileText size={40} className="text-gray-300" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-ink-4">
+            <FileText size={40} className="text-ink-4" />
             <p className="text-sm">{file?.fileName ?? 'No file'}</p>
             {file?.fileUrl && (
               <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue hover:underline">

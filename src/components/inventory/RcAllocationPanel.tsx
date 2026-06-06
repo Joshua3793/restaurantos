@@ -130,12 +130,12 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
   }
 
   return (
-    <div className="border border-gray-100 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock by Revenue Center</p>
+    <div className="border border-line rounded-xl overflow-hidden">
+      <div className="px-4 py-3 bg-bg border-b border-line">
+        <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide">Stock by Revenue Center</p>
       </div>
 
-      <div className="divide-y divide-gray-50">
+      <div className="divide-y divide-line">
         {revenueCenters.map(rc => {
           const isDefaultRc  = rc.id === defaultRcId
           const alloc        = allocations.find(a => a.revenueCenterId === rc.id)
@@ -149,31 +149,31 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
           return (
             <div
               key={rc.id}
-              className={`px-4 py-3 border-l-2 transition-colors ${isBelowPar ? 'border-amber-400 bg-amber-50/40' : 'border-transparent'}`}
+              className={`px-4 py-3 border-l-2 transition-colors ${isBelowPar ? 'border-gold bg-gold-soft/40' : 'border-transparent'}`}
             >
               {/* RC header row */}
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
-                <span className={`flex-1 text-sm ${isDefaultRc ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+                <span className={`flex-1 text-sm ${isDefaultRc ? 'font-semibold text-ink' : 'text-ink-3'}`}>
                   {rc.name}
-                  {isDefaultRc && <span className="text-xs text-gray-400 font-normal ml-1">main pool</span>}
+                  {isDefaultRc && <span className="text-xs text-ink-4 font-normal ml-1">main pool</span>}
                 </span>
-                <span className="text-sm font-medium text-gray-700">
-                  {qty.toFixed(2)} <span className="text-xs text-gray-400">{countUOM}</span>
+                <span className="text-sm font-medium text-ink-2">
+                  {qty.toFixed(2)} <span className="text-xs text-ink-4">{countUOM}</span>
                   {parLevel !== null && (
-                    <span className={`ml-1 text-xs ${isBelowPar ? 'text-amber-600' : 'text-gray-400'}`}>
+                    <span className={`ml-1 text-xs ${isBelowPar ? 'text-gold' : 'text-ink-4'}`}>
                       / par {parLevel}
                     </span>
                   )}
                 </span>
                 {isBelowPar && (
-                  <span className="text-xs font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 shrink-0">
+                  <span className="text-xs font-semibold bg-gold-soft text-gold-2 rounded-full px-2 py-0.5 shrink-0">
                     ⚠ Below Par
                   </span>
                 )}
                 <button
                   onClick={() => isEditingPar ? setEditParRcId(null) : openParEdit(rc.id, alloc)}
-                  className="text-xs text-gray-400 hover:text-gray-600 shrink-0 p-1"
+                  className="text-xs text-ink-4 hover:text-ink-3 shrink-0 p-1"
                   title={isEditingPar ? 'Cancel' : 'Edit par level'}
                 >
                   {isEditingPar ? <X size={12} /> : <Pencil size={12} />}
@@ -193,7 +193,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                     className={`text-xs font-medium flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors ${
                       isPulling
                         ? 'bg-gold/15 text-gold border border-gold/30'
-                        : 'bg-gold/10 text-gold hover:bg-gold/15 border border-blue-100'
+                        : 'bg-gold/10 text-gold hover:bg-gold/15 border border-blue-soft'
                     }`}
                   >
                     Pull <ArrowRight size={11} />
@@ -203,7 +203,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
 
               {/* Below-par suggestion */}
               {isBelowPar && suggested !== null && !isEditingPar && (
-                <div className="mt-1.5 ml-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                <div className="mt-1.5 ml-4 text-xs text-gold-2 bg-gold-soft border border-gold-soft rounded-lg px-2.5 py-1.5">
                   📦 Suggested order: <strong>{suggested.toFixed(2)} {countUOM}</strong> (par − current)
                 </div>
               )}
@@ -213,7 +213,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                 <div className="mt-2 ml-4 space-y-2">
                   <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="text-xs text-gray-500 block mb-0.5">Par Level ({countUOM})</label>
+                      <label className="text-xs text-ink-3 block mb-0.5">Par Level ({countUOM})</label>
                       <input
                         type="number"
                         min="0"
@@ -221,11 +221,11 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                         value={editParLevel}
                         onChange={e => setEditParLevel(e.target.value)}
                         placeholder="e.g. 10"
-                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                     <div className="flex-1">
-                      <label className="text-xs text-gray-500 block mb-0.5">Order Qty (auto)</label>
+                      <label className="text-xs text-ink-3 block mb-0.5">Order Qty (auto)</label>
                       <input
                         type="number"
                         min="0.01"
@@ -233,22 +233,22 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                         value={editReorderQty}
                         onChange={e => setEditReorderQty(e.target.value)}
                         placeholder="auto"
-                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                   </div>
-                  {parError && <p className="text-xs text-red-500">{parError}</p>}
+                  {parError && <p className="text-xs text-red">{parError}</p>}
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleSavePar(rc.id)}
                       disabled={savingPar}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-gold text-white rounded-lg text-xs font-medium hover:bg-[#a88930] disabled:opacity-50"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-ink text-paper [&_svg]:text-gold rounded-lg text-xs font-medium hover:bg-ink-2 disabled:opacity-50"
                     >
                       <Check size={11} /> {savingPar ? 'Saving…' : 'Save'}
                     </button>
                     <button
                       onClick={() => setEditParRcId(null)}
-                      className="px-3 py-1.5 text-gray-500 border border-gray-200 rounded-lg text-xs hover:bg-gray-50"
+                      className="px-3 py-1.5 text-ink-3 border border-line rounded-lg text-xs hover:bg-bg"
                     >
                       Cancel
                     </button>
@@ -259,8 +259,8 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
               {/* Pull form */}
               {isPulling && (
                 <div className="mt-3 pl-4 space-y-2">
-                  <div className="text-xs text-gray-500">
-                    Available: <span className="font-medium text-gray-700">{stockOnHand.toFixed(2)} {countUOM}</span>
+                  <div className="text-xs text-ink-3">
+                    Available: <span className="font-medium text-ink-2">{stockOnHand.toFixed(2)} {countUOM}</span>
                   </div>
                   <div className="flex gap-2">
                     <input
@@ -270,15 +270,15 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                       value={pullQty}
                       onChange={e => setPullQty(e.target.value)}
                       placeholder="Quantity"
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                      className="flex-1 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                     />
-                    <div className="flex items-center justify-center px-2.5 bg-gray-100 rounded-lg text-sm text-gray-600 font-medium shrink-0">
+                    <div className="flex items-center justify-center px-2.5 bg-bg-2 rounded-lg text-sm text-ink-3 font-medium shrink-0">
                       {countUOM}
                     </div>
                     <button
                       onClick={() => handlePull(rc.id)}
                       disabled={pulling || !pullQty}
-                      className="px-3 py-1.5 bg-gold text-white rounded-lg text-sm font-medium hover:bg-[#a88930] disabled:opacity-50"
+                      className="px-3 py-1.5 bg-ink text-paper [&_svg]:text-gold rounded-lg text-sm font-medium hover:bg-ink-2 disabled:opacity-50"
                     >
                       {pulling ? '…' : 'Pull'}
                     </button>
@@ -287,9 +287,9 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                     value={pullNotes}
                     onChange={e => setPullNotes(e.target.value)}
                     placeholder="Notes (optional)"
-                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none"
+                    className="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none"
                   />
-                  {pullError && <p className="text-xs text-red-500">{pullError}</p>}
+                  {pullError && <p className="text-xs text-red">{pullError}</p>}
                 </div>
               )}
             </div>
@@ -298,10 +298,10 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
       </div>
 
       {transfers.length > 0 && (
-        <div className="border-t border-gray-100">
+        <div className="border-t border-line">
           <button
             onClick={() => setShowHistory(h => !h)}
-            className="w-full flex items-center gap-1 px-4 py-2 text-xs text-gray-400 hover:text-gray-600"
+            className="w-full flex items-center gap-1 px-4 py-2 text-xs text-ink-4 hover:text-ink-3"
           >
             {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             Transfer history ({transfers.length})
@@ -309,7 +309,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
           {showHistory && (
             <div className="px-4 pb-3 space-y-1">
               {transfers.slice(0, 10).map(t => (
-                <div key={t.id} className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div key={t.id} className="flex items-center gap-1.5 text-xs text-ink-3">
                   <span style={{ color: rcHex(t.fromRc.color) }}>●</span>
                   {t.fromRc.name}
                   <ArrowRight size={10} />

@@ -39,17 +39,17 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
           title="Active revenue center"
         >
           {isAll
-            ? <LayoutGrid size={13} className="text-zinc-400 shrink-0" />
+            ? <LayoutGrid size={13} className="text-ink-4 shrink-0" />
             : <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: hex }} />
           }
           <span className="text-[13px] font-medium tracking-[-0.005em] truncate" style={{ color: isAll ? '#d4d4d8' : hex }}>
             {isAll ? 'All RCs' : activeRc?.name}
           </span>
-          <ChevronDown size={13} className="text-zinc-500 shrink-0" />
+          <ChevronDown size={13} className="text-ink-3 shrink-0" />
         </button>
 
         {open && (
-          <div className="absolute left-0 top-full mt-2 min-w-[220px] bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="absolute left-0 top-full mt-2 min-w-[220px] bg-ink border border-ink-2 rounded-xl shadow-xl z-50 overflow-hidden">
             <RcMenu
               revenueCenters={revenueCenters}
               activeRcId={activeRcId}
@@ -65,7 +65,7 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
 
   // ── Default (sidebar) ─────────────────────────────────────────────────────
   return (
-    <div ref={ref} className="relative px-3 py-2 border-b border-gray-700">
+    <div ref={ref} className="relative px-3 py-2 border-b border-ink-2">
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg transition-colors text-left overflow-hidden relative"
@@ -75,17 +75,17 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
         }
       >
         {isAll
-          ? <LayoutGrid size={13} className="text-gray-400 shrink-0" />
+          ? <LayoutGrid size={13} className="text-ink-4 shrink-0" />
           : null
         }
         <span className="flex-1 text-sm font-medium truncate" style={{ color: isAll ? '#d1d5db' : hex }}>
           {isAll ? 'All Revenue Centers' : activeRc?.name}
         </span>
-        <ChevronDown size={14} className="text-gray-400 shrink-0" />
+        <ChevronDown size={14} className="text-ink-4 shrink-0" />
       </button>
 
       {open && (
-        <div className="absolute left-3 right-3 top-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+        <div className="absolute left-3 right-3 top-full mt-1 bg-ink border border-ink-2 rounded-xl shadow-xl z-50 overflow-hidden">
           <RcMenu
             revenueCenters={revenueCenters}
             activeRcId={activeRcId}
@@ -113,29 +113,29 @@ function RcMenu({
     <>
       <button
         onClick={() => onPick(null)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-700 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-ink-2 transition-colors text-left"
       >
-        <LayoutGrid size={10} className="text-gray-400 shrink-0" />
-        <span className="flex-1 text-sm text-gray-100 truncate">All Revenue Centers</span>
-        {isAll && <Check size={14} className="text-blue-400" />}
+        <LayoutGrid size={10} className="text-ink-4 shrink-0" />
+        <span className="flex-1 text-sm text-ink-4 truncate">All Revenue Centers</span>
+        {isAll && <Check size={14} className="text-blue" />}
       </button>
-      <div className="border-t border-gray-700" />
+      <div className="border-t border-ink-2" />
       {revenueCenters.map(rc => (
         <button
           key={rc.id}
           onClick={() => onPick(rc.id)}
-          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-700 transition-colors text-left"
+          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-ink-2 transition-colors text-left"
         >
           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
-          <span className="flex-1 text-sm text-gray-100 truncate">{rc.name}</span>
-          {rc.id === activeRcId && <Check size={14} className="text-blue-400" />}
+          <span className="flex-1 text-sm text-ink-4 truncate">{rc.name}</span>
+          {rc.id === activeRcId && <Check size={14} className="text-blue" />}
         </button>
       ))}
-      <div className="border-t border-gray-700 p-1">
+      <div className="border-t border-ink-2 p-1">
         <Link
           href="/revenue-centers"
           onClick={onManage}
-          className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-ink-4 hover:text-ink-4 hover:bg-ink-2 transition-colors"
         >
           <Settings2 size={12} />
           Manage Revenue Centers

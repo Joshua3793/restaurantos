@@ -36,23 +36,23 @@ function descriptionToKeywords(desc: string): string {
 // ── Badge helpers ─────────────────────────────────────────────────────────────
 
 const confidenceBadge = (c: MatchConfidence) => {
-  if (c === 'HIGH')   return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">HIGH</span>
+  if (c === 'HIGH')   return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-soft text-green-text">HIGH</span>
   if (c === 'MEDIUM') return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-100 text-yellow-700">MEDIUM</span>
-  if (c === 'LOW')    return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700">LOW</span>
-  return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500">NO MATCH</span>
+  if (c === 'LOW')    return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gold-soft text-gold-2">LOW</span>
+  return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-bg-2 text-ink-3">NO MATCH</span>
 }
 
 const fileIcon = (fileType: string) => {
-  if (fileType.includes('pdf')) return <FileText size={16} className="text-red-500" />
-  if (fileType.includes('csv') || fileType.includes('text')) return <FileSpreadsheet size={16} className="text-green-500" />
-  return <Image size={16} className="text-blue-500" />
+  if (fileType.includes('pdf')) return <FileText size={16} className="text-red" />
+  if (fileType.includes('csv') || fileType.includes('text')) return <FileSpreadsheet size={16} className="text-green" />
+  return <Image size={16} className="text-blue" />
 }
 
 const ocrStatusBadge = (status: string) => {
-  if (status === 'COMPLETE') return <span className="text-[10px] font-semibold text-green-600 flex items-center gap-1"><CheckCircle2 size={10} />Done</span>
+  if (status === 'COMPLETE') return <span className="text-[10px] font-semibold text-green flex items-center gap-1"><CheckCircle2 size={10} />Done</span>
   if (status === 'PROCESSING') return <span className="text-[10px] font-semibold text-gold flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Processing</span>
-  if (status === 'ERROR') return <span className="text-[10px] font-semibold text-red-600 flex items-center gap-1"><AlertTriangle size={10} />Error</span>
-  return <span className="text-[10px] font-semibold text-gray-400">Pending</span>
+  if (status === 'ERROR') return <span className="text-[10px] font-semibold text-red flex items-center gap-1"><AlertTriangle size={10} />Error</span>
+  return <span className="text-[10px] font-semibold text-ink-4">Pending</span>
 }
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -126,29 +126,29 @@ function AddItemModal({
       <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-line">
             <div>
-              <h3 className="font-semibold text-gray-900">Add Line Item</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Manually add a missing item to this invoice</p>
+              <h3 className="font-semibold text-ink">Add Line Item</h3>
+              <p className="text-xs text-ink-4 mt-0.5">Manually add a missing item to this invoice</p>
             </div>
-            <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            <button onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3"><X size={18} /></button>
           </div>
 
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Description <span className="text-red-400">*</span></label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Description <span className="text-red">*</span></label>
               <input
                 autoFocus
                 value={desc}
                 onChange={e => setDesc(e.target.value)}
                 placeholder="e.g. Cream 4/4L, Chicken Breast, Olive Oil 3L…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Qty ordered</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Qty ordered</label>
                 <input
                   type="number"
                   step="any"
@@ -156,11 +156,11 @@ function AddItemModal({
                   value={qty}
                   onChange={e => setQty(e.target.value)}
                   placeholder="1"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Unit price ($)</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Unit price ($)</label>
                 <input
                   type="number"
                   step="any"
@@ -168,7 +168,7 @@ function AddItemModal({
                   value={unitPrice}
                   onChange={e => setUnitPrice(e.target.value)}
                   placeholder="0.00"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 />
               </div>
             </div>
@@ -176,11 +176,11 @@ function AddItemModal({
             {total !== null && (
               <div className="flex items-center justify-between text-sm bg-gold/10 rounded-lg px-3 py-2">
                 <span className="text-gold">Line total</span>
-                <span className="font-bold text-blue-800">{new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(total)}</span>
+                <span className="font-bold text-blue-text">{new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(total)}</span>
               </div>
             )}
 
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-ink-4">
               You can fill in the pack format and match it to inventory after adding.
             </p>
 
@@ -188,13 +188,13 @@ function AddItemModal({
               <button
                 type="submit"
                 disabled={!desc.trim() || saving}
-                className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-lg py-2 text-sm font-semibold hover:bg-ink-2 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 {saving ? 'Adding…' : 'Add to Invoice'}
               </button>
               <button type="button" onClick={onClose}
-                className="border border-gray-200 text-gray-600 rounded-lg py-2 px-4 text-sm hover:bg-gray-50">
+                className="border border-line text-ink-3 rounded-lg py-2 px-4 text-sm hover:bg-bg">
                 Cancel
               </button>
             </div>
@@ -226,23 +226,23 @@ const PRICE_BIG_THRESHOLD   = 15   // |Δ%| > 15 → loud
 
 function getItemStatus(item: ScanItem): StatusInfo {
   if (item.action === 'SKIP') {
-    return { kind: 'SKIPPED', borderClass: 'border-l-gray-200', pillClass: 'bg-gray-100 text-gray-500', label: 'Skipped', short: 'Skipped' }
+    return { kind: 'SKIPPED', borderClass: 'border-l-gray-200', pillClass: 'bg-bg-2 text-ink-3', label: 'Skipped', short: 'Skipped' }
   }
   if (item.action === 'CREATE_NEW') {
-    return { kind: 'NEW', borderClass: 'border-l-purple-400', pillClass: 'bg-purple-50 text-purple-700 border border-purple-200', label: 'New item', short: 'New' }
+    return { kind: 'NEW', borderClass: 'border-l-purple-400', pillClass: 'bg-blue-soft text-blue-text border border-blue-soft', label: 'New item', short: 'New' }
   }
   if (!item.matchedItemId) {
-    return { kind: 'UNMATCHED', borderClass: 'border-l-gray-300', pillClass: 'bg-gray-50 text-gray-600 border border-gray-200', label: 'No match', short: 'Unmatched' }
+    return { kind: 'UNMATCHED', borderClass: 'border-l-gray-300', pillClass: 'bg-bg text-ink-3 border border-line', label: 'No match', short: 'Unmatched' }
   }
   const diff = item.priceDiffPct !== null && item.priceDiffPct !== undefined ? Math.abs(Number(item.priceDiffPct)) : 0
   if (item.formatMismatch || diff > PRICE_BIG_THRESHOLD) {
-    return { kind: 'PRICE_BIG', borderClass: 'border-l-red-400', pillClass: 'bg-red-50 text-red-700 border border-red-200', label: item.formatMismatch ? 'Format mismatch' : `${diff > 0 ? '+' : ''}${(item.priceDiffPct ? Number(item.priceDiffPct) : 0).toFixed(1)}%`, short: 'Price ↑↑' }
+    return { kind: 'PRICE_BIG', borderClass: 'border-l-red-400', pillClass: 'bg-red-soft text-red-text border border-red-soft', label: item.formatMismatch ? 'Format mismatch' : `${diff > 0 ? '+' : ''}${(item.priceDiffPct ? Number(item.priceDiffPct) : 0).toFixed(1)}%`, short: 'Price ↑↑' }
   }
   if (diff > PRICE_SMALL_THRESHOLD) {
     const sign = item.priceDiffPct && Number(item.priceDiffPct) > 0 ? '+' : ''
-    return { kind: 'PRICE_SMALL', borderClass: 'border-l-amber-400', pillClass: 'bg-amber-50 text-amber-700 border border-amber-200', label: `${sign}${(item.priceDiffPct ? Number(item.priceDiffPct) : 0).toFixed(1)}%`, short: 'Price changed' }
+    return { kind: 'PRICE_SMALL', borderClass: 'border-l-amber-400', pillClass: 'bg-gold-soft text-gold-2 border border-gold-soft', label: `${sign}${(item.priceDiffPct ? Number(item.priceDiffPct) : 0).toFixed(1)}%`, short: 'Price changed' }
   }
-  return { kind: 'OK', borderClass: 'border-l-emerald-400', pillClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: 'Match', short: 'Unchanged' }
+  return { kind: 'OK', borderClass: 'border-l-emerald-400', pillClass: 'bg-green-soft text-green-text border border-green-soft', label: 'Match', short: 'Unchanged' }
 }
 
 // ── PriceHistorySparkline ─────────────────────────────────────────────────────
@@ -724,18 +724,18 @@ function ScanItemCard({
   })()
 
   return (
-    <div id={`scanitem-${item.id}`} className={`bg-white rounded-xl border border-gray-100 border-l-4 ${accentClass} px-3 py-2.5 transition-all`}>
+    <div id={`scanitem-${item.id}`} className={`bg-white rounded-xl border border-line border-l-4 ${accentClass} px-3 py-2.5 transition-all`}>
 
       {/* ── Row 1: Description + status pill + skip ── */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <span className={`font-medium text-sm leading-snug ${item.action === 'SKIP' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+          <span className={`font-medium text-sm leading-snug ${item.action === 'SKIP' ? 'line-through text-ink-4' : 'text-ink'}`}>
             {item.rawDescription}
           </span>
           {/* OCR low-confidence indicator — surfaces Claude's own uncertainty */}
           {item.ocrConfidence === 'low' && (
             <span
-              className="inline-flex items-center align-middle ml-1.5 text-amber-500"
+              className="inline-flex items-center align-middle ml-1.5 text-gold"
               title={item.ocrNotes ? `OCR uncertain: ${item.ocrNotes}` : 'OCR uncertain — double-check the values below'}
             >
               <AlertCircle size={12} />
@@ -744,7 +744,7 @@ function ScanItemCard({
           {/* In compact-OK mode, show matched inventory name inline so users
               still know what it resolved to without expanding rows 2/3 */}
           {compactOk && status.kind === 'OK' && displayName && (
-            <span className="text-xs text-gray-400 ml-1.5">→ {displayName}</span>
+            <span className="text-xs text-ink-4 ml-1.5">→ {displayName}</span>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -753,7 +753,7 @@ function ScanItemCard({
           </span>
           <button
             onClick={() => onUpdate({ action: item.action === 'SKIP' ? (item.matchedItemId ? 'UPDATE_PRICE' : 'CREATE_NEW') : 'SKIP' })}
-            className={`p-0.5 rounded transition-colors ${item.action === 'SKIP' ? 'text-gray-500 bg-gray-100' : 'text-gray-200 hover:text-red-400'}`}
+            className={`p-0.5 rounded transition-colors ${item.action === 'SKIP' ? 'text-ink-3 bg-bg-2' : 'text-ink-4 hover:text-red'}`}
             title={item.action === 'SKIP' ? 'Restore' : 'Skip'}
           >
             <X size={13} />
@@ -768,7 +768,7 @@ function ScanItemCard({
           {/* VIEW MODE — compact summary. Tap anywhere to enter edit mode. */}
           {!editingPurchase && (
             <div
-              className="flex items-center gap-1.5 text-xs flex-wrap cursor-pointer rounded-lg -mx-1 px-2 py-1.5 hover:bg-blue-50/60 border border-transparent hover:border-blue-100 transition-all group"
+              className="flex items-center gap-1.5 text-xs flex-wrap cursor-pointer rounded-lg -mx-1 px-2 py-1.5 hover:bg-blue-soft/60 border border-transparent hover:border-blue-soft transition-all group"
               onClick={() => setEditingPurchase(true)}
               role="button"
               tabIndex={0}
@@ -777,20 +777,20 @@ function ScanItemCard({
               {/* By Case / By Weight pill */}
               <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border shrink-0 ${
                 isWeightVol(item.invoicePackUOM)
-                  ? 'bg-blue-50 text-blue-600 border-blue-200'
-                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                  ? 'bg-blue-soft text-blue border-blue-soft'
+                  : 'bg-gold-soft text-gold-2 border-gold-soft'
               }`}>
                 {isWeightVol(item.invoicePackUOM) ? 'By Weight' : 'By Case'}
               </span>
               {/* cases */}
               {item.rawQty !== null && (
-                <span className="font-semibold text-gray-700">{item.rawQty} {item.rawUnit || 'cs'}</span>
+                <span className="font-semibold text-ink-2">{item.rawQty} {item.rawUnit || 'cs'}</span>
               )}
               {/* pack format */}
               {item.invoicePackQty && item.invoicePackSize && (
                 <>
-                  <span className="text-gray-300">·</span>
-                  <span className="text-gray-600">
+                  <span className="text-ink-4">·</span>
+                  <span className="text-ink-3">
                     {Number(item.invoicePackQty)} × {Number(item.invoicePackSize)}{item.invoicePackUOM}
                   </span>
                 </>
@@ -798,8 +798,8 @@ function ScanItemCard({
               {/* unit price */}
               {item.rawUnitPrice !== null && (
                 <>
-                  <span className="text-gray-300">·</span>
-                  <span className="text-gray-600">
+                  <span className="text-ink-4">·</span>
+                  <span className="text-ink-3">
                     {formatCurrency(Number(item.rawUnitPrice))}/{
                       item.rawPriceType === 'PKG' ? 'pkg'
                       : item.rawPriceType === 'UOM' ? (item.invoicePackUOM || 'uom')
@@ -811,8 +811,8 @@ function ScanItemCard({
               {/* total */}
               {savedLineTotal !== null && (
                 <>
-                  <span className="text-gray-400">=</span>
-                  <span className="font-bold text-gray-800">{formatCurrency(savedLineTotal)}</span>
+                  <span className="text-ink-4">=</span>
+                  <span className="font-bold text-ink-2">{formatCurrency(savedLineTotal)}</span>
                 </>
               )}
               {/* base cost */}
@@ -824,8 +824,8 @@ function ScanItemCard({
                   const norm = comparePricesNormalized(savedBaseCost, pUOM, _invPPU, item.matchedItem.packUOM)
                   if (norm) return (
                     <>
-                      <span className="text-gray-300">·</span>
-                      <span className={`font-semibold ${priceDiff !== null && priceDiff > 0 ? 'text-red-500' : priceDiff !== null ? 'text-green-500' : 'text-gray-600'}`}>
+                      <span className="text-ink-4">·</span>
+                      <span className={`font-semibold ${priceDiff !== null && priceDiff > 0 ? 'text-red' : priceDiff !== null ? 'text-green' : 'text-ink-3'}`}>
                         {formatCurrency(norm.invoicePPB)}/{norm.baseUnit}
                       </span>
                     </>
@@ -833,19 +833,19 @@ function ScanItemCard({
                 }
                 return (
                   <>
-                    <span className="text-gray-300">·</span>
-                    <span className="text-gray-500">{formatCurrency(savedBaseCost)}/{pUOM}</span>
+                    <span className="text-ink-4">·</span>
+                    <span className="text-ink-3">{formatCurrency(savedBaseCost)}/{pUOM}</span>
                   </>
                 )
               })()}
-              <ChevronDown size={13} className="text-gray-300 group-hover:text-blue-400 ml-auto shrink-0 transition-colors" />
+              <ChevronDown size={13} className="text-ink-4 group-hover:text-blue ml-auto shrink-0 transition-colors" />
             </div>
           )}
 
           {/* EDIT MODE — vertical labeled form */}
           {editingPurchase && (
             <div
-              className="mt-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-3 text-xs"
+              className="mt-2 rounded-xl border border-blue-soft bg-blue-soft/40 p-3 space-y-3 text-xs"
               onKeyDown={handleEditKeyDown}
             >
 
@@ -861,8 +861,8 @@ function ScanItemCard({
                   }}
                   className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
                     !isWeightVol(localPackUOM)
-                      ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                      ? 'bg-ink text-paper border-ink [&_svg]:text-gold shadow-sm'
+                      : 'bg-white text-ink-3 border-line hover:border-gold-soft hover:text-gold'
                   }`}
                 >By Case</button>
                 <button
@@ -876,51 +876,51 @@ function ScanItemCard({
                   }}
                   className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
                     isWeightVol(localPackUOM)
-                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                      ? 'bg-blue text-white border-blue shadow-sm'
+                      : 'bg-white text-ink-3 border-line hover:border-blue hover:text-blue'
                   }`}
                 >By Weight</button>
               </div>
 
               {/* ── Section: How they sold it ── */}
               <div className="space-y-2">
-                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">How they sold it</p>
+                <p className="text-[9px] font-semibold text-ink-4 uppercase tracking-wider">How they sold it</p>
 
                 {/* Qty ordered */}
                 <div className="flex items-center gap-2">
-                  <span className="w-28 text-gray-500 shrink-0">Qty ordered</span>
+                  <span className="w-28 text-ink-3 shrink-0">Qty ordered</span>
                   <div className="flex items-center gap-1">
                     <input type="number" step="any" min="0" value={localCases}
                       onChange={e => setLocalCases(e.target.value)}
-                      className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-14 border border-blue-soft rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue" />
                     <input value={localUnit} onChange={e => setLocalUnit(e.target.value)}
                       placeholder="cs"
-                      className="w-12 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-12 border border-blue-soft rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue" />
                   </div>
                 </div>
 
                 {/* Units per case */}
                 <div className="flex items-center gap-2">
-                  <span className="w-28 text-gray-500 shrink-0">Units per {localUnit || 'case'}</span>
+                  <span className="w-28 text-ink-3 shrink-0">Units per {localUnit || 'case'}</span>
                   <input type="number" step="any" min="0" value={localPackQty}
                     onChange={e => setLocalPackQty(e.target.value)}
-                    className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    className="w-14 border border-blue-soft rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue" />
                 </div>
 
                 {/* Unit size */}
                 <div className="flex items-center gap-2">
-                  <span className="w-28 text-gray-500 shrink-0">Each unit is</span>
+                  <span className="w-28 text-ink-3 shrink-0">Each unit is</span>
                   <div className="flex items-center gap-1">
                     <input type="number" step="any" min="0" value={localPackSize}
                       onChange={e => setLocalPackSize(e.target.value)}
-                      className="w-14 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-14 border border-blue-soft rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue" />
                     <select value={localPackUOM}
                       onChange={e => {
                         setLocalPackUOM(e.target.value)
                         // Mirror packUOM into totalQtyUOM unless the user has chosen a different UOM
                         if (!localTotalQtyUOM || localTotalQtyUOM === localPackUOM) setLocalTotalQtyUOM(e.target.value)
                       }}
-                      className="border border-blue-200 rounded-lg px-2 py-1 bg-white focus:outline-none">
+                      className="border border-blue-soft rounded-lg px-2 py-1 bg-white focus:outline-none">
                       <option value="">—</option>
                       {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
@@ -928,15 +928,15 @@ function ScanItemCard({
                 </div>
               </div>
 
-              <div className="border-t border-blue-100" />
+              <div className="border-t border-blue-soft" />
 
               {/* ── Section: Pricing ── */}
               <div className="space-y-2">
-                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Pricing</p>
+                <p className="text-[9px] font-semibold text-ink-4 uppercase tracking-wider">Pricing</p>
 
                 {/* Charged per */}
                 <div className="flex items-center gap-2">
-                  <span className="w-28 text-gray-500 shrink-0">Charged per</span>
+                  <span className="w-28 text-ink-3 shrink-0">Charged per</span>
                   <div className="flex items-center gap-3">
                     {(['CASE', 'PKG', 'UOM'] as const).map(pt => (
                       <label key={pt} className="flex items-center gap-1 cursor-pointer">
@@ -944,7 +944,7 @@ function ScanItemCard({
                           checked={localPriceType === pt}
                           onChange={() => setLocalPriceType(pt)}
                           className="accent-blue-500" />
-                        <span className="text-gray-600">
+                        <span className="text-ink-3">
                           {pt === 'CASE' ? (localUnit || 'case') : pt === 'PKG' ? 'pkg' : (localPackUOM || 'unit')}
                         </span>
                       </label>
@@ -954,23 +954,23 @@ function ScanItemCard({
 
                 {/* Price */}
                 <div className="flex items-center gap-2">
-                  <span className="w-28 text-gray-500 shrink-0">Price</span>
+                  <span className="w-28 text-ink-3 shrink-0">Price</span>
                   <div className="flex items-center gap-1">
-                    <span className="text-gray-400">$</span>
+                    <span className="text-ink-4">$</span>
                     <input type="number" step="any" min="0" value={localUnitPrice}
                       onChange={e => onUnitPriceChange(e.target.value)}
-                      className="w-20 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-20 border border-blue-soft rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue" />
                   </div>
                 </div>
 
                 {/* Line total */}
                 <div className="flex items-center gap-2">
-                  <span className="w-28 text-gray-500 shrink-0">Line total</span>
+                  <span className="w-28 text-ink-3 shrink-0">Line total</span>
                   <div className="flex items-center gap-1">
-                    <span className="text-gray-400">$</span>
+                    <span className="text-ink-4">$</span>
                     <input type="number" step="any" min="0" value={localLineTotal}
                       onChange={e => onLineTotalChange(e.target.value)}
-                      className="w-20 border border-blue-200 rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 font-semibold" />
+                      className="w-20 border border-blue-soft rounded-lg px-2 py-1 text-center bg-white focus:outline-none focus:ring-1 focus:ring-blue font-semibold" />
                   </div>
                 </div>
               </div>
@@ -978,11 +978,11 @@ function ScanItemCard({
               {/* ── Actual weight (weight/vol items only) ── */}
               {isWeightVol(localPackUOM) && (
                 <>
-                  <div className="border-t border-blue-100" />
+                  <div className="border-t border-blue-soft" />
                   <div className="space-y-1">
-                    <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Actual weight / volume</p>
+                    <p className="text-[9px] font-semibold text-ink-4 uppercase tracking-wider">Actual weight / volume</p>
                     <div className="flex items-center gap-2">
-                      <span className="w-28 text-gray-500 shrink-0">Measured total</span>
+                      <span className="w-28 text-ink-3 shrink-0">Measured total</span>
                       <div className="flex items-center gap-1">
                         <input type="number" step="any" min="0" value={localTotalQty}
                           onChange={e => onTotalQtyChange(e.target.value)}
@@ -990,11 +990,11 @@ function ScanItemCard({
                             const c = parseFloat(localCases), pq = parseFloat(localPackQty), ps = parseFloat(localPackSize)
                             return c > 0 && pq > 0 && ps > 0 ? `nominal: ${trimZeros((c * pq * ps).toFixed(3))}` : 'e.g. 4.8'
                           })()}
-                          className={`w-24 border rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-blue-400 ${
-                            totalQtyMode === 'override' ? 'border-amber-300 bg-amber-50' : 'border-blue-200 bg-white'
+                          className={`w-24 border rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-blue ${
+                            totalQtyMode === 'override' ? 'border-gold-soft bg-gold-soft' : 'border-blue-soft bg-white'
                           }`} />
                         <select value={localTotalQtyUOM} onChange={e => setLocalTotalQtyUOM(e.target.value)}
-                          className="border border-blue-200 rounded-lg px-2 py-1 bg-white focus:outline-none">
+                          className="border border-blue-soft rounded-lg px-2 py-1 bg-white focus:outline-none">
                           <option value="">—</option>
                           {PACK_UOMS.filter(u => isWeightVol(u)).map(u => <option key={u} value={u}>{u}</option>)}
                         </select>
@@ -1002,12 +1002,12 @@ function ScanItemCard({
                           <button
                             type="button"
                             onClick={() => onTotalQtyChange('')}
-                            className="text-[10px] text-amber-600 hover:text-amber-800 underline"
+                            className="text-[10px] text-gold hover:text-gold-2 underline"
                             title="Reset to nominal"
                           >reset</button>
                         )}
                       </div>
-                      <span className="text-[9px] text-gray-400">overrides nominal</span>
+                      <span className="text-[9px] text-ink-4">overrides nominal</span>
                     </div>
                   </div>
                 </>
@@ -1016,9 +1016,9 @@ function ScanItemCard({
               {/* ── Live base cost preview ── */}
               {liveBaseCost !== null && localPackUOM && (
                 <>
-                  <div className="border-t border-blue-100" />
+                  <div className="border-t border-blue-soft" />
                   <div className="space-y-1.5">
-                    <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Result for inventory</p>
+                    <p className="text-[9px] font-semibold text-ink-4 uppercase tracking-wider">Result for inventory</p>
                     {(() => {
                       if (item.matchedItem) {
                         const _livePkgTotal = Number(item.matchedItem.qtyPerPurchaseUnit) * Number(item.matchedItem.packSize)
@@ -1028,27 +1028,27 @@ function ScanItemCard({
                           const delta = norm.invoicePPB - norm.inventoryPPB
                           const isUp = norm.pctDiff > 0.1
                           const isDown = norm.pctDiff < -0.1
-                          const badgeBg = isUp ? 'bg-red-100 text-red-700 border-red-200'
-                            : isDown ? 'bg-green-100 text-green-700 border-green-200'
-                            : 'bg-gray-100 text-gray-600 border-gray-200'
+                          const badgeBg = isUp ? 'bg-red-soft text-red-text border-red-soft'
+                            : isDown ? 'bg-green-soft text-green-text border-green-soft'
+                            : 'bg-bg-2 text-ink-3 border-line'
                           return (
                             <div className="space-y-1.5">
                               <div className="flex items-center gap-2 text-[11px]">
-                                <span className="w-24 text-gray-400 shrink-0">New cost</span>
-                                <span className="font-bold text-gray-900 text-sm">{formatCurrency(norm.invoicePPB)}</span>
-                                <span className="text-gray-400">/{norm.baseUnit}</span>
+                                <span className="w-24 text-ink-4 shrink-0">New cost</span>
+                                <span className="font-bold text-ink text-sm">{formatCurrency(norm.invoicePPB)}</span>
+                                <span className="text-ink-4">/{norm.baseUnit}</span>
                               </div>
                               <div className="flex items-center gap-2 text-[11px]">
-                                <span className="w-24 text-gray-400 shrink-0">Was</span>
-                                <span className="text-gray-500">{formatCurrency(norm.inventoryPPB)}/{norm.baseUnit}</span>
+                                <span className="w-24 text-ink-4 shrink-0">Was</span>
+                                <span className="text-ink-3">{formatCurrency(norm.inventoryPPB)}/{norm.baseUnit}</span>
                               </div>
                               <div className="flex items-center gap-2 text-[11px] pt-0.5">
-                                <span className="w-24 text-gray-400 shrink-0">Change</span>
+                                <span className="w-24 text-ink-4 shrink-0">Change</span>
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-[11px] border ${badgeBg}`}>
                                   {isUp ? <TrendingUp size={10} /> : isDown ? <TrendingDown size={10} /> : null}
                                   {norm.pctDiff > 0 ? '+' : ''}{norm.pctDiff.toFixed(1)}%
                                 </span>
-                                <span className={`text-[10px] ${isUp ? 'text-red-500' : isDown ? 'text-green-600' : 'text-gray-400'}`}>
+                                <span className={`text-[10px] ${isUp ? 'text-red' : isDown ? 'text-green' : 'text-ink-4'}`}>
                                   {delta > 0 ? '+' : ''}{formatCurrency(delta)}/{norm.baseUnit}
                                 </span>
                               </div>
@@ -1058,9 +1058,9 @@ function ScanItemCard({
                       }
                       return (
                         <div className="flex items-center gap-2 text-[11px]">
-                          <span className="w-24 text-gray-400 shrink-0">New cost</span>
-                          <span className="font-bold text-gray-900 text-sm">{formatCurrency(liveBaseCost)}</span>
-                          <span className="text-gray-400">/{localPackUOM}</span>
+                          <span className="w-24 text-ink-4 shrink-0">New cost</span>
+                          <span className="font-bold text-ink text-sm">{formatCurrency(liveBaseCost)}</span>
+                          <span className="text-ink-4">/{localPackUOM}</span>
                         </div>
                       )
                     })()}
@@ -1070,18 +1070,18 @@ function ScanItemCard({
 
               {/* Done + auto-save status */}
               <div className="flex items-center gap-2 pt-1">
-                <span className="flex-1 flex items-center gap-1.5 text-[10px] text-gray-400">
-                  {saveStatus === 'pending' && <><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> unsaved…</>}
-                  {saveStatus === 'saving'  && <><Loader2 size={10} className="animate-spin text-blue-400" /> saving</>}
-                  {saveStatus === 'saved'   && <><CheckCircle2 size={10} className="text-green-500" /> saved</>}
-                  {saveStatus === 'idle'    && <span className="text-gray-300">auto-saves as you type</span>}
+                <span className="flex-1 flex items-center gap-1.5 text-[10px] text-ink-4">
+                  {saveStatus === 'pending' && <><span className="w-1.5 h-1.5 rounded-full bg-gold" /> unsaved…</>}
+                  {saveStatus === 'saving'  && <><Loader2 size={10} className="animate-spin text-blue" /> saving</>}
+                  {saveStatus === 'saved'   && <><CheckCircle2 size={10} className="text-green" /> saved</>}
+                  {saveStatus === 'idle'    && <span className="text-ink-4">auto-saves as you type</span>}
                 </span>
-                <span className="hidden sm:inline text-[10px] text-gray-300">
-                  <kbd className="px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-mono text-[9px]">⌘↵</kbd> next ·{' '}
-                  <kbd className="px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-mono text-[9px]">Esc</kbd> close
+                <span className="hidden sm:inline text-[10px] text-ink-4">
+                  <kbd className="px-1 py-0.5 rounded bg-bg-2 text-ink-3 font-mono text-[9px]">⌘↵</kbd> next ·{' '}
+                  <kbd className="px-1 py-0.5 rounded bg-bg-2 text-ink-3 font-mono text-[9px]">Esc</kbd> close
                 </span>
                 <button onClick={handleDone}
-                  className="px-4 py-1.5 rounded-lg text-xs bg-gold text-white hover:bg-[#a88930] transition-colors font-semibold">
+                  className="px-4 py-1.5 rounded-lg text-xs bg-ink text-paper [&_svg]:text-gold hover:bg-ink-2 transition-colors font-semibold">
                   Done
                 </button>
               </div>
@@ -1099,23 +1099,23 @@ function ScanItemCard({
           {/* ── CREATE NEW state ── */}
           {item.action === 'CREATE_NEW' && !showDropdown && (
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-purple-50 border border-purple-100">
-                <Plus size={12} className="text-purple-400 shrink-0" />
-                <span className="text-xs font-medium text-purple-700 truncate">Will create new inventory item</span>
+              <div className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-blue-soft border border-blue-soft">
+                <Plus size={12} className="text-blue shrink-0" />
+                <span className="text-xs font-medium text-blue-text truncate">Will create new inventory item</span>
               </div>
               <button
                 onClick={onOpenDetail}
                 className={`shrink-0 text-[11px] px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${
                   newItemFilled
-                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                    ? 'bg-blue-soft text-blue-text hover:bg-blue-soft'
+                    : 'bg-gold-soft text-gold-2 hover:bg-gold-soft'
                 }`}
               >
                 {newItemFilled ? 'Edit details' : 'Fill in ⚠'}
               </button>
               <button
                 onClick={() => handleSearchFocus()}
-                className="shrink-0 text-[11px] px-2.5 py-1.5 rounded-lg font-medium text-gray-500 hover:bg-gray-100 border border-gray-200 transition-colors"
+                className="shrink-0 text-[11px] px-2.5 py-1.5 rounded-lg font-medium text-ink-3 hover:bg-bg-2 border border-line transition-colors"
                 title="Search inventory instead"
               >
                 Link instead
@@ -1127,15 +1127,15 @@ function ScanItemCard({
           {item.matchedItemId && item.action !== 'CREATE_NEW' && !showDropdown && (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <ArrowRight size={11} className="text-gray-300 shrink-0" />
+                <ArrowRight size={11} className="text-ink-4 shrink-0" />
                 <button
                   onClick={() => handleSearchFocus()}
                   className="flex items-center gap-1.5 min-w-0 group"
                 >
-                  <span className="text-xs font-semibold text-gray-800 truncate group-hover:text-blue-600 transition-colors">
+                  <span className="text-xs font-semibold text-ink-2 truncate group-hover:text-blue transition-colors">
                     {displayName}
                   </span>
-                  <span className="text-[10px] text-gray-300 group-hover:text-blue-400 shrink-0 transition-colors">change</span>
+                  <span className="text-[10px] text-ink-4 group-hover:text-blue shrink-0 transition-colors">change</span>
                 </button>
                 {priceHistory && priceHistory.length >= 2 && (
                   <PriceHistorySparkline points={priceHistory} />
@@ -1145,12 +1145,12 @@ function ScanItemCard({
               {/* Price diff */}
               {item.action === 'UPDATE_PRICE' && priceDiff !== null && item.previousPrice !== null && item.newPrice !== null && (
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-[11px] text-gray-400 line-through">{formatCurrency(Number(item.previousPrice))}</span>
-                  <ArrowRight size={9} className="text-gray-300" />
-                  <span className={`text-[11px] font-bold ${priceDiff > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  <span className="text-[11px] text-ink-4 line-through">{formatCurrency(Number(item.previousPrice))}</span>
+                  <ArrowRight size={9} className="text-ink-4" />
+                  <span className={`text-[11px] font-bold ${priceDiff > 0 ? 'text-red' : 'text-green'}`}>
                     {formatCurrency(Number(item.newPrice))}
                   </span>
-                  <span className={`text-[10px] font-semibold flex items-center ${priceDiff > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  <span className={`text-[10px] font-semibold flex items-center ${priceDiff > 0 ? 'text-red' : 'text-green'}`}>
                     {priceDiff > 0 ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
                     {Math.abs(priceDiff).toFixed(1)}%
                   </span>
@@ -1161,7 +1161,7 @@ function ScanItemCard({
               {(item.action === 'UPDATE_PRICE' || item.action === 'ADD_SUPPLIER') && (
                 <button
                   onClick={() => onEditInventory(item.matchedItemId!, item)}
-                  className="shrink-0 text-gray-300 hover:text-blue-500 transition-colors"
+                  className="shrink-0 text-ink-4 hover:text-blue transition-colors"
                   title="Edit inventory item"
                 >
                   <Pencil size={11} />
@@ -1174,7 +1174,7 @@ function ScanItemCard({
           {!item.matchedItemId && item.action !== 'CREATE_NEW' && !showDropdown && (
             <button
               onClick={() => handleSearchFocus()}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-gray-400 hover:text-blue-600 transition-colors group"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-line hover:border-blue hover:bg-blue-soft/40 text-ink-4 hover:text-blue transition-colors group"
             >
               <ArrowRight size={12} className="shrink-0" />
               <span className="flex-1 text-left text-xs font-medium">Link to inventory item…</span>
@@ -1185,10 +1185,10 @@ function ScanItemCard({
           {/* ── SEARCH state (dropdown open) ── */}
           {showDropdown && (
             <>
-              <div className="flex items-center gap-1.5 border border-blue-300 rounded-lg bg-white px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-blue-200">
+              <div className="flex items-center gap-1.5 border border-blue rounded-lg bg-white px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-blue">
                 {isSearching
-                  ? <Loader2 size={12} className="animate-spin text-blue-400 shrink-0" />
-                  : <ArrowRight size={12} className="text-blue-400 shrink-0" />
+                  ? <Loader2 size={12} className="animate-spin text-blue shrink-0" />
+                  : <ArrowRight size={12} className="text-blue shrink-0" />
                 }
                 <input
                   autoFocus
@@ -1201,37 +1201,37 @@ function ScanItemCard({
                 <button
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => setShowDropdown(false)}
-                  className="text-gray-300 hover:text-gray-500 shrink-0"
+                  className="text-ink-4 hover:text-ink-3 shrink-0"
                 >
                   <X size={12} />
                 </button>
               </div>
 
-              <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+              <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-line rounded-xl shadow-lg overflow-hidden max-h-56 overflow-y-auto">
                 {searchResults.length === 0 && !isSearching && (
-                  <p className="text-xs text-gray-400 px-3 py-2.5">No items found</p>
+                  <p className="text-xs text-ink-4 px-3 py-2.5">No items found</p>
                 )}
                 {searchResults.map(inv => (
                   <button
                     key={inv.id}
                     onMouseDown={e => { e.preventDefault(); handleSelectItem(inv) }}
-                    className="w-full text-left px-3 py-2 hover:bg-gold/10 transition-colors border-b border-gray-50 last:border-0"
+                    className="w-full text-left px-3 py-2 hover:bg-gold/10 transition-colors border-b border-line last:border-0"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-gray-900 truncate">{inv.itemName}</p>
-                        <p className="text-[10px] text-gray-400">{inv.purchaseUnit} · {inv.category}</p>
+                        <p className="text-xs font-semibold text-ink truncate">{inv.itemName}</p>
+                        <p className="text-[10px] text-ink-4">{inv.purchaseUnit} · {inv.category}</p>
                       </div>
-                      <span className="text-xs text-gray-500 shrink-0">{formatCurrency(Number(inv.purchasePrice))}</span>
+                      <span className="text-xs text-ink-3 shrink-0">{formatCurrency(Number(inv.purchasePrice))}</span>
                     </div>
                   </button>
                 ))}
                 <button
                   onMouseDown={e => { e.preventDefault(); handleSelectCreateNew() }}
-                  className="w-full text-left px-3 py-2.5 hover:bg-purple-50 transition-colors flex items-center gap-2 border-t border-gray-100"
+                  className="w-full text-left px-3 py-2.5 hover:bg-blue-soft transition-colors flex items-center gap-2 border-t border-line"
                 >
-                  <Plus size={12} className="text-purple-500 shrink-0" />
-                  <span className="text-xs font-semibold text-purple-700">Create new inventory item</span>
+                  <Plus size={12} className="text-blue shrink-0" />
+                  <span className="text-xs font-semibold text-blue-text">Create new inventory item</span>
                 </button>
               </div>
             </>
@@ -1240,12 +1240,12 @@ function ScanItemCard({
       )}
 
       {revenueCenters.length > 1 && (
-        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-50">
-          <span className="text-[10px] text-gray-400 shrink-0">RC:</span>
+        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-line">
+          <span className="text-[10px] text-ink-4 shrink-0">RC:</span>
           <select
             value={item.revenueCenterId ?? sessionRcId ?? ''}
             onChange={e => onRcChange(e.target.value)}
-            className="text-[10px] border border-gray-100 rounded px-1.5 py-0.5 text-gray-500 bg-white focus:outline-none"
+            className="text-[10px] border border-line rounded px-1.5 py-0.5 text-ink-3 bg-white focus:outline-none"
           >
             {revenueCenters.map(rc => (
               <option key={rc.id} value={rc.id}>{rc.name}</option>
@@ -1276,11 +1276,11 @@ function ActionSelect({
   ]
 
   const colorMap: Record<LineItemAction, string> = {
-    PENDING:       'bg-gray-100 text-gray-600',
+    PENDING:       'bg-bg-2 text-ink-3',
     UPDATE_PRICE:  'bg-gold/15 text-gold',
-    ADD_SUPPLIER:  'bg-teal-100 text-teal-700',
-    CREATE_NEW:    'bg-purple-100 text-purple-700',
-    SKIP:          'bg-gray-100 text-gray-400',
+    ADD_SUPPLIER:  'bg-green-soft text-green-text',
+    CREATE_NEW:    'bg-blue-soft text-blue-text',
+    SKIP:          'bg-bg-2 text-ink-4',
   }
 
   return (
@@ -1372,25 +1372,25 @@ function ItemDetailPanel({
       <div className="fixed inset-y-0 right-0 z-[70] w-full max-w-md bg-white shadow-xl overflow-y-auto flex flex-col">
         {/* Header */}
         <div
-          className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-2"
+          className="sticky top-0 bg-white border-b border-line px-4 py-3 flex items-center justify-between gap-2"
           style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
         >
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+            <p className="text-xs text-ink-4 uppercase tracking-wide font-medium">
               {isNew ? 'New Inventory Item' : 'Matched Item'}
             </p>
-            <h3 className="font-semibold text-gray-900 text-sm truncate mt-0.5">{item.rawDescription}</h3>
+            <h3 className="font-semibold text-ink text-sm truncate mt-0.5">{item.rawDescription}</h3>
           </div>
-          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3">
             <X size={18} />
           </button>
         </div>
 
         {/* Invoice line summary */}
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-4 text-xs text-gray-500">
-          {item.rawQty !== null && <span><span className="font-medium text-gray-700">{item.rawQty}</span> {item.rawUnit || ''}</span>}
-          {item.rawUnitPrice !== null && <span>Unit price: <span className="font-medium text-gray-700">{formatCurrency(Number(item.rawUnitPrice))}</span></span>}
-          {item.rawLineTotal !== null && <span>Line total: <span className="font-medium text-gray-700">{formatCurrency(Number(item.rawLineTotal))}</span></span>}
+        <div className="px-4 py-3 bg-bg border-b border-line flex items-center gap-4 text-xs text-ink-3">
+          {item.rawQty !== null && <span><span className="font-medium text-ink-2">{item.rawQty}</span> {item.rawUnit || ''}</span>}
+          {item.rawUnitPrice !== null && <span>Unit price: <span className="font-medium text-ink-2">{formatCurrency(Number(item.rawUnitPrice))}</span></span>}
+          {item.rawLineTotal !== null && <span>Line total: <span className="font-medium text-ink-2">{formatCurrency(Number(item.rawLineTotal))}</span></span>}
         </div>
 
         {isNew ? (
@@ -1398,21 +1398,21 @@ function ItemDetailPanel({
           <div className="flex-1 p-4 space-y-4">
             {/* Item name */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Item Name</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Item Name</label>
               <input
                 value={form.itemName}
                 onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
             {/* Category */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
               <select
                 value={form.category}
                 onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 {ITEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -1420,10 +1420,10 @@ function ItemDetailPanel({
 
             {/* Purchase structure */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">Purchase Structure</label>
+              <label className="block text-xs font-medium text-ink-3 mb-2">Purchase Structure</label>
 
               {/* Per Case / Per UOM toggle */}
-              <div className="flex gap-2 p-1 bg-gray-100 rounded-xl mb-3">
+              <div className="flex gap-2 p-1 bg-bg-2 rounded-xl mb-3">
                 {(['CASE', 'UOM'] as const).map(pt => (
                   <button
                     key={pt}
@@ -1435,8 +1435,8 @@ function ItemDetailPanel({
                     }))}
                     className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                       form.priceType === pt
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        ? 'bg-white text-ink shadow-sm'
+                        : 'text-ink-3 hover:text-ink-2'
                     }`}
                   >
                     {pt === 'CASE' ? 'Per Case' : 'Per UOM'}
@@ -1446,32 +1446,32 @@ function ItemDetailPanel({
 
               {form.priceType === 'CASE' && (
                 <div className="space-y-3">
-                  <p className="text-[11px] text-gray-400">
+                  <p className="text-[11px] text-ink-4">
                     Example: Meadow Milk 4/4L → Purchase Unit = <em>case</em>, Qty per case = <em>4</em>, Pack size = <em>4</em>, Pack UOM = <em>L</em>
                   </p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Purchase Unit</label>
+                      <label className="block text-xs text-ink-3 mb-1">Purchase Unit</label>
                       <input
                         value={form.purchaseUnit}
                         onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))}
                         placeholder="case, bag, box…"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Qty per case</label>
+                      <label className="block text-xs text-ink-3 mb-1">Qty per case</label>
                       <input
                         type="number"
                         step="any"
                         min="0"
                         value={form.qtyPerPurchaseUnit}
                         onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Pack Size</label>
+                      <label className="block text-xs text-ink-3 mb-1">Pack Size</label>
                       <input
                         type="number"
                         step="any"
@@ -1479,36 +1479,36 @@ function ItemDetailPanel({
                         value={form.packSize}
                         onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))}
                         placeholder="4, 500, 1…"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Pack UOM</label>
+                      <label className="block text-xs text-ink-3 mb-1">Pack UOM</label>
                       <select
                         value={form.packUOM}
                         onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                       >
                         {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Purchase Price ($)</label>
+                      <label className="block text-xs text-ink-3 mb-1">Purchase Price ($)</label>
                       <input
                         type="number"
                         step="any"
                         min="0"
                         value={form.purchasePrice}
                         onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
+                      <label className="block text-xs text-ink-3 mb-1">Count UOM</label>
                       <select
                         value={form.countUOM}
                         onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                       >
                         {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
@@ -1519,35 +1519,35 @@ function ItemDetailPanel({
 
               {form.priceType === 'UOM' && (
                 <div className="space-y-3 mt-3">
-                  <p className="text-[11px] text-gray-400">
+                  <p className="text-[11px] text-ink-4">
                     Priced by rate (e.g. $/kg). Enter the unit the supplier quotes per.
                   </p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Price Unit</label>
+                      <label className="block text-xs text-ink-3 mb-1">Price Unit</label>
                       <select
                         value={form.packUOM}
                         onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                       >
                         {(['kg', 'g', 'lb', 'oz', 'l', 'ml']).map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Price / {form.packUOM} ($)</label>
+                      <label className="block text-xs text-ink-3 mb-1">Price / {form.packUOM} ($)</label>
                       <input
                         type="number" step="any"
                         value={form.purchasePrice}
                         onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
+                      <label className="block text-xs text-ink-3 mb-1">Count UOM</label>
                       <select
                         value={form.countUOM}
                         onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
                       >
                         {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
@@ -1562,20 +1562,20 @@ function ItemDetailPanel({
               <p className="text-xs font-semibold text-gold uppercase tracking-wide">Auto-calculated</p>
               <div className="flex justify-between text-xs">
                 <span className="text-gold">Base unit:</span>
-                <span className="font-medium text-blue-800">{bu}</span>
+                <span className="font-medium text-blue-text">{bu}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-gold">Price per {bu}:</span>
-                <span className="font-medium text-blue-800">{formatCurrency(ppbu)}</span>
+                <span className="font-medium text-blue-text">{formatCurrency(ppbu)}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-gold">Total base units per case:</span>
-                <span className="font-medium text-blue-800">{(qty * ps).toFixed(2)} {bu}</span>
+                <span className="font-medium text-blue-text">{(qty * ps).toFixed(2)} {bu}</span>
               </div>
               {cf !== 1 && (
                 <div className="flex justify-between text-xs">
                   <span className="text-gold">Conversion factor:</span>
-                  <span className="font-medium text-blue-800">{cf.toFixed(4)}</span>
+                  <span className="font-medium text-blue-text">{cf.toFixed(4)}</span>
                 </div>
               )}
             </div>
@@ -1586,36 +1586,36 @@ function ItemDetailPanel({
             {item.matchedItem && (
               <>
                 <div className="flex items-center gap-2">
-                  <Package size={14} className="text-blue-500" />
-                  <span className="font-semibold text-gray-900 text-sm">{item.matchedItem.itemName}</span>
+                  <Package size={14} className="text-blue" />
+                  <span className="font-semibold text-ink text-sm">{item.matchedItem.itemName}</span>
                   {confidenceBadge(item.matchConfidence)}
                 </div>
 
-                <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <div className="bg-bg rounded-xl p-4 space-y-3">
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-xs text-gray-400">Purchase Unit</p>
-                      <p className="font-medium text-gray-900">{item.matchedItem.purchaseUnit}</p>
+                      <p className="text-xs text-ink-4">Purchase Unit</p>
+                      <p className="font-medium text-ink">{item.matchedItem.purchaseUnit}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Price Type</p>
-                      <p className="font-medium text-gray-900">
+                      <p className="text-xs text-ink-4">Price Type</p>
+                      <p className="font-medium text-ink">
                         {item.matchedItem.priceType === 'UOM'
                           ? `Per ${item.matchedItem.packUOM}`
                           : 'Per Case'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-ink-4">
                         {item.matchedItem.priceType === 'UOM'
                           ? `Current Price / ${item.matchedItem.packUOM}`
                           : 'Current Price'}
                       </p>
-                      <p className="font-medium text-gray-900">{formatCurrency(Number(item.matchedItem.purchasePrice))}</p>
+                      <p className="font-medium text-ink">{formatCurrency(Number(item.matchedItem.purchasePrice))}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Price / Base Unit</p>
-                      <p className="font-medium text-gray-900">{formatCurrency(Number(item.matchedItem.pricePerBaseUnit))}</p>
+                      <p className="text-xs text-ink-4">Price / Base Unit</p>
+                      <p className="font-medium text-ink">{formatCurrency(Number(item.matchedItem.pricePerBaseUnit))}</p>
                     </div>
                   </div>
                 </div>
@@ -1625,16 +1625,16 @@ function ItemDetailPanel({
                     <p className="text-xs font-semibold text-gold uppercase tracking-wide">Proposed Price Change</p>
                     <div className="flex items-center gap-3">
                       <div className="text-center">
-                        <p className="text-xs text-gray-400">Current</p>
-                        <p className="text-lg font-bold text-gray-600">{formatCurrency(Number(item.previousPrice))}</p>
+                        <p className="text-xs text-ink-4">Current</p>
+                        <p className="text-lg font-bold text-ink-3">{formatCurrency(Number(item.previousPrice))}</p>
                       </div>
-                      <ArrowRight size={16} className="text-gray-300" />
+                      <ArrowRight size={16} className="text-ink-4" />
                       <div className="text-center">
-                        <p className="text-xs text-gray-400">New</p>
+                        <p className="text-xs text-ink-4">New</p>
                         <p className="text-lg font-bold text-gold">{formatCurrency(Number(item.newPrice))}</p>
                       </div>
                       {item.priceDiffPct !== null && (
-                        <div className={`ml-auto flex items-center gap-1 font-bold text-sm ${Number(item.priceDiffPct) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        <div className={`ml-auto flex items-center gap-1 font-bold text-sm ${Number(item.priceDiffPct) > 0 ? 'text-red' : 'text-green'}`}>
                           {Number(item.priceDiffPct) > 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                           {Math.abs(Number(item.priceDiffPct)).toFixed(1)}%
                         </div>
@@ -1648,7 +1648,7 @@ function ItemDetailPanel({
         )}
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
+        <div className="sticky bottom-0 bg-white border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
           {isNew && (
             <button
               onClick={() => {
@@ -1669,14 +1669,14 @@ function ItemDetailPanel({
                   },
                 })
               }}
-              className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] transition-colors"
+              className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-lg py-2 text-sm font-semibold hover:bg-ink-2 transition-colors"
             >
               Save Item Details
             </button>
           )}
           <button
             onClick={onClose}
-            className={`${isNew ? '' : 'flex-1'} border border-gray-200 text-gray-600 rounded-lg py-2 px-4 text-sm hover:bg-gray-50 transition-colors`}
+            className={`${isNew ? '' : 'flex-1'} border border-line text-ink-3 rounded-lg py-2 px-4 text-sm hover:bg-bg transition-colors`}
           >
             {isNew ? 'Cancel' : 'Close'}
           </button>
@@ -1829,85 +1829,85 @@ function InventoryEditModal({
       <div className="fixed inset-y-0 right-0 z-[70] w-full max-w-md bg-white shadow-xl overflow-y-auto flex flex-col">
         {/* Header */}
         <div
-          className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between gap-2"
+          className="sticky top-0 bg-white border-b border-line px-4 py-3 flex items-center justify-between gap-2"
           style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
         >
           <div>
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Edit Inventory Item</p>
-            <h3 className="font-semibold text-gray-900 text-sm mt-0.5 truncate">{form.itemName || '…'}</h3>
+            <p className="text-xs text-ink-4 uppercase tracking-wide font-medium">Edit Inventory Item</p>
+            <h3 className="font-semibold text-ink text-sm mt-0.5 truncate">{form.itemName || '…'}</h3>
           </div>
-          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3"><X size={18} /></button>
         </div>
 
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
-            <Loader2 size={24} className="animate-spin text-blue-500" />
+            <Loader2 size={24} className="animate-spin text-blue" />
           </div>
         ) : (
           <div className="flex-1 p-4 space-y-4">
             {/* Item Name */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Item Name</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Item Name</label>
               <input value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
             </div>
 
             {/* Category + Abbreviation */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
                 <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
                   {ITEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Abbreviation</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Abbreviation</label>
                 <input value={form.abbreviation} onChange={e => setForm(f => ({ ...f, abbreviation: e.target.value }))}
                   placeholder="optional"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
 
             {/* Purchase Structure */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">Purchase Structure</label>
+              <label className="block text-xs font-medium text-ink-3 mb-2">Purchase Structure</label>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Purchase Unit</label>
+                  <label className="block text-xs text-ink-3 mb-1">Purchase Unit</label>
                   <input value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))}
                     placeholder="case, bag…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Qty per case</label>
+                  <label className="block text-xs text-ink-3 mb-1">Qty per case</label>
                   <input type="number" step="any" min="0" value={form.qtyPerPurchaseUnit}
                     onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Pack Size</label>
+                  <label className="block text-xs text-ink-3 mb-1">Pack Size</label>
                   <input type="number" step="any" min="0" value={form.packSize}
                     onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Pack UOM</label>
+                  <label className="block text-xs text-ink-3 mb-1">Pack UOM</label>
                   <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
                     {PACK_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Purchase Price ($)</label>
+                  <label className="block text-xs text-ink-3 mb-1">Purchase Price ($)</label>
                   <input type="number" step="any" min="0" value={form.purchasePrice}
                     onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Count UOM</label>
+                  <label className="block text-xs text-ink-3 mb-1">Count UOM</label>
                   <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
+                    className="w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold">
                     {COUNT_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
@@ -1915,36 +1915,36 @@ function InventoryEditModal({
             </div>
 
             {/* Auto-calculated preview */}
-            <div className="bg-green-50 rounded-lg p-3 space-y-1">
-              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Auto-calculated</p>
+            <div className="bg-green-soft rounded-lg p-3 space-y-1">
+              <p className="text-xs font-semibold text-green-text uppercase tracking-wide">Auto-calculated</p>
               <div className="flex justify-between text-xs">
-                <span className="text-green-600">Base unit:</span>
-                <span className="font-medium text-green-800">{bu}</span>
+                <span className="text-green">Base unit:</span>
+                <span className="font-medium text-green-text">{bu}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-green-600">Price per {bu}:</span>
-                <span className="font-medium text-green-800">{formatCurrency(ppbu)}</span>
+                <span className="text-green">Price per {bu}:</span>
+                <span className="font-medium text-green-text">{formatCurrency(ppbu)}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-green-600">Total base units:</span>
-                <span className="font-medium text-green-800">{(qty * ps).toFixed(2)} {bu}</span>
+                <span className="text-green">Total base units:</span>
+                <span className="font-medium text-green-text">{(qty * ps).toFixed(2)} {bu}</span>
               </div>
             </div>
           </div>
         )}
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
+        <div className="sticky bottom-0 bg-white border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="flex-1 bg-green-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex-1 bg-green text-white rounded-lg py-2 text-sm font-semibold hover:bg-green transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
             {saving ? 'Saving…' : 'Save & Update Prices'}
           </button>
           <button onClick={onClose}
-            className="border border-gray-200 text-gray-600 rounded-lg py-2 px-4 text-sm hover:bg-gray-50 transition-colors">
+            className="border border-line text-ink-3 rounded-lg py-2 px-4 text-sm hover:bg-bg transition-colors">
             Cancel
           </button>
         </div>
@@ -2017,23 +2017,23 @@ export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileN
       onClick={onClick}
       title={title}
       disabled={disabled}
-      className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      className="p-1.5 rounded-md text-ink-3 hover:bg-bg-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
     >
       {children}
     </button>
   )
 
   return (
-    <div className="flex flex-col bg-gray-50 shrink-0 w-full sm:w-[460px]">
+    <div className="flex flex-col bg-bg shrink-0 w-full sm:w-[460px]">
       {/* File tabs (only if multiple files) */}
       {files.length > 1 && (
-        <div className="flex gap-1 px-3 py-2 border-b border-gray-200 bg-white overflow-x-auto shrink-0">
+        <div className="flex gap-1 px-3 py-2 border-b border-line bg-white overflow-x-auto shrink-0">
           {files.map((f, i) => (
             <button
               key={f.id}
               onClick={() => setActiveIdx(i)}
               className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                activeIdx === i ? 'bg-gold/15 text-gold' : 'text-gray-500 hover:bg-gray-100'
+                activeIdx === i ? 'bg-gold/15 text-gold' : 'text-ink-3 hover:bg-bg-2'
               }`}
             >
               Page {i + 1}
@@ -2044,18 +2044,18 @@ export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileN
 
       {/* Toolbar — only for images (PDFs use browser-native controls inside iframe) */}
       {isImage && file?.fileUrl && (
-        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-white shrink-0">
+        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-line bg-white shrink-0">
           <Btn onClick={zoomOut} title="Zoom out (Cmd/Ctrl + scroll)" disabled={zoom <= ZOOM_MIN}><Minus size={14} /></Btn>
-          <span className="text-xs font-mono text-gray-500 w-12 text-center select-none">{Math.round(zoom * 100)}%</span>
+          <span className="text-xs font-mono text-ink-3 w-12 text-center select-none">{Math.round(zoom * 100)}%</span>
           <Btn onClick={zoomIn} title="Zoom in" disabled={zoom >= ZOOM_MAX}><Plus size={14} /></Btn>
-          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <div className="w-px h-4 bg-line mx-1" />
           <Btn onClick={rotateLeft} title="Rotate left"><RotateCcw size={14} /></Btn>
           <Btn onClick={rotateRight} title="Rotate right"><RotateCw size={14} /></Btn>
-          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <div className="w-px h-4 bg-line mx-1" />
           <Btn onClick={fitWidth} title="Fit to width"><Maximize2 size={14} /></Btn>
           <button
             onClick={reset}
-            className="px-2 py-1 ml-auto rounded-md text-[11px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+            className="px-2 py-1 ml-auto rounded-md text-[11px] font-medium text-ink-3 hover:text-ink-2 hover:bg-bg-2 transition-colors"
             title="Reset view"
           >
             Reset
@@ -2080,7 +2080,7 @@ export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileN
             src={file.fileUrl}
             alt={file.fileName}
             draggable={false}
-            className="max-w-full rounded-lg shadow-sm border border-gray-200 object-contain transition-transform duration-100"
+            className="max-w-full rounded-lg shadow-sm border border-line object-contain transition-transform duration-100"
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
               transformOrigin: 'center center',
@@ -2090,15 +2090,15 @@ export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileN
           <iframe
             src={file.fileUrl}
             title={file.fileName}
-            className="w-full rounded-lg border border-gray-200 bg-white"
+            className="w-full rounded-lg border border-line bg-white"
             style={{ height: '100%', minHeight: '600px' }}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center gap-3 text-gray-400 h-full">
-            <FileText size={40} className="text-gray-300" />
+          <div className="flex flex-col items-center justify-center gap-3 text-ink-4 h-full">
+            <FileText size={40} className="text-ink-4" />
             <p className="text-sm">{file?.fileName ?? 'No file'}</p>
             {file?.fileUrl && (
-              <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">
+              <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue hover:underline">
                 Open file ↗
               </a>
             )}
@@ -2107,8 +2107,8 @@ export function InvoiceImageViewer({ files }: { files: Array<{ id: string; fileN
       </div>
 
       {/* File name footer */}
-      <div className="px-3 py-2 border-t border-gray-200 bg-white shrink-0">
-        <p className="text-[10px] text-gray-400 truncate">{file?.fileName}</p>
+      <div className="px-3 py-2 border-t border-line bg-white shrink-0">
+        <p className="text-[10px] text-ink-4 truncate">{file?.fileName}</p>
       </div>
     </div>
   )
@@ -2438,47 +2438,47 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gold/15 animate-pulse mb-2">
           <ScanLine size={32} className="text-gold" />
         </div>
-        <h2 className="text-xl font-bold text-gray-900">Scanning Invoice…</h2>
+        <h2 className="text-xl font-bold text-ink">Scanning Invoice…</h2>
         {(session?.supplierName || session?.invoiceDate || session?.invoiceNumber) && (
           <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-1">
             {session.supplierName && (
-              <span className="text-sm font-semibold text-gray-700">{session.supplierName}</span>
+              <span className="text-sm font-semibold text-ink-2">{session.supplierName}</span>
             )}
             {session.invoiceDate && (
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-ink-3">
                 {new Date(session.invoiceDate + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
               </span>
             )}
             {session.invoiceNumber && (
-              <span className="text-xs text-gray-400">#{session.invoiceNumber}</span>
+              <span className="text-xs text-ink-4">#{session.invoiceNumber}</span>
             )}
           </div>
         )}
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-ink-3">
           {session?.files && session.files.length > 1
             ? `Sending all ${session.files.length} pages to Claude at once — usually 15–30 seconds.`
             : 'Claude is reading and extracting line items. Usually 10–20 seconds.'}
         </p>
 
-        <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50 text-left">
+        <div className="bg-white rounded-xl border border-line divide-y divide-line text-left">
           {session?.files.map(f => (
             <div key={f.id} className="flex items-center gap-3 px-4 py-3">
               {fileIcon(f.fileType)}
-              <span className="flex-1 text-sm text-gray-700 truncate">{f.fileName}</span>
+              <span className="flex-1 text-sm text-ink-2 truncate">{f.fileName}</span>
               {ocrStatusBadge(f.ocrStatus)}
             </div>
           ))}
         </div>
 
         <div className="flex items-center justify-center gap-3">
-          <div className="flex items-center gap-2 text-sm text-gray-400">
+          <div className="flex items-center gap-2 text-sm text-ink-4">
             <Loader2 size={14} className="animate-spin" />
             Processing…
           </div>
           <button
             onClick={handleCancelProcessing}
             disabled={isCancelling}
-            className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 border border-red-200 hover:border-red-400 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 text-sm text-red hover:text-red-text border border-red-soft hover:border-red rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
           >
             {isCancelling ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
             {isCancelling ? 'Cancelling…' : 'Cancel'}
@@ -2503,20 +2503,20 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const renderApproving = () => (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-xl mx-auto space-y-6 text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-100 animate-pulse mb-2">
-          <CheckCircle2 size={32} className="text-amber-600" />
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gold-soft animate-pulse mb-2">
+          <CheckCircle2 size={32} className="text-gold" />
         </div>
-        <h2 className="text-xl font-bold text-gray-900">Applying Invoice…</h2>
-        <p className="text-sm text-gray-500">
+        <h2 className="text-xl font-bold text-ink">Applying Invoice…</h2>
+        <p className="text-sm text-ink-3">
           Updating inventory prices and recipe costs in the background. You can work on other invoices.
         </p>
-        <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+        <div className="flex items-center justify-center gap-2 text-sm text-ink-4">
           <Loader2 size={14} className="animate-spin" />
           Working…
         </div>
         <button
           onClick={handleResetApproving}
-          className="text-xs text-gray-400 underline hover:text-gray-600 mt-4"
+          className="text-xs text-ink-4 underline hover:text-ink-3 mt-4"
         >
           Stuck? Reset to review
         </button>
@@ -2537,22 +2537,22 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
   const renderError = () => (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-xl mx-auto space-y-6 text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-100 mb-2">
-          <AlertCircle size={32} className="text-red-500" />
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-soft mb-2">
+          <AlertCircle size={32} className="text-red" />
         </div>
-        <h2 className="text-xl font-bold text-gray-900">Scan Failed</h2>
+        <h2 className="text-xl font-bold text-ink">Scan Failed</h2>
         {session?.errorMessage && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-left">
+          <p className="text-sm text-red bg-red-soft border border-red-soft rounded-xl px-4 py-3 text-left">
             {session.errorMessage}
           </p>
         )}
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-ink-3">
           You can retry the scan or delete this session and try again.
         </p>
         <button
           onClick={handleRetry}
           disabled={isRetrying}
-          className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-gold text-white rounded-xl font-semibold text-sm hover:bg-[#a88930] disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-ink text-paper [&_svg]:text-gold rounded-xl font-semibold text-sm hover:bg-ink-2 disabled:opacity-50 transition-colors"
         >
           {isRetrying ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />}
           {isRetrying ? 'Retrying…' : 'Retry Scan'}
@@ -2629,18 +2629,18 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         <div className="p-4 space-y-4">
 
           {/* ── Invoice document ── */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-line shadow-sm overflow-hidden">
 
             {/* Invoice header band */}
-            <div className="bg-gradient-to-r from-slate-700 to-slate-800 px-5 py-4 text-white">
+            <div className="bg-gradient-to-r from-ink-2 to-ink px-5 py-4 text-white">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Invoice Review</p>
+                  <p className="text-[10px] font-bold text-ink-4 uppercase tracking-widest mb-0.5">Invoice Review</p>
                   <h2 className="text-lg font-bold leading-tight truncate">{session.supplierName || 'Unknown Supplier'}</h2>
                 </div>
                 <div className="text-right shrink-0 flex flex-col items-end gap-1">
                   {session.invoiceNumber && !editingHeader && (
-                    <div className="flex items-center gap-1 justify-end text-slate-300 text-xs">
+                    <div className="flex items-center gap-1 justify-end text-ink-4 text-xs">
                       <Hash size={10} /><span className="font-mono font-semibold text-white">{session.invoiceNumber}</span>
                     </div>
                   )}
@@ -2648,7 +2648,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                     <div className="text-xl font-bold text-white">{formatCurrency(Number(session.total))}</div>
                   )}
                   {(session.subtotal || session.tax) && !editingHeader && (
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                    <div className="flex items-center gap-2 text-[10px] text-ink-4">
                       {session.subtotal && <span>Sub: {formatCurrency(Number(session.subtotal))}</span>}
                       {session.tax && <span>Tax: {formatCurrency(Number(session.tax))}</span>}
                     </div>
@@ -2656,7 +2656,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   {!editingHeader && (
                     <button
                       onClick={openHeaderEdit}
-                      className="mt-1 flex items-center gap-1 text-slate-400 hover:text-white text-[10px] transition-colors"
+                      className="mt-1 flex items-center gap-1 text-ink-4 hover:text-white text-[10px] transition-colors"
                     >
                       <Pencil size={10} /> Edit details
                     </button>
@@ -2669,27 +2669,27 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                 <div className="mt-3 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Invoice #</label>
+                      <label className="block text-[10px] text-ink-4 mb-0.5 font-semibold uppercase tracking-wide">Invoice #</label>
                       <input
                         value={headerNumber}
                         onChange={e => setHeaderNumber(e.target.value)}
                         placeholder="e.g. INV-1234"
-                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                        className="w-full bg-ink-3/60 border border-ink-3 rounded-lg px-2 py-1.5 text-sm text-white placeholder-ink-4 focus:outline-none focus:border-blue"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Date</label>
+                      <label className="block text-[10px] text-ink-4 mb-0.5 font-semibold uppercase tracking-wide">Date</label>
                       <input
                         type="date"
                         value={headerDate}
                         onChange={e => setHeaderDate(e.target.value)}
-                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-400"
+                        className="w-full bg-ink-3/60 border border-ink-3 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue"
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Subtotal ($)</label>
+                      <label className="block text-[10px] text-ink-4 mb-0.5 font-semibold uppercase tracking-wide">Subtotal ($)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -2697,11 +2697,11 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                         value={headerSubtotal}
                         onChange={e => setHeaderSubtotal(e.target.value)}
                         placeholder="0.00"
-                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                        className="w-full bg-ink-3/60 border border-ink-3 rounded-lg px-2 py-1.5 text-sm text-white placeholder-ink-4 focus:outline-none focus:border-blue"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Tax ($)</label>
+                      <label className="block text-[10px] text-ink-4 mb-0.5 font-semibold uppercase tracking-wide">Tax ($)</label>
                       <input
                         type="number"
                         step="0.01"
@@ -2709,12 +2709,12 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                         value={headerTax}
                         onChange={e => setHeaderTax(e.target.value)}
                         placeholder="0.00"
-                        className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                        className="w-full bg-ink-3/60 border border-ink-3 rounded-lg px-2 py-1.5 text-sm text-white placeholder-ink-4 focus:outline-none focus:border-blue"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wide">Invoice Total ($)</label>
+                    <label className="block text-[10px] text-ink-4 mb-0.5 font-semibold uppercase tracking-wide">Invoice Total ($)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -2722,13 +2722,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                       value={headerTotal}
                       onChange={e => setHeaderTotal(e.target.value)}
                       placeholder="0.00"
-                      className="w-full bg-slate-600/60 border border-slate-500 rounded-lg px-2 py-1.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                      className="w-full bg-ink-3/60 border border-ink-3 rounded-lg px-2 py-1.5 text-sm text-white placeholder-ink-4 focus:outline-none focus:border-blue"
                     />
                   </div>
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => setEditingHeader(false)}
-                      className="flex-1 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white border border-slate-600 hover:border-slate-400 transition-colors"
+                      className="flex-1 py-1.5 rounded-lg text-xs font-medium text-ink-4 hover:text-white border border-ink-3 hover:border-line-2 transition-colors"
                     >
                       Cancel
                     </button>
@@ -2744,22 +2744,22 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               ) : (
                 <div className="flex items-center gap-5 mt-3 text-xs">
                   {session.invoiceDate && (
-                    <div className="flex items-center gap-1 text-slate-300">
+                    <div className="flex items-center gap-1 text-ink-4">
                       <CalendarDays size={11} />
                       <span>{session.invoiceDate}</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-1 text-slate-300">
+                  <div className="flex items-center gap-1 text-ink-4">
                     <Package size={11} />
                     <span>{totalItems} line item{totalItems !== 1 ? 's' : ''}</span>
                   </div>
                   {actionCounts['UPDATE_PRICE'] > 0 && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/20 text-[#fcd34d] border border-gold/30">
                       {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
                     </span>
                   )}
                   {actionCounts['CREATE_NEW'] > 0 && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-200 border border-purple-400/30">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue/20 text-[#93c5fd] border border-blue/30">
                       {actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}
                     </span>
                   )}
@@ -2773,34 +2773,34 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               const ocrName = session.supplierName
 
               return (
-                <div className="border-b border-gray-100">
+                <div className="border-b border-line">
                   {linkedSupplierId && linked ? (
-                    <div className="flex items-center gap-3 px-4 py-2 bg-green-50">
-                      <Building2 size={14} className="text-green-600 shrink-0" />
+                    <div className="flex items-center gap-3 px-4 py-2 bg-green-soft">
+                      <Building2 size={14} className="text-green shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-semibold text-gray-900">{linked.name}</span>
-                        <span className="ml-2 text-xs text-gray-400">
+                        <span className="text-sm font-semibold text-ink">{linked.name}</span>
+                        <span className="ml-2 text-xs text-ink-4">
                           {supplierLinkMode === 'auto' ? '✓ auto-matched' : '(linked)'}
                         </span>
                       </div>
                       <button
                         onClick={() => { loadSuppliers(); setSupplierComboOpen(true) }}
-                        className="text-xs text-gold hover:text-blue-800 shrink-0 flex items-center gap-0.5"
+                        className="text-xs text-gold hover:text-blue-text shrink-0 flex items-center gap-0.5"
                       >
                         Change <ChevronDown size={12} />
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-3 px-4 py-2 bg-amber-50">
-                      <AlertTriangle size={14} className="text-amber-500 shrink-0" />
-                      <p className="flex-1 min-w-0 text-xs text-gray-700 truncate">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-gold-soft">
+                      <AlertTriangle size={14} className="text-gold shrink-0" />
+                      <p className="flex-1 min-w-0 text-xs text-ink-2 truncate">
                         {ocrName
                           ? <><span className="font-mono font-semibold">&ldquo;{ocrName}&rdquo;</span> — link to a supplier</>
                           : 'No supplier detected — link to a supplier'}
                       </p>
                       <button
                         onClick={() => { loadSuppliers(); setSupplierComboOpen(true) }}
-                        className="text-xs font-semibold text-gold hover:text-blue-800 shrink-0 flex items-center gap-0.5"
+                        className="text-xs font-semibold text-gold hover:text-blue-text shrink-0 flex items-center gap-0.5"
                       >
                         Link <ArrowRight size={12} />
                       </button>
@@ -2808,13 +2808,13 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   )}
 
                   {supplierComboOpen && (
-                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg mx-4 mb-2 overflow-hidden">
+                    <div className="bg-white border border-line rounded-lg shadow-lg mx-4 mb-2 overflow-hidden">
                       <input
                         autoFocus
                         value={supplierSearch}
                         onChange={e => setSupplierSearch(e.target.value)}
                         placeholder="Search suppliers…"
-                        className="w-full px-3 py-2 text-sm border-b border-gray-100 focus:outline-none"
+                        className="w-full px-3 py-2 text-sm border-b border-line focus:outline-none"
                       />
                       <div className="max-h-48 overflow-y-auto">
                         {allSuppliers
@@ -2831,9 +2831,9 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                               onClick={() => handleLinkSupplier(s.id)}
                               className="w-full text-left px-3 py-2 text-sm hover:bg-gold/10 transition-colors"
                             >
-                              <span className="font-medium text-gray-900">{s.name}</span>
+                              <span className="font-medium text-ink">{s.name}</span>
                               {s.aliases && s.aliases.length > 0 && (
-                                <span className="ml-2 text-xs text-gray-400 font-mono">
+                                <span className="ml-2 text-xs text-ink-4 font-mono">
                                   {s.aliases.length} alias{s.aliases.length !== 1 ? 'es' : ''}
                                 </span>
                               )}
@@ -2846,14 +2846,14 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                             setCreateSupplierOpen(true)
                             setSupplierComboOpen(false)
                           }}
-                          className="w-full text-left px-3 py-2 text-sm text-gold hover:bg-gold/10 border-t border-gray-100 font-semibold transition-colors"
+                          className="w-full text-left px-3 py-2 text-sm text-gold hover:bg-gold/10 border-t border-line font-semibold transition-colors"
                         >
                           + Create &ldquo;{session.supplierName || 'new supplier'}&rdquo; as new supplier
                         </button>
                       </div>
                       <button
                         onClick={() => setSupplierComboOpen(false)}
-                        className="w-full py-1.5 text-xs text-gray-400 hover:bg-gray-50 border-t border-gray-100"
+                        className="w-full py-1.5 text-xs text-ink-4 hover:bg-bg border-t border-line"
                       >
                         Cancel
                       </button>
@@ -2865,8 +2865,8 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
             {/* RC selector strip */}
             {revenueCenters.length > 1 && (
-              <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
-                <span className="text-xs text-gray-500 shrink-0">Revenue Center:</span>
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-line bg-bg">
+                <span className="text-xs text-ink-3 shrink-0">Revenue Center:</span>
                 <select
                   value={sessionRcId ?? ''}
                   onChange={async e => {
@@ -2878,7 +2878,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                       body: JSON.stringify({ revenueCenterId: rcId }),
                     })
                   }}
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold bg-white"
+                  className="text-xs border border-line rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold bg-white"
                 >
                   {revenueCenters.map(rc => (
                     <option key={rc.id} value={rc.id}>{rc.name}</option>
@@ -2895,16 +2895,16 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
             {/* Duplicate invoice warning */}
             {duplicateSessions.length > 0 && (
-              <div className="flex items-start gap-2 px-4 py-2.5 bg-red-50 border-b border-red-200">
-                <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-red-700">
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-red-soft border-b border-red-soft">
+                <AlertTriangle size={14} className="text-red mt-0.5 shrink-0" />
+                <div className="text-xs text-red-text">
                   <span className="font-semibold">Possible duplicate.</span>{' '}
                   Invoice #{session.invoiceNumber} was already scanned
                   {duplicateSessions[0].invoiceDate ? ` on ${duplicateSessions[0].invoiceDate}` : ''}
                   {duplicateSessions[0].supplierName ? ` from ${duplicateSessions[0].supplierName}` : ''}{' '}
                   <span className={`font-semibold ${
-                    duplicateSessions[0].status === 'APPROVED' ? 'text-green-700' :
-                    duplicateSessions[0].status === 'REJECTED' ? 'text-red-700' : 'text-amber-700'
+                    duplicateSessions[0].status === 'APPROVED' ? 'text-green-text' :
+                    duplicateSessions[0].status === 'REJECTED' ? 'text-red-text' : 'text-gold-2'
                   }`}>({duplicateSessions[0].status.toLowerCase()})</span>.
                   Review carefully before approving.
                 </div>
@@ -2922,38 +2922,38 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               const subtotalIsOver= subtotalDiff !== null && subtotalDiff < -0.50
               return (
                 <div className={`flex items-center gap-2 px-4 py-2 border-b text-xs ${
-                  subtotalIsOver ? 'bg-red-50 border-red-200' :
-                  subtotalIsOk   ? 'bg-green-50 border-green-200' :
-                                   'bg-gray-50 border-gray-200'
+                  subtotalIsOver ? 'bg-red-soft border-red-soft' :
+                  subtotalIsOk   ? 'bg-green-soft border-green-soft' :
+                                   'bg-bg border-line'
                 }`}>
                   <div className="flex items-center gap-2 flex-1 flex-wrap">
-                    <span className="text-gray-500">Scanned:</span>
-                    <span className={`font-bold ${subtotalIsOver ? 'text-red-700' : 'text-gray-800'}`}>{formatCurrency(scannedTotal)}</span>
+                    <span className="text-ink-3">Scanned:</span>
+                    <span className={`font-bold ${subtotalIsOver ? 'text-red-text' : 'text-ink-2'}`}>{formatCurrency(scannedTotal)}</span>
                     {ocrSubtotal !== null && (
                       <>
-                        <span className="text-gray-300">·</span>
-                        <span className="text-gray-500">Subtotal:</span>
-                        <span className="font-bold text-gray-800">{formatCurrency(ocrSubtotal)}</span>
+                        <span className="text-ink-4">·</span>
+                        <span className="text-ink-3">Subtotal:</span>
+                        <span className="font-bold text-ink-2">{formatCurrency(ocrSubtotal)}</span>
                       </>
                     )}
                     {ocrTax !== null && (
                       <>
-                        <span className="text-gray-300">·</span>
-                        <span className="text-gray-500">Tax:</span>
-                        <span className="font-bold text-gray-800">{formatCurrency(ocrTax)}</span>
+                        <span className="text-ink-4">·</span>
+                        <span className="text-ink-3">Tax:</span>
+                        <span className="font-bold text-ink-2">{formatCurrency(ocrTax)}</span>
                       </>
                     )}
                     {invoiceTotal !== null && (
                       <>
-                        <span className="text-gray-300">·</span>
-                        <span className="text-gray-500">{ocrSubtotal ? 'Total:' : 'Invoice total:'}</span>
-                        <span className="font-bold text-gray-800">{formatCurrency(invoiceTotal)}</span>
+                        <span className="text-ink-4">·</span>
+                        <span className="text-ink-3">{ocrSubtotal ? 'Total:' : 'Invoice total:'}</span>
+                        <span className="font-bold text-ink-2">{formatCurrency(invoiceTotal)}</span>
                       </>
                     )}
                     {subtotalDiff !== null && !subtotalIsOk && (
                       <>
-                        <span className="text-gray-300">·</span>
-                        <span className={`font-medium ${subtotalIsOver ? 'text-red-600' : 'text-gray-400'}`}>
+                        <span className="text-ink-4">·</span>
+                        <span className={`font-medium ${subtotalIsOver ? 'text-red' : 'text-ink-4'}`}>
                           {subtotalIsOver
                             ? `⚠ Items exceed by ${formatCurrency(Math.abs(subtotalDiff))}`
                             : ocrSubtotal
@@ -2963,7 +2963,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                       </>
                     )}
                   </div>
-                  {subtotalIsOk && <span className="text-green-600 font-semibold">✓ Match</span>}
+                  {subtotalIsOk && <span className="text-green font-semibold">✓ Match</span>}
                 </div>
               )
             })()}
@@ -2976,42 +2976,42 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                     onClick={() => setStatusFilter(value)}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
                       statusFilter === value
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        ? 'bg-ink text-white border-ink'
+                        : 'bg-white text-ink-3 border-line hover:bg-bg'
                     }`}
                   >
                     {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
-                    {label} <span className={statusFilter === value ? 'text-gray-300' : 'text-gray-400'}>{count}</span>
+                    {label} <span className={statusFilter === value ? 'text-ink-4' : 'text-ink-4'}>{count}</span>
                   </button>
                 )
               )
               return (
-                <div className="px-3 py-2 flex items-center gap-1.5 flex-wrap border-t border-gray-100 bg-gray-50/50">
+                <div className="px-3 py-2 flex items-center gap-1.5 flex-wrap border-t border-line bg-bg/50">
                   <Chip value="ALL"          label="All"        count={totalItems} />
-                  <Chip value="OK"           label="Unchanged"  count={statusCounts.OK}          dot="bg-emerald-400" />
-                  <Chip value="PRICE_SMALL"  label="Price Δ"    count={statusCounts.PRICE_SMALL} dot="bg-amber-400" />
-                  <Chip value="PRICE_BIG"    label="Price ↑↑"   count={statusCounts.PRICE_BIG}   dot="bg-red-400" />
-                  <Chip value="NEW"          label="New"        count={statusCounts.NEW}         dot="bg-purple-400" />
-                  <Chip value="UNMATCHED"    label="Unmatched"  count={statusCounts.UNMATCHED}   dot="bg-gray-300" />
-                  <Chip value="SKIPPED"      label="Skipped"    count={statusCounts.SKIPPED}     dot="bg-gray-300" />
+                  <Chip value="OK"           label="Unchanged"  count={statusCounts.OK}          dot="bg-green" />
+                  <Chip value="PRICE_SMALL"  label="Price Δ"    count={statusCounts.PRICE_SMALL} dot="bg-gold" />
+                  <Chip value="PRICE_BIG"    label="Price ↑↑"   count={statusCounts.PRICE_BIG}   dot="bg-red" />
+                  <Chip value="NEW"          label="New"        count={statusCounts.NEW}         dot="bg-blue" />
+                  <Chip value="UNMATCHED"    label="Unmatched"  count={statusCounts.UNMATCHED}   dot="bg-line-2" />
+                  <Chip value="SKIPPED"      label="Skipped"    count={statusCounts.SKIPPED}     dot="bg-line-2" />
 
                   <div className="ml-auto flex items-center gap-2.5">
                     {/* Sort toggle */}
                     <button
                       onClick={() => setSortMode(sortMode === 'invoice' ? 'alerts' : 'invoice')}
-                      className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+                      className="flex items-center gap-1 text-[11px] text-ink-3 hover:text-ink-2 transition-colors"
                       title={sortMode === 'invoice' ? 'Showing in invoice order' : 'Showing alerts first'}
                     >
                       {sortMode === 'invoice' ? '⇣ Invoice order' : '⚠ Alerts first'}
                     </button>
 
                     {statusCounts.OK > 0 && (
-                      <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer select-none">
+                      <label className="flex items-center gap-1.5 text-[11px] text-ink-3 cursor-pointer select-none">
                         <input
                           type="checkbox"
                           checked={compactOk}
                           onChange={e => setCompactOk(e.target.checked)}
-                          className="w-3 h-3 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gold"
+                          className="w-3 h-3 rounded border-line-2 text-ink-2 focus:ring-1 focus:ring-gold"
                         />
                         Compact unchanged
                       </label>
@@ -3054,18 +3054,18 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                 await fetchSession(session.id)
               }
               return (
-                <div className="px-3 py-2 flex items-center gap-2 border-t border-amber-100 bg-amber-50/40 text-[11px]">
-                  <span className="text-gray-600">
-                    Showing <span className="font-semibold text-gray-800">{filteredItems.length}</span> {filterLabel} item{filteredItems.length !== 1 ? 's' : ''}.
+                <div className="px-3 py-2 flex items-center gap-2 border-t border-gold-soft bg-gold-soft/40 text-[11px]">
+                  <span className="text-ink-3">
+                    Showing <span className="font-semibold text-ink-2">{filteredItems.length}</span> {filterLabel} item{filteredItems.length !== 1 ? 's' : ''}.
                   </span>
                   {isSkipped ? (
                     <button onClick={handleBulkRestore}
-                      className="ml-auto px-2.5 py-1 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-[11px] font-medium">
+                      className="ml-auto px-2.5 py-1 rounded-md bg-white border border-line text-ink-2 hover:bg-bg text-[11px] font-medium">
                       Restore all
                     </button>
                   ) : (
                     <button onClick={handleBulkSkip}
-                      className="ml-auto px-2.5 py-1 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-medium">
+                      className="ml-auto px-2.5 py-1 rounded-md bg-white border border-red-soft text-red hover:bg-red-soft text-[11px] font-medium">
                       Skip all {filterLabel}
                     </button>
                   )}
@@ -3074,7 +3074,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
             })()}
 
             {/* Line items — invoice order preserved */}
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-line">
               {filteredItems.map(item => (
                 <div key={item.id} className="px-3 py-0.5">
                   <ScanItemCard
@@ -3105,26 +3105,26 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                 </div>
               ))}
               {filteredItems.length === 0 && session.scanItems.length > 0 && (
-                <div className="py-8 text-center text-sm text-gray-400">
-                  No items in this filter. <button onClick={() => setStatusFilter('ALL')} className="text-blue-500 hover:underline">Show all</button>
+                <div className="py-8 text-center text-sm text-ink-4">
+                  No items in this filter. <button onClick={() => setStatusFilter('ALL')} className="text-blue hover:underline">Show all</button>
                 </div>
               )}
               {session.scanItems.length === 0 && (
-                <div className="py-8 text-center text-sm text-gray-400">
+                <div className="py-8 text-center text-sm text-ink-4">
                   {session.files?.some(f => f.ocrStatus === 'ERROR')
-                    ? <span className="text-red-500">OCR failed — the invoice couldn&apos;t be read. Check the image quality and try scanning again.</span>
+                    ? <span className="text-red">OCR failed — the invoice couldn&apos;t be read. Check the image quality and try scanning again.</span>
                     : 'No items scanned yet — add line items manually or start a new scan.'}
                 </div>
               )}
             </div>
 
             {/* Add line item row */}
-            <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+            <div className="px-4 py-3 border-t border-line bg-bg">
               <button
                 onClick={() => setIsAddingItem(true)}
-                className="flex items-center gap-2 text-sm text-gold hover:text-blue-800 font-medium transition-colors"
+                className="flex items-center gap-2 text-sm text-gold hover:text-blue-text font-medium transition-colors"
               >
-                <Plus size={15} className="border border-blue-300 rounded" /> Add line item manually
+                <Plus size={15} className="border border-blue rounded" /> Add line item manually
               </button>
             </div>
 
@@ -3134,28 +3134,28 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               const ocrTax = session.tax      ? Number(session.tax)      : null
               const taxLine = ocrTax ?? (invoiceTotal !== null ? invoiceTotal - scannedTotal : null)
               return (
-                <div className="px-5 py-4 bg-gray-50 border-t border-gray-200">
+                <div className="px-5 py-4 bg-bg border-t border-line">
                   <div className="flex flex-col items-end gap-1 text-sm">
                     <div className="flex items-center gap-6">
-                      <span className="text-gray-500">Subtotal (scanned items)</span>
-                      <span className="font-semibold text-gray-800 w-24 text-right">{formatCurrency(scannedTotal)}</span>
+                      <span className="text-ink-3">Subtotal (scanned items)</span>
+                      <span className="font-semibold text-ink-2 w-24 text-right">{formatCurrency(scannedTotal)}</span>
                     </div>
                     {ocrSub !== null && Math.abs(ocrSub - scannedTotal) > 0.01 && (
-                      <div className="flex items-center gap-6 text-gray-400 text-xs">
+                      <div className="flex items-center gap-6 text-ink-4 text-xs">
                         <span>Invoice subtotal</span>
                         <span className="w-24 text-right">{formatCurrency(ocrSub)}</span>
                       </div>
                     )}
                     {taxLine !== null && taxLine > 0.01 && (
-                      <div className="flex items-center gap-6 text-gray-400">
+                      <div className="flex items-center gap-6 text-ink-4">
                         <span>Taxes &amp; fees</span>
                         <span className="w-24 text-right">{formatCurrency(taxLine)}</span>
                       </div>
                     )}
                     {invoiceTotal !== null && (
-                      <div className="flex items-center gap-6 border-t border-gray-200 pt-1 mt-1">
-                        <span className="font-bold text-gray-700">Invoice Total</span>
-                        <span className="font-bold text-gray-900 w-24 text-right">{formatCurrency(invoiceTotal)}</span>
+                      <div className="flex items-center gap-6 border-t border-line pt-1 mt-1">
+                        <span className="font-bold text-ink-2">Invoice Total</span>
+                        <span className="font-bold text-ink w-24 text-right">{formatCurrency(invoiceTotal)}</span>
                       </div>
                     )}
                   </div>
@@ -3166,16 +3166,16 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         </div>
 
         {/* Sticky approve bar */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex flex-col sm:flex-row items-center gap-3">
+        <div className="sticky bottom-0 bg-white border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex flex-col sm:flex-row items-center gap-3">
           <div className="flex-1 flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-gray-500">{activeItems} items to apply</span>
+            <span className="text-sm text-ink-3">{activeItems} items to apply</span>
             {actionCounts['UPDATE_PRICE'] > 0 && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/15 text-gold border border-gold/30">
                 {actionCounts['UPDATE_PRICE']} price update{actionCounts['UPDATE_PRICE'] !== 1 ? 's' : ''}
               </span>
             )}
             {actionCounts['CREATE_NEW'] > 0 && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-soft text-blue-text border border-blue-soft">
                 {actionCounts['CREATE_NEW']} new item{actionCounts['CREATE_NEW'] !== 1 ? 's' : ''}
               </span>
             )}
@@ -3186,19 +3186,19 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               placeholder="Your name"
               value={approvedBy}
               onChange={e => { setApprovedBy(e.target.value); localStorage.setItem('approvedBy', e.target.value) }}
-              className={`border rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-gold ${!approvedBy ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
+              className={`border rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-gold ${!approvedBy ? 'border-gold-soft bg-gold-soft' : 'border-line'}`}
             />
             <button
               onClick={handleReject}
               disabled={isApproving}
-              className="border border-red-500 text-red-600 rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-red-50 disabled:opacity-50 transition-colors"
+              className="border border-red text-red rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-red-soft disabled:opacity-50 transition-colors"
             >
               Reject
             </button>
             <button
               onClick={handleApproveAll}
               disabled={isApproving}
-              className="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="bg-green text-white rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-green disabled:opacity-50 transition-colors"
             >
               {isApproving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
               {isApproving ? 'Approving…' : 'Approve & Apply'}
@@ -3217,33 +3217,33 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
       return (
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-xl mx-auto space-y-6 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-100 mb-2">
-              <CheckCircle2 size={32} className="text-green-600" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-soft mb-2">
+              <CheckCircle2 size={32} className="text-green" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900">Invoice Applied!</h2>
+            <h2 className="text-xl font-bold text-ink">Invoice Applied!</h2>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'Prices Updated', value: approveResult.itemsUpdated, icon: <Package size={20} className="text-blue-500" />, color: 'blue' },
-                { label: 'Items Created', value: approveResult.newItemsCreated, icon: <Plus size={20} className="text-purple-500" />, color: 'purple' },
-                { label: 'Price Alerts', value: approveResult.priceAlerts, icon: <TrendingUp size={20} className="text-amber-500" />, color: 'amber' },
-                { label: 'Recipe Alerts', value: approveResult.recipeAlerts, icon: <ClipboardList size={20} className="text-red-500" />, color: 'red' },
+                { label: 'Prices Updated', value: approveResult.itemsUpdated, icon: <Package size={20} className="text-blue" />, color: 'blue' },
+                { label: 'Items Created', value: approveResult.newItemsCreated, icon: <Plus size={20} className="text-blue" />, color: 'purple' },
+                { label: 'Price Alerts', value: approveResult.priceAlerts, icon: <TrendingUp size={20} className="text-gold" />, color: 'amber' },
+                { label: 'Recipe Alerts', value: approveResult.recipeAlerts, icon: <ClipboardList size={20} className="text-red" />, color: 'red' },
               ].map(({ label, value, icon }) => (
-                <div key={label} className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col items-center gap-2">
+                <div key={label} className="bg-white rounded-xl border border-line p-4 flex flex-col items-center gap-2">
                   {icon}
-                  <div className="text-2xl font-bold text-gray-900">{value}</div>
-                  <div className="text-xs text-gray-500">{label}</div>
+                  <div className="text-2xl font-bold text-ink">{value}</div>
+                  <div className="text-xs text-ink-3">{label}</div>
                 </div>
               ))}
             </div>
             {(approveResult.priceAlerts > 0 || approveResult.recipeAlerts > 0) && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 text-sm text-amber-800">
+              <div className="bg-gold-soft border border-gold-soft rounded-xl p-3 flex items-center gap-2 text-sm text-gold-2">
                 <Bell size={16} className="shrink-0" />
                 {approveResult.priceAlerts + approveResult.recipeAlerts} alert(s) generated — check the bell icon in the header
               </div>
             )}
             <button
               onClick={onClose}
-              className="w-full bg-gold text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-[#a88930] transition-colors"
+              className="w-full bg-ink text-paper [&_svg]:text-gold rounded-xl py-3 font-semibold flex items-center justify-center gap-2 hover:bg-ink-2 transition-colors"
             >
               <ScanLine size={18} /> Close
             </button>
@@ -3261,43 +3261,43 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
       return (
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-xl mx-auto space-y-6 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-2 bg-red-100">
-              <AlertCircle size={32} className="text-red-500" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-2 bg-red-soft">
+              <AlertCircle size={32} className="text-red" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900">
+            <h2 className="text-xl font-bold text-ink">
               {isRejected ? 'Invoice Rejected' : 'Invoice'}
             </h2>
             {session && (
-              <div className="bg-white rounded-xl border border-gray-100 p-4 text-left space-y-2 text-sm">
+              <div className="bg-white rounded-xl border border-line p-4 text-left space-y-2 text-sm">
                 {session.supplierName && (
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Supplier</span>
-                    <span className="font-medium text-gray-900">{session.supplierName}</span>
+                    <span className="text-ink-3">Supplier</span>
+                    <span className="font-medium text-ink">{session.supplierName}</span>
                   </div>
                 )}
                 {session.invoiceNumber && (
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Invoice #</span>
-                    <span className="font-mono font-medium text-gray-900">{session.invoiceNumber}</span>
+                    <span className="text-ink-3">Invoice #</span>
+                    <span className="font-mono font-medium text-ink">{session.invoiceNumber}</span>
                   </div>
                 )}
                 {session.invoiceDate && (
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Date</span>
-                    <span className="font-medium text-gray-900">{session.invoiceDate}</span>
+                    <span className="text-ink-3">Date</span>
+                    <span className="font-medium text-ink">{session.invoiceDate}</span>
                   </div>
                 )}
                 {session.total && (
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Total</span>
-                    <span className="font-bold text-gray-900">{formatCurrency(Number(session.total))}</span>
+                    <span className="text-ink-3">Total</span>
+                    <span className="font-bold text-ink">{formatCurrency(Number(session.total))}</span>
                   </div>
                 )}
               </div>
             )}
             <button
               onClick={onClose}
-              className="w-full border border-gray-200 text-gray-600 rounded-xl py-3 font-semibold hover:bg-gray-50 transition-colors"
+              className="w-full border border-line text-ink-3 rounded-xl py-3 font-semibold hover:bg-bg transition-colors"
             >
               Close
             </button>
@@ -3315,10 +3315,10 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/15 text-gold border border-gold/30">price update</span>
       )
       if (action === 'CREATE_NEW' || isNewItem) return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">new item</span>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-soft text-blue-text border border-blue-soft">new item</span>
       )
       if (action === 'ADD_SUPPLIER') return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">supplier added</span>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold-soft text-gold-2 border border-gold-soft">supplier added</span>
       )
       return null
     }
@@ -3326,34 +3326,34 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
     return (
       <div className="flex-1 overflow-y-auto flex flex-col">
         {/* Header band */}
-        <div className="bg-gradient-to-r from-slate-700 to-slate-800 px-5 py-4 text-white shrink-0">
+        <div className="bg-gradient-to-r from-ink-2 to-ink px-5 py-4 text-white shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Approved Invoice</p>
+              <p className="text-[10px] font-bold text-ink-4 uppercase tracking-widest mb-0.5">Approved Invoice</p>
               <h2 className="text-lg font-bold leading-tight truncate">{session.supplierName || 'Unknown Supplier'}</h2>
             </div>
             <div className="text-right shrink-0 flex flex-col items-end gap-1">
               {session.invoiceNumber && (
-                <div className="flex items-center gap-1 justify-end text-slate-300 text-xs">
+                <div className="flex items-center gap-1 justify-end text-ink-4 text-xs">
                   <Hash size={10} /><span className="font-mono font-semibold text-white">{session.invoiceNumber}</span>
                 </div>
               )}
               {session.total && (
                 <div className="text-xl font-bold text-white">{formatCurrency(Number(session.total))}</div>
               )}
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-400/30">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green/20 text-[#86efac] border border-green/30">
                 <CheckCircle2 size={10} className="mr-1" />Approved
               </span>
             </div>
           </div>
           <div className="flex items-center gap-5 mt-3 text-xs">
             {session.invoiceDate && (
-              <div className="flex items-center gap-1 text-slate-300">
+              <div className="flex items-center gap-1 text-ink-4">
                 <CalendarDays size={11} />
                 <span>{session.invoiceDate}</span>
               </div>
             )}
-            <div className="flex items-center gap-1 text-slate-300">
+            <div className="flex items-center gap-1 text-ink-4">
               <Package size={11} />
               <span>{visibleItems.length} line item{visibleItems.length !== 1 ? 's' : ''}</span>
             </div>
@@ -3364,27 +3364,27 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="space-y-1">
             {visibleItems.map(si => (
-              <div key={si.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex flex-col gap-1.5">
+              <div key={si.id} className="bg-white border border-line rounded-xl px-4 py-3 flex flex-col gap-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-400 truncate">{si.rawDescription}</p>
-                    <p className="text-sm font-semibold text-gray-900 truncate">
-                      {si.matchedItem ? si.matchedItem.itemName : <span className="text-gray-400 italic">Unmatched</span>}
+                    <p className="text-xs text-ink-4 truncate">{si.rawDescription}</p>
+                    <p className="text-sm font-semibold text-ink truncate">
+                      {si.matchedItem ? si.matchedItem.itemName : <span className="text-ink-4 italic">Unmatched</span>}
                     </p>
                   </div>
                   <div className="shrink-0">
                     {actionBadge(si.action, si.isNewItem)}
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-gray-500">
+                <div className="flex items-center gap-4 text-xs text-ink-3">
                   {si.rawQty != null && (
-                    <span>Qty: <span className="font-medium text-gray-700">{si.rawQty}</span></span>
+                    <span>Qty: <span className="font-medium text-ink-2">{si.rawQty}</span></span>
                   )}
                   {si.rawUnitPrice != null && (
-                    <span>Unit: <span className="font-medium text-gray-700">{formatCurrency(Number(si.rawUnitPrice))}</span></span>
+                    <span>Unit: <span className="font-medium text-ink-2">{formatCurrency(Number(si.rawUnitPrice))}</span></span>
                   )}
                   {si.rawLineTotal != null && (
-                    <span className="ml-auto font-semibold text-gray-900">{formatCurrency(Number(si.rawLineTotal))}</span>
+                    <span className="ml-auto font-semibold text-ink">{formatCurrency(Number(si.rawLineTotal))}</span>
                   )}
                 </div>
               </div>
@@ -3393,14 +3393,14 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
           {skippedItems.length > 0 && (
             <details className="group">
-              <summary className="cursor-pointer text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 select-none">
+              <summary className="cursor-pointer text-xs text-ink-4 hover:text-ink-3 flex items-center gap-1 select-none">
                 <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
                 Skipped items ({skippedItems.length})
               </summary>
               <div className="mt-2 space-y-1 pl-4">
                 {skippedItems.map(si => (
-                  <div key={si.id} className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 truncate">{si.rawDescription}</p>
+                  <div key={si.id} className="bg-bg border border-line rounded-lg px-3 py-2">
+                    <p className="text-xs text-ink-4 truncate">{si.rawDescription}</p>
                   </div>
                 ))}
               </div>
@@ -3409,26 +3409,26 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
           {/* Alerts section */}
           <div className="space-y-3 pt-2">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+            <h3 className="text-xs font-bold text-ink-3 uppercase tracking-widest flex items-center gap-2">
               <Bell size={12} />Alerts
             </h3>
 
             {session.priceAlerts.length === 0 && session.recipeAlerts.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">No alerts generated</p>
+              <p className="text-xs text-ink-4 italic">No alerts generated</p>
             ) : (
               <>
                 {session.priceAlerts.map(alert => {
                   const pct = Number(alert.changePct)
                   const isUp = alert.direction === 'UP'
                   return (
-                    <div key={alert.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div key={alert.id} className="bg-white border border-line rounded-xl px-4 py-3 flex items-center justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{alert.inventoryItem.itemName}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm font-semibold text-ink truncate">{alert.inventoryItem.itemName}</p>
+                        <p className="text-xs text-ink-3">
                           {formatCurrency(Number(alert.previousPrice))} → {formatCurrency(Number(alert.newPrice))}
                         </p>
                       </div>
-                      <div className={`flex items-center gap-1 text-sm font-bold shrink-0 ${isUp ? 'text-red-500' : 'text-green-600'}`}>
+                      <div className={`flex items-center gap-1 text-sm font-bold shrink-0 ${isUp ? 'text-red' : 'text-green'}`}>
                         {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                         {isUp ? '+' : '-'}{Math.abs(pct).toFixed(1)}%
                       </div>
@@ -3440,20 +3440,20 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   const pct = Number(alert.changePct)
                   const isUp = pct > 0
                   return (
-                    <div key={alert.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div key={alert.id} className="bg-white border border-line rounded-xl px-4 py-3 flex items-center justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1">
-                          <p className="text-sm font-semibold text-gray-900 truncate">{alert.recipe.name}</p>
-                          {alert.exceededThreshold && <AlertCircle size={13} className="text-red-500 shrink-0" />}
+                          <p className="text-sm font-semibold text-ink truncate">{alert.recipe.name}</p>
+                          {alert.exceededThreshold && <AlertCircle size={13} className="text-red shrink-0" />}
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-ink-3">
                           {formatCurrency(Number(alert.previousCost))} → {formatCurrency(Number(alert.newCost))}
                           {alert.newFoodCostPct != null && (
-                            <span className="ml-1 text-gray-400">· food cost {Number(alert.newFoodCostPct).toFixed(1)}%</span>
+                            <span className="ml-1 text-ink-4">· food cost {Number(alert.newFoodCostPct).toFixed(1)}%</span>
                           )}
                         </p>
                       </div>
-                      <div className={`flex items-center gap-1 text-sm font-bold shrink-0 ${isUp ? 'text-red-500' : 'text-green-600'}`}>
+                      <div className={`flex items-center gap-1 text-sm font-bold shrink-0 ${isUp ? 'text-red' : 'text-green'}`}>
                         {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                         {isUp ? '+' : '-'}{Math.abs(pct).toFixed(1)}%
                       </div>
@@ -3467,7 +3467,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
 
         {/* Footer: Review Again button */}
         <div
-          className="shrink-0 border-t border-gray-100 p-4"
+          className="shrink-0 border-t border-line p-4"
           style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
         >
           <button
@@ -3485,7 +3485,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
               }
             }}
             disabled={isApproving}
-            className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-colors"
+            className="w-full bg-gold hover:bg-gold disabled:opacity-50 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-colors"
           >
             {isApproving ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
             {isApproving ? 'Reverting…' : 'Review Again'}
@@ -3504,35 +3504,35 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40">
           <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-900">Create New Supplier</h3>
-              <button onClick={() => setCreateSupplierOpen(false)} className="p-2.5 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">
+              <h3 className="text-sm font-bold text-ink">Create New Supplier</h3>
+              <button onClick={() => setCreateSupplierOpen(false)} className="p-2.5 flex items-center justify-center rounded-lg text-ink-4 hover:bg-bg-2">
                 <X size={14} />
               </button>
             </div>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-ink-3 mb-3">
               A new supplier will be created and this invoice will be linked to it.
               The OCR name will be saved as an alias for future auto-matching.
             </p>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Supplier Name *</label>
+            <label className="block text-xs font-medium text-ink-3 mb-1">Supplier Name *</label>
             <input
               autoFocus
               value={newSupplierName}
               onChange={e => setNewSupplierName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleCreateAndLinkSupplier() }}
               placeholder="e.g. Legends Haul"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold mb-3"
+              className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold mb-3"
             />
             <div className="flex gap-2">
               <button
                 onClick={() => setCreateSupplierOpen(false)}
-                className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50"
+                className="flex-1 border border-line rounded-lg py-2 text-sm hover:bg-bg"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateAndLinkSupplier}
                 disabled={savingSupplier || !newSupplierName.trim()}
-                className="flex-1 bg-gold text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#a88930] disabled:opacity-50"
+                className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-lg py-2 text-sm font-semibold hover:bg-ink-2 disabled:opacity-50"
               >
                 {savingSupplier ? 'Creating…' : 'Create & Link'}
               </button>
@@ -3554,10 +3554,10 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         style={{ transform: open ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 150ms ease-out' }}
       >
         {/* Drawer header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line shrink-0">
           <div className="flex items-center gap-2">
             <ScanLine size={18} className="text-gold" />
-            <span className="font-semibold text-gray-900">
+            <span className="font-semibold text-ink">
               {drawerState === 'processing' ? 'Scanning…'
                 : drawerState === 'approving' ? 'Applying Invoice…'
                 : drawerState === 'error' ? 'Scan Failed'
@@ -3566,7 +3566,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                 : 'Loading…'}
             </span>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <button onClick={onClose} className="p-1.5 text-ink-4 hover:text-ink-3 hover:bg-bg-2 rounded-lg transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -3579,10 +3579,10 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           )}
 
           {/* Right: content */}
-          <div className={`flex-1 overflow-y-auto flex flex-col ${drawerState === 'review' ? 'border-l border-gray-100' : ''}`}>
+          <div className={`flex-1 overflow-y-auto flex flex-col ${drawerState === 'review' ? 'border-l border-line' : ''}`}>
             {drawerState === 'loading' && (
               <div className="flex-1 flex items-center justify-center">
-                <Loader2 size={28} className="animate-spin text-blue-500" />
+                <Loader2 size={28} className="animate-spin text-blue" />
               </div>
             )}
             {drawerState === 'processing' && renderProcessing()}
@@ -3609,17 +3609,17 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
         >
           {/* Handle bar */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
-            <div className="w-10 h-1 rounded-full bg-gray-200" />
+            <div className="w-10 h-1 rounded-full bg-line" />
           </div>
 
           {/* Header */}
           <div
-            className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0"
+            className="flex items-center justify-between px-5 py-3 border-b border-line shrink-0"
             style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
           >
             <div className="flex items-center gap-2">
               <ScanLine size={16} className="text-gold" />
-              <span className="font-semibold text-gray-900 text-sm">
+              <span className="font-semibold text-ink text-sm">
                 {drawerState === 'processing' ? 'Scanning…'
                   : drawerState === 'approving' ? 'Applying Invoice…'
                   : drawerState === 'review' ? 'Review Invoice'
@@ -3627,23 +3627,23 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
                   : 'Loading…'}
               </span>
             </div>
-            <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600">
+            <button onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3">
               <X size={16} />
             </button>
           </div>
 
           {/* Mobile tab bar (review state only, when files exist) */}
           {drawerState === 'review' && session?.files && session.files.length > 0 && (
-            <div className="flex border-b border-gray-100 shrink-0">
+            <div className="flex border-b border-line shrink-0">
               <button
                 onClick={() => setMobileTab('review')}
-                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}
+                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-ink-3'}`}
               >
                 Review
               </button>
               <button
                 onClick={() => setMobileTab('image')}
-                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'image' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}
+                className={`flex-1 py-2 text-xs font-medium ${mobileTab === 'image' ? 'text-gold border-b-2 border-gold' : 'text-ink-3'}`}
               >
                 Invoice Image
               </button>
@@ -3654,7 +3654,7 @@ export function InvoiceDrawer({ sessionId, onClose, onApproveOrReject, allSessio
           <div className="flex-1 overflow-y-auto">
             {drawerState === 'loading' && (
               <div className="flex items-center justify-center py-20">
-                <Loader2 size={24} className="animate-spin text-gray-300" />
+                <Loader2 size={24} className="animate-spin text-ink-4" />
               </div>
             )}
             {drawerState === 'processing' && renderProcessing()}

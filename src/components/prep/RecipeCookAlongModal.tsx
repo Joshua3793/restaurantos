@@ -394,7 +394,7 @@ export default function RecipeCookAlongModal({
               <button
                 type="button"
                 onClick={() => { onStop(); onClose() }}
-                className="bg-paper border border-line h-[42px] px-4 rounded-[10px] text-[13px] font-medium text-ink-2 inline-flex items-center gap-2 hover:border-red-300 hover:text-red-text"
+                className="bg-paper border border-line h-[42px] px-4 rounded-[10px] text-[13px] font-medium text-ink-2 inline-flex items-center gap-2 hover:border-red hover:text-red-text"
               >
                 <IcUndo size={15} />
                 Stop prep

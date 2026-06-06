@@ -119,7 +119,7 @@ export function TempMobile(p: TempMobileProps) {
 function RollItem({ label, value, tone }: { label: string; value: string; tone?: 'ok' | 'bad' }) {
   return (
     <div className="flex flex-col gap-0.5 shrink-0">
-      <span className="font-mono text-[9px] text-[#a1a1aa] tracking-[0.04em]">{label}</span>
+      <span className="font-mono text-[9px] text-ink-4 tracking-[0.04em]">{label}</span>
       <span className={`font-mono text-[15px] font-semibold ${tone === 'bad' ? 'text-[#fca5a5]' : tone === 'ok' ? 'text-[#86efac]' : 'text-paper'}`}>{value}</span>
     </div>
   )

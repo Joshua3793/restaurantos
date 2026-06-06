@@ -36,7 +36,7 @@ export function ModeIcon({ mode }: { mode: 'per_case' | 'per_weight' }) {
   }
   return (
     <span
-      className="inline-flex items-center justify-center w-[22px] h-6 shrink-0 mt-0.5 text-gray-400"
+      className="inline-flex items-center justify-center w-[22px] h-6 shrink-0 mt-0.5 text-ink-4"
       title="Priced by case"
     >
       <Package size={19} />

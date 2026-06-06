@@ -8,8 +8,8 @@ interface KPIProps {
 
 export function KPI({ label, value, sub, tone = 'default', className = '' }: KPIProps) {
   const valueColor =
-    tone === 'alert' ? 'text-red-600' :
-    tone === 'ok'    ? 'text-green-600' :
+    tone === 'alert' ? 'text-red' :
+    tone === 'ok'    ? 'text-green' :
     'text-ink'
 
   return (

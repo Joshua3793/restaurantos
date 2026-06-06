@@ -63,14 +63,14 @@ export default function PurchasingTab({ period }: { period: number }) {
                 return (
                   <div key={s.name}>
                     <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-medium text-gray-700 truncate">{s.name}</span>
+                      <span className="font-medium text-ink-2 truncate">{s.name}</span>
                       <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="text-gray-400">{s.lines} lines</span>
-                        <span className="font-semibold text-gray-800">{formatCurrency(s.spend)}</span>
+                        <span className="text-ink-4">{s.lines} lines</span>
+                        <span className="font-semibold text-ink-2">{formatCurrency(s.spend)}</span>
                       </div>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-purple-500" style={{ width: `${pctVal}%` }} />
+                    <div className="h-2 bg-bg-2 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-blue" style={{ width: `${pctVal}%` }} />
                     </div>
                   </div>
                 )
@@ -84,13 +84,13 @@ export default function PurchasingTab({ period }: { period: number }) {
           {topItems.length > 0 ? (
             <div className="overflow-y-auto max-h-80">
               {topItems.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-                  <span className="text-xs text-gray-400 w-5 text-right shrink-0">{i + 1}</span>
+                <div key={item.name} className="flex items-center gap-3 py-2 border-b border-line last:border-0">
+                  <span className="text-xs text-ink-4 w-5 text-right shrink-0">{i + 1}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-800 truncate">{item.name}</div>
-                    <div className="text-xs text-gray-400">{item.category}</div>
+                    <div className="text-sm font-medium text-ink-2 truncate">{item.name}</div>
+                    <div className="text-xs text-ink-4">{item.category}</div>
                   </div>
-                  <span className="font-semibold text-gray-800 shrink-0">{formatCurrency(item.spend)}</span>
+                  <span className="font-semibold text-ink-2 shrink-0">{formatCurrency(item.spend)}</span>
                 </div>
               ))}
             </div>

@@ -245,7 +245,7 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
 
                   {/* CTA */}
                   {canOpen ? (
-                    <button className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-[#27272a] transition-colors whitespace-nowrap">
+                    <button className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-ink-2 transition-colors whitespace-nowrap">
                       {isError ? 'Retry' : 'Review'}
                     </button>
                   ) : (

@@ -8,8 +8,8 @@ interface PillProps {
 
 const TONE_STYLES = {
   gold:    'bg-gold-soft text-gold-2',
-  alert:   'bg-red-100 text-red-800',
-  ok:      'bg-green-100 text-green-800',
+  alert:   'bg-red-soft text-red-text',
+  ok:      'bg-green-soft text-green-text',
   default: 'bg-bg-2 text-ink-2',
 }
 

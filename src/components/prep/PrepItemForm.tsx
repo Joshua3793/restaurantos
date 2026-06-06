@@ -117,19 +117,19 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
 
   const field = (label: string, children: React.ReactNode) => (
     <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      <label className="block text-xs font-medium text-ink-3 mb-1">{label}</label>
       {children}
     </div>
   )
-  const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold'
+  const inputCls = 'w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold'
   const selCls   = inputCls + ' bg-white'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}>
-        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
-          <h2 className="font-semibold text-gray-900">{item ? 'Edit Prep Item' : 'New Prep Item'}</h2>
-          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        <div className="flex items-center justify-between p-5 border-b border-line shrink-0">
+          <h2 className="font-semibold text-ink">{item ? 'Edit Prep Item' : 'New Prep Item'}</h2>
+          <button onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3"><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
@@ -180,7 +180,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
                 <input className={inputCls + ' flex-1 min-w-0'} type="number" min="0" step="0.5"
                   value={form.estimatedPrepTime} onChange={e => set('estimatedPrepTime', e.target.value)} placeholder="—" />
                 <select
-                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold shrink-0"
+                  className="border border-line-2 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold shrink-0"
                   value={prepTimeUnit}
                   onChange={e => setPrepTimeUnit(e.target.value as TimeUnit)}
                 >
@@ -207,16 +207,16 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
               onChange={e => set('notes', e.target.value)} placeholder="Chef notes..." />
           ))}
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red">{error}</p>}
           </div>
 
-          <div className="flex justify-end gap-2 p-5 border-t border-gray-100 shrink-0">
+          <div className="flex justify-end gap-2 p-5 border-t border-line shrink-0">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+              className="px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-bg">
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="px-4 py-2 text-sm bg-gold text-white rounded-lg hover:bg-[#a88930] disabled:opacity-50">
+              className="px-4 py-2 text-sm bg-ink text-paper [&_svg]:text-gold rounded-lg hover:bg-ink-2 disabled:opacity-50">
               {saving ? 'Saving…' : item ? 'Save Changes' : 'Create Prep Item'}
             </button>
           </div>

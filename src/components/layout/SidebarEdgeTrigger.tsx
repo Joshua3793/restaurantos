@@ -38,7 +38,7 @@ export function SidebarEdgeTrigger() {
         aria-label={pinned ? 'Collapse sidebar' : 'Expand sidebar'}
         className={`hidden md:flex fixed top-1/2 -translate-y-1/2 z-50 w-5 h-12 items-center justify-center transition-all duration-200 ${
           visible
-            ? 'left-[240px] -translate-x-1/2 rounded-md bg-[#18181b] border border-[#27272a] text-zinc-400 hover:text-white hover:bg-[#27272a]'
+            ? 'left-[240px] -translate-x-1/2 rounded-md bg-[#18181b] border border-ink-2 text-ink-4 hover:text-white hover:bg-ink-2'
             : 'left-0 rounded-r-md border border-l-0 border-line bg-paper text-ink-3 shadow-sm hover:text-ink hover:bg-bg-2'
         }`}
       >

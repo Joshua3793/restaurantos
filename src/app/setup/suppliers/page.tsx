@@ -57,7 +57,7 @@ export default function SuppliersPage() {
             onDelete={handleDelete}
           />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+          <div className="flex-1 flex items-center justify-center text-sm text-ink-4">
             Select a supplier to view details
           </div>
         )}
@@ -66,10 +66,10 @@ export default function SuppliersPage() {
       {/* Mobile: full-width list only (detail navigates to /suppliers/[id]) */}
       <div className="sm:hidden flex flex-col h-[calc(100vh-64px)]">
         <div className="px-4 pt-3 pb-2 shrink-0 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">Suppliers</h1>
+          <h1 className="text-xl font-bold text-ink">Suppliers</h1>
           <button
             onClick={() => setShowAdd(true)}
-            className="bg-gold text-white rounded-lg px-3 py-1.5 text-sm font-semibold hover:bg-[#a88930]"
+            className="bg-ink text-paper [&_svg]:text-gold rounded-lg px-3 py-1.5 text-sm font-semibold hover:bg-ink-2"
           >
             + Add
           </button>
@@ -80,23 +80,23 @@ export default function SuppliersPage() {
             .map(s => {
               const pct = s.prevMonthSpend === 0 ? null
                 : Math.round(((s.monthSpend - s.prevMonthSpend) / s.prevMonthSpend) * 100)
-              const pctColor = pct === null ? 'text-gray-400'
-                : pct >= 15 ? 'text-red-500' : pct > 0 ? 'text-green-600' : 'text-gray-500'
+              const pctColor = pct === null ? 'text-ink-4'
+                : pct >= 15 ? 'text-red' : pct > 0 ? 'text-green' : 'text-ink-3'
               return (
                 <Link
                   key={s.id}
                   href={`/suppliers/${s.id}`}
-                  className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white hover:bg-gray-50"
+                  className="flex items-center gap-3 px-4 py-3 border-b border-line bg-white hover:bg-bg"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{s.name}</p>
+                    <p className="text-sm font-semibold text-ink truncate">{s.name}</p>
                     <p className={`text-xs mt-0.5 ${pctColor}`}>
                       {s.monthSpend === 0 ? '$0 this month'
                         : `${formatCurrency(s.monthSpend)} this month${pct !== null ? ` · ${pct >= 0 ? '↑' : '↓'}${Math.abs(pct)}%` : ''}`}
                     </p>
-                    <p className="text-xs text-gray-400">{s._count.inventory} items · {s.invoiceCount} invoices</p>
+                    <p className="text-xs text-ink-4">{s._count.inventory} items · {s.invoiceCount} invoices</p>
                   </div>
-                  <span className="text-gray-300 text-lg">›</span>
+                  <span className="text-ink-4 text-lg">›</span>
                 </Link>
               )
             })}

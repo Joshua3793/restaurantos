@@ -134,9 +134,9 @@ export const CATEGORY_PALETTE = [
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 export function foodCostClass(pct: number | null): string {
-  if (pct === null) return 'text-gray-500'
+  if (pct === null) return 'text-ink-3'
   if (pct < FOOD_COST_GREEN) return 'text-green'
-  if (pct <= FOOD_COST_AMBER) return 'text-amber-500'
+  if (pct <= FOOD_COST_AMBER) return 'text-gold'
   return 'text-red'
 }
 
@@ -462,24 +462,24 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 print:shadow-none print:rounded-none print:my-0 print:max-w-full">
 
         {/* Screen-only toolbar */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 print:hidden">
+        <div className="flex items-center justify-between p-4 border-b border-line print:hidden">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-700">Scale:</span>
+            <span className="text-sm font-medium text-ink-2">Scale:</span>
             {[0.5, 1, 2, 3, 5, 10].map(s => (
               <button
                 key={s}
                 onClick={() => setScale(s)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${scale === s ? 'bg-gold text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${scale === s ? 'bg-ink text-paper [&_svg]:text-gold' : 'bg-bg-2 text-ink-3 hover:bg-line'}`}
               >
                 {s === 1 ? '×1 (base)' : `×${s}`}
               </button>
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handlePrint} className="flex items-center gap-2 bg-gold text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#a88930]">
+            <button onClick={handlePrint} className="flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-3 py-1.5 rounded-lg text-sm hover:bg-ink-2">
               <Printer size={14} /> Print
             </button>
-            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+            <button onClick={onClose} className="p-1.5 text-ink-4 hover:text-ink-3 rounded-lg hover:bg-bg-2">
               <X size={16} />
             </button>
           </div>
@@ -488,24 +488,24 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
         {/* Print card content */}
         <div className="p-8 print:p-6 font-sans">
           {/* Header */}
-          <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-gray-900">
+          <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-ink">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{recipe.name}</h1>
+              <h1 className="text-2xl font-bold text-ink">{recipe.name}</h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-sm text-gray-500">{recipe.categoryName}</span>
-                <span className="text-gray-300">·</span>
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm text-ink-3">{recipe.categoryName}</span>
+                <span className="text-ink-4">·</span>
+                <span className="text-sm font-medium text-ink-2">
                   {recipe.type === 'MENU' ? 'Menu Item' : 'Prep Recipe'}
                 </span>
               </div>
             </div>
-            <div className="text-right text-sm text-gray-500">
-              <div className="text-xs uppercase tracking-wide font-semibold text-gray-400 mb-1">Yield</div>
-              <div className="text-xl font-bold text-gray-900">
+            <div className="text-right text-sm text-ink-3">
+              <div className="text-xs uppercase tracking-wide font-semibold text-ink-4 mb-1">Yield</div>
+              <div className="text-xl font-bold text-ink">
                 {formatQtyUnit(scaledYield, recipe.yieldUnit)}
               </div>
               {recipe.portionSize && recipe.portionUnit && (
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-xs text-ink-3 mt-0.5">
                   {formatQtyUnit(recipe.portionSize * scale, recipe.portionUnit)} / portion
                 </div>
               )}
@@ -514,51 +514,51 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
 
           {/* Ingredients */}
           <div className="mb-6">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Ingredients</h2>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-3">Ingredients</h2>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left pb-1.5 font-semibold text-gray-600">Item</th>
-                  <th className="text-right pb-1.5 font-semibold text-gray-600">Qty</th>
-                  <th className="text-right pb-1.5 font-semibold text-gray-600">Cost</th>
+                <tr className="border-b border-line">
+                  <th className="text-left pb-1.5 font-semibold text-ink-3">Item</th>
+                  <th className="text-right pb-1.5 font-semibold text-ink-3">Qty</th>
+                  <th className="text-right pb-1.5 font-semibold text-ink-3">Cost</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-line">
                 {scaledIngredients.map(ing => (
                   <tr key={ing.id}>
-                    <td className="py-1.5 text-gray-800">{ing.ingredientName}</td>
-                    <td className="py-1.5 text-right text-gray-600">
+                    <td className="py-1.5 text-ink-2">{ing.ingredientName}</td>
+                    <td className="py-1.5 text-right text-ink-3">
                       {formatQtyUnit(ing.qtyBase, ing.unit)}
                     </td>
-                    <td className="py-1.5 text-right text-gray-600">{formatCurrency(ing.lineCost)}</td>
+                    <td className="py-1.5 text-right text-ink-3">{formatCurrency(ing.lineCost)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 border-gray-900">
-                  <td className="pt-2 font-bold text-gray-900">Total</td>
+                <tr className="border-t-2 border-ink">
+                  <td className="pt-2 font-bold text-ink">Total</td>
                   <td />
-                  <td className="pt-2 text-right font-bold text-gray-900">{formatCurrency(scaledTotalCost)}</td>
+                  <td className="pt-2 text-right font-bold text-ink">{formatCurrency(scaledTotalCost)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
           {/* Cost summary row */}
-          <div className="grid grid-cols-3 gap-4 mb-6 bg-gray-50 rounded-xl p-4">
+          <div className="grid grid-cols-3 gap-4 mb-6 bg-bg rounded-xl p-4">
             <div className="text-center">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Batch Cost</div>
-              <div className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(scaledTotalCost)}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-ink-4">Batch Cost</div>
+              <div className="text-lg font-bold text-ink mt-0.5">{formatCurrency(scaledTotalCost)}</div>
             </div>
             {recipe.costPerPortion !== null && (
-              <div className="text-center border-l border-gray-200">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Cost / Portion</div>
-                <div className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(recipe.costPerPortion)}</div>
+              <div className="text-center border-l border-line">
+                <div className="text-xs font-semibold uppercase tracking-wide text-ink-4">Cost / Portion</div>
+                <div className="text-lg font-bold text-ink mt-0.5">{formatCurrency(recipe.costPerPortion)}</div>
               </div>
             )}
             {recipe.menuPrice !== null && (
-              <div className="text-center border-l border-gray-200">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Food Cost %</div>
+              <div className="text-center border-l border-line">
+                <div className="text-xs font-semibold uppercase tracking-wide text-ink-4">Food Cost %</div>
                 <div className={`text-lg font-bold mt-0.5 ${foodCostClass(recipe.foodCostPct)}`}>
                   {recipe.foodCostPct !== null ? `${recipe.foodCostPct.toFixed(1)}%` : '—'}
                 </div>
@@ -569,13 +569,13 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
           {/* Method notes */}
           {recipe.notes && (
             <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Method</h2>
-              <p className="text-sm text-gray-700 leading-relaxed">{renderMarkdown(recipe.notes)}</p>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-2">Method</h2>
+              <p className="text-sm text-ink-2 leading-relaxed">{renderMarkdown(recipe.notes)}</p>
             </div>
           )}
 
           {/* Footer */}
-          <div className="mt-8 pt-4 border-t border-gray-200 flex justify-between text-xs text-gray-400 print:block">
+          <div className="mt-8 pt-4 border-t border-line flex justify-between text-xs text-ink-4 print:block">
             <span>Fergie&rsquo;s Kitchen · CONTROLA OS</span>
             <span>Printed {new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
           </div>
@@ -623,14 +623,14 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
 
   const field = (key: string, label: string, node: React.ReactNode) => (
     <div>
-      <label className="block text-[11px] font-medium text-gray-500 mb-1">{label}</label>
+      <label className="block text-[11px] font-medium text-ink-3 mb-1">{label}</label>
       {node}
     </div>
   )
   const numInput = (key: keyof typeof form, placeholder?: string) => (
     <input type="number" step="any" value={form[key]} placeholder={placeholder}
       onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+      className="w-full border border-line rounded-lg px-2.5 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
   )
 
   const handleSave = async () => {
@@ -670,7 +670,7 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
     : calcPricePerBaseUnit(pp, qty, 'each', null, ps, pu)
   const bu   = isPrep ? (item?.baseUnit ?? 'each') : deriveBaseUnit('each', pu)
 
-  const inputCls = 'w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold'
+  const inputCls = 'w-full border border-line rounded-lg px-2.5 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
   const selectCls = inputCls + ' bg-white'
 
   return (
@@ -681,25 +681,25 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+        <div className="px-5 pt-5 pb-4 border-b border-line">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h3 className="font-semibold text-gray-900 truncate">{item?.itemName ?? '…'}</h3>
+              <h3 className="font-semibold text-ink truncate">{item?.itemName ?? '…'}</h3>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[11px] text-gray-400">{item?.category}</span>
+                <span className="text-[11px] text-ink-4">{item?.category}</span>
                 {isPrep && (
-                  <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-medium">
+                  <span className="text-[10px] bg-blue-soft text-blue-text px-1.5 py-0.5 rounded-full font-medium">
                     Recipe-managed
                   </span>
                 )}
               </div>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0 mt-0.5">
+            <button onClick={onClose} className="text-ink-4 hover:text-ink-3 shrink-0 mt-0.5">
               <X size={16} />
             </button>
           </div>
           {isPrep && item?.recipe && (
-            <p className="mt-2 text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2">
+            <p className="mt-2 text-xs text-blue bg-blue-soft rounded-lg px-3 py-2">
               Price is set by recipe <strong>{item.recipe.name}</strong>. Only stock and count unit are editable here.
             </p>
           )}
@@ -739,11 +739,11 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
           </div>
 
           {/* Cost preview */}
-          <div className={`rounded-xl p-3 ${isPrep ? 'bg-purple-50' : 'bg-gold/10'}`}>
-            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${isPrep ? 'text-purple-600' : 'text-gold'}`}>
+          <div className={`rounded-xl p-3 ${isPrep ? 'bg-blue-soft' : 'bg-gold/10'}`}>
+            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${isPrep ? 'text-blue' : 'text-gold'}`}>
               {isPrep ? 'Recipe-derived cost' : 'Cost preview'}
             </div>
-            <div className={`text-xl font-bold ${isPrep ? 'text-purple-700' : 'text-gold'}`}>
+            <div className={`text-xl font-bold ${isPrep ? 'text-blue-text' : 'text-gold'}`}>
               {formatUnitPrice(ppbu)}<span className="text-sm font-normal ml-1">/ {bu}</span>
             </div>
             {!isPrep && (
@@ -756,11 +756,11 @@ function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
 
         {/* Footer */}
         <div className="px-5 pb-5 flex gap-2">
-          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-xl py-2 text-sm text-gray-700 hover:bg-gray-50">
+          <button onClick={onClose} className="flex-1 border border-line rounded-xl py-2 text-sm text-ink-2 hover:bg-bg">
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !item}
-            className="flex-1 bg-gold text-white rounded-xl py-2 text-sm font-medium hover:bg-[#a88930] disabled:opacity-50">
+            className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-xl py-2 text-sm font-medium hover:bg-ink-2 disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
@@ -959,11 +959,11 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           <button
             onClick={() => setSubstituting(s => !s)}
             title="Substitute ingredient"
-            className={`transition-colors ${substituting ? 'text-blue' : 'text-gray-300 hover:text-blue'}`}
+            className={`transition-colors ${substituting ? 'text-blue' : 'text-ink-4 hover:text-blue'}`}
           >
             <Pencil size={12} />
           </button>
-          <button onClick={() => onDelete(ing.id)} className="text-gray-300 hover:text-red"><Trash2 size={12} /></button>
+          <button onClick={() => onDelete(ing.id)} className="text-ink-4 hover:text-red"><Trash2 size={12} /></button>
         </div>
       </div>
 
@@ -982,22 +982,22 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
               }}
               onKeyDown={e => { if (e.key === 'Escape') { setSubstituting(false); setSubQ(''); setSubResults([]) } }}
               placeholder={`Replace "${ing.ingredientName}" with…`}
-              className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
+              className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent"
             />
-            <button onClick={() => { setSubstituting(false); setSubQ(''); setSubResults([]) }} className="text-gray-400 hover:text-gray-600">
+            <button onClick={() => { setSubstituting(false); setSubQ(''); setSubResults([]) }} className="text-ink-4 hover:text-ink-3">
               <X size={13} />
             </button>
           </div>
           {subResults.length > 0 && (
-            <div className="absolute left-3 right-3 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto">
+            <div className="absolute left-3 right-3 top-full mt-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto">
               {subResults.map(item => (
                 <button key={`${item.type}-${item.id}`} onClick={() => pickSubstitute(item)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 text-left text-sm">
-                  {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue shrink-0" />}
-                  <span className="flex-1 text-gray-800">{item.name}</span>
-                  <span className="text-xs text-gray-400">{item.unit}</span>
-                  <span className="text-xs text-gray-500">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
+                  className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg text-left text-sm">
+                  {item.type === 'recipe' ? <ChefHat size={13} className="text-green shrink-0" /> : <Package size={13} className="text-blue shrink-0" />}
+                  <span className="flex-1 text-ink-2">{item.name}</span>
+                  <span className="text-xs text-ink-4">{item.unit}</span>
+                  <span className="text-xs text-ink-3">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-green-soft text-green' : 'bg-gold/10 text-gold'}`}>
                     {item.type === 'recipe' ? 'PREP' : item.category}
                   </span>
                 </button>
@@ -1278,21 +1278,21 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Cost</span>
                     <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.totalCost)}</span>
                   </div>
-                  <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                  <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                   <div className="flex flex-col shrink-0">
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Price</span>
-                    <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-zinc-600 italic">unset</span>}</span>
+                    <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : <span className="text-ink-3 italic">unset</span>}</span>
                   </div>
-                  <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                  <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                   <div className="flex flex-col shrink-0">
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Food cost</span>
-                    <span className={`font-mono text-[16px] font-bold leading-tight ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-[#4ade80]' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-[#f87171]') : 'text-zinc-600'}`}>
+                    <span className={`font-mono text-[16px] font-bold leading-tight ${menuFoodCostPct !== null ? (menuFoodCostPct < FOOD_COST_GREEN ? 'text-[#4ade80]' : menuFoodCostPct <= FOOD_COST_AMBER ? 'text-gold' : 'text-[#f87171]') : 'text-ink-3'}`}>
                       {menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}
                     </span>
                   </div>
                   {margin !== null && (
                     <>
-                      <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                      <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                       <div className="flex flex-col shrink-0">
                         <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Margin</span>
                         <span className={`font-mono text-[16px] font-semibold leading-tight ${margin >= 0 ? 'text-[#4ade80]' : 'text-[#f87171]'}`}>{formatCurrency(margin)}</span>
@@ -1300,7 +1300,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                     </>
                   )}
                   {menuFoodCostPct !== null && (
-                    <div className="ml-auto relative h-1.5 w-32 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                    <div className="ml-auto relative h-1.5 w-32 bg-ink-2 rounded-full overflow-hidden shrink-0">
                       <div
                         className={`h-full rounded-full ${menuFoodCostPct < FOOD_COST_GREEN ? 'bg-green' : menuFoodCostPct <= FOOD_COST_AMBER ? 'bg-gold' : 'bg-red'}`}
                         style={{ width: `${Math.min(100, menuFoodCostPct)}%` }}
@@ -1315,7 +1315,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Batch</span>
                     <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.totalCost)}</span>
                   </div>
-                  <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                  <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                   <div className="flex flex-col shrink-0">
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Per {recipe.yieldUnit}</span>
                     <span className="font-mono text-[16px] font-semibold text-paper leading-tight">
@@ -1324,7 +1324,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   </div>
                   {recipe.costPerPortion !== null && (
                     <>
-                      <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                      <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                       <div className="flex flex-col shrink-0">
                         <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Per portion</span>
                         <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.costPerPortion)}</span>
@@ -1333,7 +1333,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   )}
                   {recipe.usedInCount !== undefined && recipe.usedInCount > 0 && (
                     <>
-                      <div className="w-px h-9 bg-zinc-800 mx-4 shrink-0" />
+                      <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                       <div className="flex flex-col shrink-0">
                         <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Used in</span>
                         <span className="font-mono text-[16px] font-semibold text-[#4ade80] leading-tight">{recipe.usedInCount} {recipe.usedInCount === 1 ? 'dish' : 'dishes'}</span>
@@ -1352,15 +1352,15 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
           {/* Dependency banner — PREP recipes used by other recipes */}
           {!isMenu && recipe.usedInRecipes && recipe.usedInRecipes.length > 0 && (
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <Share2 size={14} className="text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-3 bg-gold-soft border border-gold-soft rounded-xl p-3">
+              <Share2 size={14} className="text-gold shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-amber-800 mb-1.5">
+                <p className="text-xs font-semibold text-gold-2 mb-1.5">
                   Used in {recipe.usedInRecipes.length} {recipe.usedInRecipes.length === 1 ? 'recipe' : 'recipes'} — ingredient changes here will reprice them
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {recipe.usedInRecipes.map(r => (
-                    <span key={r.id} className="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span key={r.id} className="text-[11px] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full flex items-center gap-1">
                       {r.type === 'MENU' ? <UtensilsCrossed size={8} /> : <BookOpen size={8} />}
                       {r.name}
                     </span>
@@ -1455,25 +1455,25 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
 
           {recipe.allergens && recipe.allergens.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Allergens</span>
+              <span className="text-xs font-medium text-ink-3 uppercase tracking-wide">Allergens</span>
               <AllergenBadges allergens={recipe.allergens} size="sm" />
             </div>
           )}
 
           <div>
-            <button onClick={() => setShowNotes(s => !s)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700">
+            <button onClick={() => setShowNotes(s => !s)} className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-2">
               {showNotes ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
               Notes {recipe.notes && <span className="text-blue">•</span>}
             </button>
             {showNotes && (
               <div className="mt-2 space-y-2">
                 {recipe.notes && (
-                  <div className="text-sm text-gray-700 leading-relaxed px-3 py-2 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-ink-2 leading-relaxed px-3 py-2 bg-bg rounded-lg">
                     {renderMarkdown(recipe.notes)}
                   </div>
                 )}
                 <textarea defaultValue={recipe.notes ?? ''} onBlur={e => patchRecipe({ notes: e.target.value || null })} rows={3}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold resize-none"
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold resize-none"
                   placeholder="Recipe notes, storage instructions…" />
               </div>
             )}
@@ -1555,23 +1555,23 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
           )}
 
           <div>
-            <div className="text-sm font-semibold text-gray-700 mb-2">
+            <div className="text-sm font-semibold text-ink-2 mb-2">
               Ingredients {sf !== 1 && <span className="text-blue font-normal text-xs ml-1">scaled ×{sf}</span>}
             </div>
             {baseIsSet && baseIngName && (
-              <div className="flex items-center gap-1.5 mb-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 text-xs text-amber-700">
-                <Star size={10} className="fill-amber-500 text-amber-500 shrink-0" />
+              <div className="flex items-center gap-1.5 mb-2 bg-gold-soft border border-gold-soft rounded-lg px-2.5 py-1.5 text-xs text-gold-2">
+                <Star size={10} className="fill-gold text-gold shrink-0" />
                 <span>Baker&apos;s %: relative to <span className="font-semibold">{baseIngName}</span> (100%) — volume treated as 1 ml = 1 g</span>
               </div>
             )}
             {!baseIsSet && (
-              <div className="flex items-center gap-1.5 mb-2 text-xs text-gray-400">
+              <div className="flex items-center gap-1.5 mb-2 text-xs text-ink-4">
                 <Star size={10} className="shrink-0" />
                 <span>Click <Star size={9} className="inline" /> on any ingredient to set it as the baker&apos;s 100% reference</span>
               </div>
             )}
-            <div className="border border-gray-100 rounded-t-xl overflow-hidden">
-              <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 text-xs font-medium text-gray-500">
+            <div className="border border-line rounded-t-xl overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-bg text-xs font-medium text-ink-3">
                 <div className="col-span-4">Ingredient</div>
                 <div className="col-span-1 text-center" title={baseIsSet && baseIngName ? `Baker's % relative to ${baseIngName}` : 'Baker\'s %'}>%</div>
                 <div className="col-span-2 text-right">Qty</div>
@@ -1579,7 +1579,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 <div className="col-span-2 text-right">Line cost</div>
                 <div className="col-span-1" />
               </div>
-              {recipe.ingredients.length === 0 && <div className="text-center py-6 text-gray-400 text-sm">No ingredients yet</div>}
+              {recipe.ingredients.length === 0 && <div className="text-center py-6 text-ink-4 text-sm">No ingredients yet</div>}
               {recipe.ingredients.map((ing, idx) => (
                 <IngredientRow key={ing.id} ing={ing} scaleFactor={sf}
                   canMoveUp={idx > 0} canMoveDown={idx < recipe.ingredients.length - 1}
@@ -1620,9 +1620,9 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 />
               ))}
             </div>
-            <div className="relative border border-gray-100 border-t-0 rounded-b-xl px-3 py-2 bg-white" ref={searchRef}>
+            <div className="relative border border-line border-t-0 rounded-b-xl px-3 py-2 bg-white" ref={searchRef}>
               <div className="flex items-center gap-2">
-                <Search size={14} className="text-gray-400 shrink-0" />
+                <Search size={14} className="text-ink-4 shrink-0" />
                 <input value={searchQ} onChange={e => {
                   setSearchQ(e.target.value)
                   clearTimeout(searchTimer.current)
@@ -1630,18 +1630,18 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 }}
                   onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
                   placeholder="+ Add ingredient — search inventory or recipes…"
-                  className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent py-1" />
+                  className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
               </div>
               {showSearch && searchResults.length > 0 && (
-                <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto">
+                <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto">
                   {searchResults.map(item => (
                     <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 text-left text-sm">
-                      {item.type === 'recipe' ? <ChefHat size={13} className="text-emerald-600 shrink-0" /> : <Package size={13} className="text-blue shrink-0" />}
-                      <span className="flex-1 text-gray-800">{item.name}</span>
-                      <span className="text-xs text-gray-400">{item.unit}</span>
-                      <span className="text-xs text-gray-500">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
+                      className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg text-left text-sm">
+                      {item.type === 'recipe' ? <ChefHat size={13} className="text-green shrink-0" /> : <Package size={13} className="text-blue shrink-0" />}
+                      <span className="flex-1 text-ink-2">{item.name}</span>
+                      <span className="text-xs text-ink-4">{item.unit}</span>
+                      <span className="text-xs text-ink-3">{formatCurrency(item.pricePerBaseUnit)}/{item.unit}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-green-soft text-green' : 'bg-gold/10 text-gold'}`}>
                         {item.type === 'recipe' ? 'PREP' : item.category}
                       </span>
                     </button>
@@ -1651,16 +1651,16 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
             </div>
           </div>
 
-          <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+          <div className="bg-bg rounded-xl p-4 space-y-2">
             {!isMenu ? (
               <>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Total recipe cost</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(scaledTotal)}{sf !== 1 && <span className="text-xs text-blue ml-1">at ×{sf}</span>}</span>
+                  <span className="text-ink-3">Total recipe cost</span>
+                  <span className="font-bold text-ink">{formatCurrency(scaledTotal)}{sf !== 1 && <span className="text-xs text-blue ml-1">at ×{sf}</span>}</span>
                 </div>
                 <div className="flex justify-between text-sm items-center">
-                  <span className="text-gray-600">Cost per {recipe.yieldUnit}</span>
-                  <span className="font-semibold text-gray-800">{formatUnitPrice(baseCostPerUnit)}<span className="text-gray-400 text-xs ml-0.5">/{recipe.yieldUnit}</span></span>
+                  <span className="text-ink-3">Cost per {recipe.yieldUnit}</span>
+                  <span className="font-semibold text-ink-2">{formatUnitPrice(baseCostPerUnit)}<span className="text-ink-4 text-xs ml-0.5">/{recipe.yieldUnit}</span></span>
                 </div>
                 {recipe.portionSize && recipe.portionSize > 0 && (() => {
                   const portionUnit = recipe.portionUnit ?? recipe.yieldUnit
@@ -1669,12 +1669,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                   const portionsPerBatch = recipe.baseYieldQty > 0 && portionQty > 0 ? Math.floor(recipe.baseYieldQty / portionQty) : null
                   return (
                     <>
-                      <div className="border-t border-gray-200 pt-2 mt-1 flex justify-between text-sm items-center">
-                        <span className="text-gray-600">Cost per {portionQty}{portionUnit} portion</span>
-                        <span className="font-semibold text-indigo-700">{formatCurrency(portionCost)}</span>
+                      <div className="border-t border-line pt-2 mt-1 flex justify-between text-sm items-center">
+                        <span className="text-ink-3">Cost per {portionQty}{portionUnit} portion</span>
+                        <span className="font-semibold text-blue-text">{formatCurrency(portionCost)}</span>
                       </div>
                       {portionsPerBatch !== null && (
-                        <div className="flex justify-between text-xs text-gray-400">
+                        <div className="flex justify-between text-xs text-ink-4">
                           <span>Portions per batch</span>
                           <span>{portionsPerBatch} × {portionQty}{portionUnit}</span>
                         </div>
@@ -1685,18 +1685,18 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               </>
             ) : (
               <>
-                <div className="flex justify-between text-sm"><span className="text-gray-600">Base Cost</span><span className="font-bold text-gray-900">{formatCurrency(recipe.totalCost)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-ink-3">Base Cost</span><span className="font-bold text-ink">{formatCurrency(recipe.totalCost)}</span></div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Menu price</span>
-                  <span className="font-semibold text-gray-800">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
+                  <span className="text-ink-3">Menu price</span>
+                  <span className="font-semibold text-ink-2">{recipe.menuPrice !== null ? formatCurrency(recipe.menuPrice) : '—'}</span>
                 </div>
                 <div className="flex justify-between text-sm items-center">
-                  <span className="text-gray-600">Food cost %</span>
+                  <span className="text-ink-3">Food cost %</span>
                   <span className={`font-bold text-base ${foodCostClass(menuFoodCostPct)}`}>{menuFoodCostPct !== null ? `${menuFoodCostPct.toFixed(1)}%` : '—'}</span>
                 </div>
                 {margin !== null && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Margin / dish</span>
+                    <span className="text-ink-3">Margin / dish</span>
                     <span className={`font-semibold ${margin >= 0 ? 'text-green-text' : 'text-red'}`}>{formatCurrency(margin)}</span>
                   </div>
                 )}
@@ -1717,7 +1717,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
               </>
             )}
             {recipe.inventoryItemId && (
-              <div className="flex items-center gap-1.5 text-xs text-emerald-600 pt-1 border-t border-gray-200">
+              <div className="flex items-center gap-1.5 text-xs text-green pt-1 border-t border-line">
                 <Link2 size={11} />
                 <span>Synced to Inventory · PREPD item auto-updated on ingredient changes</span>
               </div>
@@ -1804,15 +1804,15 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-2 shrink-0">
+        <div className="px-5 pt-5 pb-4 border-b border-line flex items-start justify-between gap-2 shrink-0">
           <div>
             <div className="flex items-center gap-2">
-              <ChefHat size={15} className="text-emerald-600" />
-              <h3 className="font-semibold text-gray-900">{recipe?.name ?? '…'}</h3>
+              <ChefHat size={15} className="text-green" />
+              <h3 className="font-semibold text-ink">{recipe?.name ?? '…'}</h3>
             </div>
-            <span className="text-[11px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">PREP Recipe</span>
+            <span className="text-[11px] bg-green-soft text-green-text px-1.5 py-0.5 rounded-full font-medium">PREP Recipe</span>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 mt-0.5 shrink-0"><X size={16} /></button>
+          <button onClick={onClose} className="text-ink-4 hover:text-ink-3 mt-0.5 shrink-0"><X size={16} /></button>
         </div>
 
         {!recipe ? (
@@ -1820,14 +1820,14 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
         ) : (
           <>
             {/* Stats */}
-            <div className="px-5 py-3 grid grid-cols-3 gap-2 shrink-0 border-b border-gray-50">
-              <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
-                <div className="text-[10px] text-gray-400 uppercase tracking-wide">Total Cost</div>
-                <div className="font-semibold text-gray-800 text-sm">{formatCurrency(recipe.totalCost)}</div>
+            <div className="px-5 py-3 grid grid-cols-3 gap-2 shrink-0 border-b border-line">
+              <div className="bg-bg rounded-lg px-3 py-2 text-center">
+                <div className="text-[10px] text-ink-4 uppercase tracking-wide">Total Cost</div>
+                <div className="font-semibold text-ink-2 text-sm">{formatCurrency(recipe.totalCost)}</div>
               </div>
-              <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
-                <div className="text-[10px] text-gray-400 uppercase tracking-wide">Yield</div>
-                <div className="font-semibold text-gray-800 text-sm">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</div>
+              <div className="bg-bg rounded-lg px-3 py-2 text-center">
+                <div className="text-[10px] text-ink-4 uppercase tracking-wide">Yield</div>
+                <div className="font-semibold text-ink-2 text-sm">{formatQtyUnit(recipe.baseYieldQty, recipe.yieldUnit)}</div>
               </div>
               <div className="bg-gold/10 rounded-lg px-3 py-2 text-center">
                 <div className="text-[10px] text-gold/70 uppercase tracking-wide">Cost/{recipe.yieldUnit}</div>
@@ -1838,7 +1838,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
             {/* Ingredients */}
             <div className="overflow-y-auto flex-1">
               {/* Column headers */}
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-medium text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-medium text-ink-4 uppercase tracking-wide bg-bg border-b border-line">
                 <div className="col-span-5">Ingredient</div>
                 <div className="col-span-2 text-right">Qty</div>
                 <div className="col-span-2">Unit</div>
@@ -1847,7 +1847,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
               </div>
 
               {recipe.ingredients.length === 0 && (
-                <div className="text-center py-8 text-gray-400 text-sm">No ingredients yet</div>
+                <div className="text-center py-8 text-ink-4 text-sm">No ingredients yet</div>
               )}
 
               {recipe.ingredients.map(ing => (
@@ -1857,9 +1857,9 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
               ))}
 
               {/* Add ingredient search */}
-              <div className="relative px-3 py-2 border-t border-gray-100" ref={searchRef}>
+              <div className="relative px-3 py-2 border-t border-line" ref={searchRef}>
                 <div className="flex items-center gap-2">
-                  <Search size={13} className="text-gray-400 shrink-0" />
+                  <Search size={13} className="text-ink-4 shrink-0" />
                   <input value={searchQ} onChange={e => {
                     setSearchQ(e.target.value)
                     clearTimeout(searchTimer.current)
@@ -1867,17 +1867,17 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                   }}
                     onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
                     placeholder="+ Add ingredient…"
-                    className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent py-1" />
+                    className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
                 </div>
                 {showSearch && searchResults.length > 0 && (
-                  <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                  <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                     {searchResults.map(item => (
                       <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
-                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left text-sm">
-                        {item.type === 'recipe' ? <ChefHat size={12} className="text-emerald-600 shrink-0" /> : <Package size={12} className="text-blue shrink-0" />}
-                        <span className="flex-1 text-gray-800">{item.name}</span>
-                        <span className="text-xs text-gray-400">{item.unit}</span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-emerald-50 text-emerald-600' : 'bg-gold/10 text-gold'}`}>
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-bg text-left text-sm">
+                        {item.type === 'recipe' ? <ChefHat size={12} className="text-green shrink-0" /> : <Package size={12} className="text-blue shrink-0" />}
+                        <span className="flex-1 text-ink-2">{item.name}</span>
+                        <span className="text-xs text-ink-4">{item.unit}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${item.type === 'recipe' ? 'bg-green-soft text-green' : 'bg-gold/10 text-gold'}`}>
                           {item.type === 'recipe' ? 'PREP' : item.category}
                         </span>
                       </button>
@@ -1888,8 +1888,8 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t border-gray-100 shrink-0">
-              <button onClick={onClose} className="w-full border border-gray-200 rounded-xl py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+            <div className="px-5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t border-line shrink-0">
+              <button onClick={onClose} className="w-full border border-line rounded-xl py-2 text-sm text-ink-2 hover:bg-bg transition-colors">
                 Done
               </button>
             </div>
@@ -1921,21 +1921,21 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
   const unitInList = allKnownUnits.includes(unit)
 
   return (
-    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-gray-50 hover:bg-gray-50 group">
+    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-line hover:bg-bg group">
       <div className="col-span-5 flex items-center gap-1.5 min-w-0">
         {ing.ingredientType === 'recipe'
-          ? <ChefHat size={11} className="text-emerald-600 shrink-0" />
+          ? <ChefHat size={11} className="text-green shrink-0" />
           : <Package size={11} className="text-blue shrink-0" />}
-        <span className="text-sm text-gray-800 truncate">{ing.ingredientName}</span>
+        <span className="text-sm text-ink-2 truncate">{ing.ingredientName}</span>
       </div>
       <div className="col-span-2">
         <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
           onKeyDown={e => e.key === 'Enter' && saveQty()}
-          className="w-full text-right border border-gray-200 rounded px-1 py-0.5 text-sm text-gray-900 focus:outline-none focus:border-[#93c5fd]" />
+          className="w-full text-right border border-line rounded px-1 py-0.5 text-sm text-ink focus:outline-none focus:border-[#93c5fd]" />
       </div>
       <div className="col-span-2">
         <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-          className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
+          className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
           {!unitInList && <option value="__custom__">{unit}</option>}
           {compatibleGroups.map(group => (
             <optgroup key={group.label} label={group.label}>
@@ -1944,9 +1944,9 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
           ))}
         </select>
       </div>
-      <div className="col-span-2 text-right text-sm font-medium text-gray-700">{formatCurrency(ing.lineCost)}</div>
+      <div className="col-span-2 text-right text-sm font-medium text-ink-2">{formatCurrency(ing.lineCost)}</div>
       <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100">
-        <button onClick={onDelete} className="text-gray-300 hover:text-red"><Trash2 size={13} /></button>
+        <button onClick={onDelete} className="text-ink-4 hover:text-red"><Trash2 size={13} /></button>
       </div>
     </div>
   )
@@ -1991,9 +1991,9 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
     <div className="fixed inset-0 z-60 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="font-bold text-gray-900">Manage {type === 'PREP' ? 'Recipe Book' : 'Menu'} Categories</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h3 className="font-bold text-ink">Manage {type === 'PREP' ? 'Recipe Book' : 'Menu'} Categories</h3>
+          <button onClick={onClose} className="text-ink-4 hover:text-ink-3"><X size={18} /></button>
         </div>
         <div className="overflow-y-auto flex-1 p-4 space-y-2">
           {typeCats.map(cat => (
@@ -2003,11 +2003,11 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
                 <input type="color" value={cat.color ?? '#94a3b8'} onChange={e => updateCat(cat.id, { color: e.target.value })}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
               </div>
-              <InlineEdit value={cat.name} onSave={name => updateCat(cat.id, { name })} className="flex-1 text-sm text-gray-800" />
-              <span className="text-xs text-gray-400">{cat._count?.recipes ?? 0} recipes</span>
+              <InlineEdit value={cat.name} onSave={name => updateCat(cat.id, { name })} className="flex-1 text-sm text-ink-2" />
+              <span className="text-xs text-ink-4">{cat._count?.recipes ?? 0} recipes</span>
               <button onClick={() => deleteCat(cat.id)} disabled={(cat._count?.recipes ?? 0) > 0}
                 title={(cat._count?.recipes ?? 0) > 0 ? 'Move recipes first' : 'Delete'}
-                className="text-gray-300 hover:text-red disabled:opacity-30 disabled:cursor-not-allowed">
+                className="text-ink-4 hover:text-red disabled:opacity-30 disabled:cursor-not-allowed">
                 <Trash2 size={13} />
               </button>
             </div>
@@ -2017,16 +2017,16 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
               <div className="flex gap-1">
                 {CATEGORY_PALETTE.map(c => (
                   <button key={c} onClick={() => setNewColor(c)}
-                    className={`w-5 h-5 rounded-full border-2 ${newColor === c ? 'border-gray-600' : 'border-transparent'}`}
+                    className={`w-5 h-5 rounded-full border-2 ${newColor === c ? 'border-ink-3' : 'border-transparent'}`}
                     style={{ background: c }} />
                 ))}
               </div>
               <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addCat(); if (e.key === 'Escape') setAdding(false) }}
                 placeholder="Category name"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gold" />
+                className="flex-1 border border-line rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
               <button onClick={addCat} className="text-gold"><Check size={16} /></button>
-              <button onClick={() => setAdding(false)} className="text-gray-400"><X size={14} /></button>
+              <button onClick={() => setAdding(false)} className="text-ink-4"><X size={14} /></button>
             </div>
           ) : (
             <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-sm text-gold hover:text-gold mt-2">

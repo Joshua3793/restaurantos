@@ -101,7 +101,7 @@ function varColor(pct: number | null) {
   if (pct === null) return ''
   const a = Math.abs(pct)
   if (a <= 5)  return 'text-green-text'
-  if (a <= 15) return 'text-amber-600'
+  if (a <= 15) return 'text-gold'
   return 'text-red-text'
 }
 
@@ -146,7 +146,7 @@ const SESSION_ACCENT: Record<string, string> = {
 function Toast({ msg, onDone }: { msg: string; onDone: () => void }) {
   useEffect(() => { const t = setTimeout(onDone, 4000); return () => clearTimeout(t) }, [onDone])
   return (
-    <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-green-700 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 max-w-sm w-full mx-4">
+    <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 max-w-sm w-full mx-4">
       <Check size={15} className="shrink-0" />
       <span>{msg}</span>
     </div>
@@ -159,7 +159,7 @@ function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     IN_PROGRESS:    'bg-gold-soft text-gold-2',
     PENDING_REVIEW: 'bg-gold-soft text-gold-2',
-    UPDATING:       'bg-violet-100 text-violet-700',
+    UPDATING:       'bg-blue-soft text-blue-text',
     FINALIZED:      'bg-green-soft text-green-text',
     CANCELLED:      'bg-bg-2 text-ink-3',
   }
@@ -852,7 +852,7 @@ export default function CountPage() {
       </div>
       <div>
         <label className="block font-mono text-[10.5px] text-ink-3 uppercase tracking-wide mb-2">
-          Who&apos;s counting <span className="text-red-500">*</span>
+          Who&apos;s counting <span className="text-red">*</span>
         </label>
         <input
           required
@@ -1060,7 +1060,7 @@ export default function CountPage() {
               )}
             </div>
             <button onClick={() => setView('new')}
-              className="p-2 rounded-lg bg-gold text-white active:bg-[#a88930]" title="Start count">
+              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2" title="Start count">
               <Plus size={16} />
             </button>
           </div>
@@ -1121,19 +1121,19 @@ export default function CountPage() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10.5px] text-gold tracking-[0.04em]">RESUME COUNT</span>
-                    <span className="font-mono text-[11px] text-[#a1a1aa]">{Math.round(inProgPct)}%</span>
+                    <span className="font-mono text-[11px] text-ink-4">{Math.round(inProgPct)}%</span>
                   </div>
                   <div className="flex items-baseline gap-2 mt-1.5">
                     <span className="text-[26px] font-semibold tracking-[-0.03em] leading-none">
-                      {inProgCounts.counted}<small className="text-[15px] text-[#a1a1aa] font-medium">/{inProgCounts.total}</small>
+                      {inProgCounts.counted}<small className="text-[15px] text-ink-4 font-medium">/{inProgCounts.total}</small>
                     </span>
-                    <span className="text-[13px] text-[#d4d4d8]">counted</span>
+                    <span className="text-[13px] text-line-2">counted</span>
                     <span className="ml-auto font-mono text-[12px] text-gold font-medium">Continue →</span>
                   </div>
                   <div className="h-1.5 bg-[#3f3f46] rounded-full mt-2.5 overflow-hidden">
                     <div className="h-full bg-gold rounded-full" style={{ width: `${Math.max(inProgPct, inProgCounts.counted > 0 ? 2 : 0)}%` }} />
                   </div>
-                  <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-2">{inProgressSess.countedBy} · {fmtDate(inProgressSess.sessionDate)}</div>
+                  <div className="font-mono text-[10.5px] text-ink-4 mt-2">{inProgressSess.countedBy} · {fmtDate(inProgressSess.sessionDate)}</div>
                 </button>
               ) : (
                 <button onClick={() => setView('new')} className="w-full text-left bg-ink text-paper rounded-xl p-4 active:opacity-90 flex items-center justify-between gap-3">
@@ -1141,7 +1141,7 @@ export default function CountPage() {
                     <span className="font-mono text-[10.5px] text-gold tracking-[0.04em]">START A COUNT</span>
                     <p className="text-[17px] font-semibold tracking-[-0.02em] mt-1">Count your stock</p>
                   </div>
-                  <span className="w-10 h-10 rounded-full bg-gold text-white grid place-items-center shrink-0"><Plus size={20} /></span>
+                  <span className="w-10 h-10 rounded-full bg-ink text-gold grid place-items-center shrink-0"><Plus size={20} /></span>
                 </button>
               )}
               <div className="grid grid-cols-2 gap-2.5">
@@ -1168,7 +1168,7 @@ export default function CountPage() {
                   ))}
                 </div>
                 <div>
-                  <p className="font-mono text-[10.5px] text-[#a1a1aa] tracking-[0.01em]">LAST FINALIZED COUNT</p>
+                  <p className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">LAST FINALIZED COUNT</p>
                   {lastFinalized ? (
                     <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2">
                       {formatCurrency(Number(lastFinalized.totalCountedValue)).replace(/(\.\d+)$/, '')}
@@ -1180,7 +1180,7 @@ export default function CountPage() {
                     <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2 text-[#52525b]">—</p>
                   )}
                 </div>
-                <p className="font-mono text-[11px] text-[#a1a1aa] mt-2">
+                <p className="font-mono text-[11px] text-ink-4 mt-2">
                   {lastFinalized
                     ? `${fmtDate(lastFinalized.sessionDate)} · ${lastFinalized.countedBy} · ${lastFinalized.counts?.total ?? 0} items`
                     : 'No finalized count yet'}
@@ -1272,7 +1272,7 @@ export default function CountPage() {
                         className="text-left bg-paper border border-line rounded-xl p-4 hover:border-ink-3 transition-colors disabled:opacity-60 flex flex-col gap-2.5">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green-500'}`} />
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green'}`} />
                             <span className="text-[15px] font-semibold text-ink truncate tracking-[-0.01em]">{a.name}</span>
                           </div>
                           <span className="font-mono text-[12.5px] text-ink-2 shrink-0">{formatCurrency(a.onHandValue)}</span>
@@ -1350,7 +1350,7 @@ export default function CountPage() {
                   return (
                     <button key={a.id} disabled={!!startingArea} onClick={() => startAreaCount(a)}
                       className="w-full text-left flex items-center gap-3 px-3.5 py-3 active:bg-bg-2 disabled:opacity-60">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green-500'}`} />
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green'}`} />
                       <div className="flex-1 min-w-0">
                         <div className="text-[14px] font-semibold text-ink truncate">{a.name}</div>
                         <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
@@ -1417,10 +1417,10 @@ export default function CountPage() {
                         </span>
                         {s.status === 'IN_PROGRESS'    && <span className="font-mono text-[11px] font-medium text-gold shrink-0">Continue →</span>}
                         {s.status === 'PENDING_REVIEW' && <span className="font-mono text-[11px] font-medium text-gold-2 shrink-0">Review →</span>}
-                        {s.status === 'FINALIZED'      && <span className="font-mono text-[11px] font-medium text-green-700 shrink-0">Report</span>}
+                        {s.status === 'FINALIZED'      && <span className="font-mono text-[11px] font-medium text-green-text shrink-0">Report</span>}
                         {isUpdating && (
-                          <span className="flex items-center gap-1 font-mono text-[11px] text-violet-600 shrink-0">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                          <span className="flex items-center gap-1 font-mono text-[11px] text-blue shrink-0">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-blue border-t-transparent animate-spin" />
                             Processing…
                           </span>
                         )}
@@ -1452,7 +1452,7 @@ export default function CountPage() {
                               <ClipboardList size={13} /> {s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
                             </button>
                             <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); setDeleteTarget(s) }}
-                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-red-500 hover:bg-red-50">
+                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-red hover:bg-red-soft">
                               <Trash2 size={13} /> Delete
                             </button>
                           </div>
@@ -1515,14 +1515,14 @@ export default function CountPage() {
                           <>
                             <div className="flex items-baseline gap-2">
                               <span className="font-mono text-[13px] font-medium text-ink tracking-[-0.01em]">{counts.total} / {counts.total}</span>
-                              <span className="font-mono text-[11px] text-green-700">complete</span>
+                              <span className="font-mono text-[11px] text-green-text">complete</span>
                             </div>
                             <div className="h-[5px] bg-bg-2 rounded-full mt-1.5 w-4/5 overflow-hidden">
-                              <div className="h-[5px] bg-green-500 rounded-full" style={{ width: '100%' }} />
+                              <div className="h-[5px] bg-green rounded-full" style={{ width: '100%' }} />
                             </div>
                           </>
                         ) : s.status === 'UPDATING' ? (
-                          <span className="font-mono text-[11px] text-violet-600">Processing…</span>
+                          <span className="font-mono text-[11px] text-blue">Processing…</span>
                         ) : (
                           <>
                             <div className="flex items-baseline gap-2">
@@ -1559,8 +1559,8 @@ export default function CountPage() {
                           </button>
                         )}
                         {s.status === 'UPDATING' && (
-                          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] font-mono text-[11px] text-violet-600 bg-violet-50 border border-violet-200">
-                            <span className="w-3 h-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] font-mono text-[11px] text-blue bg-blue-soft border border-blue-soft">
+                            <span className="w-3 h-3 rounded-full border-2 border-blue border-t-transparent animate-spin" />
                             Updating…
                           </span>
                         )}
@@ -1583,7 +1583,7 @@ export default function CountPage() {
                           <ClipboardList size={13} />
                         </button>
                         <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} title="Delete"
-                          className="p-1.5 rounded-lg text-ink-4 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-colors">
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -1601,15 +1601,15 @@ export default function CountPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-mono text-[10.5px] text-gold-2 tracking-[0.02em] font-semibold">COUNT OVERDUE · {nextDateStr}</p>
-                  <p className="text-[14px] text-amber-900 mt-1 tracking-[-0.01em]">
+                  <p className="text-[14px] text-gold-2 mt-1 tracking-[-0.01em]">
                     Weekly count is <strong>{overdueDays} day{overdueDays !== 1 ? 's' : ''} late</strong>. COGS calculations are drifting from actuals — start a new count to re-anchor.
                   </p>
                 </div>
                 <button
                   onClick={() => setView('new')}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-gold text-white text-[13px] font-medium hover:bg-gold-2 transition-colors shrink-0 whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper [&_svg]:text-gold text-[13px] font-medium hover:bg-ink-2 transition-colors shrink-0 whitespace-nowrap"
                 >
-                  <span className="text-[#fef3c7] font-semibold">+</span>
+                  <span className="text-gold-soft font-semibold">+</span>
                   Start count now
                 </button>
               </div>
@@ -1630,8 +1630,8 @@ export default function CountPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="bg-paper rounded-2xl shadow-xl w-full max-w-sm p-6">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                  <Trash2 size={18} className="text-red-600" />
+                <div className="w-10 h-10 rounded-full bg-red-soft flex items-center justify-center shrink-0">
+                  <Trash2 size={18} className="text-red" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-ink">Delete count session?</h3>
@@ -1649,7 +1649,7 @@ export default function CountPage() {
                   Cancel
                 </button>
                 <button onClick={handleDeleteSession} disabled={deleting}
-                  className="flex-1 px-4 py-2.5 rounded-[9px] bg-red-600 text-white text-[13px] font-medium hover:bg-red-700 disabled:opacity-60 transition-colors">
+                  className="flex-1 px-4 py-2.5 rounded-[9px] bg-red text-white text-[13px] font-medium hover:bg-red disabled:opacity-60 transition-colors">
                   {deleting ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
@@ -1935,7 +1935,7 @@ export default function CountPage() {
       const bigVar = isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
       const dotColor = isSkipped ? 'bg-ink-4' : isCounted ? (bigVar ? 'bg-gold' : 'bg-green') : 'bg-ink-4'
       const rowBg = isSkipped ? 'bg-bg-2 border-line opacity-60'
-        : isCounted ? (bigVar ? 'bg-amber-50 border-amber-200' : 'bg-green-soft border-[#86efac]')
+        : isCounted ? (bigVar ? 'bg-gold-soft border-gold-soft' : 'bg-green-soft border-[#86efac]')
         : isOpen ? 'border-gold bg-paper' : 'bg-paper border-line'
       const sub = [item.category, lastDisplay != null ? `last ${f(lastDisplay)} ${line.selectedUom}` : locLabel].filter(Boolean).join(' · ')
 
@@ -2065,7 +2065,7 @@ export default function CountPage() {
                   {isCounted ? (
                     <button onClick={() => clearLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-2 font-medium">Clear count</button>
                   ) : (
-                    <button onClick={() => confirmLine(line, 0)} className="flex-1 h-10 border border-amber-200 bg-amber-50 text-amber-700 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
+                    <button onClick={() => confirmLine(line, 0)} className="flex-1 h-10 border border-gold-soft bg-gold-soft text-gold-2 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
                   )}
                   <button onClick={() => skipLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-3 font-medium inline-flex items-center justify-center gap-1.5"><SkipForward size={13} /> Skip</button>
                 </div>
@@ -2209,60 +2209,60 @@ export default function CountPage() {
               <form onSubmit={handleAddItem} className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Item Name *</label>
-                    <input required value={addItemForm.itemName} onChange={e => setAddItemForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Item Name *</label>
+                    <input required value={addItemForm.itemName} onChange={e => setAddItemForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-                    <select value={addItemForm.category} onChange={e => setAddItemForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
+                    <select value={addItemForm.category} onChange={e => setAddItemForm(f => ({ ...f, category: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                       {addItemCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Supplier</label>
-                    <select value={addItemForm.supplierId} onChange={e => setAddItemForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Supplier</label>
+                    <select value={addItemForm.supplierId} onChange={e => setAddItemForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                       <option value="">None</option>
                       {addItemSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Storage Area</label>
-                    <select value={addItemForm.storageAreaId} onChange={e => setAddItemForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Storage Area</label>
+                    <select value={addItemForm.storageAreaId} onChange={e => setAddItemForm(f => ({ ...f, storageAreaId: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                       <option value="">None</option>
                       {addItemAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Unit</label>
-                    <select required value={addItemForm.purchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Unit</label>
+                    <select required value={addItemForm.purchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
                       {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Qty per Purchase Unit</label>
-                    <input type="number" required value={addItemForm.qtyPerPurchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Qty per Purchase Unit</label>
+                    <input type="number" required value={addItemForm.qtyPerPurchaseUnit} onChange={e => setAddItemForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Price ($)</label>
-                    <input type="number" required value={addItemForm.purchasePrice} onChange={e => setAddItemForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Price ($)</label>
+                    <input type="number" required value={addItemForm.purchasePrice} onChange={e => setAddItemForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Base Unit</label>
-                    <select value={addItemForm.baseUnit} onChange={e => setAddItemForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Base Unit</label>
+                    <select value={addItemForm.baseUnit} onChange={e => setAddItemForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                       {BASE_UNITS.map(u => <option key={u}>{u}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Conversion Factor</label>
-                    <input type="number" required value={addItemForm.conversionFactor} onChange={e => setAddItemForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Conversion Factor</label>
+                    <input type="number" required value={addItemForm.conversionFactor} onChange={e => setAddItemForm(f => ({ ...f, conversionFactor: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Stock On Hand</label>
-                    <input type="number" value={addItemForm.stockOnHand} onChange={e => setAddItemForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand</label>
+                    <input type="number" value={addItemForm.stockOnHand} onChange={e => setAddItemForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
-                    <input value={addItemForm.location} onChange={e => setAddItemForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Location</label>
+                    <input value={addItemForm.location} onChange={e => setAddItemForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
                 <div className="bg-gold/10 rounded-lg p-3 text-sm">
@@ -2270,8 +2270,8 @@ export default function CountPage() {
                   <span className="font-bold text-gold">{formatUnitPrice(addItemPricePreview)} / {addItemForm.baseUnit}</span>
                 </div>
                 <div className="flex gap-2 pt-2">
-                  <button type="button" onClick={() => setShowAddItem(false)} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50">Cancel</button>
-                  <button type="submit" disabled={addItemSaving} className="flex-1 bg-gold text-white rounded-lg py-2 text-sm hover:bg-[#a88930] disabled:opacity-60">
+                  <button type="button" onClick={() => setShowAddItem(false)} className="flex-1 border border-line rounded-lg py-2 text-sm hover:bg-bg">Cancel</button>
+                  <button type="submit" disabled={addItemSaving} className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-lg py-2 text-sm hover:bg-ink-2 disabled:opacity-60">
                     {addItemSaving ? 'Adding…' : 'Add Item'}
                   </button>
                 </div>
@@ -2597,7 +2597,7 @@ export default function CountPage() {
         <div className="flex md:hidden gap-2 mb-4">
           {[
             { val: countedLines.length.toString(),   label: 'Counted',  cls: 'bg-bg-2 text-ink'   },
-            { val: flagged.length.toString(),         label: 'Flagged',  cls: flagged.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-bg-2 text-ink-3' },
+            { val: flagged.length.toString(),         label: 'Flagged',  cls: flagged.length > 0 ? 'bg-gold-soft text-gold-2' : 'bg-bg-2 text-ink-3' },
             { val: formatCurrency(totalValue),        label: 'Value',    cls: 'bg-gold-soft text-gold-2' },
           ].map(s => (
             <div key={s.label} className={`flex-1 rounded-xl py-2 px-3 text-center ${s.cls}`}>
@@ -2615,7 +2615,7 @@ export default function CountPage() {
             { val: formatCurrency(totalValue), label: 'Total value' },
           ].map(s => (
             <div key={s.label} className="bg-paper border border-line rounded-xl p-4 text-center">
-              <div className={`text-2xl font-semibold tracking-[-0.03em] ${(s as {warn?: boolean}).warn ? 'text-amber-600' : 'text-ink'}`}>{s.val}</div>
+              <div className={`text-2xl font-semibold tracking-[-0.03em] ${(s as {warn?: boolean}).warn ? 'text-gold' : 'text-ink'}`}>{s.val}</div>
               <div className="font-mono text-[10.5px] text-ink-3 mt-1">{s.label}</div>
             </div>
           ))}
@@ -2657,7 +2657,7 @@ export default function CountPage() {
                     </div>
                     <div className="px-3 py-2 border-t border-line">
                       <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Cost impact</div>
-                      <div className={`text-sm font-semibold ${vCost >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <div className={`text-sm font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
                         {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
                       </div>
                     </div>
@@ -2704,7 +2704,7 @@ export default function CountPage() {
                     <span className={`text-right text-[13px] font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
                       {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
                     </span>
-                    <span className={`text-right text-[13px] font-semibold ${vCost >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <span className={`text-right text-[13px] font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
                       {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
                     </span>
                   </div>
@@ -2748,9 +2748,9 @@ export default function CountPage() {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-            <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-            <span className="text-sm text-green-800 font-medium">
+          <div className="flex items-center gap-2 bg-green-soft border border-green-soft rounded-xl px-4 py-3">
+            <CheckCircle2 size={16} className="text-green shrink-0" />
+            <span className="text-sm text-green-text font-medium">
               Finalized {active.finalizedAt ? new Date(active.finalizedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
             </span>
           </div>

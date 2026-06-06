@@ -15,36 +15,36 @@ export const PREP_PRIORITY_META: Record<PrepPriority, {
   '911': {
     label: 'Critical',
     emoji: '🔴',
-    badgeClass: 'bg-red-100 text-red-700 font-bold',
-    borderClass: 'border-l-4 border-red-500',
-    bgClass: 'bg-red-50',
-    headingClass: 'text-red-700',
+    badgeClass: 'bg-red-soft text-red-text font-bold',
+    borderClass: 'border-l-4 border-red',
+    bgClass: 'bg-red-soft',
+    headingClass: 'text-red-text',
   },
   'NEEDED_TODAY': {
     label: 'Needed Today',
     emoji: '🟠',
-    badgeClass: 'bg-orange-100 text-orange-700',
-    borderClass: 'border-l-4 border-orange-400',
-    bgClass: 'bg-orange-50',
-    headingClass: 'text-orange-700',
+    badgeClass: 'bg-gold-soft text-gold-2',
+    borderClass: 'border-l-4 border-gold',
+    bgClass: 'bg-gold-soft',
+    headingClass: 'text-gold-2',
   },
   'LATER': {
     label: 'Looking Good',
     emoji: '🟢',
-    badgeClass: 'bg-green-100 text-green-700',
-    borderClass: 'border-l-4 border-green-400',
+    badgeClass: 'bg-green-soft text-green-text',
+    borderClass: 'border-l-4 border-green',
     bgClass: 'bg-white',
-    headingClass: 'text-green-700',
+    headingClass: 'text-green-text',
   },
 }
 
 export const PREP_STATUS_META: Record<string, { label: string; badgeClass: string }> = {
-  NOT_STARTED: { label: 'Not Started', badgeClass: 'bg-gray-100 text-gray-500' },
-  IN_PROGRESS: { label: 'In Progress', badgeClass: 'bg-blue-100 text-blue-700' },
-  DONE:        { label: 'Done',        badgeClass: 'bg-green-100 text-green-700' },
-  PARTIAL:     { label: 'Partial',     badgeClass: 'bg-amber-100 text-amber-700' },
-  BLOCKED:     { label: 'Blocked',     badgeClass: 'bg-red-100 text-red-700' },
-  SKIPPED:     { label: 'Skipped',     badgeClass: 'bg-gray-100 text-gray-400' },
+  NOT_STARTED: { label: 'Not Started', badgeClass: 'bg-bg-2 text-ink-3' },
+  IN_PROGRESS: { label: 'In Progress', badgeClass: 'bg-blue-soft text-blue-text' },
+  DONE:        { label: 'Done',        badgeClass: 'bg-green-soft text-green-text' },
+  PARTIAL:     { label: 'Partial',     badgeClass: 'bg-gold-soft text-gold-2' },
+  BLOCKED:     { label: 'Blocked',     badgeClass: 'bg-red-soft text-red-text' },
+  SKIPPED:     { label: 'Skipped',     badgeClass: 'bg-bg-2 text-ink-4' },
 }
 
 export const PREP_CATEGORIES = ['MISC', 'SAUCE', 'DRESSING', 'PROTEIN', 'BAKED', 'GARNISH', 'BASE', 'PICKLED', 'DAIRY']

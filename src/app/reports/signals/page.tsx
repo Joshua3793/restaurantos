@@ -45,9 +45,9 @@ interface Recipe {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const SEVERITY_STYLES: Record<Severity, { dot: string; card: string; badge: string }> = {
-  high:   { dot: 'bg-red-500',   card: 'border-red-100 bg-red-50/40',    badge: 'text-red-600 bg-red-100' },
-  medium: { dot: 'bg-amber-400', card: 'border-amber-100 bg-amber-50/40', badge: 'text-amber-700 bg-amber-100' },
-  low:    { dot: 'bg-blue-400',  card: 'border-blue-100 bg-blue-50/40',   badge: 'text-blue-600 bg-blue-100' },
+  high:   { dot: 'bg-red',   card: 'border-red-soft bg-red-soft/40',    badge: 'text-red bg-red-soft' },
+  medium: { dot: 'bg-gold', card: 'border-gold-soft bg-gold-soft/40', badge: 'text-gold-2 bg-gold-soft' },
+  low:    { dot: 'bg-blue',  card: 'border-blue-soft bg-blue-soft/40',   badge: 'text-blue bg-blue-soft' },
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -220,16 +220,16 @@ export default function SignalsPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Zap size={16} className="text-gold" />
-            <h1 className="text-2xl font-bold text-gray-900">Signals</h1>
+            <h1 className="text-2xl font-bold text-ink">Signals</h1>
           </div>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-ink-4">
             What the loop is telling you right now — each one ends with something to do.
           </p>
         </div>
         <button
           onClick={fetchAll}
           disabled={loading}
-          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-40"
+          className="flex items-center gap-1.5 text-xs text-ink-4 hover:text-ink-2 transition-colors disabled:opacity-40"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {refreshedAt.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', hour12: false })}
@@ -240,7 +240,7 @@ export default function SignalsPage() {
       {loading && (
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />
+            <div key={i} className="h-24 bg-bg-2 rounded-xl animate-pulse" />
           ))}
         </div>
       )}
@@ -248,12 +248,12 @@ export default function SignalsPage() {
       {/* ── All clear ──────────────────────────────────────── */}
       {!loading && signals.length === 0 && (
         <div className="flex flex-col items-center gap-3 py-16 text-center">
-          <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
-            <CheckCircle2 size={22} className="text-green-500" />
+          <div className="w-12 h-12 rounded-full bg-green-soft flex items-center justify-center">
+            <CheckCircle2 size={22} className="text-green" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900">All clear</p>
-            <p className="text-sm text-gray-400 mt-1">No signals right now. Check back after your next invoice or count.</p>
+            <p className="font-semibold text-ink">All clear</p>
+            <p className="text-sm text-ink-4 mt-1">No signals right now. Check back after your next invoice or count.</p>
           </div>
         </div>
       )}
@@ -262,7 +262,7 @@ export default function SignalsPage() {
       {!loading && signals.length > 0 && (
         <>
           {hasHighSeverity && (
-            <p className="text-[11px] font-semibold text-red-600 uppercase tracking-widest">
+            <p className="text-[11px] font-semibold text-red uppercase tracking-widest">
               Needs immediate attention
             </p>
           )}
@@ -279,22 +279,22 @@ export default function SignalsPage() {
                     {/* Severity dot + icon */}
                     <div className="relative shrink-0 mt-0.5">
                       <div className="w-8 h-8 rounded-lg bg-white/60 border border-white/80 flex items-center justify-center">
-                        <Icon size={15} className="text-gray-600" />
+                        <Icon size={15} className="text-ink-3" />
                       </div>
                       <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-white ${styles.dot}`} />
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <p className="text-sm font-semibold text-gray-900">{signal.title}</p>
+                        <p className="text-sm font-semibold text-ink">{signal.title}</p>
                         <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${styles.badge}`}>
                           {SEVERITY_LABEL[signal.severity]}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-600 leading-relaxed">{signal.body}</p>
+                      <p className="text-xs text-ink-3 leading-relaxed">{signal.body}</p>
                       <Link
                         href={signal.href}
-                        className="inline-flex items-center gap-1 mt-2.5 text-xs font-semibold text-gray-800 hover:text-gold transition-colors"
+                        className="inline-flex items-center gap-1 mt-2.5 text-xs font-semibold text-ink-2 hover:text-gold transition-colors"
                       >
                         {signal.cta} <ArrowRight size={11} />
                       </Link>
@@ -305,7 +305,7 @@ export default function SignalsPage() {
             })}
           </div>
 
-          <p className="text-[11px] text-gray-400 pt-2">
+          <p className="text-[11px] text-ink-4 pt-2">
             Signals are derived from your live inventory, recipe costs, and invoice data. They refresh each time you load this page.
           </p>
         </>

@@ -71,10 +71,10 @@ export default function OverviewTab({ period }: { period: number }) {
                   return (
                     <div key={item.cat}>
                       <div className="flex items-center justify-between text-xs mb-0.5">
-                        <span className="font-medium text-gray-700">{item.cat}</span>
-                        <span className="text-gray-500">{formatCurrency(item.value)}</span>
+                        <span className="font-medium text-ink-2">{item.cat}</span>
+                        <span className="text-ink-3">{formatCurrency(item.value)}</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${pctVal}%`, background: CAT_COLORS[item.cat] ?? '#94a3b8' }} />
                       </div>
                     </div>
@@ -93,12 +93,12 @@ export default function OverviewTab({ period }: { period: number }) {
           {alerts.length > 0 ? (
             <div className="space-y-2">
               {alerts.map(a => (
-                <div key={a.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                <div key={a.id} className="flex items-center justify-between py-1.5 border-b border-line last:border-0">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-800 truncate">{a.inventoryItem.itemName}</div>
-                    <div className="text-xs text-gray-400">{a.session?.supplierName ?? '—'}</div>
+                    <div className="text-sm font-medium text-ink-2 truncate">{a.inventoryItem.itemName}</div>
+                    <div className="text-xs text-ink-4">{a.session?.supplierName ?? '—'}</div>
                   </div>
-                  <span className={`text-sm font-bold shrink-0 ml-3 ${a.direction === 'UP' ? 'text-red-500' : 'text-green-600'}`}>
+                  <span className={`text-sm font-bold shrink-0 ml-3 ${a.direction === 'UP' ? 'text-red' : 'text-green'}`}>
                     {a.direction === 'UP' ? '+' : ''}{Number(a.changePct).toFixed(1)}%
                   </span>
                 </div>
@@ -112,17 +112,17 @@ export default function OverviewTab({ period }: { period: number }) {
           {lastCount ? (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
-                  <Package size={18} className="text-green-600" />
+                <div className="w-10 h-10 rounded-xl bg-green-soft flex items-center justify-center shrink-0">
+                  <Package size={18} className="text-green" />
                 </div>
                 <div>
-                  <div className="font-semibold text-gray-900">{lastCount.label}</div>
-                  <div className="text-xs text-gray-400">{new Date(lastCount.finalizedAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                  <div className="font-semibold text-ink">{lastCount.label}</div>
+                  <div className="text-xs text-ink-4">{new Date(lastCount.finalizedAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                 </div>
               </div>
-              <div className="bg-green-50 rounded-lg p-3">
-                <div className="text-xs text-green-600 font-medium">Total Counted Value</div>
-                <div className="text-2xl font-bold text-green-700">{formatCurrency(Number(lastCount.totalCountedValue))}</div>
+              <div className="bg-green-soft rounded-lg p-3">
+                <div className="text-xs text-green font-medium">Total Counted Value</div>
+                <div className="text-2xl font-bold text-green-text">{formatCurrency(Number(lastCount.totalCountedValue))}</div>
               </div>
             </div>
           ) : <EmptyState message="No finalized counts yet" />}

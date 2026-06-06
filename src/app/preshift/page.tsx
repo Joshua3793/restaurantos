@@ -527,7 +527,7 @@ function AddCheck({ onAdd }: { onAdd: (section: SectionKey, title: string, block
       <button onClick={() => setBlocker(b => !b)} className={`font-mono text-[10px] uppercase tracking-[0.02em] px-2.5 py-1.5 rounded-full border transition-colors ${blocker ? 'bg-red text-paper border-red' : 'bg-paper text-ink-3 border-line hover:border-ink-3'}`}>
         Blocker
       </button>
-      <button onClick={submit} disabled={!title.trim()} className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-[#27272a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Add</button>
+      <button onClick={submit} disabled={!title.trim()} className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-ink-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Add</button>
       <button onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink p-1"><X size={15} /></button>
     </div>
   )

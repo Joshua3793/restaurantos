@@ -72,21 +72,21 @@ function ServiceScheduleEditor({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="block text-xs font-medium text-gray-600">Weekly service hours</label>
+        <label className="block text-xs font-medium text-ink-3">Weekly service hours</label>
         <button type="button" onClick={copyMondayToAll}
-          className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-700">
+          className="flex items-center gap-1 text-[11px] text-ink-4 hover:text-ink-2">
           <Copy size={11} /> Copy Mon → all
         </button>
       </div>
       {DAY_LABELS.map((label, idx) => {
         const windows = dayWindows(idx)
         return (
-          <div key={label} className="border border-gray-100 rounded-xl p-2.5">
+          <div key={label} className="border border-line rounded-xl p-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-700 w-10">{label}</span>
-              {windows.length === 0 && <span className="text-[11px] text-gray-400">Closed</span>}
+              <span className="text-xs font-semibold text-ink-2 w-10">{label}</span>
+              {windows.length === 0 && <span className="text-[11px] text-ink-4">Closed</span>}
               <button type="button" onClick={() => addWindow(idx)}
-                className="flex items-center gap-1 text-[11px] text-gold hover:text-[#a88930]">
+                className="flex items-center gap-1 text-[11px] text-gold hover:text-gold-2">
                 <Plus size={11} /> Window
               </button>
             </div>
@@ -96,15 +96,15 @@ function ServiceScheduleEditor({
                   value={w.label}
                   onChange={e => editWindow(idx, wi, 'label', e.target.value)}
                   placeholder="Lunch"
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold"
                 />
                 <input type="time" value={w.start} onChange={e => editWindow(idx, wi, 'start', e.target.value)}
-                  className="border border-gray-200 rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-gray-400 text-xs">–</span>
+                  className="border border-line rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-ink-4 text-xs">–</span>
                 <input type="time" value={w.end} onChange={e => editWindow(idx, wi, 'end', e.target.value)}
-                  className="border border-gray-200 rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="border border-line rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
                 <button type="button" onClick={() => removeWindow(idx, wi)}
-                  className="p-1 text-gray-300 hover:text-red-500">
+                  className="p-1 text-ink-4 hover:text-red">
                   <X size={13} />
                 </button>
               </div>
@@ -182,8 +182,8 @@ function RcFormModal({
       <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
       <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-          <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-900">
+          <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-line">
+            <h3 className="font-semibold text-ink">
               {initial ? 'Edit Revenue Center' : 'New Revenue Center'}
             </h3>
           </div>
@@ -191,23 +191,23 @@ function RcFormModal({
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
             {/* Name */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Name *</label>
               <input
                 autoFocus
                 value={form.name}
                 onChange={e => f('name', e.target.value)}
                 placeholder="e.g. Catering, Events..."
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
             {/* Type */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Type</label>
               <select
                 value={form.type}
                 onChange={e => f('type', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
               >
                 {RC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
@@ -215,14 +215,14 @@ function RcFormModal({
 
             {/* Color */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">Color</label>
+              <label className="block text-xs font-medium text-ink-3 mb-2">Color</label>
               <div className="grid grid-cols-8 gap-2">
                 {RC_COLORS.map(c => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => f('color', c)}
-                    className={`w-7 h-7 rounded-full transition-transform ${form.color === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : ''}`}
+                    className={`w-7 h-7 rounded-full transition-transform ${form.color === c ? 'ring-2 ring-offset-2 ring-line-2 scale-110' : ''}`}
                     style={{ backgroundColor: rcHex(c) }}
                   />
                 ))}
@@ -231,28 +231,28 @@ function RcFormModal({
 
             {/* Description */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Description</label>
               <input
                 value={form.description}
                 onChange={e => f('description', e.target.value)}
                 placeholder="What does this revenue center handle?"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
 
             {/* Manager + Target food cost */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Manager</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Manager</label>
                 <input
                   value={form.managerName}
                   onChange={e => f('managerName', e.target.value)}
                   placeholder="Name"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                  className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Target Food Cost %</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Target Food Cost %</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -262,30 +262,30 @@ function RcFormModal({
                     value={form.targetFoodCostPct}
                     onChange={e => f('targetFoodCostPct', e.target.value)}
                     placeholder="e.g. 28"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                    className="w-full border border-line rounded-xl px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-4">%</span>
                 </div>
               </div>
             </div>
 
             {/* Notes */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Notes</label>
               <textarea
                 value={form.notes}
                 onChange={e => f('notes', e.target.value)}
                 placeholder="Any internal notes..."
                 rows={2}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold resize-none"
+                className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold resize-none"
               />
             </div>
 
             {/* Scheduling */}
-            <div className="pt-2 border-t border-gray-100 space-y-3">
+            <div className="pt-2 border-t border-line space-y-3">
               <div className="flex items-center gap-1.5">
-                <Clock size={13} className="text-gray-400" />
-                <span className="text-xs font-semibold text-gray-700">Service hours &amp; prep timing</span>
+                <Clock size={13} className="text-ink-4" />
+                <span className="text-xs font-semibold text-ink-2">Service hours &amp; prep timing</span>
               </div>
 
               {/* Mode toggle */}
@@ -297,8 +297,8 @@ function RcFormModal({
                     onClick={() => f('schedulingMode', mode)}
                     className={`flex-1 py-2 text-xs font-medium rounded-xl border transition-colors ${
                       form.schedulingMode === mode
-                        ? 'border-gold bg-gold/10 text-gray-900'
-                        : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                        ? 'border-gold bg-gold/10 text-ink'
+                        : 'border-line text-ink-3 hover:bg-bg'
                     }`}
                   >
                     {mode === 'FIXED' ? 'Fixed hours' : 'On-demand / by booking'}
@@ -308,16 +308,16 @@ function RcFormModal({
 
               {/* Prep lead */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Prep lead before service</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Prep lead before service</label>
                 <div className="flex items-center gap-2">
                   <input type="number" min="0" value={form.prepLeadH}
                     onChange={e => f('prepLeadH', e.target.value)} placeholder="0"
-                    className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="text-xs text-gray-400">h</span>
+                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-ink-4">h</span>
                   <input type="number" min="0" max="59" value={form.prepLeadM}
                     onChange={e => f('prepLeadM', e.target.value)} placeholder="0"
-                    className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="text-xs text-gray-400">m</span>
+                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-ink-4">m</span>
                 </div>
               </div>
 
@@ -337,35 +337,35 @@ function RcFormModal({
                   type="checkbox"
                   checked={form.isDefault}
                   onChange={e => f('isDefault', e.target.checked)}
-                  className="rounded border-gray-300"
+                  className="rounded border-line-2"
                 />
-                <span className="text-sm text-gray-700">Set as default revenue center</span>
+                <span className="text-sm text-ink-2">Set as default revenue center</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.isActive}
                   onChange={e => f('isActive', e.target.checked)}
-                  className="rounded border-gray-300"
+                  className="rounded border-line-2"
                 />
-                <span className="text-sm text-gray-700">Active</span>
+                <span className="text-sm text-ink-2">Active</span>
               </label>
             </div>
 
-            {error && <p className="text-xs text-red-500">{error}</p>}
+            {error && <p className="text-xs text-red">{error}</p>}
 
             <div className="flex gap-2 pt-1 pb-[env(safe-area-inset-bottom)]">
               <button
                 type="submit"
                 disabled={saving}
-                className="flex-1 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-800 disabled:opacity-50"
+                className="flex-1 py-2.5 bg-ink text-white text-sm font-medium rounded-xl hover:bg-ink disabled:opacity-50"
               >
                 {saving ? 'Saving…' : initial ? 'Save Changes' : 'Create'}
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2 border border-line rounded-xl text-sm text-ink-3 hover:bg-bg"
               >
                 Cancel
               </button>
@@ -389,11 +389,11 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
   const target = rc.targetFoodCostPct != null ? parseFloat(rc.targetFoodCostPct) : null
   const running = insight?.runningFoodCostPct ?? null
   const runningColor = target == null || running == null
-    ? 'text-gray-400'
-    : running <= target ? 'text-green-600' : running <= target + 2 ? 'text-amber-600' : 'text-red-500'
+    ? 'text-ink-4'
+    : running <= target ? 'text-green' : running <= target + 2 ? 'text-gold' : 'text-red'
 
   return (
-    <div className={`bg-white border rounded-2xl overflow-hidden transition-all ${rc.isActive ? 'border-gray-100' : 'border-gray-200 opacity-60'}`}>
+    <div className={`bg-white border rounded-2xl overflow-hidden transition-all ${rc.isActive ? 'border-line' : 'border-line opacity-60'}`}>
       {/* Color accent bar */}
       <div className="h-1.5" style={{ backgroundColor: rcHex(rc.color) }} />
 
@@ -406,35 +406,35 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold text-gray-900">{rc.name}</h3>
+              <h3 className="font-semibold text-ink">{rc.name}</h3>
               {rc.isDefault && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gold bg-gold-soft px-1.5 py-0.5 rounded-full">
                   <Star size={9} /> Default
                 </span>
               )}
               {!rc.isActive && (
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-4 bg-bg-2 px-1.5 py-0.5 rounded-full">
                   Inactive
                 </span>
               )}
-              <span className="text-[10px] font-medium text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-full border border-gray-100">
+              <span className="text-[10px] font-medium text-ink-4 bg-bg px-1.5 py-0.5 rounded-full border border-line">
                 {typeLabel}
               </span>
             </div>
 
             {rc.description && (
-              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{rc.description}</p>
+              <p className="text-xs text-ink-3 mt-0.5 leading-relaxed">{rc.description}</p>
             )}
 
             {/* Key info row */}
             <div className="flex flex-wrap gap-3 mt-2">
               {rc.managerName && (
-                <span className="flex items-center gap-1 text-xs text-gray-500">
+                <span className="flex items-center gap-1 text-xs text-ink-3">
                   <User size={11} /> {rc.managerName}
                 </span>
               )}
               {rc.targetFoodCostPct != null && (
-                <span className="flex items-center gap-1 text-xs text-gray-500">
+                <span className="flex items-center gap-1 text-xs text-ink-3">
                   <Target size={11} /> {parseFloat(rc.targetFoodCostPct)}% food cost target
                 </span>
               )}
@@ -442,30 +442,30 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
 
             {/* Service row */}
             <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-              <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-gray-400 font-medium">
+              <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-ink-4 font-medium">
                 <Clock size={11} /> Service
               </span>
               {rc.schedulingMode === 'ON_DEMAND' ? (
-                <span className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-[11.5px] text-gray-500">
+                <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-3">
                   By booking
                 </span>
               ) : todayWindows.length === 0 ? (
-                <span className="text-[11.5px] text-gray-400">Closed today</span>
+                <span className="text-[11.5px] text-ink-4">Closed today</span>
               ) : (
                 todayWindows.map((w, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-[11.5px] text-gray-600">
-                    <span className="font-semibold text-gray-700">{w.label}</span>
-                    <span className="text-gray-400 font-mono text-[11px]">{fmtWindow(w)}</span>
+                  <span key={i} className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-3">
+                    <span className="font-semibold text-ink-2">{w.label}</span>
+                    <span className="text-ink-4 font-mono text-[11px]">{fmtWindow(w)}</span>
                   </span>
                 ))
               )}
               {prepLeadLabel && (
-                <span className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-[11.5px] text-gray-400">
+                <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-4">
                   Prep lead {prepLeadLabel}
                 </span>
               )}
               {insight && (
-                <span className="inline-flex items-center gap-1 text-[11.5px] text-gray-400">
+                <span className="inline-flex items-center gap-1 text-[11.5px] text-ink-4">
                   · {insight.itemCount} items
                 </span>
               )}
@@ -474,19 +474,19 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
             {/* Target vs running */}
             {target != null && (
               <div className="mt-2.5">
-                <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1">
-                  <span>Target food cost <b className="text-gray-700">{target}%</b></span>
+                <div className="flex items-center justify-between text-[11px] text-ink-4 mb-1">
+                  <span>Target food cost <b className="text-ink-2">{target}%</b></span>
                   <span>Running{' '}
                     <b className={runningColor}>{running != null ? `${running.toFixed(1)}%` : '—'}</b>
                   </span>
                 </div>
-                <div className="h-2 rounded-full bg-gray-100 overflow-hidden relative">
+                <div className="h-2 rounded-full bg-bg-2 overflow-hidden relative">
                   <div className="h-full rounded-full"
                     style={{
                       width: `${Math.min(100, running ?? target)}%`,
                       backgroundColor: running == null ? '#d1d5db' : running <= target ? '#16a34a' : '#d97706',
                     }} />
-                  <div className="absolute top-0 bottom-0 w-px bg-gray-900/40" style={{ left: `${Math.min(100, target)}%` }} />
+                  <div className="absolute top-0 bottom-0 w-px bg-ink/40" style={{ left: `${Math.min(100, target)}%` }} />
                 </div>
               </div>
             )}
@@ -494,11 +494,11 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
             {rc.notes && (
               <div className="mt-2">
                 {expanded ? (
-                  <p className="text-xs text-gray-400 leading-relaxed">{rc.notes}</p>
+                  <p className="text-xs text-ink-4 leading-relaxed">{rc.notes}</p>
                 ) : null}
                 <button
                   onClick={() => setExpanded(e => !e)}
-                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 mt-1"
+                  className="flex items-center gap-1 text-[11px] text-ink-4 hover:text-ink-3 mt-1"
                 >
                   {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                   {expanded ? 'Hide notes' : 'Show notes'}
@@ -510,14 +510,14 @@ function RcCard({ rc, insight, onEdit, onDelete }: {
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={onEdit}
-              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-ink-4 hover:text-ink-2 hover:bg-bg-2 rounded-lg transition-colors"
               title="Edit"
             >
               <Pencil size={14} />
             </button>
             <button
               onClick={onDelete}
-              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              className="p-1.5 text-ink-4 hover:text-red hover:bg-red-soft rounded-lg transition-colors"
               title="Delete"
             >
               <Trash2 size={14} />
@@ -578,15 +578,15 @@ export default function RevenueCentersPage() {
     <div className="max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Revenue Centers</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-2xl font-bold text-ink">Revenue Centers</h1>
+          <p className="text-sm text-ink-3 mt-0.5">
             {revenueCenters.length} center{revenueCenters.length !== 1 ? 's' : ''}
             {totals && <> · each center&apos;s target drives its workspace cost-chrome</>}
           </p>
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-1.5 bg-gold text-white px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#a88930]"
+          className="flex items-center gap-1.5 bg-ink text-paper [&_svg]:text-gold px-3 py-2 rounded-xl text-sm font-semibold hover:bg-ink-2"
         >
           <Plus size={16} /> Add
         </button>
@@ -595,28 +595,28 @@ export default function RevenueCentersPage() {
       {/* KPI strip */}
       {totals && (
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white border border-gray-100 rounded-2xl p-4">
-            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-400">Centers · Active</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {totals.activeCount}<span className="text-base text-gray-400 font-medium"> / {totals.totalCount}</span>
+          <div className="bg-white border border-line rounded-2xl p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-ink-4">Centers · Active</div>
+            <div className="text-2xl font-bold text-ink mt-1">
+              {totals.activeCount}<span className="text-base text-ink-4 font-medium"> / {totals.totalCount}</span>
             </div>
           </div>
-          <div className="bg-white border border-gray-100 rounded-2xl p-4">
-            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-400">Blended Target</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
+          <div className="bg-white border border-line rounded-2xl p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-ink-4">Blended Target</div>
+            <div className="text-2xl font-bold text-ink mt-1">
               {totals.blendedTargetPct != null ? totals.blendedTargetPct.toFixed(1) : '—'}
               <span className="text-base text-gold font-semibold">%</span>
             </div>
           </div>
-          <div className="bg-white border border-gray-100 rounded-2xl p-4">
-            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-400">Allocated · WTD</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">{fmtMoney(totals.allocatedWTD)}</div>
+          <div className="bg-white border border-line rounded-2xl p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-ink-4">Allocated · WTD</div>
+            <div className="text-2xl font-bold text-ink mt-1">{fmtMoney(totals.allocatedWTD)}</div>
           </div>
         </div>
       )}
 
       {deleteError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+        <div className="p-3 bg-red-soft border border-red-soft rounded-xl text-sm text-red-text">
           {deleteError}
         </div>
       )}
@@ -638,34 +638,34 @@ export default function RevenueCentersPage() {
         {/* Rail */}
         <div className="space-y-3">
           {spendShare.length > 0 && (
-            <div className="bg-white border border-gray-100 rounded-2xl p-4">
-              <h4 className="text-sm font-semibold text-gray-900 mb-3">Spend allocation · WTD</h4>
-              <div className="h-2 rounded-full bg-gray-100 overflow-hidden flex mb-3">
+            <div className="bg-white border border-line rounded-2xl p-4">
+              <h4 className="text-sm font-semibold text-ink mb-3">Spend allocation · WTD</h4>
+              <div className="h-2 rounded-full bg-bg-2 overflow-hidden flex mb-3">
                 {spendShare.map(({ rc, spend }) => (
                   <span key={rc.id} style={{ background: rcHex(rc.color), width: `${(spend / spendTotal) * 100}%` }} />
                 ))}
               </div>
               {spendShare.map(({ rc, spend }) => (
-                <div key={rc.id} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-gray-100 last:border-0">
+                <div key={rc.id} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-line last:border-0">
                   <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: rcHex(rc.color) }} />
-                  <span className="flex-1 text-xs text-gray-600 truncate">{rc.name}</span>
-                  <span className="font-mono text-xs font-semibold text-gray-900">{fmtMoney(spend)}</span>
+                  <span className="flex-1 text-xs text-ink-3 truncate">{rc.name}</span>
+                  <span className="font-mono text-xs font-semibold text-ink">{fmtMoney(spend)}</span>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="bg-white border border-gray-100 rounded-2xl p-4">
-            <h4 className="text-sm font-semibold text-gray-900 mb-2">Service hours drive timing</h4>
-            <p className="text-xs text-gray-500 leading-relaxed">
+          <div className="bg-white border border-line rounded-2xl p-4">
+            <h4 className="text-sm font-semibold text-ink mb-2">Service hours drive timing</h4>
+            <p className="text-xs text-ink-3 leading-relaxed">
               Each center&apos;s service windows and prep lead feed the day&apos;s countdowns — the Pre-shift
               &ldquo;to service&rdquo; banner and the Prep deadline both read from here.
             </p>
           </div>
 
-          <div className="bg-white border border-gray-100 rounded-2xl p-4">
-            <h4 className="text-sm font-semibold text-gray-900 mb-2">Why centers matter</h4>
-            <p className="text-xs text-gray-500 leading-relaxed">
+          <div className="bg-white border border-line rounded-2xl p-4">
+            <h4 className="text-sm font-semibold text-ink mb-2">Why centers matter</h4>
+            <p className="text-xs text-ink-3 leading-relaxed">
               Each center owns its target food cost. The live cost-chrome strip reads the active workspace&apos;s
               target — switch the workspace pill and every Cost, Variance, and Menu screen re-baselines.
             </p>

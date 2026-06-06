@@ -76,7 +76,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
   }
 
   return (
-    <div className={`space-y-0.5 text-sm ${isUser ? 'text-white' : 'text-gray-800'}`}>
+    <div className={`space-y-0.5 text-sm ${isUser ? 'text-white' : 'text-ink-2'}`}>
       {nodes}
     </div>
   )
@@ -92,9 +92,9 @@ const QUICK_PROMPTS = [
 function ThinkingDots() {
   return (
     <div className="flex items-center gap-1 px-3 py-2">
-      <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:-0.3s]" />
-      <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:-0.15s]" />
-      <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" />
+      <span className="w-2 h-2 rounded-full bg-ink-4 animate-bounce [animation-delay:-0.3s]" />
+      <span className="w-2 h-2 rounded-full bg-ink-4 animate-bounce [animation-delay:-0.15s]" />
+      <span className="w-2 h-2 rounded-full bg-ink-4 animate-bounce" />
     </div>
   )
 }
@@ -247,22 +247,22 @@ export function AiChat() {
     <div className={`fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px)+0.75rem)] right-4 sm:bottom-6 sm:right-6 z-[55] ${isAnyDrawerOpen ? 'hidden' : ''}`}>
       {/* Chat panel */}
       {open && (
-        <div className="absolute bottom-16 right-0 w-[calc(100vw-32px)] sm:w-96 max-h-[70vh] sm:max-h-[600px] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
+        <div className="absolute bottom-16 right-0 w-[calc(100vw-32px)] sm:w-96 max-h-[70vh] sm:max-h-[600px] bg-white rounded-2xl shadow-2xl border border-line flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="shrink-0 bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 flex items-center justify-between">
+          <div className="shrink-0 bg-gradient-to-r from-blue to-blue px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               {/* New conversation button */}
               <button
                 onClick={startNewConversation}
                 title="New conversation"
-                className="text-blue-200 hover:text-white transition-colors p-0.5 rounded"
+                className="text-blue hover:text-white transition-colors p-0.5 rounded"
               >
                 <Plus size={16} />
               </button>
               <Sparkles className="text-white" size={16} />
               <div>
                 <div className="text-white font-bold text-sm leading-tight">CONTROLA</div>
-                <div className="text-blue-200 text-xs">Your restaurant assistant</div>
+                <div className="text-blue text-xs">Your restaurant assistant</div>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -270,13 +270,13 @@ export function AiChat() {
               <button
                 onClick={view === 'history' ? () => setView('chat') : loadHistory}
                 title={view === 'history' ? 'Back to chat' : 'Conversation history'}
-                className="text-blue-200 hover:text-white transition-colors p-1 rounded"
+                className="text-blue hover:text-white transition-colors p-1 rounded"
               >
                 {view === 'history' ? <ChevronLeft size={18} /> : <History size={18} />}
               </button>
               <button
                 onClick={() => setOpen(false)}
-                className="text-white hover:text-blue-200 transition-colors p-1"
+                className="text-white hover:text-blue transition-colors p-1"
                 aria-label="Close chat"
               >
                 <X size={18} />
@@ -290,35 +290,35 @@ export function AiChat() {
               {loadingHistory ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="flex gap-1">
-                    <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce" />
+                    <span className="w-2 h-2 rounded-full bg-line-2 animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-2 h-2 rounded-full bg-line-2 animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-2 h-2 rounded-full bg-line-2 animate-bounce" />
                   </div>
                 </div>
               ) : conversations.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                  <History size={32} className="text-gray-300 mb-3" />
-                  <p className="text-sm text-gray-500">No conversations yet</p>
-                  <p className="text-xs text-gray-400 mt-1">Start chatting to build your history</p>
+                  <History size={32} className="text-ink-4 mb-3" />
+                  <p className="text-sm text-ink-3">No conversations yet</p>
+                  <p className="text-xs text-ink-4 mt-1">Start chatting to build your history</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-line">
                   {conversations.map(conv => (
                     <button
                       key={conv.id}
                       onClick={() => loadConversation(conv.id)}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left group"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg transition-colors text-left group"
                     >
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{conv.title}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">
+                        <p className="text-sm font-medium text-ink-2 truncate">{conv.title}</p>
+                        <p className="text-xs text-ink-4 mt-0.5">
                           {new Date(conv.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           {' · '}{conv._count.messages} messages
                         </p>
                       </div>
                       <button
                         onClick={(e) => deleteConversation(conv.id, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all shrink-0"
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all shrink-0"
                         title="Delete conversation"
                       >
                         <Trash2 size={14} />
@@ -334,7 +334,7 @@ export function AiChat() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.length === 0 ? (
                   <div className="space-y-3">
-                    <div className="bg-gray-100 text-gray-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm mr-8 self-start">
+                    <div className="bg-bg-2 text-ink-2 rounded-2xl rounded-bl-sm px-3 py-2 text-sm mr-8 self-start">
                       Hi! I&apos;m CONTROLA, your restaurant back-office assistant. I can answer questions about your inventory, invoices, recipes, sales, and more. What would you like to know?
                     </div>
                     <div className="space-y-2 pt-1">
@@ -342,7 +342,7 @@ export function AiChat() {
                         <button
                           key={prompt}
                           onClick={() => sendMessage(prompt)}
-                          className="w-full text-left text-sm px-3 py-2 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-gold/10 text-gray-700 transition-colors"
+                          className="w-full text-left text-sm px-3 py-2 rounded-xl border border-line hover:border-blue hover:bg-gold/10 text-ink-2 transition-colors"
                         >
                           {prompt}
                         </button>
@@ -356,7 +356,7 @@ export function AiChat() {
                       className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       {msg.role === 'assistant' && msg.content === '' && loading && i === messages.length - 1 ? (
-                        <div className="bg-gray-100 rounded-2xl rounded-bl-sm mr-8">
+                        <div className="bg-bg-2 rounded-2xl rounded-bl-sm mr-8">
                           <ThinkingDots />
                         </div>
                       ) : (
@@ -364,7 +364,7 @@ export function AiChat() {
                           className={
                             msg.role === 'user'
                               ? 'bg-gold rounded-2xl rounded-br-sm px-3 py-2 ml-8 max-w-[85%]'
-                              : 'bg-gray-100 rounded-2xl rounded-bl-sm px-3 py-2 mr-8 max-w-[85%]'
+                              : 'bg-bg-2 rounded-2xl rounded-bl-sm px-3 py-2 mr-8 max-w-[85%]'
                           }
                         >
                           <MarkdownContent content={msg.content} isUser={msg.role === 'user'} />
@@ -377,7 +377,7 @@ export function AiChat() {
               </div>
 
               {/* Input area */}
-              <div className="shrink-0 border-t border-gray-100 p-3">
+              <div className="shrink-0 border-t border-line p-3">
                 <div className="flex gap-2 items-center">
                   <input
                     ref={inputRef}
@@ -387,15 +387,15 @@ export function AiChat() {
                     onKeyDown={handleKeyDown}
                     placeholder="Ask anything..."
                     disabled={loading}
-                    className="flex-1 min-w-0 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-gold disabled:opacity-50"
+                    className="flex-1 min-w-0 text-sm px-3 py-2 rounded-xl border border-line focus:outline-none focus:border-blue focus:ring-1 focus:ring-gold disabled:opacity-50"
                   />
                   <button
                     onClick={() => sendMessage(input)}
                     disabled={loading || !input.trim()}
-                    className="shrink-0 w-9 h-9 rounded-full bg-gold hover:bg-[#a88930] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+                    className="shrink-0 w-9 h-9 rounded-full bg-ink hover:bg-ink-2 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
                     aria-label="Send message"
                   >
-                    <Send size={16} className="text-white" />
+                    <Send size={16} className="text-gold" />
                   </button>
                 </div>
               </div>
@@ -407,16 +407,13 @@ export function AiChat() {
       {/* Toggle button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-[52px] h-[52px] rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-all"
-        style={{ background: '#c9a84c' }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#a88930')}
-        onMouseLeave={e => (e.currentTarget.style.background = '#c9a84c')}
+        className="w-[52px] h-[52px] rounded-full shadow-lg flex items-center justify-center bg-ink hover:bg-ink-2 hover:shadow-xl transition-all"
         aria-label={open ? 'Close CONTROLA chat' : 'Open CONTROLA chat'}
       >
         {open ? (
-          <X size={22} className="text-white" />
+          <X size={22} className="text-gold" />
         ) : (
-          <MessageCircle size={22} className="text-white" />
+          <MessageCircle size={22} className="text-gold" />
         )}
       </button>
     </div>

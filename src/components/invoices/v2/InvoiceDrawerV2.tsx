@@ -169,7 +169,7 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
           {isReview && session?.files && session.files.length > 0 && (
             <InvoiceImageViewer files={session.files} />
           )}
-          <div className={`flex-1 overflow-y-auto flex flex-col ${isReview ? 'border-l border-gray-100' : ''}`}>
+          <div className={`flex-1 overflow-y-auto flex flex-col ${isReview ? 'border-l border-line' : ''}`}>
             <DrawerBody
               session={session}
               approveResult={approveResult}
@@ -205,9 +205,9 @@ export function InvoiceDrawerV2({ sessionId, onClose, onApproveOrReject, allSess
       >
         <DrawerChrome onClose={onClose} title={session ? labelFor(session.status) : 'Loading…'} size="sm" />
         {isReview && session?.files && session.files.length > 0 && (
-          <div className="flex border-b border-gray-100 shrink-0">
-            <button onClick={() => setMobileTab('review')} className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Review</button>
-            <button onClick={() => setMobileTab('image')}  className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'image'  ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}>Invoice Image</button>
+          <div className="flex border-b border-line shrink-0">
+            <button onClick={() => setMobileTab('review')} className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'review' ? 'text-gold border-b-2 border-gold' : 'text-ink-3'}`}>Review</button>
+            <button onClick={() => setMobileTab('image')}  className={`flex-1 py-2.5 text-sm font-medium ${mobileTab === 'image'  ? 'text-gold border-b-2 border-gold' : 'text-ink-3'}`}>Invoice Image</button>
           </div>
         )}
         <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
@@ -250,12 +250,12 @@ function labelFor(status: string): string {
 // ── Drawer chrome ─────────────────────────────────────────────────────────────
 function DrawerChrome({ onClose, title, size = 'md' }: { onClose: () => void; title: string; size?: 'sm' | 'md' }) {
   return (
-    <div className={`flex items-center justify-between border-b border-gray-100 shrink-0 ${size === 'sm' ? 'px-5 py-3' : 'px-5 py-4'}`}>
+    <div className={`flex items-center justify-between border-b border-line shrink-0 ${size === 'sm' ? 'px-5 py-3' : 'px-5 py-4'}`}>
       <div className="flex items-center gap-2">
         <ScanLine size={size === 'sm' ? 16 : 18} className="text-gold" />
-        <span className={`font-semibold text-gray-900 ${size === 'sm' ? 'text-sm' : ''}`}>{title}</span>
+        <span className={`font-semibold text-ink ${size === 'sm' ? 'text-sm' : ''}`}>{title}</span>
       </div>
-      <button onClick={onClose} aria-label="Close" className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+      <button onClick={onClose} aria-label="Close" className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3 hover:bg-bg-2 rounded-lg">
         <X size={size === 'sm' ? 16 : 18} />
       </button>
     </div>
@@ -282,7 +282,7 @@ function DrawerBody({
   if (!session) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-[40vh]">
-        <Loader2 size={28} className="animate-spin text-gray-300" />
+        <Loader2 size={28} className="animate-spin text-ink-4" />
       </div>
     )
   }
@@ -293,8 +293,8 @@ function DrawerBody({
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-green-soft">
           <CheckCircle2 size={28} className="text-green-text" />
         </div>
-        <h2 className="text-lg font-semibold text-gray-900">Invoice applied</h2>
-        <p className="text-sm text-gray-500">
+        <h2 className="text-lg font-semibold text-ink">Invoice applied</h2>
+        <p className="text-sm text-ink-3">
           {approveResult.itemsUpdated} prices updated · {approveResult.newItemsCreated} new items
         </p>
       </div>
@@ -305,7 +305,7 @@ function DrawerBody({
     return (
       <div className="flex-1 p-6 text-center space-y-3">
         <Loader2 size={24} className="animate-spin text-gold mx-auto" />
-        <p className="text-sm text-gray-500">{labelFor(session.status)}</p>
+        <p className="text-sm text-ink-3">{labelFor(session.status)}</p>
         {session.errorMessage && (
           <p className="text-sm text-red bg-red-soft border border-[#fecaca] rounded-xl px-4 py-3 text-left">
             {session.errorMessage}
@@ -366,15 +366,15 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
     : null
 
   return (
-    <div className="bg-paper border-b border-gray-100">
+    <div className="bg-paper border-b border-line">
       <div className="px-5 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Review invoice</p>
-            <h2 className="text-[17px] font-medium text-gray-900 leading-tight truncate">
+            <p className="text-[10px] font-bold text-ink-4 uppercase tracking-widest mb-0.5">Review invoice</p>
+            <h2 className="text-[17px] font-medium text-ink leading-tight truncate">
               {session.supplierName || 'Unknown supplier'}
             </h2>
-            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 flex-wrap">
+            <div className="flex items-center gap-2 mt-1 text-xs text-ink-3 flex-wrap">
               {session.invoiceNumber && <span className="flex items-center gap-0.5"><Hash size={10} />{session.invoiceNumber}</span>}
               {session.invoiceDate && <span className="flex items-center gap-0.5"><CalendarDays size={10} />{session.invoiceDate}</span>}
               <span>· {session.scanItems.length} line items</span>
@@ -383,13 +383,13 @@ function DrawerHeader({ session, allSessions }: { session: Session; allSessions:
           <div className="text-right shrink-0">
             {displayTotal != null && (
               <div>
-                <div className="text-[22px] font-medium text-gray-900 leading-none">{formatCurrency(displayTotal)}</div>
+                <div className="text-[22px] font-medium text-ink leading-none">{formatCurrency(displayTotal)}</div>
                 {isComputedTotal && (
-                  <div className="text-[10px] text-gray-400 mt-0.5">scanned total (no OCR total)</div>
+                  <div className="text-[10px] text-ink-4 mt-0.5">scanned total (no OCR total)</div>
                 )}
               </div>
             )}
-            <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-500 justify-end flex-wrap">
+            <div className="flex items-center gap-2 mt-1 text-[11px] text-ink-3 justify-end flex-wrap">
               {sub != null  && <span>sub {formatCurrency(sub)}</span>}
               {fees > 0     && <span>· fuel {formatCurrency(fees)}</span>}
               {tax != null && tax > 0 && <span>· tax {formatCurrency(tax)}</span>}
@@ -452,18 +452,18 @@ function FilterChipsBar({
       <button
         onClick={() => onFilter(value)}
         className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
-          active ? 'bg-gray-900 text-paper border-gray-900' : 'bg-paper text-gray-600 border-gray-200 hover:bg-gray-50'
+          active ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-3 border-line hover:bg-bg'
         }`}
       >
         {tone && <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />}
         {label}
-        <span className={active ? 'text-gray-300' : 'text-gray-400'}>{n}</span>
+        <span className={active ? 'text-ink-4' : 'text-ink-4'}>{n}</span>
       </button>
     )
   }
 
   return (
-    <div className="px-3 py-2 flex items-center gap-1.5 flex-wrap border-b border-gray-100 bg-gray-50/50">
+    <div className="px-3 py-2 flex items-center gap-1.5 flex-wrap border-b border-line bg-bg/50">
       <Chip value="all"          label="All" />
       <Chip value="unknown_mode" label="Unknown mode" tone="danger" />
       <Chip value="needs_link"   label="Needs link"   tone="danger" />
@@ -475,7 +475,7 @@ function FilterChipsBar({
       <div className="ml-auto flex items-center gap-2.5">
         <button
           onClick={() => onSortMode(sortMode === 'invoice' ? 'exceptions' : 'invoice')}
-          className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700"
+          className="flex items-center gap-1 text-[11px] text-ink-3 hover:text-ink-2"
         >
           {sortMode === 'invoice' ? '⇣ Invoice order' : '⚠ Exceptions first'}
         </button>
@@ -501,14 +501,14 @@ function LineItemList({
 
   if (ordered.length === 0) {
     return (
-      <div className="py-12 text-center text-sm text-gray-400">
+      <div className="py-12 text-center text-sm text-ink-4">
         No items match this filter.
       </div>
     )
   }
 
   return (
-    <div className="px-3 py-3 space-y-2 bg-gray-50/60">
+    <div className="px-3 py-3 space-y-2 bg-bg/60">
       {ordered.map(item => (
         <LineItemRow
           key={item.id}
@@ -547,7 +547,7 @@ function LineItemRow({
     isCrossCheckFail(item)                   ? 'border-[#fca5a5]' :
     isModeMismatch(item)                     ? 'border-[#fcd34d]' :
     isLowConfidence(item)                    ? 'border-[#fcd34d]' :
-                                               'border-gray-200'
+                                               'border-line'
 
   return (
     <div className={`bg-paper rounded-xl border ${borderClass} overflow-hidden`}>
@@ -555,17 +555,17 @@ function LineItemRow({
       <button
         onClick={onToggle}
         aria-expanded={isExpanded}
-        className="w-full text-left px-3 pt-3 pb-2 flex items-start gap-3 hover:bg-gray-50/60 transition-colors"
+        className="w-full text-left px-3 pt-3 pb-2 flex items-start gap-3 hover:bg-bg/60 transition-colors"
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-medium text-gray-900 truncate">{item.rawDescription}</span>
+            <span className="text-sm font-medium text-ink truncate">{item.rawDescription}</span>
             {isModeMismatch(item)   && <Pill tone="warning">mode mismatch</Pill>}
             {isCw(item)             && <Pill tone="info">catchweight</Pill>}
             {isLowConfidence(item)  && <Pill tone="warning">low conf</Pill>}
             {isUnknownMode(item)    && <Pill tone="danger">unknown mode</Pill>}
           </div>
-          <div className="mt-0.5 text-[11px] text-gray-500 truncate">
+          <div className="mt-0.5 text-[11px] text-ink-3 truncate">
             {[
               item.supplierItemCode ? `#${item.supplierItemCode}` : null,
               packDescription(item) || (mode === 'per_case' ? '⚠ no pack format' : null),
@@ -574,26 +574,26 @@ function LineItemRow({
           </div>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-[15px] font-medium text-gray-900">
+          <div className="text-[15px] font-medium text-ink">
             {lineTotal != null ? formatCurrency(lineTotal) : '—'}
           </div>
-          {isExpanded ? <ChevronUp size={14} className="text-gray-400 inline-block mt-1" /> : <ChevronDown size={14} className="text-gray-400 inline-block mt-1" />}
+          {isExpanded ? <ChevronUp size={14} className="text-ink-4 inline-block mt-1" /> : <ChevronDown size={14} className="text-ink-4 inline-block mt-1" />}
         </div>
       </button>
 
       {/* Math expression card */}
-      <div className="mx-3 mb-2 bg-gray-50 rounded-lg px-3 py-2 flex items-center gap-3">
-        <div className="shrink-0 text-gray-400">
+      <div className="mx-3 mb-2 bg-bg rounded-lg px-3 py-2 flex items-center gap-3">
+        <div className="shrink-0 text-ink-4">
           {mode === 'per_weight' ? <Scale size={16} /> : <Package size={16} />}
         </div>
-        <div className="flex-1 text-[13px] text-gray-900 leading-tight">
+        <div className="flex-1 text-[13px] text-ink leading-tight">
           <span className="font-medium">{tokens.lhs.value}</span>
-          {tokens.lhs.uom && <span className="text-gray-500"> {tokens.lhs.uom}</span>}
-          {tokens.lhs.ordHint && <span className="text-[11px] text-gray-400 ml-1">{tokens.lhs.ordHint}</span>}
-          <span className="text-gray-400 mx-1.5">×</span>
+          {tokens.lhs.uom && <span className="text-ink-3"> {tokens.lhs.uom}</span>}
+          {tokens.lhs.ordHint && <span className="text-[11px] text-ink-4 ml-1">{tokens.lhs.ordHint}</span>}
+          <span className="text-ink-4 mx-1.5">×</span>
           <span className="font-medium">{tokens.rhs.value}</span>
-          {tokens.rhs.uom && <span className="text-gray-500">/{tokens.rhs.uom}</span>}
-          <span className="text-gray-400 mx-1.5">=</span>
+          {tokens.rhs.uom && <span className="text-ink-3">/{tokens.rhs.uom}</span>}
+          <span className="text-ink-4 mx-1.5">=</span>
           <span className="font-medium">{tokens.result}</span>
         </div>
         <ModePill mode={mode} />
@@ -604,8 +604,8 @@ function LineItemRow({
         <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
           {linked ? (
             <>
-              <Link2 size={12} className="text-gray-400" />
-              <span className="text-gray-700">linked to <span className="font-medium text-gray-900">{linked.itemName}</span></span>
+              <Link2 size={12} className="text-ink-4" />
+              <span className="text-ink-2">linked to <span className="font-medium text-ink">{linked.itemName}</span></span>
               {v != null && Math.abs(v) >= 0.01 && (
                 <VariancePill v={v} />
               )}
@@ -614,9 +614,9 @@ function LineItemRow({
             <>
               <Unlink size={12} className="text-red" />
               {item.action === 'CREATE_NEW' ? (
-                <span className="text-gray-700">will create new inventory item</span>
+                <span className="text-ink-2">will create new inventory item</span>
               ) : item.action === 'SKIP' ? (
-                <span className="text-gray-400">skipped</span>
+                <span className="text-ink-4">skipped</span>
               ) : (
                 <span className="text-red-text font-medium">not linked yet</span>
               )}
@@ -652,7 +652,7 @@ function Pill({ tone, children }: { tone: 'warning' | 'info' | 'danger' | 'succe
 function ModePill({ mode }: { mode: PricingMode }) {
   if (mode === 'unknown') return <Pill tone="danger">unknown mode</Pill>
   if (mode === 'per_weight') return <Pill tone="info">by weight</Pill>
-  return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">by case</span>
+  return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-bg-2 text-ink-3 border border-line">by case</span>
 }
 
 function VariancePill({ v }: { v: number }) {
@@ -685,8 +685,8 @@ function RcAssigner({
       aria-label="Assign revenue center"
       className={`text-[11px] rounded-lg px-2 py-0.5 shrink-0 focus:outline-none focus:ring-1 focus:ring-gold ${
         current
-          ? 'border border-gray-200 bg-paper text-gray-700'
-          : 'border border-dashed border-gray-300 bg-paper text-gray-400'
+          ? 'border border-line bg-paper text-ink-2'
+          : 'border border-dashed border-line-2 bg-paper text-ink-4'
       }`}
     >
       <option value="">RC: assign…</option>
@@ -870,12 +870,12 @@ function ItemEditSection({
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="border-t border-dashed border-gray-200 bg-gray-50/80 px-3 py-3 space-y-3">
+    <div className="border-t border-dashed border-line bg-bg/80 px-3 py-3 space-y-3">
 
       {/* ── Linked item search ─────────────────────────────────────────────── */}
       <div ref={searchRef} className="relative">
-        <span className="block text-[10px] text-gray-500 mb-1 flex items-center gap-1">
-          {linked ? <Link2 size={10} className="text-gray-400" /> : <Unlink size={10} className="text-red" />}
+        <span className="block text-[10px] text-ink-3 mb-1 flex items-center gap-1">
+          {linked ? <Link2 size={10} className="text-ink-4" /> : <Unlink size={10} className="text-red" />}
           {linked ? 'Linked item' : 'Link to inventory item'}
         </span>
         <div className="relative flex items-center">
@@ -893,40 +893,40 @@ function ItemEditSection({
                 if (searchResults.length > 0) setShowDropdown(true)
               }
             }}
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold pr-7"
+            className="w-full border border-line rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold pr-7"
           />
           {isSearching && (
-            <Loader2 size={13} className="absolute right-2 text-gray-400 animate-spin" />
+            <Loader2 size={13} className="absolute right-2 text-ink-4 animate-spin" />
           )}
         </div>
 
         {showDropdown && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-paper border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-paper border border-line rounded-xl shadow-lg overflow-hidden">
             {searchResults.map((inv) => (
               <button
                 key={inv.id}
                 onMouseDown={(e) => { e.preventDefault(); handleSelectItem(inv) }}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-start gap-2 border-b border-gray-50 last:border-0"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-bg flex items-start gap-2 border-b border-line last:border-0"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900 truncate">{inv.itemName}</div>
-                  <div className="text-[11px] text-gray-500 truncate">
+                  <div className="font-medium text-ink truncate">{inv.itemName}</div>
+                  <div className="text-[11px] text-ink-3 truncate">
                     {inv.category} · {inv.packSize}{inv.packUOM} × {inv.qtyPerPurchaseUnit}/{inv.purchaseUnit}
                   </div>
                 </div>
               </button>
             ))}
-            <div className="flex border-t border-gray-100">
+            <div className="flex border-t border-line">
               <button
                 onMouseDown={(e) => { e.preventDefault(); handleSelectCreateNew() }}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-green-text hover:bg-green-soft font-medium"
               >
                 <Plus size={12} /> Create new item
               </button>
-              <div className="w-px bg-gray-100" />
+              <div className="w-px bg-bg-2" />
               <button
                 onMouseDown={(e) => { e.preventDefault(); handleSelectSkip() }}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-gray-500 hover:bg-gray-50 font-medium"
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] text-ink-3 hover:bg-bg font-medium"
               >
                 — Skip this line
               </button>
@@ -937,7 +937,7 @@ function ItemEditSection({
 
       {/* ── Pricing details label + mode toggle ───────────────────────────── */}
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Pricing details</span>
+        <span className="text-[10px] font-semibold text-ink-4 uppercase tracking-widest">Pricing details</span>
         <ModeToggle current={mode} onChange={switchMode} />
       </div>
 
@@ -947,7 +947,7 @@ function ItemEditSection({
           {/* Pack format */}
           <div>
             <div className="flex items-center gap-1.5 mb-1.5">
-              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Pack format</span>
+              <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">Pack format</span>
               {!hasPackFormat && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gold-soft text-gold-2 border border-[#fcd34d]/60">
                   <AlertTriangle size={9} /> not detected
@@ -956,29 +956,29 @@ function ItemEditSection({
             </div>
             <div className="grid grid-cols-3 gap-2">
               <label className="block">
-                <span className="block text-[10px] text-gray-500 mb-0.5">Pack qty</span>
+                <span className="block text-[10px] text-ink-3 mb-0.5">Pack qty</span>
                 <input type="number" step="any" min="0" value={localPackQty} placeholder="e.g. 4"
                   onChange={(e) => setLocalPackQty(e.target.value)}
                   onBlur={saveAll}
-                  className="flex-1 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="flex-1 w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </label>
               <label className="block">
-                <span className="block text-[10px] text-gray-500 mb-0.5">Pack size</span>
+                <span className="block text-[10px] text-ink-3 mb-0.5">Pack size</span>
                 <input type="number" step="any" min="0" value={localPackSize} placeholder="e.g. 4"
                   onChange={(e) => setLocalPackSize(e.target.value)}
                   onBlur={saveAll}
-                  className="flex-1 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="flex-1 w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </label>
               <label className="block">
-                <span className="block text-[10px] text-gray-500 mb-0.5">Pack UOM</span>
+                <span className="block text-[10px] text-ink-3 mb-0.5">Pack UOM</span>
                 <input type="text" value={localPackUOM} placeholder="kg, lb, L…"
                   onChange={(e) => setLocalPackUOM(e.target.value)}
                   onBlur={saveAll}
-                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </label>
             </div>
             {hasPackFormat && (
-              <div className="mt-1 text-[11px] text-gray-500 px-1">
+              <div className="mt-1 text-[11px] text-ink-3 px-1">
                 = {localPackQty || '?'} × {localPackSize || '?'}{localPackUOM} per case
               </div>
             )}
@@ -986,43 +986,43 @@ function ItemEditSection({
           {/* Qty + pricing */}
           <div className="grid grid-cols-2 gap-2.5">
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Qty ordered</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Qty ordered</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localQtyOrdered}
                   onChange={(e) => setLocalQtyOrdered(e.target.value)}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">{item.qtyOrderedUOM ?? 'cs'}</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">{item.qtyOrderedUOM ?? 'cs'}</span>
               </div>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Qty shipped</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Qty shipped</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localQty}
                   onChange={(e) => setLocalQty(e.target.value)}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">{item.rawUnit ?? 'cs'}</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">{item.rawUnit ?? 'cs'}</span>
               </div>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Unit price</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Unit price</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localUnitPrice}
                   onChange={(e) => { setLocalUnitPrice(e.target.value); setPriceDriver('unit') }}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">${'/'}{item.rawUnit ?? 'cs'}</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">${'/'}{item.rawUnit ?? 'cs'}</span>
               </div>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Line total</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Line total</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localLineTotal}
                   onChange={(e) => { setLocalLineTotal(e.target.value); setPriceDriver('total') }}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">$</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">$</span>
               </div>
             </label>
           </div>
@@ -1031,49 +1031,49 @@ function ItemEditSection({
         <div className="space-y-2.5">
           <div className="grid grid-cols-2 gap-2.5">
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Qty ordered</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Qty ordered</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localQtyOrdered}
                   onChange={(e) => setLocalQtyOrdered(e.target.value)}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">{item.qtyOrderedUOM ?? rateUOM}</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">{item.qtyOrderedUOM ?? rateUOM}</span>
               </div>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Shipped (total qty)</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Shipped (total qty)</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localTotalQty}
                   onChange={(e) => setLocalTotalQty(e.target.value)}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">{item.totalQtyUOM ?? rateUOM}</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">{item.totalQtyUOM ?? rateUOM}</span>
               </div>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Rate</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Rate</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localRate}
                   onChange={(e) => { setLocalRate(e.target.value); setPriceDriver('unit') }}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">${'/'}{rateUOM}</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">${'/'}{rateUOM}</span>
               </div>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Line total</span>
+              <span className="block text-[10px] text-ink-3 mb-0.5">Line total</span>
               <div className="flex items-center gap-1">
                 <input type="number" step="any" min="0" value={localLineTotal}
                   onChange={(e) => { setLocalLineTotal(e.target.value); setPriceDriver('total') }}
                   onBlur={saveAll}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-[11px] text-gray-500 shrink-0">$</span>
+                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                <span className="text-[11px] text-ink-3 shrink-0">$</span>
               </div>
             </label>
           </div>
-          <div className="text-[11px] text-gray-500 px-1">
+          <div className="text-[11px] text-ink-3 px-1">
             Line total = total qty × rate ={' '}
-            <span className="font-medium text-gray-700">
+            <span className="font-medium text-ink-2">
               {localLineTotal !== '' ? formatCurrency(parseFloat(localLineTotal))
                 : (localRate !== '' && localTotalQty !== '')
                   ? formatCurrency(parseFloat(localRate) * parseFloat(localTotalQty))
@@ -1111,9 +1111,9 @@ function ItemEditSection({
 
 function ModeToggle({ current, onChange }: { current: PricingMode; onChange: (m: 'per_case' | 'per_weight') => void }) {
   const cls = (active: boolean) =>
-    `px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? 'bg-blue-soft text-blue-text' : 'bg-paper text-gray-500 hover:text-gray-700'}`
+    `px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? 'bg-blue-soft text-blue-text' : 'bg-paper text-ink-3 hover:text-ink-2'}`
   return (
-    <div className="inline-flex border border-gray-200 rounded-lg overflow-hidden">
+    <div className="inline-flex border border-line rounded-lg overflow-hidden">
       <button onClick={() => onChange('per_case')}   className={cls(current === 'per_case')}>case</button>
       <button onClick={() => onChange('per_weight')} className={cls(current === 'per_weight')}>weight</button>
     </div>
@@ -1135,7 +1135,7 @@ function NumField({
   useEffect(() => { setLocal(value == null ? '' : String(Number(value))) }, [value])
   return (
     <label className="block">
-      <span className="block text-[10px] text-gray-500 mb-0.5">{label}</span>
+      <span className="block text-[10px] text-ink-3 mb-0.5">{label}</span>
       <div className="flex items-center gap-1">
         <input
           type="number"
@@ -1145,9 +1145,9 @@ function NumField({
           onChange={(e) => setLocal(e.target.value)}
           onBlur={() => { if (local !== (value == null ? '' : String(Number(value)))) onCommit(local) }}
           placeholder={placeholder}
-          className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+          className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
         />
-        {uom && <span className="text-[11px] text-gray-500 shrink-0">{uom}</span>}
+        {uom && <span className="text-[11px] text-ink-3 shrink-0">{uom}</span>}
       </div>
     </label>
   )
@@ -1165,14 +1165,14 @@ function TextField({
   useEffect(() => { setLocal(value ?? '') }, [value])
   return (
     <label className="block">
-      <span className="block text-[10px] text-gray-500 mb-0.5">{label}</span>
+      <span className="block text-[10px] text-ink-3 mb-0.5">{label}</span>
       <input
         type="text"
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         onBlur={() => { if (local !== (value ?? '')) onCommit(local) }}
         placeholder={placeholder}
-        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+        className="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
       />
     </label>
   )
@@ -1186,11 +1186,11 @@ function CostResult({ item, variance }: { item: ScanItem; variance: number | nul
   // for display so we don't have to thread it through props.
   const baseUnit = inv.baseUnit || 'each'
   return (
-    <div className="border-t border-dashed border-gray-200 pt-2.5 flex items-center justify-between gap-3 flex-wrap text-[12px]">
-      <div className="text-gray-500">
+    <div className="border-t border-dashed border-line pt-2.5 flex items-center justify-between gap-3 flex-wrap text-[12px]">
+      <div className="text-ink-3">
         inventory cost in <span className="font-mono">{baseUnit}</span>
         {prev != null && (
-          <> · last applied <span className="font-medium text-gray-700">${prev.toFixed(4)}/{baseUnit}</span></>
+          <> · last applied <span className="font-medium text-ink-2">${prev.toFixed(4)}/{baseUnit}</span></>
         )}
       </div>
       {variance != null && (
@@ -1223,11 +1223,11 @@ function DrawerFooter({
   const hasBlockerHint = blockers.needsLink > 0 || blockers.mismatch > 0 || blockers.lowConf > 0 || blockers.unknownMode > 0
 
   return (
-    <div className="sticky bottom-0 bg-paper border-t border-gray-200 px-4 py-3 pb-safe flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-      <div className="flex-1 text-[12px] text-gray-600 leading-tight">
-        <div className="font-medium text-gray-800">{totalItems} items</div>
+    <div className="sticky bottom-0 bg-paper border-t border-line px-4 py-3 pb-safe flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <div className="flex-1 text-[12px] text-ink-3 leading-tight">
+        <div className="font-medium text-ink-2">{totalItems} items</div>
         {hasBlockerHint && (
-          <div className="text-[11px] text-gray-500 mt-0.5">
+          <div className="text-[11px] text-ink-3 mt-0.5">
             {[
               blockers.unknownMode > 0 ? `${blockers.unknownMode} unknown mode` : null,
               blockers.needsLink   > 0 ? `${blockers.needsLink} needs link`     : null,
@@ -1244,7 +1244,7 @@ function DrawerFooter({
         placeholder="Your name"
         aria-label="Approver name"
         className={`border rounded-lg px-3 py-1.5 text-sm w-full sm:w-36 focus:outline-none focus:ring-2 focus:ring-gold ${
-          !approvedBy ? 'border-[#fcd34d] bg-gold-soft' : 'border-gray-200'
+          !approvedBy ? 'border-[#fcd34d] bg-gold-soft' : 'border-line'
         }`}
       />
       <div className="flex items-center gap-2">

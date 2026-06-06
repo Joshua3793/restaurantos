@@ -642,7 +642,7 @@ export default function PrepPage() {
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
-  const selCls = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
+  const selCls = 'border border-line rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
   const activeFilterCount = [filterCategory !== 'ALL', filterStation !== 'ALL'].filter(Boolean).length
 
   const STATION_EMOJI: Record<string, string> = {
@@ -766,7 +766,7 @@ export default function PrepPage() {
             title={isAdded ? "Remove from today's list" : "Add to today's list"}
             className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
               isAdded
-                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red hover:bg-red-soft hover:text-red'
                 : 'bg-ink text-paper hover:bg-ink-2'
             }`}
           >
@@ -895,7 +895,7 @@ export default function PrepPage() {
               )}
             </div>
             <button onClick={() => setShowAdd(true)}
-              className="p-2 rounded-lg bg-gold text-white active:bg-[#a88930]" title="Add item">
+              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2" title="Add item">
               <Plus size={16} />
             </button>
           </div>
@@ -906,7 +906,7 @@ export default function PrepPage() {
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
               className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
-              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="font-mono bg-gold text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="font-mono bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
@@ -1033,15 +1033,15 @@ export default function PrepPage() {
 
       {/* ── System banners ── */}
       {actionError && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-soft border border-red-soft rounded-xl text-sm text-red-text">
           <span>{actionError}</span>
-          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+          <button onClick={() => setActionError(null)} className="shrink-0 text-red hover:text-red">✕</button>
         </div>
       )}
 
       {(isOffline || pendingCount > 0) && (
         <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
-          isOffline ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gold/10 border-gold/30 text-blue-800'
+          isOffline ? 'bg-gold-soft border-gold-soft text-gold-2' : 'bg-gold/10 border-gold/30 text-blue-text'
         }`}>
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff size={14} className="shrink-0" />
@@ -1053,7 +1053,7 @@ export default function PrepPage() {
             )}
           </div>
           {pendingCount > 0 && !isOffline && !offlineSyncing && (
-            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-900">
+            <button onClick={handleOfflineSync} className="shrink-0 flex items-center gap-1 text-xs font-medium text-gold hover:text-blue-text">
               <RefreshCcw size={12} /> Sync now
             </button>
           )}
@@ -1061,14 +1061,14 @@ export default function PrepPage() {
       )}
 
       {syncResult && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-soft border border-green-soft rounded-xl text-sm text-green-text">
           <span>
             {(syncResult.created > 0 || syncResult.updated > 0)
               ? <>{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}{syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}</>
               : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
             }
           </span>
-          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green-500 hover:text-green-700">✕</button>
+          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green hover:text-green-text">✕</button>
         </div>
       )}
 
@@ -1293,7 +1293,7 @@ export default function PrepPage() {
                                     title={isAdded ? "Remove from today's list" : "Add to today's list"}
                                     className={`px-2.5 py-1 rounded-[7px] text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
                                       isAdded
-                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red hover:bg-red-soft hover:text-red'
                                         : 'bg-ink text-paper hover:bg-ink-2'
                                     }`}
                                   >
@@ -1324,7 +1324,7 @@ export default function PrepPage() {
                                   title={isAdded ? "Remove from today's list" : "Add to today's list"}
                                   className={`w-6 h-6 grid place-items-center rounded-[6px] text-[12px] font-medium transition-colors group ${
                                     isAdded
-                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red-300 hover:bg-red-50 hover:text-red-600'
+                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red hover:bg-red-soft hover:text-red'
                                       : 'bg-ink text-paper hover:bg-ink-2'
                                   }`}
                                 >

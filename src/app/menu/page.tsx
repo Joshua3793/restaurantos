@@ -522,7 +522,7 @@ function MenuPageInner() {
                 <div className="flex gap-2">
                   <button
                     onClick={handleBulkDelete}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-paper py-2.5 rounded-[10px] text-[13px] font-semibold transition-colors"
+                    className="flex-1 bg-red hover:bg-red text-paper py-2.5 rounded-[10px] text-[13px] font-semibold transition-colors"
                   >
                     Delete permanently
                   </button>

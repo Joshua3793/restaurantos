@@ -24,10 +24,10 @@ function ListEditor({
   onAdd: () => void
   addPlaceholder: string
 }) {
-  const inputCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full'
+  const inputCls = 'border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full'
   return (
     <div>
-      <h3 className="text-sm font-semibold text-gray-700 mb-2">{label}</h3>
+      <h3 className="text-sm font-semibold text-ink-2 mb-2">{label}</h3>
       <div className="space-y-1.5 mb-3">
         {items.map((item, idx) => (
           <div key={idx} className="flex items-center gap-2">
@@ -41,7 +41,7 @@ function ListEditor({
               type="button"
               onClick={() => onRemove(idx)}
               disabled={items.length <= 1}
-              className="shrink-0 p-1.5 text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="shrink-0 p-1.5 text-ink-4 hover:text-red disabled:opacity-30 disabled:cursor-not-allowed"
               aria-label="Remove"
               title="Remove"
             >
@@ -158,12 +158,12 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2rem)' }}>
-        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
+        <div className="flex items-center justify-between p-5 border-b border-line shrink-0">
           <div>
-            <h2 id="prep-settings-title" className="font-semibold text-gray-900">Prep Settings</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Categories come from Recipe Book — only stations are configurable here.</p>
+            <h2 id="prep-settings-title" className="font-semibold text-ink">Prep Settings</h2>
+            <p className="text-xs text-ink-4 mt-0.5">Categories come from Recipe Book — only stations are configurable here.</p>
           </div>
-          <button onClick={onClose} disabled={saving} aria-label="Close" className="p-2.5 flex items-center justify-center text-gray-400 hover:text-gray-600 disabled:opacity-50">
+          <button onClick={onClose} disabled={saving} aria-label="Close" className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3 disabled:opacity-50">
             <X size={18} />
           </button>
         </div>
@@ -186,16 +186,16 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
                 addPlaceholder="Add station…"
               />
 
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p className="text-sm text-red">{error}</p>}
             </div>
 
-            <div className="flex justify-end gap-2 p-5 border-t border-gray-100 shrink-0">
+            <div className="flex justify-end gap-2 p-5 border-t border-line shrink-0">
               <button type="button" onClick={onClose} disabled={saving}
-                className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                className="px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-bg disabled:opacity-50">
                 Cancel
               </button>
               <button type="button" onClick={handleSave} disabled={saving}
-                className="px-4 py-2 text-sm bg-gold text-white rounded-lg hover:bg-[#a88930] disabled:opacity-50">
+                className="px-4 py-2 text-sm bg-ink text-paper [&_svg]:text-gold rounded-lg hover:bg-ink-2 disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>

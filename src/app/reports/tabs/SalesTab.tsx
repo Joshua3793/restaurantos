@@ -60,26 +60,26 @@ export default function SalesTab({ period }: { period: number }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left border-b border-gray-100">
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 w-6">#</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500">Item</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 text-right">Sold</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 text-right">Menu Price</th>
-                  <th className="py-2 text-xs font-semibold text-gray-500 text-right">Food Cost %</th>
+                <tr className="text-left border-b border-line">
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 w-6">#</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3">Item</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Sold</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Revenue</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Menu Price</th>
+                  <th className="py-2 text-xs font-semibold text-ink-3 text-right">Food Cost %</th>
                 </tr>
               </thead>
               <tbody>
                 {topMenuItems.map((item, i) => {
                   const fc = item.foodCostPct
-                  const fcColor = fc == null ? 'text-gray-400' : fc > 35 ? 'text-red-500 font-bold' : fc > 28 ? 'text-amber-500 font-semibold' : 'text-green-600 font-semibold'
+                  const fcColor = fc == null ? 'text-ink-4' : fc > 35 ? 'text-red font-bold' : fc > 28 ? 'text-gold font-semibold' : 'text-green font-semibold'
                   return (
-                    <tr key={item.name} className="border-b border-gray-50 hover:bg-gray-50/60">
-                      <td className="py-2.5 pr-3 text-xs text-gray-400 font-medium">{i + 1}</td>
-                      <td className="py-2.5 pr-3 font-medium text-gray-800">{item.name}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-700">{item.qty.toLocaleString()}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-700">{formatCurrency(item.revenue)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-600">{item.menuPrice ? formatCurrency(item.menuPrice) : '—'}</td>
+                    <tr key={item.name} className="border-b border-line hover:bg-bg/60">
+                      <td className="py-2.5 pr-3 text-xs text-ink-4 font-medium">{i + 1}</td>
+                      <td className="py-2.5 pr-3 font-medium text-ink-2">{item.name}</td>
+                      <td className="py-2.5 pr-3 text-right text-ink-2">{item.qty.toLocaleString()}</td>
+                      <td className="py-2.5 pr-3 text-right text-ink-2">{formatCurrency(item.revenue)}</td>
+                      <td className="py-2.5 pr-3 text-right text-ink-3">{item.menuPrice ? formatCurrency(item.menuPrice) : '—'}</td>
                       <td className="py-2.5 text-right">
                         <span className={`text-sm ${fcColor}`}>{fc != null ? `${fc.toFixed(1)}%` : '—'}</span>
                       </td>
@@ -96,16 +96,16 @@ export default function SalesTab({ period }: { period: number }) {
       {foodCostAlerts.length > 0 && (
         <Card>
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle size={16} className="text-amber-500" />
+            <AlertTriangle size={16} className="text-gold" />
             <SectionHeader title="Food Cost Alerts" subtitle="Items where food cost % exceeds 35% — review pricing or recipe costs" />
           </div>
           <div className="space-y-2">
             {foodCostAlerts.map(a => (
-              <div key={a.name} className="flex items-center justify-between py-2 px-3 bg-amber-50 rounded-lg border border-amber-100">
-                <span className="text-sm font-medium text-gray-800">{a.name}</span>
+              <div key={a.name} className="flex items-center justify-between py-2 px-3 bg-gold-soft rounded-lg border border-gold-soft">
+                <span className="text-sm font-medium text-ink-2">{a.name}</span>
                 <div className="flex items-center gap-3 text-xs">
-                  <span className="text-gray-500">{a.qty} sold</span>
-                  <span className="font-bold text-red-500">{a.foodCostPct?.toFixed(1)}% food cost</span>
+                  <span className="text-ink-3">{a.qty} sold</span>
+                  <span className="font-bold text-red">{a.foodCostPct?.toFixed(1)}% food cost</span>
                 </div>
               </div>
             ))}

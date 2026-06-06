@@ -73,15 +73,15 @@ export default function InventoryTab({ period }: { period: number }) {
                     <div className="flex items-center justify-between text-xs mb-1">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full" style={{ background: CAT_COLORS[item.cat] ?? '#94a3b8' }} />
-                        <span className="font-medium text-gray-700">{item.cat}</span>
-                        <span className="text-gray-400">({item.count} items)</span>
+                        <span className="font-medium text-ink-2">{item.cat}</span>
+                        <span className="text-ink-4">({item.count} items)</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-400">{pctVal.toFixed(1)}%</span>
-                        <span className="font-semibold text-gray-700">{formatCurrency(item.value)}</span>
+                        <span className="text-ink-4">{pctVal.toFixed(1)}%</span>
+                        <span className="font-semibold text-ink-2">{formatCurrency(item.value)}</span>
                       </div>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-2 bg-bg-2 rounded-full overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${pctVal}%`, background: CAT_COLORS[item.cat] ?? '#94a3b8' }} />
                     </div>
                   </div>
@@ -99,23 +99,23 @@ export default function InventoryTab({ period }: { period: number }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left border-b border-gray-100">
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500">Item</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500">Category</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 hidden sm:table-cell">Supplier</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 text-right">Previous</th>
-                  <th className="py-2 pr-3 text-xs font-semibold text-gray-500 text-right">New</th>
-                  <th className="py-2 text-xs font-semibold text-gray-500 text-right">Change</th>
+                <tr className="text-left border-b border-line">
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3">Item</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3">Category</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 hidden sm:table-cell">Supplier</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Previous</th>
+                  <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">New</th>
+                  <th className="py-2 text-xs font-semibold text-ink-3 text-right">Change</th>
                 </tr>
               </thead>
               <tbody>
                 {topPriceChanges.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/60">
-                    <td className="py-2.5 pr-3 font-medium text-gray-800">{r.item}</td>
-                    <td className="py-2.5 pr-3 text-gray-500 text-xs">{r.category}</td>
-                    <td className="py-2.5 pr-3 text-gray-500 text-xs hidden sm:table-cell">{r.supplier}</td>
-                    <td className="py-2.5 pr-3 text-right text-gray-500 text-xs">{formatCurrency(r.previousPrice)}</td>
-                    <td className="py-2.5 pr-3 text-right text-gray-700 font-medium">{formatCurrency(r.newPrice)}</td>
+                  <tr key={i} className="border-b border-line hover:bg-bg/60">
+                    <td className="py-2.5 pr-3 font-medium text-ink-2">{r.item}</td>
+                    <td className="py-2.5 pr-3 text-ink-3 text-xs">{r.category}</td>
+                    <td className="py-2.5 pr-3 text-ink-3 text-xs hidden sm:table-cell">{r.supplier}</td>
+                    <td className="py-2.5 pr-3 text-right text-ink-3 text-xs">{formatCurrency(r.previousPrice)}</td>
+                    <td className="py-2.5 pr-3 text-right text-ink-2 font-medium">{formatCurrency(r.newPrice)}</td>
                     <td className="py-2.5 text-right">
                       <span className={`font-bold text-sm ${r.direction === 'UP' ? 'text-red' : 'text-green-text'}`}>
                         {r.direction === 'UP' ? '+' : ''}{Number(r.changePct).toFixed(1)}%
@@ -136,17 +136,17 @@ export default function InventoryTab({ period }: { period: number }) {
           {supplierVol.length > 0 ? (
             <div className="space-y-3">
               {supplierVol.map(s => (
-                <div key={s.name} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                <div key={s.name} className="flex items-center justify-between py-2 border-b border-line last:border-0">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-800 truncate">{s.name}</div>
-                    <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+                    <div className="text-sm font-medium text-ink-2 truncate">{s.name}</div>
+                    <div className="flex items-center gap-2 mt-0.5 text-xs text-ink-4">
                       <span className="text-red">↑{s.ups} up</span>
                       <span className="text-green-text">↓{s.downs} down</span>
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-3">
-                    <div className="font-bold text-gray-800">{s.changes} changes</div>
-                    <div className="text-xs text-gray-400">avg {s.avgChange.toFixed(1)}% Δ</div>
+                    <div className="font-bold text-ink-2">{s.changes} changes</div>
+                    <div className="text-xs text-ink-4">avg {s.avgChange.toFixed(1)}% Δ</div>
                   </div>
                 </div>
               ))}
@@ -159,13 +159,13 @@ export default function InventoryTab({ period }: { period: number }) {
           {topValueItems.length > 0 ? (
             <div className="space-y-2">
               {topValueItems.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
-                  <span className="text-xs text-gray-400 w-5 text-right shrink-0">{i + 1}</span>
+                <div key={item.name} className="flex items-center gap-3 py-1.5 border-b border-line last:border-0">
+                  <span className="text-xs text-ink-4 w-5 text-right shrink-0">{i + 1}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-800 truncate">{item.name}</div>
-                    <div className="text-xs text-gray-400">{item.category} · {item.supplier}</div>
+                    <div className="text-sm font-medium text-ink-2 truncate">{item.name}</div>
+                    <div className="text-xs text-ink-4">{item.category} · {item.supplier}</div>
                   </div>
-                  <span className="font-semibold text-gray-800 shrink-0">{formatCurrency(item.value)}</span>
+                  <span className="font-semibold text-ink-2 shrink-0">{formatCurrency(item.value)}</span>
                 </div>
               ))}
             </div>

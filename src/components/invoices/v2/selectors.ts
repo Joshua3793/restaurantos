@@ -11,11 +11,11 @@ import type { ScanItem, Session, PricingMode } from '../types'
 // Tailwind utility class names used by chips/borders so the row/chip components
 // stay declarative. Keep palette consistent with v1 (gold = brand).
 export const TONE = {
-  danger:  { bg: 'bg-red-50',     border: 'border-red-200',    text: 'text-red-700',    dot: 'bg-red-400'    },
-  warning: { bg: 'bg-amber-50',   border: 'border-amber-200',  text: 'text-amber-700',  dot: 'bg-amber-400'  },
-  info:    { bg: 'bg-blue-50',    border: 'border-blue-200',   text: 'text-blue-700',   dot: 'bg-blue-400'   },
-  success: { bg: 'bg-emerald-50', border: 'border-emerald-200',text: 'text-emerald-700',dot: 'bg-emerald-400'},
-  neutral: { bg: 'bg-gray-50',    border: 'border-gray-200',   text: 'text-gray-600',   dot: 'bg-gray-300'   },
+  danger:  { bg: 'bg-red-soft',     border: 'border-red-soft',    text: 'text-red-text',    dot: 'bg-red'    },
+  warning: { bg: 'bg-gold-soft',   border: 'border-gold-soft',  text: 'text-gold-2',  dot: 'bg-gold'  },
+  info:    { bg: 'bg-blue-soft',    border: 'border-blue-soft',   text: 'text-blue-text',   dot: 'bg-blue'   },
+  success: { bg: 'bg-green-soft', border: 'border-green-soft',text: 'text-green-text',dot: 'bg-green'},
+  neutral: { bg: 'bg-bg',    border: 'border-line',   text: 'text-ink-3',   dot: 'bg-line-2'   },
 } as const
 export type Tone = keyof typeof TONE
 

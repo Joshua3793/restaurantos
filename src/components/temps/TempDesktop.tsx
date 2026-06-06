@@ -51,12 +51,12 @@ export function TempDesktop(p: TempDesktopProps) {
       {/* status chrome strip */}
       <div className="bg-ink text-paper rounded-xl px-5 py-2.5 flex items-center gap-6 mb-4 -mt-1">
         <ChromeItem label="Today" value={prettyDate(p.today)} />
-        <span className="w-px h-3.5 bg-[#27272a]" />
+        <span className="w-px h-3.5 bg-ink-2" />
         <ChromeItem label="Logged" value={`${m.logged} / ${m.total}`} />
-        <span className="w-px h-3.5 bg-[#27272a]" />
+        <span className="w-px h-3.5 bg-ink-2" />
         <ChromeItem label="Out of range" value={String(m.flagged)} tone={m.flagged ? 'bad' : 'ok'} />
         <span className="flex-1" />
-        <span className="font-mono text-[10.5px] text-[#71717a]">
+        <span className="font-mono text-[10.5px] text-ink-3">
           readings auto-timestamp to the food-safety record · HACCP critical limits
         </span>
       </div>
@@ -116,7 +116,7 @@ export function TempDesktop(p: TempDesktopProps) {
 function ChromeItem({ label, value, tone }: { label: string; value: string; tone?: 'ok' | 'bad' }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="font-mono text-[10px] text-[#a1a1aa] uppercase tracking-[0.02em]">{label}</span>
+      <span className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.02em]">{label}</span>
       <span className={`font-mono text-[14px] font-semibold ${tone === 'bad' ? 'text-[#fca5a5]' : tone === 'ok' ? 'text-[#86efac]' : 'text-paper'}`}>
         {value}
       </span>
@@ -415,7 +415,7 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
             onChange={e => setTime(e.target.value)}
             className="font-mono text-[11px] text-ink-3 bg-transparent outline-none w-[82px] border-l border-line pl-[7px]"
           />
-          <button onClick={doLog} className="font-mono text-[11px] font-semibold bg-ink text-paper rounded-[7px] py-1.5 px-[11px] inline-flex items-center gap-1.5 hover:bg-[#27272a]">
+          <button onClick={doLog} className="font-mono text-[11px] font-semibold bg-ink text-paper rounded-[7px] py-1.5 px-[11px] inline-flex items-center gap-1.5 hover:bg-ink-2">
             <Plus size={11} /> Log
           </button>
         </span>
@@ -527,7 +527,7 @@ function HistoryView(p: TempDesktopProps) {
                 {rows.map(r => {
                   const safe = isSafe(r.unit, r.temp)
                   return (
-                    <div key={r.id} className="grid grid-cols-[1.4fr_0.9fr_0.8fr_0.7fr_0.7fr_0.9fr] gap-3 items-center px-[18px] py-[11px] border-b border-line last:border-0 text-[13px] hover:bg-[#fafaf9]">
+                    <div key={r.id} className="grid grid-cols-[1.4fr_0.9fr_0.8fr_0.7fr_0.7fr_0.9fr] gap-3 items-center px-[18px] py-[11px] border-b border-line last:border-0 text-[13px] hover:bg-bg">
                       <span className="font-medium tracking-[-0.005em]">{r.unit.name}</span>
                       <span className="font-mono text-[12.5px] text-ink-2">{TEMP_TYPES[r.unit.type].label}</span>
                       <span className="font-mono text-[12.5px] text-ink-2">{rangeText(r.unit)}</span>

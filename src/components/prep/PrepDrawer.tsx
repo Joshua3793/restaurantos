@@ -51,14 +51,14 @@ function Pill({ className, children }: { className: string; children: React.Reac
 function StatItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-[7px]">
-      <span className="font-mono text-[10px] uppercase tracking-[0.03em] text-zinc-400">{label}</span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.03em] text-ink-4">{label}</span>
       <span className="font-mono text-[13px] font-semibold text-white">{value}</span>
     </div>
   )
 }
 
 function Divider() {
-  return <span className="w-px h-3.5 bg-zinc-800" aria-hidden="true" />
+  return <span className="w-px h-3.5 bg-ink-2" aria-hidden="true" />
 }
 
 function SecLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
@@ -87,7 +87,7 @@ function Tile({
     <div
       className={`rounded-[11px] px-3.5 py-3 ${dark ? 'bg-ink border-ink' : 'bg-paper border-line'} border`}
     >
-      <div className={`font-mono text-[9.5px] uppercase tracking-[0.04em] ${dark ? 'text-zinc-400' : 'text-ink-3'}`}>
+      <div className={`font-mono text-[9.5px] uppercase tracking-[0.04em] ${dark ? 'text-ink-4' : 'text-ink-3'}`}>
         {label}
       </div>
       <div

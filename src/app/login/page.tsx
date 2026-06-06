@@ -47,18 +47,18 @@ function LoginPageInner() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4"
-      style={{ background: '#0a0a0a' }}>
+      style={{ background: '#09090b' }}>
 
       {/* Subtle radial glow behind card */}
       <div className="absolute inset-0 pointer-events-none"
-        style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 40%, rgba(201,168,76,0.07) 0%, transparent 70%)' }} />
+        style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 40%, rgba(217,119,6,0.07) 0%, transparent 70%)' }} />
 
       <div className="relative w-full max-w-sm">
         {/* Logo mark */}
         <div className="flex flex-col items-center mb-8">
           <Image src="/logo-icon.png" alt="Controla OS" width={56} height={56}
             className="rounded-2xl mb-4" />
-          <h1 className="text-xl font-bold tracking-wide" style={{ color: '#c9a84c' }}>
+          <h1 className="text-xl font-bold tracking-wide" style={{ color: '#d97706' }}>
             Controla OS
           </h1>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
@@ -68,19 +68,19 @@ function LoginPageInner() {
 
         {/* Card */}
         <div className="rounded-2xl p-7"
-          style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.08)' }}>
+          style={{ background: '#18181b', border: '1px solid #27272a' }}>
 
           {mode === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-4">
               {urlError === 'invalid_link' && (
                 <div className="rounded-lg px-3 py-2 text-xs"
-                  style={{ background: 'rgba(217,119,6,0.12)', border: '1px solid rgba(217,119,6,0.25)', color: '#fbbf24' }}>
+                  style={{ background: 'rgba(217,119,6,0.12)', border: '1px solid rgba(217,119,6,0.25)', color: '#fcd34d' }}>
                   This link has expired or is invalid. Please request a new invite.
                 </div>
               )}
               {urlError === 'deactivated' && (
                 <div className="rounded-lg px-3 py-2 text-xs"
-                  style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+                  style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}>
                   Your account has been deactivated. Please contact your admin.
                 </div>
               )}
@@ -114,14 +114,14 @@ function LoginPageInner() {
                   style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
                 />
               </div>
-              {error && <p className="text-xs" style={{ color: '#f87171' }}>{error}</p>}
+              {error && <p className="text-xs" style={{ color: '#fca5a5' }}>{error}</p>}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-all mt-2"
-                style={{ background: '#c9a84c', color: '#0a0a0a' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#a88930')}
-                onMouseLeave={e => (e.currentTarget.style.background = '#c9a84c')}
+                style={{ background: '#d97706', color: '#09090b' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#b45309')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#d97706')}
               >
                 {loading ? 'Signing in…' : 'Sign in'}
               </button>
@@ -155,15 +155,15 @@ function LoginPageInner() {
                   style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
                 />
               </div>
-              {error && <p className="text-xs" style={{ color: '#f87171' }}>{error}</p>}
-              {message && <p className="text-xs" style={{ color: '#4ade80' }}>{message}</p>}
+              {error && <p className="text-xs" style={{ color: '#fca5a5' }}>{error}</p>}
+              {message && <p className="text-xs" style={{ color: '#86efac' }}>{message}</p>}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-all mt-2"
-                style={{ background: '#c9a84c', color: '#0a0a0a' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#a88930')}
-                onMouseLeave={e => (e.currentTarget.style.background = '#c9a84c')}
+                style={{ background: '#d97706', color: '#09090b' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#b45309')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#d97706')}
               >
                 {loading ? 'Sending…' : 'Send reset link'}
               </button>

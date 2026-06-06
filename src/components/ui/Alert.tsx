@@ -7,9 +7,9 @@ interface AlertProps {
 }
 
 const TONE_STYLES = {
-  gold:  { wrap: 'bg-gold-soft border-amber-300',   title: 'text-gold-2',  body: 'text-amber-900' },
-  red:   { wrap: 'bg-red-50 border-red-200',         title: 'text-red-700', body: 'text-red-900' },
-  green: { wrap: 'bg-green-50 border-green-200',     title: 'text-green-700', body: 'text-green-900' },
+  gold:  { wrap: 'bg-gold-soft border-gold-soft',   title: 'text-gold-2',  body: 'text-gold-2' },
+  red:   { wrap: 'bg-red-soft border-red-soft',         title: 'text-red-text', body: 'text-red-text' },
+  green: { wrap: 'bg-green-soft border-green-soft',     title: 'text-green-text', body: 'text-green-text' },
 }
 
 export function Alert({ title, children, tone = 'gold' }: AlertProps) {

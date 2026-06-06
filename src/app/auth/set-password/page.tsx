@@ -36,27 +36,27 @@ export default function SetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm">
+    <div className="min-h-screen bg-bg flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-sm border border-line p-8 w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8">
           <div className="w-9 h-9 bg-gold rounded-xl flex items-center justify-center">
             <ChefHat size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900 leading-tight">Set your password</h1>
-            <p className="text-xs text-gray-400">Choose a password to secure your account</p>
+            <h1 className="text-lg font-bold text-ink leading-tight">Set your password</h1>
+            <p className="text-xs text-ink-4">Choose a password to secure your account</p>
           </div>
         </div>
 
         {done ? (
-          <div className="flex items-center gap-2 text-green-600 text-sm">
+          <div className="flex items-center gap-2 text-green text-sm">
             <CheckCircle size={16} />
             Password set! Redirecting\u2026
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-ink-3 uppercase tracking-wide mb-1">
                 New Password
               </label>
               <input
@@ -66,11 +66,11 @@ export default function SetPasswordPage() {
                 required
                 minLength={8}
                 autoComplete="new-password"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-ink-3 uppercase tracking-wide mb-1">
                 Confirm Password
               </label>
               <input
@@ -79,14 +79,14 @@ export default function SetPasswordPage() {
                 onChange={(e) => setConfirm(e.target.value)}
                 required
                 autoComplete="new-password"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red">{error}</p>}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gold text-white py-2 rounded-lg text-sm font-medium hover:bg-[#a88930] disabled:opacity-50 transition-colors"
+              className="w-full bg-ink text-paper [&_svg]:text-gold py-2 rounded-lg text-sm font-medium hover:bg-ink-2 disabled:opacity-50 transition-colors"
             >
               {loading ? 'Saving\u2026' : 'Set password'}
             </button>

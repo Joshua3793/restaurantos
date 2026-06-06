@@ -259,23 +259,23 @@ function buildMonthRows(sales: Sale[], rangeStart: string, rangeEnd: string): Pe
 
 function PeriodBadge({ badge, text }: { badge: PeriodRow['badge']; text: string }) {
   const cls = {
-    'weekly-import':  'bg-blue-100 text-blue-700',
-    'monthly-import': 'bg-purple-100 text-purple-700',
-    'complete':       'bg-green-100 text-green-700',
-    'partial':        'bg-amber-100 text-amber-700',
-    'not-available':  'bg-gray-100 text-gray-400',
+    'weekly-import':  'bg-blue-soft text-blue-text',
+    'monthly-import': 'bg-blue-soft text-blue-text',
+    'complete':       'bg-green-soft text-green-text',
+    'partial':        'bg-gold-soft text-gold-2',
+    'not-available':  'bg-bg-2 text-ink-4',
   }[badge]
   return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cls}`}>{text}</span>
 }
 
-function KpiCard({ label, value, sub, accent = 'text-gray-900' }: {
+function KpiCard({ label, value, sub, accent = 'text-ink' }: {
   label: string; value: string; sub?: string; accent?: string
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-      <div className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase">{label}</div>
+    <div className="bg-white rounded-xl border border-line p-4 shadow-sm">
+      <div className="text-[10px] font-semibold text-ink-4 tracking-wide uppercase">{label}</div>
       <div className={`text-2xl font-bold mt-1 ${accent}`}>{value}</div>
-      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs text-ink-4 mt-0.5">{sub}</div>}
     </div>
   )
 }
@@ -335,9 +335,9 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
-          <h2 className="text-base font-semibold text-gray-900">{initial ? 'Edit Sales Day' : 'Record Sales Day'}</h2>
-          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line shrink-0">
+          <h2 className="text-base font-semibold text-ink">{initial ? 'Edit Sales Day' : 'Record Sales Day'}</h2>
+          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
@@ -345,22 +345,22 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
             {/* Row 1: date + covers */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Date</label>
                 <input type="date" required value={date} onChange={e => setDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Covers (guests)</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Covers (guests)</label>
                 <input type="number" min="0" value={covers} onChange={e => setCovers(e.target.value)}
                   placeholder="0"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             </div>
 
             {/* Revenue center */}
             {revenueCenters.length > 0 && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Revenue Center</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Revenue Center</label>
                 <div className="flex flex-wrap gap-1.5">
                   {revenueCenters.map(rc => {
                     const active = rcId === rc.id
@@ -370,7 +370,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                         type="button"
                         onClick={() => setRcId(rc.id)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                          active ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
+                          active ? 'bg-ink text-white border-ink' : 'bg-white text-ink-2 border-line hover:border-line-2'
                         }`}
                       >
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: rcHex(rc.color) }} />
@@ -382,7 +382,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                     type="button"
                     onClick={() => setRcId(null)}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      rcId === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                      rcId === null ? 'bg-ink text-white border-ink' : 'bg-white text-ink-3 border-line hover:border-line-2'
                     }`}
                   >
                     Unassigned
@@ -394,51 +394,51 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
             {/* Row 2: revenue + food % */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Total Revenue ($)</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Total Revenue ($)</label>
                 <input type="number" required min="0" step="0.01" value={revenue} onChange={e => setRevenue(e.target.value)}
                   placeholder="0.00"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Food Sales %</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Food Sales %</label>
                 <div className="relative">
                   <input type="number" min="0" max="100" value={foodPct} onChange={e => setFoodPct(e.target.value)}
                     placeholder="70"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                    className="w-full border border-line rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-sm">%</span>
                 </div>
               </div>
             </div>
 
             {/* Notes */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Notes</label>
               <input value={notes} onChange={e => setNotes(e.target.value)}
                 placeholder="e.g. Busy Friday night, private event..."
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
             </div>
 
             {/* Menu items */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-medium text-gray-600">Menu items sold <span className="text-gray-400 font-normal">({totalSold} total portions)</span></label>
+                <label className="text-xs font-medium text-ink-3">Menu items sold <span className="text-ink-4 font-normal">({totalSold} total portions)</span></label>
               </div>
               <div className="relative mb-2">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
                 <input value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)}
                   placeholder="Search menu items..."
-                  className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full pl-8 pr-3 py-2 border border-line rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
-              <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50 max-h-64 overflow-y-auto">
+              <div className="border border-line rounded-xl overflow-hidden divide-y divide-line max-h-64 overflow-y-auto">
                 {filteredRecipes.length === 0 && (
-                  <div className="px-3 py-4 text-center text-sm text-gray-400">No menu items found</div>
+                  <div className="px-3 py-4 text-center text-sm text-ink-4">No menu items found</div>
                 )}
                 {filteredRecipes.map(r => (
-                  <div key={r.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50">
+                  <div key={r.id} className="flex items-center gap-3 px-3 py-2 hover:bg-bg">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-800 truncate">{r.name}</div>
+                      <div className="text-sm font-medium text-ink-2 truncate">{r.name}</div>
                       {r.menuPrice && (
-                        <div className="text-xs text-gray-400">{formatCurrency(Number(r.menuPrice))}</div>
+                        <div className="text-xs text-ink-4">{formatCurrency(Number(r.menuPrice))}</div>
                       )}
                     </div>
                     <input
@@ -446,7 +446,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                       value={qtys[r.id] ?? ''}
                       onChange={e => setQtys(q => ({ ...q, [r.id]: e.target.value }))}
                       placeholder="0"
-                      className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gold"
+                      className="w-20 border border-line rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gold"
                     />
                   </div>
                 ))}
@@ -455,13 +455,13 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
           </div>
 
           {/* Footer */}
-          <div className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 border-t border-gray-100 shrink-0 flex gap-3">
+          <div className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 border-t border-line shrink-0 flex gap-3">
             <button type="button" onClick={onCancel}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              className="flex-1 px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg">
               Cancel
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-white text-sm font-medium hover:bg-[#a88930] disabled:opacity-60">
+              className="flex-1 px-4 py-2.5 rounded-xl bg-ink text-paper [&_svg]:text-gold text-sm font-medium hover:bg-ink-2 disabled:opacity-60">
               {saving ? 'Saving…' : (initial ? 'Save changes' : 'Record sales')}
             </button>
           </div>
@@ -491,9 +491,9 @@ interface ParseResult {
 }
 
 function ConfidenceBadge({ c }: { c: ParsedItem['matchConfidence'] }) {
-  if (c === 'exact')  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-100 text-green-700">matched</span>
-  if (c === 'fuzzy')  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">fuzzy</span>
-  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">unmatched</span>
+  if (c === 'exact')  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-soft text-green-text">matched</span>
+  if (c === 'fuzzy')  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gold-soft text-gold-2">fuzzy</span>
+  return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-bg-2 text-ink-3">unmatched</span>
 }
 
 function ImportModal({ menuRecipes, onImport, onClose }: {
@@ -585,18 +585,18 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
       <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line shrink-0">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Import from Toast POS</h2>
-            {step === 'review' && <p className="text-xs text-gray-400 mt-0.5">Review and confirm before saving</p>}
+            <h2 className="text-base font-semibold text-ink">Import from Toast POS</h2>
+            {step === 'review' && <p className="text-xs text-ink-4 mt-0.5">Review and confirm before saving</p>}
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={18} /></button>
         </div>
 
         {/* ── Upload step ── */}
         {step === 'upload' && (
           <div className="px-5 py-5 space-y-4">
-            <div className="bg-gold/10 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
+            <div className="bg-gold/10 border border-blue-soft rounded-xl p-3 text-sm text-blue-text">
               Upload the <strong>ProductMix</strong> Excel exported from Toast POS. The system will extract food sales totals and BRUNCH item quantities automatically.
             </div>
 
@@ -604,15 +604,15 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
               onClick={() => fileRef.current?.click()}
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 transition-colors"
+              className="border-2 border-dashed border-line rounded-xl p-10 text-center cursor-pointer hover:border-blue transition-colors"
             >
               {parsing ? (
-                <div className="text-sm text-gray-500">Parsing file…</div>
+                <div className="text-sm text-ink-3">Parsing file…</div>
               ) : (
                 <>
-                  <Upload size={28} className="mx-auto text-gray-300 mb-2" />
-                  <div className="text-sm font-medium text-gray-600">{file ? file.name : 'Click or drag your ProductMix file here'}</div>
-                  <div className="text-xs text-gray-400 mt-1">Accepts .xlsx or .csv</div>
+                  <Upload size={28} className="mx-auto text-ink-4 mb-2" />
+                  <div className="text-sm font-medium text-ink-3">{file ? file.name : 'Click or drag your ProductMix file here'}</div>
+                  <div className="text-xs text-ink-4 mt-1">Accepts .xlsx or .csv</div>
                 </>
               )}
               <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
@@ -620,11 +620,11 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
             </div>
 
             {parseErr && (
-              <div className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{parseErr}</div>
+              <div className="text-sm text-red bg-red-soft border border-red-soft rounded-lg px-3 py-2">{parseErr}</div>
             )}
 
             <div className="flex gap-3 pt-1">
-              <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg">Cancel</button>
             </div>
           </div>
         )}
@@ -640,19 +640,19 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">From</label>
+                      <label className="text-xs font-medium text-ink-3 block mb-1">From</label>
                       <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">To</label>
+                      <label className="text-xs font-medium text-ink-3 block mb-1">To</label>
                       <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Period Type</label>
+                      <label className="text-xs font-medium text-ink-3 block mb-1">Period Type</label>
                       <select value={periodType} onChange={e => setPeriodType(e.target.value as 'week' | 'month' | 'custom')}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
+                        className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
                         <option value="week">Week</option>
                         <option value="month">Month</option>
                         <option value="custom">Custom</option>
@@ -661,21 +661,21 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
+                      <label className="text-xs font-medium text-ink-3 block mb-1">Total Net Sales</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                        <span className="absolute left-3 top-2 text-ink-4 text-sm">$</span>
                         <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
-                          className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                          className="w-full border border-line rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">
-                        Food Sales <span className="text-gray-400 font-normal">({foodPct}%)</span>
+                      <label className="text-xs font-medium text-ink-3 block mb-1">
+                        Food Sales <span className="text-ink-4 font-normal">({foodPct}%)</span>
                       </label>
                       <div className="relative">
-                        <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                        <span className="absolute left-3 top-2 text-ink-4 text-sm">$</span>
                         <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
-                          className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                          className="w-full border border-line rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                       </div>
                     </div>
                   </div>
@@ -684,26 +684,26 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                 /* Single-day import — existing layout */
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Date</label>
+                    <label className="text-xs font-medium text-ink-3 block mb-1">Date</label>
                     <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                      className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Total Net Sales</label>
+                    <label className="text-xs font-medium text-ink-3 block mb-1">Total Net Sales</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                      <span className="absolute left-3 top-2 text-ink-4 text-sm">$</span>
                       <input type="number" min="0" step="0.01" value={totalSales} onChange={e => setTotalSales(e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                        className="w-full border border-line rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">
-                      Food Sales <span className="text-gray-400 font-normal">({foodPct}%)</span>
+                    <label className="text-xs font-medium text-ink-3 block mb-1">
+                      Food Sales <span className="text-ink-4 font-normal">({foodPct}%)</span>
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                      <span className="absolute left-3 top-2 text-ink-4 text-sm">$</span>
                       <input type="number" min="0" step="0.01" value={foodSales} onChange={e => setFoodSales(e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                        className="w-full border border-line rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                     </div>
                   </div>
                 </div>
@@ -711,10 +711,10 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
 
               {/* Matched items */}
               <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2">
                   BRUNCH items · {parsed.items.length} from Toast · {matched.length} matched
                 </div>
-                <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+                <div className="border border-line rounded-xl overflow-hidden divide-y divide-line">
                   {parsed.items.map(item => {
                     const recipeId = overrides[item.rawName] ?? item.matchedRecipeId
                     const confidence = overrides[item.rawName] ? 'exact' : item.matchConfidence
@@ -723,7 +723,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                       <div key={item.rawName} className="flex items-center gap-3 px-3 py-2.5">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-800 truncate">{item.rawName}</span>
+                            <span className="text-sm font-medium text-ink-2 truncate">{item.rawName}</span>
                             <ConfidenceBadge c={confidence} />
                           </div>
                           {/* Recipe selector */}
@@ -736,7 +736,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                                 setQtys(q => ({ ...q, [val]: item.qtySold }))
                               }
                             }}
-                            className="mt-1 w-full border border-gray-100 rounded-lg px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-gold bg-gray-50"
+                            className="mt-1 w-full border border-line rounded-lg px-2 py-1 text-xs text-ink-3 focus:outline-none focus:ring-1 focus:ring-gold bg-bg"
                           >
                             <option value="">— not matched —</option>
                             {menuRecipes.map(r => (
@@ -745,7 +745,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                           </select>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-xs text-gray-400">×</span>
+                          <span className="text-xs text-ink-4">×</span>
                           <input
                             type="number" min="0" step="1"
                             value={recipeId ? qty : item.qtySold}
@@ -753,7 +753,7 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
                               const rid = recipeId
                               if (rid) setQtys(q => ({ ...q, [rid]: parseInt(e.target.value) || 0 }))
                             }}
-                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gold"
+                            className="w-16 border border-line rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gold"
                           />
                         </div>
                       </div>
@@ -763,19 +763,19 @@ function ImportModal({ menuRecipes, onImport, onClose }: {
               </div>
 
               {unmatched.length > 0 && (
-                <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                <div className="text-xs text-gold bg-gold-soft border border-gold-soft rounded-lg px-3 py-2">
                   {unmatched.length} item{unmatched.length > 1 ? 's' : ''} not matched to a menu recipe — they won&apos;t be recorded. Use the dropdown above to assign them.
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 border-t border-gray-100 shrink-0 flex gap-3">
-              <button onClick={() => setStep('upload')} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <div className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 border-t border-line shrink-0 flex gap-3">
+              <button onClick={() => setStep('upload')} className="px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg">
                 ← Back
               </button>
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-gold text-white text-sm font-medium hover:bg-[#a88930] disabled:opacity-60">
+                className="flex-1 px-4 py-2.5 rounded-xl bg-ink text-paper [&_svg]:text-gold text-sm font-medium hover:bg-ink-2 disabled:opacity-60">
                 {saving ? 'Saving…' :
                   periodType === 'week'   ? 'Save weekly sales' :
                   periodType === 'month'  ? 'Save monthly sales' :
@@ -896,7 +896,7 @@ export default function SalesPage() {
   const SortIcon = ({ col }: { col: SortCol }) =>
     sortCol === col
       ? (sortDir === 'asc' ? <ChevronUp size={12} className="text-gold inline ml-1" /> : <ChevronDown size={12} className="text-gold inline ml-1" />)
-      : <ArrowUpDown size={12} className="text-gray-300 inline ml-1" />
+      : <ArrowUpDown size={12} className="text-ink-4 inline ml-1" />
 
   // ── CRUD handlers ──
   const handleSave = async (data: Parameters<SaleFormProps['onSave']>[0]) => {
@@ -928,16 +928,16 @@ export default function SalesPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sales</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Daily sales records · inventory consumption tracking</p>
+          <h1 className="text-2xl font-bold text-ink">Sales</h1>
+          <p className="text-sm text-ink-3 mt-0.5">Daily sales records · inventory consumption tracking</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            className="flex items-center gap-2 border border-line bg-white text-ink-2 px-3 py-2 rounded-lg text-sm hover:bg-bg transition-colors">
             <Upload size={15} /> Import
           </button>
           <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-gold text-white px-3 py-2 rounded-lg text-sm hover:bg-[#a88930] transition-colors">
+            className="flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-3 py-2 rounded-lg text-sm hover:bg-ink-2 transition-colors">
             <Plus size={15} /> Add Sales Day
           </button>
         </div>
@@ -948,7 +948,7 @@ export default function SalesPage() {
         {(['week', 'month', 'lastMonth', 'custom'] as RangeMode[]).map(mode => (
           <button key={mode} onClick={() => setRangeMode(mode)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              rangeMode === mode ? 'bg-gold text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
+              rangeMode === mode ? 'bg-ink text-paper [&_svg]:text-gold' : 'bg-white border border-line text-ink-3 hover:border-line-2'
             }`}>
             {{ week: 'This Week', month: 'This Month', lastMonth: 'Last Month', custom: 'Custom' }[mode]}
           </button>
@@ -956,28 +956,28 @@ export default function SalesPage() {
         {rangeMode === 'custom' && (
           <div className="flex items-center gap-2 ml-1">
             <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
-              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-            <span className="text-gray-400 text-sm">to</span>
+              className="border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+            <span className="text-ink-4 text-sm">to</span>
             <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
-              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              className="border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
           </div>
         )}
       </div>
 
       {/* Onboarding card — shown when no sales have ever been recorded */}
       {!loading && sales.length === 0 && rangeMode === 'week' && (
-        <div className="bg-gold/10 border border-blue-100 rounded-xl p-5 flex gap-4 items-start">
+        <div className="bg-gold/10 border border-blue-soft rounded-xl p-5 flex gap-4 items-start">
           <div className="w-10 h-10 rounded-xl bg-gold/15 flex items-center justify-center shrink-0">
             <BarChart2 size={20} className="text-gold" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-blue-900 text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
+            <h3 className="font-semibold text-blue-text text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
             <p className="text-xs text-gold leading-relaxed mb-3">
               Add each service day — total revenue, covers, and which menu items sold. This powers the food cost % calculation in your dashboard and analytics.
               You can also <button onClick={() => setShowImport(true)} className="underline font-medium">import from Toast POS</button> if you have a ProductMix export.
             </p>
             <button onClick={() => setShowAdd(true)}
-              className="inline-flex items-center gap-2 bg-gold text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a88930] transition-colors">
+              className="inline-flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-4 py-2 rounded-lg text-sm font-medium hover:bg-ink-2 transition-colors">
               <Plus size={14} /> Add First Sales Day
             </button>
           </div>
@@ -986,20 +986,20 @@ export default function SalesPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KpiCard label="Total Revenue" value={formatCurrency(kpis.totalRevenue)} sub={`${kpis.days} days`} accent="text-green-600" />
+        <KpiCard label="Total Revenue" value={formatCurrency(kpis.totalRevenue)} sub={`${kpis.days} days`} accent="text-green" />
         <KpiCard label="Food Sales" value={formatCurrency(kpis.totalFoodSales)} sub="estimated" accent="text-gold" />
-        <KpiCard label="Total Covers" value={kpis.totalCovers.toLocaleString()} sub="guests" accent="text-gray-900" />
+        <KpiCard label="Total Covers" value={kpis.totalCovers.toLocaleString()} sub="guests" accent="text-ink" />
         <KpiCard label="Avg per Cover" value={kpis.avgPerCover > 0 ? formatCurrency(kpis.avgPerCover) : '—'} />
         <KpiCard label="Avg Daily" value={kpis.avgDaily > 0 ? formatCurrency(kpis.avgDaily) : '—'} />
-        <KpiCard label="Portions Sold" value={kpis.totalPortions.toLocaleString()} sub="menu items" accent="text-purple-600" />
+        <KpiCard label="Portions Sold" value={kpis.totalPortions.toLocaleString()} sub="menu items" accent="text-blue" />
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-100">
+      <div className="flex gap-1 border-b border-line">
         {([['list', 'Sales Log'], ['analytics', 'Top Items']] as const).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab ? 'border-gold text-gold' : 'border-transparent text-gray-500 hover:text-gray-700'
+              activeTab === tab ? 'border-gold text-gold' : 'border-transparent text-ink-3 hover:text-ink-2'
             }`}>
             {label}
           </button>
@@ -1011,12 +1011,12 @@ export default function SalesPage() {
         <>
           {/* Granularity toggle + search */}
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <div className="flex items-center border border-line rounded-lg overflow-hidden">
               {(['day', 'week', 'month'] as Granularity[]).map(g => (
                 <button key={g}
                   onClick={() => { setGranularity(g); setSelectedSale(null); setSelectedPeriodKey(null) }}
                   className={`px-3 py-1.5 text-xs font-medium transition-colors capitalize ${
-                    granularity === g ? 'bg-gold text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                    granularity === g ? 'bg-ink text-paper [&_svg]:text-gold' : 'bg-white text-ink-3 hover:bg-bg'
                   }`}>
                   {g}
                 </button>
@@ -1024,10 +1024,10 @@ export default function SalesPage() {
             </div>
             {granularity === 'day' && (
               <div className="relative max-w-xs">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
                 <input value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Search days…"
-                  className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  className="w-full pl-8 pr-3 py-2 border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
               </div>
             )}
           </div>
@@ -1040,35 +1040,35 @@ export default function SalesPage() {
 
               {/* Day mode table */}
               {granularity === 'day' && (
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-xl border border-line shadow-sm overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50 border-b border-gray-100">
+                    <thead className="bg-bg border-b border-line">
                       <tr>
-                        <th className="px-4 py-3 text-left font-medium text-gray-500 cursor-pointer" onClick={() => toggleSort('date')}>
+                        <th className="px-4 py-3 text-left font-medium text-ink-3 cursor-pointer" onClick={() => toggleSort('date')}>
                           Date <SortIcon col="date" />
                         </th>
-                        <th className="px-3 py-3 text-right font-medium text-gray-500 cursor-pointer" onClick={() => toggleSort('revenue')}>
+                        <th className="px-3 py-3 text-right font-medium text-ink-3 cursor-pointer" onClick={() => toggleSort('revenue')}>
                           Revenue <SortIcon col="revenue" />
                         </th>
-                        <th className="px-3 py-3 text-right font-medium text-gray-500 hidden sm:table-cell cursor-pointer" onClick={() => toggleSort('covers')}>
+                        <th className="px-3 py-3 text-right font-medium text-ink-3 hidden sm:table-cell cursor-pointer" onClick={() => toggleSort('covers')}>
                           Covers <SortIcon col="covers" />
                         </th>
-                        <th className="px-3 py-3 text-right font-medium text-gray-500 hidden md:table-cell cursor-pointer" onClick={() => toggleSort('items')}>
+                        <th className="px-3 py-3 text-right font-medium text-ink-3 hidden md:table-cell cursor-pointer" onClick={() => toggleSort('items')}>
                           Portions <SortIcon col="items" />
                         </th>
                         <th className="px-3 py-3 w-16" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody className="divide-y divide-line">
                       {loading && (
-                        <tr><td colSpan={5} className="text-center py-12 text-gray-400">Loading…</td></tr>
+                        <tr><td colSpan={5} className="text-center py-12 text-ink-4">Loading…</td></tr>
                       )}
                       {!loading && displayed.length === 0 && (
                         <tr>
                           <td colSpan={5} className="text-center py-12">
-                            <div className="text-gray-400 mb-3">No sales recorded for this period</div>
+                            <div className="text-ink-4 mb-3">No sales recorded for this period</div>
                             <button onClick={() => setShowAdd(true)}
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-gold text-white rounded-lg text-sm hover:bg-[#a88930]">
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-ink text-paper [&_svg]:text-gold rounded-lg text-sm hover:bg-ink-2">
                               <Plus size={14} /> Add Sales Day
                             </button>
                           </td>
@@ -1081,35 +1081,35 @@ export default function SalesPage() {
                         return (
                           <tr key={sale.id}
                             onClick={() => setSelectedSale(isSelected ? null : sale)}
-                            className={`cursor-pointer transition-colors ${isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                            className={`cursor-pointer transition-colors ${isSelected ? 'bg-gold-soft' : 'hover:bg-bg'}`}>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-gray-800">{fmtDate(sale.date)}</span>
+                                <span className="font-medium text-ink-2">{fmtDate(sale.date)}</span>
                                 {sale.revenueCenter && (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-bg-2 text-ink-3">
                                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
                                     {sale.revenueCenter.name}
                                   </span>
                                 )}
                               </div>
-                              <div className="text-xs text-gray-400">{fmtDay(sale.date)}{sale.notes ? ` · ${sale.notes}` : ''}</div>
+                              <div className="text-xs text-ink-4">{fmtDay(sale.date)}{sale.notes ? ` · ${sale.notes}` : ''}</div>
                             </td>
                             <td className="px-3 py-3 text-right">
-                              <div className="font-semibold text-gray-900">{formatCurrency(rev)}</div>
-                              <div className="text-xs text-gray-400">{Math.round(Number(sale.foodSalesPct) * 100)}% food</div>
+                              <div className="font-semibold text-ink">{formatCurrency(rev)}</div>
+                              <div className="text-xs text-ink-4">{Math.round(Number(sale.foodSalesPct) * 100)}% food</div>
                             </td>
                             <td className="px-3 py-3 text-right hidden sm:table-cell">
-                              <div className="font-medium text-gray-700">{sale.covers ?? '—'}</div>
+                              <div className="font-medium text-ink-2">{sale.covers ?? '—'}</div>
                             </td>
                             <td className="px-3 py-3 text-right hidden md:table-cell">
-                              <div className="font-medium text-gray-700">{portions > 0 ? portions : '—'}</div>
+                              <div className="font-medium text-ink-2">{portions > 0 ? portions : '—'}</div>
                             </td>
                             <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center gap-1 justify-end">
-                                <button onClick={() => setEditSale(sale)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gold">
+                                <button onClick={() => setEditSale(sale)} className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4 hover:text-gold">
                                   <Pencil size={13} />
                                 </button>
-                                <button onClick={() => setDeleteId(sale.id)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500">
+                                <button onClick={() => setDeleteId(sale.id)} className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4 hover:text-red">
                                   <Trash2 size={13} />
                                 </button>
                               </div>
@@ -1124,32 +1124,32 @@ export default function SalesPage() {
 
               {/* Week / Month mode list */}
               {granularity !== 'day' && (
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                  {loading && <div className="py-12 text-center text-gray-400">Loading…</div>}
+                <div className="bg-white rounded-xl border border-line shadow-sm overflow-hidden">
+                  {loading && <div className="py-12 text-center text-ink-4">Loading…</div>}
                   {!loading && periodRows.length === 0 && (
-                    <div className="py-12 text-center text-gray-400">No sales data for this period</div>
+                    <div className="py-12 text-center text-ink-4">No sales data for this period</div>
                   )}
                   {periodRows.map(period => {
                     const isSelected = selectedPeriodKey === period.key
                     return (
                       <div key={period.key}
                         onClick={() => setSelectedPeriodKey(isSelected ? null : period.key)}
-                        className={`flex items-center gap-3 px-4 py-3.5 border-b border-gray-50 last:border-0 cursor-pointer transition-colors ${isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                        className={`flex items-center gap-3 px-4 py-3.5 border-b border-line last:border-0 cursor-pointer transition-colors ${isSelected ? 'bg-gold-soft' : 'hover:bg-bg'}`}>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-sm font-medium text-gray-800">{period.label}</span>
+                            <span className="text-sm font-medium text-ink-2">{period.label}</span>
                             <PeriodBadge badge={period.badge} text={period.badgeText} />
                           </div>
                           {period.totalRevenue > 0 && (
-                            <div className="text-xs text-gray-400">
+                            <div className="text-xs text-ink-4">
                               {formatCurrency(period.totalRevenue)} · {Math.round(period.foodSalesPct * 100)}% food
                             </div>
                           )}
                         </div>
                         {period.covers != null && period.covers > 0 && (
                           <div className="text-right shrink-0">
-                            <div className="text-sm font-semibold text-gray-700">{period.covers}</div>
-                            <div className="text-[10px] text-gray-400">covers</div>
+                            <div className="text-sm font-semibold text-ink-2">{period.covers}</div>
+                            <div className="text-[10px] text-ink-4">covers</div>
                           </div>
                         )}
                       </div>
@@ -1171,67 +1171,67 @@ export default function SalesPage() {
                   const totalSold   = sale.lineItems.reduce((s, li) => s + li.qtySold, 0)
                   const avgPerCover = sale.covers && sale.covers > 0 ? revenue / sale.covers : null
                   return (
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-                      <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-gray-100">
+                    <div className="bg-white rounded-xl border border-line shadow-sm">
+                      <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-line">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900">{fmtDate(sale.date)}</span>
+                            <span className="text-sm font-semibold text-ink">{fmtDate(sale.date)}</span>
                             {sale.revenueCenter && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-bg-2 text-ink-2">
                                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
                                 {sale.revenueCenter.name}
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-gray-400">{fmtDay(sale.date)}</div>
+                          <div className="text-xs text-ink-4">{fmtDay(sale.date)}</div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => { setEditSale(sale); setSelectedSale(null) }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
+                            className="flex items-center gap-1 px-2.5 py-1.5 border border-line rounded-lg text-xs text-ink-3 hover:bg-bg">
                             <Pencil size={11} /> Edit
                           </button>
                           <button onClick={() => setSelectedSale(null)}
-                            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+                            className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={16} /></button>
                         </div>
                       </div>
                       <div className="px-4 py-4 space-y-4">
                         <div className="grid grid-cols-3 gap-3">
-                          <div className="bg-gray-50 rounded-xl p-3 text-center">
-                            <div className="text-lg font-bold text-gray-900">{formatCurrency(revenue)}</div>
-                            <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Revenue</div>
+                          <div className="bg-bg rounded-xl p-3 text-center">
+                            <div className="text-lg font-bold text-ink">{formatCurrency(revenue)}</div>
+                            <div className="text-[10px] text-ink-3 mt-0.5 uppercase tracking-wide">Revenue</div>
                           </div>
-                          <div className="bg-gray-50 rounded-xl p-3 text-center">
-                            <div className="text-lg font-bold text-gray-900">{sale.covers ?? '—'}</div>
-                            <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Covers</div>
+                          <div className="bg-bg rounded-xl p-3 text-center">
+                            <div className="text-lg font-bold text-ink">{sale.covers ?? '—'}</div>
+                            <div className="text-[10px] text-ink-3 mt-0.5 uppercase tracking-wide">Covers</div>
                           </div>
-                          <div className="bg-gray-50 rounded-xl p-3 text-center">
-                            <div className="text-lg font-bold text-gray-900">{avgPerCover ? formatCurrency(avgPerCover) : '—'}</div>
-                            <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Avg/Cover</div>
+                          <div className="bg-bg rounded-xl p-3 text-center">
+                            <div className="text-lg font-bold text-ink">{avgPerCover ? formatCurrency(avgPerCover) : '—'}</div>
+                            <div className="text-[10px] text-ink-3 mt-0.5 uppercase tracking-wide">Avg/Cover</div>
                           </div>
                         </div>
-                        <div className="text-xs text-gray-500">
-                          Food sales: <span className="font-medium text-gray-700">{formatCurrency(foodSalesAmt)}</span>
+                        <div className="text-xs text-ink-3">
+                          Food sales: <span className="font-medium text-ink-2">{formatCurrency(foodSalesAmt)}</span>
                           <span className="mx-1">·</span>{Math.round(Number(sale.foodSalesPct) * 100)}%
                           <span className="mx-1">·</span>{totalSold} portions
                         </div>
                         {sale.notes && (
-                          <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-sm text-amber-800">{sale.notes}</div>
+                          <div className="bg-gold-soft border border-gold-soft rounded-lg px-3 py-2 text-sm text-gold-2">{sale.notes}</div>
                         )}
                         {sale.lineItems.length > 0 ? (
                           <div>
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Items sold</div>
-                            <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+                            <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2">Items sold</div>
+                            <div className="divide-y divide-line border border-line rounded-xl overflow-hidden max-h-80 overflow-y-auto">
                               {sale.lineItems.map(li => {
                                 const lineRevenue = li.recipe.menuPrice ? Number(li.recipe.menuPrice) * li.qtySold : null
                                 return (
                                   <div key={li.id} className="flex items-center gap-3 px-3 py-2.5">
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-medium text-gray-800 truncate">{li.recipe.name}</div>
-                                      {li.recipe.category && <div className="text-xs text-gray-400">{li.recipe.category.name}</div>}
+                                      <div className="text-sm font-medium text-ink-2 truncate">{li.recipe.name}</div>
+                                      {li.recipe.category && <div className="text-xs text-ink-4">{li.recipe.category.name}</div>}
                                     </div>
                                     <div className="text-right shrink-0">
-                                      <div className="text-sm font-semibold text-gray-800">×{li.qtySold}</div>
-                                      {lineRevenue && <div className="text-xs text-gray-400">{formatCurrency(lineRevenue)}</div>}
+                                      <div className="text-sm font-semibold text-ink-2">×{li.qtySold}</div>
+                                      {lineRevenue && <div className="text-xs text-ink-4">{formatCurrency(lineRevenue)}</div>}
                                     </div>
                                   </div>
                                 )
@@ -1239,7 +1239,7 @@ export default function SalesPage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="text-center py-4 text-sm text-gray-400">No menu items recorded</div>
+                          <div className="text-center py-4 text-sm text-ink-4">No menu items recorded</div>
                         )}
                       </div>
                     </div>
@@ -1252,46 +1252,46 @@ export default function SalesPage() {
                   if (!period) return null
                   const foodSalesAmt = period.totalRevenue * period.foodSalesPct
                   return (
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-                      <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-gray-100">
+                    <div className="bg-white rounded-xl border border-line shadow-sm">
+                      <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-line">
                         <div>
-                          <div className="text-sm font-semibold text-gray-900">{period.label}</div>
+                          <div className="text-sm font-semibold text-ink">{period.label}</div>
                           <div className="mt-0.5">
                             <PeriodBadge badge={period.badge} text={period.badgeText} />
                           </div>
                         </div>
                         <button onClick={() => setSelectedPeriodKey(null)}
-                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+                          className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={16} /></button>
                       </div>
                       <div className="px-4 py-4 space-y-4">
                         {period.totalRevenue > 0 && (
                           <div className="grid grid-cols-3 gap-3">
-                            <div className="bg-gray-50 rounded-xl p-3 text-center">
-                              <div className="text-lg font-bold text-gray-900">{formatCurrency(period.totalRevenue)}</div>
-                              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Revenue</div>
+                            <div className="bg-bg rounded-xl p-3 text-center">
+                              <div className="text-lg font-bold text-ink">{formatCurrency(period.totalRevenue)}</div>
+                              <div className="text-[10px] text-ink-3 mt-0.5 uppercase tracking-wide">Revenue</div>
                             </div>
-                            <div className="bg-gray-50 rounded-xl p-3 text-center">
-                              <div className="text-lg font-bold text-gray-900">{formatCurrency(foodSalesAmt)}</div>
-                              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Food Sales</div>
+                            <div className="bg-bg rounded-xl p-3 text-center">
+                              <div className="text-lg font-bold text-ink">{formatCurrency(foodSalesAmt)}</div>
+                              <div className="text-[10px] text-ink-3 mt-0.5 uppercase tracking-wide">Food Sales</div>
                             </div>
-                            <div className="bg-gray-50 rounded-xl p-3 text-center">
-                              <div className="text-lg font-bold text-gray-900">{period.covers ?? '—'}</div>
-                              <div className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">Covers</div>
+                            <div className="bg-bg rounded-xl p-3 text-center">
+                              <div className="text-lg font-bold text-ink">{period.covers ?? '—'}</div>
+                              <div className="text-[10px] text-ink-3 mt-0.5 uppercase tracking-wide">Covers</div>
                             </div>
                           </div>
                         )}
                         {period.badge === 'not-available' && (
-                          <div className="text-center py-4 text-sm text-gray-400">No sales data for this period</div>
+                          <div className="text-center py-4 text-sm text-ink-4">No sales data for this period</div>
                         )}
                         {(period.badge === 'weekly-import' || period.badge === 'monthly-import') && (
-                          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700">
+                          <div className="bg-blue-soft border border-blue-soft rounded-lg px-3 py-2 text-xs text-blue-text">
                             Imported as {period.badge === 'weekly-import' ? 'Weekly' : 'Monthly'} — no per-day breakdown available.
                           </div>
                         )}
                         {period.badge !== 'weekly-import' && period.badge !== 'monthly-import' && period.dailySales.length > 0 && (
                           <div>
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Day breakdown</div>
-                            <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
+                            <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2">Day breakdown</div>
+                            <div className="divide-y divide-line border border-line rounded-xl overflow-hidden">
                               {(() => {
                                 const days: string[] = []
                                 const cur = new Date(period.startDate)
@@ -1301,10 +1301,10 @@ export default function SalesPage() {
                                   const daySale = period.dailySales.find(s => s.date.slice(0, 10) === day)
                                   return (
                                     <div key={day} className="flex items-center justify-between px-3 py-2">
-                                      <span className="text-sm text-gray-700">{fmtDate(day)}</span>
+                                      <span className="text-sm text-ink-2">{fmtDate(day)}</span>
                                       {daySale
-                                        ? <span className="text-sm font-medium text-gray-900">{formatCurrency(Number(daySale.totalRevenue))}</span>
-                                        : <span className="text-sm text-gray-300">—</span>
+                                        ? <span className="text-sm font-medium text-ink">{formatCurrency(Number(daySale.totalRevenue))}</span>
+                                        : <span className="text-sm text-ink-4">—</span>
                                       }
                                     </div>
                                   )
@@ -1328,32 +1328,32 @@ export default function SalesPage() {
       {activeTab === 'analytics' && (
         <div className="space-y-4">
           {topItems.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 p-12 text-center text-gray-400">
+            <div className="bg-white rounded-xl border border-line p-12 text-center text-ink-4">
               No sales data for this period — add sales days with menu item quantities to see analytics.
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-                <TrendingUp size={15} className="text-gray-400" />
-                <span className="text-sm font-semibold text-gray-700">Top selling items</span>
-                <span className="text-xs text-gray-400 ml-auto">{startDate} — {endDate}</span>
+            <div className="bg-white rounded-xl border border-line shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-line flex items-center gap-2">
+                <TrendingUp size={15} className="text-ink-4" />
+                <span className="text-sm font-semibold text-ink-2">Top selling items</span>
+                <span className="text-xs text-ink-4 ml-auto">{startDate} — {endDate}</span>
               </div>
-              <div className="divide-y divide-gray-50">
+              <div className="divide-y divide-line">
                 {topItems.map((item, i) => {
                   const maxQty = topItems[0]?.qty ?? 1
                   const pct = (item.qty / maxQty) * 100
                   return (
                     <div key={item.name} className="px-4 py-3 flex items-center gap-3">
-                      <div className="w-6 text-xs font-bold text-gray-400 shrink-0">{i + 1}</div>
+                      <div className="w-6 text-xs font-bold text-ink-4 shrink-0">{i + 1}</div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-800 truncate">{item.name}</div>
-                        <div className="h-1.5 bg-gray-100 rounded-full mt-1.5 overflow-hidden">
+                        <div className="text-sm font-medium text-ink-2 truncate">{item.name}</div>
+                        <div className="h-1.5 bg-bg-2 rounded-full mt-1.5 overflow-hidden">
                           <div className="h-full bg-gold/100 rounded-full transition-all" style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-sm font-semibold text-gray-900">{item.qty.toLocaleString()} sold</div>
-                        {item.revenue > 0 && <div className="text-xs text-gray-400">{formatCurrency(item.revenue)}</div>}
+                        <div className="text-sm font-semibold text-ink">{item.qty.toLocaleString()} sold</div>
+                        {item.revenue > 0 && <div className="text-xs text-ink-4">{formatCurrency(item.revenue)}</div>}
                       </div>
                     </div>
                   )
@@ -1384,21 +1384,21 @@ export default function SalesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                <Trash2 size={18} className="text-red-600" />
+              <div className="w-10 h-10 rounded-full bg-red-soft flex items-center justify-center shrink-0">
+                <Trash2 size={18} className="text-red" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">Delete sales entry?</h3>
-                <p className="text-xs text-gray-500 mt-0.5">This cannot be undone.</p>
+                <h3 className="font-semibold text-ink">Delete sales entry?</h3>
+                <p className="text-xs text-ink-3 mt-0.5">This cannot be undone.</p>
               </div>
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setDeleteId(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                className="flex-1 px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg">
                 Cancel
               </button>
               <button onClick={() => handleDelete(deleteId)}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700">
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red text-white text-sm font-medium hover:bg-red">
                 Delete
               </button>
             </div>

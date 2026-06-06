@@ -49,10 +49,10 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
   const fcClass = fcPct === null
     ? ''
     : fcPct < (data?.targetPct ?? 27)
-      ? 'text-green-400'
+      ? 'text-[#86efac]'
       : fcPct < (data?.targetPct ?? 27) + 2
-        ? 'text-amber-300'
-        : 'text-red-300'
+        ? 'text-[#fcd34d]'
+        : 'text-[#fca5a5]'
 
   const v7d = data?.variance7d ?? null
 
@@ -76,7 +76,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
 
       {onSpine && (
         <>
-          <div className="hidden md:block w-px h-[14px] bg-zinc-800" />
+          <div className="hidden md:block w-px h-[14px] bg-ink-2" />
           <CCItem
             label="Food cost · live"
             value={loading ? '…' : fmtPct(fcPct)}
@@ -91,7 +91,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
           <CCItem
             label="7d variance"
             value={loading ? '…' : fmtMoneySigned(v7d)}
-            valueClass={v7d !== null && v7d > 0 ? 'text-red-300' : v7d !== null && v7d < 0 ? 'text-green-400' : ''}
+            valueClass={v7d !== null && v7d > 0 ? 'text-[#fca5a5]' : v7d !== null && v7d < 0 ? 'text-[#86efac]' : ''}
           />
           <CCDivider />
           <CCItem
@@ -104,7 +104,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
       <div className="hidden md:block flex-1" />
 
       {onSpine && (
-        <span className="hidden md:inline-block font-mono text-[10.5px] text-zinc-500">
+        <span className="hidden md:inline-block font-mono text-[10.5px] text-ink-3 min-w-0 max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap">
           computed from{' '}
           <button
             onClick={() => setAuditOpen(true)}
@@ -119,7 +119,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
         </span>
       )}
       {/* Alerts bell — detached from the collapsible nav, pinned in the top bar (desktop) */}
-      <div className="hidden md:block shrink-0 [&>div>button]:text-zinc-400 [&>div>button]:p-1.5 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/10">
+      <div className="hidden md:block shrink-0 [&>div>button]:text-ink-4 [&>div>button]:p-1.5 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/10">
         <AlertsBell />
       </div>
       <SpineAuditDrawer open={auditOpen} onClose={() => setAuditOpen(false)} />
@@ -130,7 +130,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
 function CCItem({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
   return (
     <div className="flex items-baseline gap-2 shrink-0">
-      <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-[0.02em] whitespace-nowrap">{label}</span>
+      <span className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.02em] whitespace-nowrap">{label}</span>
       <span className={`font-mono text-[14px] font-semibold tracking-[-0.01em] ${valueClass || 'text-paper'}`}>
         {value}
       </span>
@@ -139,7 +139,7 @@ function CCItem({ label, value, valueClass = '' }: { label: string; value: strin
 }
 
 function CCDivider() {
-  return <div className="w-px h-[14px] bg-zinc-800" />
+  return <div className="w-px h-[14px] bg-ink-2" />
 }
 
 // ── Formatters ──────────────────────────────────────────────────────────────

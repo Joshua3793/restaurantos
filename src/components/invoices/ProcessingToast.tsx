@@ -25,21 +25,21 @@ export function ProcessingToast({ supplierName, invoiceNumber, onReview, onDismi
   const ctaLabel = actionLabel ?? 'Review'
 
   return (
-    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-8 z-[70] w-[calc(100vw-32px)] sm:w-80 bg-white border border-gray-200 rounded-2xl shadow-xl flex items-start gap-3 p-4 toast-enter">
-      <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-        <CheckCircle2 size={16} className="text-green-600" />
+    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-8 z-[70] w-[calc(100vw-32px)] sm:w-80 bg-white border border-line rounded-2xl shadow-xl flex items-start gap-3 p-4 toast-enter">
+      <div className="w-8 h-8 rounded-full bg-green-soft flex items-center justify-center shrink-0">
+        <CheckCircle2 size={16} className="text-green" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-gray-900 truncate">{name}</p>
-        <p className="text-xs text-gray-500 mt-0.5">{statusLabel}</p>
+        <p className="text-sm font-semibold text-ink truncate">{name}</p>
+        <p className="text-xs text-ink-3 mt-0.5">{statusLabel}</p>
         <button
           onClick={onReview}
-          className="mt-2 text-xs font-semibold text-gold hover:text-blue-800"
+          className="mt-2 text-xs font-semibold text-gold hover:text-blue-text"
         >
           {ctaLabel} →
         </button>
       </div>
-      <button onClick={onDismiss} className="text-gray-300 hover:text-gray-500 shrink-0">
+      <button onClick={onDismiss} className="text-ink-4 hover:text-ink-3 shrink-0">
         <X size={14} />
       </button>
     </div>

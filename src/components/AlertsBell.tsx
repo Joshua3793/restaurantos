@@ -79,31 +79,31 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        className="relative p-2 rounded-lg text-ink-4 hover:text-ink-3 hover:bg-bg-2 transition-colors"
       >
         <Bell size={18} />
         {badgeCount > 0 && (
-          <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+          <span className="absolute top-1 right-1 w-4 h-4 bg-red text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
             {badgeCount > 9 ? '9+' : badgeCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className={`absolute ${dropdownPos} top-full mt-2 w-[min(320px,calc(100vw-16px))] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden`}>
+        <div className={`absolute ${dropdownPos} top-full mt-2 w-[min(320px,calc(100vw-16px))] bg-white rounded-2xl shadow-xl border border-line z-50 overflow-hidden`}>
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
-            <span className="font-semibold text-gray-900 text-sm">Notifications</span>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+            <span className="font-semibold text-ink text-sm">Notifications</span>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { acknowledgeAll(); dismissAll() }}
                 disabled={badgeCount === 0}
-                className={`text-xs flex items-center gap-1 ${badgeCount > 0 ? 'text-gold hover:underline' : 'text-gray-300 cursor-default'}`}
+                className={`text-xs flex items-center gap-1 ${badgeCount > 0 ? 'text-gold hover:underline' : 'text-ink-4 cursor-default'}`}
               >
                 <Check size={10} /> Clear all
               </button>
               <button onClick={() => setOpen(false)}>
-                <X size={14} className="text-gray-400" />
+                <X size={14} className="text-ink-4" />
               </button>
             </div>
           </div>
@@ -111,26 +111,26 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           {/* Content */}
           <div className="max-h-80 overflow-y-auto">
             {notifications.length === 0 && priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-sm">
+              <div className="text-center py-8 text-ink-4 text-sm">
                 No notifications
               </div>
             ) : (
               <>
                 {/* ── Soft notifications (invoice ready / applied) ──────────── */}
                 {notifications.map(n => (
-                  <div key={n.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
+                  <div key={n.id} className="px-4 py-3 border-b border-line hover:bg-bg">
                     <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_applied' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                      <div className={`mt-0.5 p-1 rounded-full ${n.type === 'invoice_applied' ? 'bg-green-soft' : 'bg-blue-soft'}`}>
                         {n.type === 'invoice_applied'
-                          ? <CheckCircle2 size={12} className="text-green-500" />
-                          : <FileText size={12} className="text-blue-500" />
+                          ? <CheckCircle2 size={12} className="text-green" />
+                          : <FileText size={12} className="text-blue" />
                         }
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800">
+                        <p className="text-sm font-medium text-ink-2">
                           {n.type === 'invoice_applied' ? 'Invoice applied' : 'Invoice ready to review'}
                         </p>
-                        <p className="text-xs text-gray-500 truncate">
+                        <p className="text-xs text-ink-3 truncate">
                           {n.supplierName ?? 'Unknown supplier'}
                           {n.invoiceNumber ? ` · #${n.invoiceNumber}` : ''}
                         </p>
@@ -142,7 +142,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
                         >
                           {n.actionLabel}
                         </button>
-                        <button onClick={() => dismiss(n.id)} className="ml-1 text-gray-300 hover:text-gray-500">
+                        <button onClick={() => dismiss(n.id)} className="ml-1 text-ink-4 hover:text-ink-3">
                           <X size={12} />
                         </button>
                       </div>
@@ -152,24 +152,24 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
 
                 {/* ── DB price alerts ───────────────────────────────────────── */}
                 {priceAlerts.map(alert => (
-                  <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
+                  <div key={alert.id} className="px-4 py-3 border-b border-line hover:bg-bg">
                     <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${alert.direction === 'UP' ? 'bg-red-100' : 'bg-green-100'}`}>
+                      <div className={`mt-0.5 p-1 rounded-full ${alert.direction === 'UP' ? 'bg-red-soft' : 'bg-green-soft'}`}>
                         {alert.direction === 'UP'
-                          ? <TrendingUp size={12} className="text-red-500" />
-                          : <TrendingDown size={12} className="text-green-500" />
+                          ? <TrendingUp size={12} className="text-red" />
+                          : <TrendingDown size={12} className="text-green" />
                         }
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{alert.inventoryItem.itemName}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm font-medium text-ink-2 truncate">{alert.inventoryItem.itemName}</p>
+                        <p className="text-xs text-ink-3">
                           {formatCurrency(Number(alert.previousPrice))} → {formatCurrency(Number(alert.newPrice))}
-                          {' '}<span className={`font-semibold ${alert.direction === 'UP' ? 'text-red-600' : 'text-green-600'}`}>
+                          {' '}<span className={`font-semibold ${alert.direction === 'UP' ? 'text-red' : 'text-green'}`}>
                             ({alert.direction === 'UP' ? '+' : ''}{Number(alert.changePct).toFixed(1)}%)
                           </span>
                         </p>
                         {alert.session.supplierName && (
-                          <p className="text-[10px] text-gray-400">{alert.session.supplierName}</p>
+                          <p className="text-[10px] text-ink-4">{alert.session.supplierName}</p>
                         )}
                       </div>
                     </div>
@@ -178,19 +178,19 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
 
                 {/* ── DB recipe alerts ──────────────────────────────────────── */}
                 {recipeAlerts.map(alert => (
-                  <div key={alert.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50">
+                  <div key={alert.id} className="px-4 py-3 border-b border-line hover:bg-bg">
                     <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${alert.exceededThreshold ? 'bg-red-100' : 'bg-amber-100'}`}>
-                        <TrendingUp size={12} className={alert.exceededThreshold ? 'text-red-500' : 'text-amber-500'} />
+                      <div className={`mt-0.5 p-1 rounded-full ${alert.exceededThreshold ? 'bg-red-soft' : 'bg-gold-soft'}`}>
+                        <TrendingUp size={12} className={alert.exceededThreshold ? 'text-red' : 'text-gold'} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{alert.recipe.name}</p>
+                        <p className="text-sm font-medium text-ink-2 truncate">{alert.recipe.name}</p>
                         {alert.exceededThreshold && alert.newFoodCostPct !== null && (
-                          <p className="text-xs text-red-600 font-semibold">
+                          <p className="text-xs text-red font-semibold">
                             Food cost {(Number(alert.newFoodCostPct) * 100).toFixed(1)}% — exceeds 30% threshold
                           </p>
                         )}
-                        <p className="text-xs text-gray-500">Recipe cost changed</p>
+                        <p className="text-xs text-ink-3">Recipe cost changed</p>
                       </div>
                     </div>
                   </div>
@@ -203,7 +203,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           <Link
             href="/invoices"
             onClick={() => setOpen(false)}
-            className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs text-gold hover:bg-gold/10 transition-colors border-t border-gray-50"
+            className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs text-gold hover:bg-gold/10 transition-colors border-t border-line"
           >
             View all invoices <ChevronRight size={12} />
           </Link>

@@ -16,8 +16,8 @@ export default function WastageCharts({ byReason, byWeek }: Props) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Pie: by reason */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="text-sm font-semibold text-gray-700 mb-3">Cost by Reason</div>
+      <div className="bg-white rounded-xl shadow-sm border border-line p-4">
+        <div className="text-sm font-semibold text-ink-2 mb-3">Cost by Reason</div>
         <div className="flex items-center gap-4">
           <ResponsiveContainer width={140} height={140}>
             <PieChart>
@@ -42,8 +42,8 @@ export default function WastageCharts({ byReason, byWeek }: Props) {
             {byReason.map((d, i) => (
               <div key={d.reason} className="flex items-center gap-2 text-xs">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                <span className="text-gray-600 truncate flex-1">{d.reason}</span>
-                <span className="font-semibold text-gray-800 shrink-0">{formatCurrency(d.cost)}</span>
+                <span className="text-ink-3 truncate flex-1">{d.reason}</span>
+                <span className="font-semibold text-ink-2 shrink-0">{formatCurrency(d.cost)}</span>
               </div>
             ))}
           </div>
@@ -51,8 +51,8 @@ export default function WastageCharts({ byReason, byWeek }: Props) {
       </div>
 
       {/* Bar: weekly trend */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="text-sm font-semibold text-gray-700 mb-3">Weekly Trend</div>
+      <div className="bg-white rounded-xl shadow-sm border border-line p-4">
+        <div className="text-sm font-semibold text-ink-2 mb-3">Weekly Trend</div>
         {byWeek.length > 1 ? (
           <ResponsiveContainer width="100%" height={140}>
             <BarChart data={byWeek} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -64,7 +64,7 @@ export default function WastageCharts({ byReason, byWeek }: Props) {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="h-[140px] flex items-center justify-center text-sm text-gray-400">
+          <div className="h-[140px] flex items-center justify-center text-sm text-ink-4">
             Not enough data for trend — expand date range
           </div>
         )}
