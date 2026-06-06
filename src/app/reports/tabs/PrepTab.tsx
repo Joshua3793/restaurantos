@@ -134,7 +134,7 @@ export default function PrepTab() {
               <h3 className="text-sm font-semibold text-ink-2 mb-4">Daily Completion Rate</h3>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={report.dailySummaries} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
                   <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                   <Tooltip
@@ -157,14 +157,14 @@ export default function PrepTab() {
               <h3 className="text-sm font-semibold text-ink-2 mb-4">Daily Items Logged</h3>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={report.dailySummaries} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
                   <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip labelFormatter={(l) => fmtDate(String(l))} />
                   <Bar dataKey="done"    name="Done"    stackId="a" fill="#16a34a" radius={[0,0,0,0]} />
                   <Bar dataKey="partial" name="Partial" stackId="a" fill="#d97706" />
                   <Bar dataKey="blocked" name="Blocked" stackId="a" fill="#dc2626" />
-                  <Bar dataKey="skipped" name="Skipped" stackId="a" fill="#9ca3af" radius={[3,3,0,0]} />
+                  <Bar dataKey="skipped" name="Skipped" stackId="a" fill="#a1a1aa" radius={[3,3,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

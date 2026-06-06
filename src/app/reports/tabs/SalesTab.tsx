@@ -42,12 +42,12 @@ export default function SalesTab({ period }: { period: number }) {
         {weeklyRevenue.length > 0 ? (
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={weeklyRevenue} barGap={2}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
               <XAxis dataKey="week" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} width={40} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="revenue"   name="Revenue"    fill="#3b82f6" radius={[3,3,0,0]} />
-              <Bar dataKey="foodSales" name="Food Sales" fill="#10b981" radius={[3,3,0,0]} />
+              <Bar dataKey="revenue"   name="Revenue"    fill="#2563eb" radius={[3,3,0,0]} />
+              <Bar dataKey="foodSales" name="Food Sales" fill="#16a34a" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : <EmptyState message="No sales data for this period" />}

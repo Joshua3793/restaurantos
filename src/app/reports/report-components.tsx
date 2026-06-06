@@ -3,11 +3,11 @@ import { ChevronUp, ChevronDown, Minus } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 export const CAT_COLORS: Record<string, string> = {
-  MEAT: '#ef4444', FISH: '#06b6d4', DAIRY: '#3b82f6', PROD: '#22c55e',
-  DRY: '#eab308', BREAD: '#f97316', PREPD: '#8b5cf6', CHM: '#94a3b8',
+  MEAT: '#dc2626', FISH: '#0d9488', DAIRY: '#2563eb', PROD: '#16a34a',
+  DRY: '#ca8a04', BREAD: '#ea580c', PREPD: '#7c3aed', CHM: '#71717a',
 }
 
-export const CHART_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899']
+export const CHART_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0d9488','#ea580c','#db2777']
 
 export function pct(n: number | null | undefined, decimals = 1) {
   if (n == null) return '—'

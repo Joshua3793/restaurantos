@@ -124,7 +124,9 @@ export function calcConversionFactor(
 }
 
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+  // Guard against NaN/Infinity (e.g. sums over empty data) rendering as "$NaN".
+  const safe = Number.isFinite(amount) ? amount : 0
+  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(safe)
 }
 
 export function formatUnitPrice(amount: number): string {

@@ -47,15 +47,15 @@ export default function InventoryTab({ period }: { period: number }) {
               <AreaChart data={valueTrend}>
                 <defs>
                   <linearGradient id="invGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#16a34a" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} width={40} />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="value" name="Inventory Value" stroke="#10b981" fill="url(#invGrad)" strokeWidth={2} dot={{ fill: '#10b981', r: 4 }} />
+                <Area type="monotone" dataKey="value" name="Inventory Value" stroke="#16a34a" fill="url(#invGrad)" strokeWidth={2} dot={{ fill: '#16a34a', r: 4 }} />
               </AreaChart>
             </ResponsiveContainer>
           ) : <EmptyState message="Need at least 2 finalized counts to show trend" />}
@@ -72,7 +72,7 @@ export default function InventoryTab({ period }: { period: number }) {
                   <div key={item.cat}>
                     <div className="flex items-center justify-between text-xs mb-1">
                       <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full" style={{ background: CAT_COLORS[item.cat] ?? '#94a3b8' }} />
+                        <span className="w-2 h-2 rounded-full" style={{ background: CAT_COLORS[item.cat] ?? '#71717a' }} />
                         <span className="font-medium text-ink-2">{item.cat}</span>
                         <span className="text-ink-4">({item.count} items)</span>
                       </div>
@@ -82,7 +82,7 @@ export default function InventoryTab({ period }: { period: number }) {
                       </div>
                     </div>
                     <div className="h-2 bg-bg-2 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${pctVal}%`, background: CAT_COLORS[item.cat] ?? '#94a3b8' }} />
+                      <div className="h-full rounded-full" style={{ width: `${pctVal}%`, background: CAT_COLORS[item.cat] ?? '#71717a' }} />
                     </div>
                   </div>
                 )

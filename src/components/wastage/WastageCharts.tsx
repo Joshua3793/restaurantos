@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
 
-const CHART_COLORS = ['#ef4444','#f97316','#eab308','#6b7280','#3b82f6','#a855f7','#22c55e','#9ca3af']
+const CHART_COLORS = ['#dc2626','#ea580c','#ca8a04','#6b7280','#2563eb','#a855f7','#16a34a','#a1a1aa']
 
 interface Props {
   byReason: { reason: string; cost: number }[]
@@ -56,11 +56,11 @@ export default function WastageCharts({ byReason, byWeek }: Props) {
         {byWeek.length > 1 ? (
           <ResponsiveContainer width="100%" height={140}>
             <BarChart data={byWeek} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" />
               <XAxis dataKey="week" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
               <Tooltip formatter={(v) => [formatCurrency(Number(v)), 'Cost']} />
-              <Bar dataKey="cost" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="cost" fill="#dc2626" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (

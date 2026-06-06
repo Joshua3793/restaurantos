@@ -42,11 +42,11 @@ export default function PurchasingTab({ period }: { period: number }) {
         {spendTrend.length > 0 ? (
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={spendTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
               <XAxis dataKey="week" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} width={40} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="spend" name="Spend" fill="#8b5cf6" radius={[3,3,0,0]} />
+              <Bar dataKey="spend" name="Spend" fill="#7c3aed" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : <EmptyState message="No approved invoices found for this period. Approve invoice sessions to see spend data." />}

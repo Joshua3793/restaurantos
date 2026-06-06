@@ -84,7 +84,7 @@ export default function ReportsPage() {
 
       <ReportsSubnav />
 
-      <div className="grid gap-3 mb-6" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>
+      <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <HeroCard chrome={chrome} target={target} />
         <Card label="WEEKLY REVENUE" value={dashboard ? formatCurrency(dashboard.weeklyRevenue) : '—'} delta={<>WTD</>} />
         <Card label="WEEKLY PURCHASES" value={dashboard ? formatCurrency(dashboard.weeklyPurchaseCost) : '—'} delta={<>numerator</>} />
@@ -95,7 +95,7 @@ export default function ReportsPage() {
         />
       </div>
 
-      <div className="grid gap-5" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="grid gap-5 grid-cols-1 lg:grid-cols-2">
         <section className="bg-paper border border-line rounded-[12px] overflow-hidden">
           <header className="flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2">
             <h3 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2">
