@@ -502,7 +502,16 @@ function InventoryPageInner() {
   const handleDeleteItem = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     setConfirmDeleteId(null)
-    await fetch(`/api/inventory/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/inventory/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      showToast({
+        type: 'error',
+        title: j?.canDeactivate ? 'Deactivate instead' : 'Delete failed',
+        message: j?.error ?? `Could not delete item (${res.status}).`,
+      })
+      return
+    }
     setItems(prev => prev.filter(i => i.id !== id))
     if (selected?.id === id) setSelected(null)
   }

@@ -123,6 +123,62 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  await prisma.inventoryItem.delete({ where: { id: params.id } })
-  return NextResponse.json({ success: true })
+  const id = params.id
+
+  const item = await prisma.inventoryItem.findUnique({ where: { id }, select: { id: true } })
+  if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Block the hard delete when the item carries real usage/history. Deleting it
+  // would either violate a FK (Restrict) or destroy costing/financial history that
+  // the pricePerBaseUnit spine depends on. Tell the caller to deactivate instead.
+  const [
+    recipeUses, linkedRecipe, invoiceLines, countLines,
+    snapshots, wastageLogs, stockTransfers, prepItems,
+  ] = await Promise.all([
+    prisma.recipeIngredient.count({ where: { inventoryItemId: id } }),
+    prisma.recipe.count({ where: { inventoryItemId: id } }),
+    prisma.invoiceLineItem.count({ where: { inventoryItemId: id } }),
+    prisma.countLine.count({ where: { inventoryItemId: id } }),
+    prisma.inventorySnapshot.count({ where: { inventoryItemId: id } }),
+    prisma.wastageLog.count({ where: { inventoryItemId: id } }),
+    prisma.stockTransfer.count({ where: { inventoryItemId: id } }),
+    prisma.prepItem.count({ where: { linkedInventoryItemId: id } }),
+  ])
+
+  const blockers: string[] = []
+  if (recipeUses)     blockers.push(`used in ${recipeUses} recipe ingredient${recipeUses > 1 ? 's' : ''}`)
+  if (linkedRecipe)   blockers.push(`the output of a prep recipe`)
+  if (invoiceLines)   blockers.push(`on ${invoiceLines} invoice line${invoiceLines > 1 ? 's' : ''}`)
+  if (countLines)     blockers.push(`in ${countLines} stock count${countLines > 1 ? 's' : ''}`)
+  if (snapshots)      blockers.push(`in ${snapshots} count snapshot${snapshots > 1 ? 's' : ''}`)
+  if (wastageLogs)    blockers.push(`in ${wastageLogs} wastage log${wastageLogs > 1 ? 's' : ''}`)
+  if (stockTransfers) blockers.push(`in ${stockTransfers} stock transfer${stockTransfers > 1 ? 's' : ''}`)
+  if (prepItems)      blockers.push(`linked to ${prepItems} prep item${prepItems > 1 ? 's' : ''}`)
+
+  if (blockers.length) {
+    return NextResponse.json(
+      {
+        error: `Can't delete — this item is ${blockers.join(', ')}. Deactivate it instead to hide it without losing history.`,
+        blocked: true,
+        canDeactivate: true,
+      },
+      { status: 409 },
+    )
+  }
+
+  // Truly unreferenced — safe to hard-delete. Clean up the metadata-only relations
+  // (match rules / scan matches / price alerts) that would otherwise FK-block it.
+  // StockAllocation + InventorySupplierPrice cascade automatically.
+  try {
+    await prisma.$transaction(async tx => {
+      await tx.invoiceMatchRule.deleteMany({ where: { inventoryItemId: id } })
+      await tx.priceAlert.deleteMany({ where: { inventoryItemId: id } })
+      await tx.invoiceScanItem.updateMany({ where: { matchedItemId: id }, data: { matchedItemId: null } })
+      await tx.inventoryItem.delete({ where: { id } })
+    })
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[DELETE /api/inventory/:id]', err)
+    return NextResponse.json({ error: 'Failed to delete item' }, { status: 500 })
+  }
 }
