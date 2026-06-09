@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { resolveCountUom } from '@/lib/count-uom'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -112,7 +113,18 @@ export async function POST(req: NextRequest) {
           return {
             inventoryItemId: item.id,
             expectedQty:     expected,
-            selectedUom:     item.countUOM || item.baseUnit,
+            // Derive from the purchase format (self-heals legacy items whose
+            // stored countUOM no longer matches their structure).
+            selectedUom:     resolveCountUom({
+              baseUnit:           item.baseUnit,
+              purchaseUnit:       item.purchaseUnit,
+              qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+              qtyUOM:             item.qtyUOM ?? 'each',
+              innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
+              packSize:           Number(item.packSize),
+              packUOM:            item.packUOM,
+              countUOM:           item.countUOM ?? 'each',
+            }) || item.baseUnit,
             priceAtCount:    item.pricePerBaseUnit,
             sortOrder:       i,
           }

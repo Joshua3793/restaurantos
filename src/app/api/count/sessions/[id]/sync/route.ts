@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { convertCountQtyToBase, resolveCountUom } from '@/lib/count-uom'
 
 // POST /api/count/sessions/:id/sync
 // Full sync: adds new active items, removes lines for deleted/inactive items,
@@ -46,6 +47,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (!activeItemMap.has(l.inventoryItemId)) return false
     if (l.countedQty !== null || l.skipped) return false  // preserve counted work
     return true  // refresh expectedQty and price for all uncounted lines
+  })
+
+  // ── 4. Counted/skipped lines whose price drifted ──────────────────────────
+  // Refreshing the unit price does NOT discard counted work — countedQty and
+  // selectedUom are preserved; only the snapshotted price (and the variance
+  // derived from it) are re-pulled from the now-corrected inventory item.
+  // This is what makes a post-count inventory price fix actually flow through.
+  const toReprice = existingLines.filter(l => {
+    const item = activeItemMap.get(l.inventoryItemId)
+    if (!item) return false
+    if (l.countedQty === null && !l.skipped) return false  // uncounted → handled by toUpdate
+    return Number(l.priceAtCount) !== Number(item.pricePerBaseUnit)  // only when it changed
   })
 
   // ── Build theoretical expected maps ───────────────────────────────────────
@@ -118,6 +131,39 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       })
     }),
 
+    // Refresh price on counted/skipped lines and recompute their variance.
+    // Counted work (countedQty, selectedUom) is left untouched.
+    ...toReprice.map(l => {
+      const item = activeItemMap.get(l.inventoryItemId)!
+      if (l.skipped || l.countedQty === null) {
+        // skipped lines carry no variance (qty == expected); price only
+        return prisma.countLine.update({
+          where: { id: l.id },
+          data: { priceAtCount: item.pricePerBaseUnit },
+        })
+      }
+      const itemDims = {
+        baseUnit:           item.baseUnit,
+        purchaseUnit:       item.purchaseUnit,
+        qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+        qtyUOM:             item.qtyUOM ?? 'each',
+        innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
+        packSize:           Number(item.packSize),
+        packUOM:            item.packUOM,
+        countUOM:           item.countUOM,
+      }
+      const countedBase = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, itemDims)
+      const expected    = Number(l.expectedQty)
+      return prisma.countLine.update({
+        where: { id: l.id },
+        data: {
+          priceAtCount: item.pricePerBaseUnit,
+          variancePct:  expected > 0 ? ((countedBase - expected) / expected) * 100 : 0,
+          varianceCost: (countedBase - expected) * Number(item.pricePerBaseUnit),
+        },
+      })
+    }),
+
     // Add new lines with theoretical expected
     ...toAdd.map(item =>
       prisma.countLine.create({
@@ -125,7 +171,16 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           sessionId:       params.id,
           inventoryItemId: item.id,
           expectedQty:     getExpected(item.id, Number(item.stockOnHand)),
-          selectedUom:     item.countUOM || item.baseUnit,
+          selectedUom:     resolveCountUom({
+            baseUnit:           item.baseUnit,
+            purchaseUnit:       item.purchaseUnit,
+            qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+            qtyUOM:             item.qtyUOM ?? 'each',
+            innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
+            packSize:           Number(item.packSize),
+            packUOM:            item.packUOM,
+            countUOM:           item.countUOM ?? 'each',
+          }) || item.baseUnit,
           priceAtCount:    item.pricePerBaseUnit,
           sortOrder:       nextSort++,
         },
@@ -162,7 +217,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({
     added:   toAdd.length,
     removed: toRemove.length,
-    updated: toUpdate.length,
+    updated: toUpdate.length + toReprice.length,
     lines:   enriched,
   })
 }

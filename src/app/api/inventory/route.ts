@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import { resolveCountUom } from '@/lib/count-uom'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -108,11 +109,23 @@ export async function POST(req: NextRequest) {
   const rawPs = parseFloat(packSize ?? '')
   const hasWeightPerEach = rawPs > 0
   const ps    = hasWeightPerEach ? rawPs : 1
-  // Force packUOM/countUOM to 'each' when no weight-per-each entered
+  // Force packUOM to 'each' when no weight-per-each entered
   const pu    = hasWeightPerEach ? (packUOM ?? 'each') : 'each'
-  const cu    = hasWeightPerEach ? (countUOM ?? 'each') : 'each'
   const qu    = qtyUOM ?? 'each'
   const iq    = innerQty != null ? Number(innerQty) : null
+  // Count UOM derives from the purchase format: keep an explicit, still-valid
+  // choice (switchable per item) but never let it sit at a stale/invalid value —
+  // fall back to the derived primary so count sessions read the right unit.
+  const cu    = resolveCountUom({
+    baseUnit:           '',                 // unused by the derivation
+    purchaseUnit:       rest.purchaseUnit ?? 'each',
+    qtyPerPurchaseUnit: qty,
+    qtyUOM:             qu,
+    innerQty:           iq,
+    packSize:           ps,
+    packUOM:            pu,
+    countUOM:           hasWeightPerEach ? (countUOM ?? 'each') : 'each',
+  })
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
