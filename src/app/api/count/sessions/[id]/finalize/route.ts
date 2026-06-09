@@ -68,11 +68,21 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         pricePerBaseUnit: price, totalValue: value, category: item.category,
       })
 
-      // Refresh the line's snapshotted price so the count report is accurate
+      // Lock the snapshot: priceAtCount = the live price at finalize, and
+      // recompute variance from it so the locked record matches what review
+      // showed live (review uses live price for in-progress sessions).
+      const expected    = Number(line.expectedQty)
+      const lineVarCost = line.skipped ? 0 : (qtyBase - expected) * price
       lineUpdates.push(
         prisma.countLine.update({
           where: { id: line.id },
-          data: { priceAtCount: item.pricePerBaseUnit },
+          data: line.skipped
+            ? { priceAtCount: item.pricePerBaseUnit }
+            : {
+                priceAtCount: item.pricePerBaseUnit,
+                variancePct:  expected > 0 ? ((qtyBase - expected) / expected) * 100 : 0,
+                varianceCost: lineVarCost,
+              },
         })
       )
 
@@ -80,7 +90,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         itemsSkipped++
       } else {
         itemsUpdated++
-        totalVarianceCost += Math.abs(Number(line.varianceCost ?? 0))
+        totalVarianceCost += Math.abs(lineVarCost)
         // For RC-scoped counts only update lastCountDate/lastCountQty (stock lives in StockAllocation).
         // For default-RC and unscoped counts also update the global stockOnHand.
         stockUpdates.push(

@@ -37,6 +37,7 @@ interface InventoryItemRef {
   packSize: number
   packUOM: string
   countUOM: string
+  pricePerBaseUnit?: number | string   // live spine price — used for in-progress value/variance
   location: string | null
   storageArea: { id: string; name: string } | null
   parLevel?: number | null         // from StockAllocation for the session's RC
@@ -2556,6 +2557,19 @@ export default function CountPage() {
   if (view === 'review' && active) {
     const lines        = active.lines ?? []
     const countedLines = lines.filter(l => l.countedQty !== null && !l.skipped)
+    const isFinalized  = active.status === 'FINALIZED'
+    // While the count is open, value & variance read the LIVE inventory price so a
+    // post-count price correction shows immediately — no Sync needed. Finalizing
+    // locks priceAtCount, after which that snapshot is authoritative.
+    const linePrice = (l: Line) =>
+      isFinalized
+        ? Number(l.priceAtCount)
+        : Number(l.inventoryItem.pricePerBaseUnit ?? l.priceAtCount)
+    const lineVarCost = (l: Line) => {
+      if (l.countedQty === null) return Number(l.varianceCost ?? 0)
+      const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
+      return (base - Number(l.expectedQty)) * linePrice(l)
+    }
     const flagged      = lines.filter(l =>
       l.variancePct !== null &&
       hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem) &&
@@ -2563,11 +2577,10 @@ export default function CountPage() {
     )
     const totalValue   = countedLines.reduce((s, l) => {
       const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
-      return s + base * Number(l.priceAtCount)
+      return s + base * linePrice(l)
     }, 0)
-    const isFinalized  = active.status === 'FINALIZED'
     const sorted       = [...countedLines].sort(
-      (a, b) => Math.abs(Number(b.varianceCost ?? 0)) - Math.abs(Number(a.varianceCost ?? 0))
+      (a, b) => Math.abs(lineVarCost(b)) - Math.abs(lineVarCost(a))
     )
 
     return (
@@ -2626,7 +2639,7 @@ export default function CountPage() {
           <div className="block md:hidden space-y-2 mb-24">
             {sorted.map(l => {
               const vPct     = Number(l.variancePct ?? 0)
-              const vCost    = Number(l.varianceCost ?? 0)
+              const vCost    = lineVarCost(l)
               const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
               const large    = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
               return (
@@ -2685,7 +2698,7 @@ export default function CountPage() {
               </div>
               {sorted.map(l => {
                 const vPct     = Number(l.variancePct ?? 0)
-                const vCost    = Number(l.varianceCost ?? 0)
+                const vCost    = lineVarCost(l)
                 const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
                 const large    = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
                 return (
