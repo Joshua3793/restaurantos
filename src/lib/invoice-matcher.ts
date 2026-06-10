@@ -323,6 +323,50 @@ export async function matchLineItems(
     // Table may not exist yet — proceed with fuzzy matching only
   }
 
+  // ── Item-code rules: deterministic (supplier, supplierItemCode) → item ────
+  // An item code printed on the invoice is supplier-scoped and unambiguous —
+  // it beats any text matching. Learned at approval time (saveMatchRule).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let codeRules: any[] = []
+  const itemCodes = ocrItems
+    .map(i => i.supplierItemCode)
+    .filter((c): c is string => !!c)
+  if (supplierName && itemCodes.length > 0) {
+    try {
+      codeRules = await prisma.invoiceMatchRule.findMany({
+        where: {
+          supplierName,
+          supplierItemCode: { in: itemCodes },
+        },
+        include: {
+          inventoryItem: {
+            select: {
+              id: true,
+              itemName: true,
+              purchaseUnit: true,
+              pricePerBaseUnit: true,
+              purchasePrice: true,
+              baseUnit: true,
+              qtyPerPurchaseUnit: true,
+              packSize: true,
+              packUOM: true,
+            },
+          },
+        },
+        orderBy: { useCount: 'desc' },
+      })
+    } catch {
+      // Column may not exist yet on stale clients — fall through to text matching
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const codeRuleMap = new Map<string, any>()
+  for (const rule of codeRules) {
+    if (rule.supplierItemCode && !codeRuleMap.has(rule.supplierItemCode)) {
+      codeRuleMap.set(rule.supplierItemCode, rule) // first = highest useCount
+    }
+  }
+
   // Build learned map: description → best rule (supplier-specific beats generic)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const learnedMap = new Map<string, any>()
@@ -341,6 +385,27 @@ export async function matchLineItems(
   })) as unknown as InventoryItem[]
 
   return ocrItems.map((ocrItem) => {
+    // ── 0. Supplier item-code rule (deterministic — beats all text matching) ─
+    const codeRule = ocrItem.supplierItemCode
+      ? codeRuleMap.get(ocrItem.supplierItemCode)
+      : undefined
+    if (codeRule?.inventoryItem) {
+      const hasRuleFormat = !!(codeRule.invoicePackQty && codeRule.invoicePackSize)
+      const ruleFormat = hasRuleFormat ? {
+        packQty:  Number(codeRule.invoicePackQty),
+        packSize: Number(codeRule.invoicePackSize),
+        packUOM:  codeRule.invoicePackUOM ?? 'each',
+      } : parseFormatFromDescription(ocrItem.description)
+      return buildMatchResult(
+        ocrItem,
+        codeRule.inventoryItem as unknown as InventoryItem,
+        'HIGH',
+        100,
+        ruleFormat,
+        hasRuleFormat
+      )
+    }
+
     // ── 1. Check learned rules first ───────────────────────────────────────
     const learned = learnedMap.get(ocrItem.description)
     if (learned?.inventoryItem) {
@@ -351,11 +416,16 @@ export async function matchLineItems(
         packUOM: learned.invoicePackUOM ?? 'each',
       } : parseFormatFromDescription(ocrItem.description)
 
+      // A rule learned under THIS supplier is authoritative. A generic rule
+      // (saved when the supplier was unknown, supplierName '') applied to a
+      // session with a known supplier is only a hint — surface it as MEDIUM so
+      // the trust-check gate (resolution.ts) asks the user to confirm it.
+      const supplierSpecific = !supplierName || learned.supplierName === supplierName
       return buildMatchResult(
         ocrItem,
         learned.inventoryItem as unknown as InventoryItem,
-        'HIGH',
-        100,
+        supplierSpecific ? 'HIGH' : 'MEDIUM',
+        supplierSpecific ? 100 : 60,
         learnedFormat,
         hasLearnedFormat
       )
@@ -413,7 +483,8 @@ export async function saveMatchRule(
   rawDescription: string,
   inventoryItemId: string,
   supplierName?: string | null,
-  format?: { packQty: number; packSize: number; packUOM: string } | null
+  format?: { packQty: number; packSize: number; packUOM: string } | null,
+  supplierItemCode?: string | null
 ): Promise<void> {
   await prisma.invoiceMatchRule.upsert({
     where: {
@@ -426,6 +497,7 @@ export async function saveMatchRule(
       rawDescription,
       supplierName: supplierName || '',
       inventoryItemId,
+      supplierItemCode: supplierItemCode ?? null,
       invoicePackQty: format?.packQty ?? null,
       invoicePackSize: format?.packSize ?? null,
       invoicePackUOM: format?.packUOM ?? null,
@@ -434,6 +506,7 @@ export async function saveMatchRule(
       inventoryItemId,
       useCount: { increment: 1 },
       lastUsed: new Date(),
+      ...(supplierItemCode ? { supplierItemCode } : {}),
       ...(format ? { invoicePackQty: format.packQty, invoicePackSize: format.packSize, invoicePackUOM: format.packUOM } : {}),
     },
   })
