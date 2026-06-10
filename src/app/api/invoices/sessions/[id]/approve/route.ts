@@ -21,7 +21,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -45,7 +45,14 @@ async function doApprove(
         const newPurchasePrice = Number(scanItem.newPrice)
         const item = scanItem.matchedItem!
 
-        const useInvoicePack = scanItem.invoicePackSize !== null && scanItem.invoicePackQty !== null
+        // Only overwrite the inventory item's stored pack structure when the
+        // user explicitly chose "Use invoice format" in the drawer (sets
+        // applyInvoiceFormat). A one-off odd shipment must never silently
+        // rewrite the item's standard format.
+        const useInvoicePack =
+          scanItem.applyInvoiceFormat === true &&
+          scanItem.invoicePackSize !== null &&
+          scanItem.invoicePackQty !== null
         const packQty  = useInvoicePack ? (Number(scanItem.invoicePackQty) || 1) : Number(item.qtyPerPurchaseUnit)
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
@@ -82,6 +89,16 @@ async function doApprove(
               packUOM,
             )
           }
+        }
+
+        // Never write a zero/NaN price to the spine — a 0 pricePerBaseUnit
+        // silently zeroes every recipe cost that reads this item. Leave the
+        // line un-approved so it stays visible in the session for follow-up.
+        if (!Number.isFinite(newPricePerBase) || newPricePerBase <= 0) {
+          console.error(
+            `[approve] Skipping price write for "${scanItem.rawDescription}" — computed pricePerBaseUnit=${newPricePerBase}`
+          )
+          continue
         }
 
         // Wrap all writes for this item in a transaction so a mid-item failure
@@ -264,7 +281,8 @@ async function doApprove(
               packQty:  Number(item.invoicePackQty),
               packSize: Number(item.invoicePackSize),
               packUOM:  item.invoicePackUOM ?? 'each',
-            } : undefined
+            } : undefined,
+            item.supplierItemCode
           ).catch(() => {})
         )
     )
@@ -303,6 +321,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const approvedBy: string = currentUser.name ?? currentUser.email
 
+  const body = await req.json().catch(() => ({} as Record<string, unknown>))
+
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
@@ -317,11 +337,40 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Session is not in REVIEW state' }, { status: 400 })
   }
 
-  // Set APPROVING synchronously so the client can show a "processing" state
-  await prisma.invoiceSession.update({
-    where: { id: params.id },
-    data: { status: 'APPROVING' },
+  // ── Duplicate gate ──────────────────────────────────────────────────────
+  // Same supplier + same invoice number already approved → block unless the
+  // client re-submits with { force: true } after the user confirms.
+  if (body?.force !== true && session.invoiceNumber && session.supplierName) {
+    const dup = await prisma.invoiceSession.findFirst({
+      where: {
+        id:            { not: session.id },
+        status:        'APPROVED',
+        invoiceNumber: session.invoiceNumber,
+        supplierName:  session.supplierName,
+      },
+      select: { id: true, approvedAt: true },
+    })
+    if (dup) {
+      return NextResponse.json(
+        {
+          error: `Invoice ${session.invoiceNumber} from ${session.supplierName} was already approved${dup.approvedAt ? ` on ${new Date(dup.approvedAt).toLocaleDateString()}` : ''}. Approving again will apply its price changes a second time.`,
+          duplicate: true,
+        },
+        { status: 409 }
+      )
+    }
+  }
+
+  // ── Atomic status claim ─────────────────────────────────────────────────
+  // Compare-and-set REVIEW → APPROVING so a double-tap (or two reviewers) can
+  // never run doApprove twice over the same session.
+  const claimed = await prisma.invoiceSession.updateMany({
+    where: { id: params.id, status: 'REVIEW' },
+    data:  { status: 'APPROVING' },
   })
+  if (claimed.count === 0) {
+    return NextResponse.json({ error: 'Session is already being approved' }, { status: 409 })
+  }
 
   // waitUntil keeps the Vercel function alive until doApprove finishes,
   // even after the response has been sent to the client.
