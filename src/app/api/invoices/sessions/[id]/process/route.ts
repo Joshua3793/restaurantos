@@ -132,18 +132,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     }
 
     if (imageFiles.length > 0) {
+      const imagePayloads = await Promise.all(
+        imageFiles.map(async (f) => {
+          const buf = await loadBuffer(f)
+          const ft  = f.fileType.toLowerCase()
+          return {
+            base64:    buf.toString('base64'),
+            mediaType: (ft === 'image/png' ? 'image/png' : ft === 'image/webp' ? 'image/webp' : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp',
+          }
+        })
+      )
       try {
         console.log(`[process] Sending ${imageFiles.length} image(s) in one Claude call`)
-        const imagePayloads = await Promise.all(
-          imageFiles.map(async (f) => {
-            const buf = await loadBuffer(f)
-            const ft  = f.fileType.toLowerCase()
-            return {
-              base64:    buf.toString('base64'),
-              mediaType: (ft === 'image/png' ? 'image/png' : ft === 'image/webp' ? 'image/webp' : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp',
-            }
-          })
-        )
         const result = await extractInvoiceFromImages(imagePayloads, session.supplierName, isLearning)
         mergeResult(result, sessionMeta)
         allOcrItems = [...allOcrItems, ...result.lineItems]
@@ -158,12 +158,50 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           })
         }
       } catch (err) {
-        console.error('[process] Image OCR failed:', err)
-        await prisma.invoiceFile.updateMany({
-          where: { id: { in: imageFiles.map(f => f.id) } },
-          data: { ocrStatus: 'ERROR' },
-        })
-        throw err  // re-throw so outer catch sets session to ERROR
+        const msg = err instanceof Error ? err.message : String(err)
+        // The combined call can blow the output-token budget on very long
+        // invoices. Fall back to OCR-ing each page separately and merging —
+        // each page alone fits comfortably in the budget.
+        if (imageFiles.length > 1 && /truncated/i.test(msg)) {
+          console.warn('[process] Combined image OCR truncated — falling back to per-page OCR')
+          // The viewer indexes session.files[bbox.page], so re-index each
+          // single-page result (which returns page: 0) to the file's position
+          // in the full ordered session file list.
+          const pageIndexById = new Map(session.files.map((f, idx) => [f.id, idx]))
+          const pageResults = await Promise.allSettled(
+            imagePayloads.map(p => extractInvoiceFromImages([p], session.supplierName, isLearning))
+          )
+          let anyOk = false
+          for (const [i, r] of pageResults.entries()) {
+            if (r.status === 'fulfilled') {
+              anyOk = true
+              mergeResult(r.value, sessionMeta)
+              const page = pageIndexById.get(imageFiles[i].id) ?? i
+              for (const li of r.value.lineItems) {
+                if (li.bbox) li.bbox.page = page
+              }
+              allOcrItems = [...allOcrItems, ...r.value.lineItems]
+              await prisma.invoiceFile.update({
+                where: { id: imageFiles[i].id },
+                data: { ocrStatus: 'COMPLETE', ocrRawJson: JSON.stringify(r.value) },
+              })
+            } else {
+              console.error(`[process] Per-page OCR failed for ${imageFiles[i].fileName}:`, r.reason)
+              await prisma.invoiceFile.update({
+                where: { id: imageFiles[i].id },
+                data: { ocrStatus: 'ERROR' },
+              })
+            }
+          }
+          if (!anyOk) throw err
+        } else {
+          console.error('[process] Image OCR failed:', err)
+          await prisma.invoiceFile.updateMany({
+            where: { id: { in: imageFiles.map(f => f.id) } },
+            data: { ocrStatus: 'ERROR' },
+          })
+          throw err  // re-throw so outer catch sets session to ERROR
+        }
       }
     }
 
@@ -192,6 +230,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           console.error(`[process] OCR failed for ${nonImgFiles[i].fileName}:`, r.reason)
           await prisma.invoiceFile.update({ where: { id: nonImgFiles[i].id }, data: { ocrStatus: 'ERROR' } })
         }
+      }
+    }
+
+    // If nothing was extracted and at least one file errored, this session is
+    // an OCR failure — surface ERROR instead of an empty REVIEW screen.
+    if (allOcrItems.length === 0) {
+      const states = await prisma.invoiceFile.findMany({
+        where: { sessionId: params.id },
+        select: { ocrStatus: true },
+      })
+      if (states.some(f => f.ocrStatus === 'ERROR')) {
+        throw new Error('Scanning failed for all uploaded files — no line items were extracted. Retry, or re-upload clearer photos.')
       }
     }
 
