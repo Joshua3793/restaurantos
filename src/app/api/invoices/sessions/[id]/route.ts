@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
 import { calcPricePerBaseUnit } from '@/lib/utils'
+import { requireSession, AuthError } from '@/lib/auth'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
@@ -28,6 +35,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 // PATCH /api/invoices/sessions/[id] — update session header fields or scan item actions
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
 
   // Update scan item action/match
@@ -116,6 +129,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 // DELETE /api/invoices/sessions/[id]
 // For APPROVED sessions, reverts inventory prices that were applied.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     select: {

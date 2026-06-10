@@ -322,6 +322,11 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                         {s.errorMessage}
                       </div>
                     )}
+                    {s.status === 'APPROVED' && s.errorMessage && (
+                      <div className="font-mono text-[10.5px] text-gold-2 truncate mt-0.5 tracking-[0]" title={s.errorMessage}>
+                        ⚠ {s.errorMessage}
+                      </div>
+                    )}
                   </div>
                   <div className="font-mono text-[12px] text-ink-2">{s.invoiceDate ?? '—'}</div>
                   <div className="font-mono text-[13px] font-semibold text-ink tabular-nums text-right tracking-[-0.01em]">
@@ -391,6 +396,11 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                     {s.status === 'ERROR' && s.errorMessage && (
                       <div className="font-mono text-[10.5px] text-red-text truncate mt-1" title={s.errorMessage}>
                         {s.errorMessage}
+                      </div>
+                    )}
+                    {s.status === 'APPROVED' && s.errorMessage && (
+                      <div className="font-mono text-[10.5px] text-gold-2 truncate mt-1" title={s.errorMessage}>
+                        ⚠ {s.errorMessage}
                       </div>
                     )}
                   </div>
