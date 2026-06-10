@@ -6,6 +6,7 @@
 import type { ScanItem } from '@/components/invoices/types'
 import {
   isUnlinked, hasModeMismatch, hasFormatMismatch, hasMathCheck, hasPriceChange,
+  needsTrustCheck,
 } from './predicates'
 import { computeNormalisedPrices } from './calculations'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
@@ -21,6 +22,8 @@ export interface ResolveOpts {
   modeWriteback: boolean
   /** line ids where the user accepted/acknowledged the price change */
   priceAck: boolean
+  /** line ids where the user confirmed a low-trust line (low OCR conf / fuzzy match) */
+  confAck: boolean
 }
 
 // Big price jumps (>15%) on a linked item are the only price deltas promoted to
@@ -55,6 +58,9 @@ export function lineIssues(item: ScanItem, opts: ResolveOpts): Array<{ kind: Iss
 
   // Big price change — resolved once acknowledged.
   if (isBigPriceChange(item)) out.push({ kind: 'price', resolved: opts.priceAck })
+
+  // Low-trust line — resolved once the user confirms it looks right.
+  if (needsTrustCheck(item)) out.push({ kind: 'conf', resolved: opts.confAck })
 
   return out
 }

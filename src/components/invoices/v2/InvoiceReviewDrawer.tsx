@@ -21,7 +21,7 @@ import {
   type FilterKey, type SortMode,
 } from '@/lib/invoice/filters'
 import {
-  isUnlinked, hasMathCheck, hasModeMismatch, hasFormatMismatch,
+  isUnlinked, hasMathCheck, hasModeMismatch, hasFormatMismatch, needsTrustCheck,
 } from '@/lib/invoice/predicates'
 import { lineUnresolved, isCharge, isBigPriceChange } from '@/lib/invoice/resolution'
 import { formatCurrency } from '@/lib/invoice/formatters'
@@ -307,6 +307,7 @@ export function InvoiceReviewDrawer({
   const [pickingLinkForId,  setPickingLinkForId]  = useState<string | null>(null)
   const [modeWritebackItems, setModeWritebackItems] = useState<Set<string>>(new Set())
   const [acknowledgedPriceLines, setAcknowledgedPriceLines] = useState<Set<string>>(new Set())
+  const [acknowledgedConfLines, setAcknowledgedConfLines] = useState<Set<string>>(new Set())
   const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
   const [editingInventoryItemId,  setEditingInventoryItemId]  = useState<string | null>(null)
   const [activeBboxItemId,   setActiveBboxItemId]    = useState<string | null>(null)
@@ -345,6 +346,7 @@ export function InvoiceReviewDrawer({
     setPickingLinkForId(null)
     setModeWritebackItems(new Set())
     setAcknowledgedPriceLines(new Set())
+    setAcknowledgedConfLines(new Set())
     setActiveBboxItemId(null)
     setMobileTab('review')
     setReviewSegment('all')
@@ -355,7 +357,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i) || hasFormatMismatch(i) || isBigPriceChange(i)
+          isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i) || hasFormatMismatch(i) || isBigPriceChange(i) || needsTrustCheck(i)
         ))
         .map(i => i.id),
     )
@@ -380,12 +382,16 @@ export function InvoiceReviewDrawer({
 
   // Per-line resolution options (mode writeback / price acknowledgement).
   const optsFor = useCallback(
-    (id: string) => ({ modeWriteback: modeWritebackItems.has(id), priceAck: acknowledgedPriceLines.has(id) }),
-    [modeWritebackItems, acknowledgedPriceLines],
+    (id: string) => ({
+      modeWriteback: modeWritebackItems.has(id),
+      priceAck: acknowledgedPriceLines.has(id),
+      confAck: acknowledgedConfLines.has(id),
+    }),
+    [modeWritebackItems, acknowledgedPriceLines, acknowledgedConfLines],
   )
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasModeMismatch(i) || hasFormatMismatch(i) || hasMathCheck(i) || isBigPriceChange(i),
+    isUnlinked(i) || hasModeMismatch(i) || hasFormatMismatch(i) || hasMathCheck(i) || isBigPriceChange(i) || needsTrustCheck(i),
   [])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
@@ -603,6 +609,11 @@ export function InvoiceReviewDrawer({
     setAcknowledgedPriceLines(prev => new Set(prev).add(id))
   }, [])
 
+  // ── Low-trust line confirmation ──────────────────────────────────────────────
+  const acknowledgeConf = useCallback((id: string) => {
+    setAcknowledgedConfLines(prev => new Set(prev).add(id))
+  }, [])
+
   // ── Approve ─────────────────────────────────────────────────────────────────
   const handleApprove = async (force = false) => {
     if (!session) return
@@ -734,6 +745,7 @@ export function InvoiceReviewDrawer({
     pickingLinkForId,
     modeWritebackItems,
     acknowledgedPriceLines,
+    acknowledgedConfLines,
     reconciliation,
     getEffectiveLine,
     getItemRc,
@@ -747,14 +759,15 @@ export function InvoiceReviewDrawer({
     openInventoryEdit:    (id)   => setEditingInventoryItemId(id),
     toggleModeWriteback,
     acknowledgePrice,
+    acknowledgeConf,
     activeBboxItemId,
     toggleFilter,
     setSortMode,
   }), [
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
-    activeFilters, sortMode, pickingLinkForId, modeWritebackItems, acknowledgedPriceLines, reconciliation,
+    activeFilters, sortMode, pickingLinkForId, modeWritebackItems, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, toggleModeWriteback, acknowledgePrice, activeBboxItemId, toggleFilter,
+    setLineRc, toggleModeWriteback, acknowledgePrice, acknowledgeConf, activeBboxItemId, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────

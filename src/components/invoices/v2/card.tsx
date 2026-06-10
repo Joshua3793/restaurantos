@@ -14,10 +14,10 @@ import {
   InvoiceMathFields,
   type InventorySearchResult,
 } from './composites'
-import { ModeIssue, NewSkuIssue, PriceIssue } from './issues'
+import { ModeIssue, NewSkuIssue, PriceIssue, ConfIssue } from './issues'
 import {
   derivePricingMode, isCatchweight, hasModeMismatch, hasFormatMismatch,
-  hasMathCheck, isUnlinked,
+  hasMathCheck, isUnlinked, needsTrustCheck,
 } from '@/lib/invoice/predicates'
 import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
@@ -43,7 +43,8 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const formatMismatch = !isSkipped && hasFormatMismatch(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
   const bigPrice       = !isSkipped && isBigPriceChange(item)
-  const isAttention    = unlinked || modeMismatch || formatMismatch || mathCheck || bigPrice
+  const trustCheck     = !isSkipped && needsTrustCheck(item)
+  const isAttention    = unlinked || modeMismatch || formatMismatch || mathCheck || bigPrice || trustCheck
   const isCatch        = isCatchweight(item)
 
   // A line that surfaced an issue but whose decisions are all made now reads as
@@ -51,6 +52,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const resolved = isAttention && !lineUnresolved(item, {
     modeWriteback: ctx.modeWritebackItems.has(lineId),
     priceAck:      ctx.acknowledgedPriceLines.has(lineId),
+    confAck:       ctx.acknowledgedConfLines.has(lineId),
   })
 
   // data-task for the footer's goToTask() targeting (highest-priority first).
@@ -255,6 +257,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
           {modeMismatch && <ModeIssue item={item} lineId={lineId} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
+          {trustCheck && <ConfIssue item={item} lineId={lineId} />}
           {formatMismatch && !modeMismatch && (
             <div className="px-4 py-2.5 border-b border-dashed border-line">
               <FormatMismatchNotice item={item} lineId={lineId} />

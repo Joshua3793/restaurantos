@@ -121,6 +121,19 @@ export function hasMathCheck(item: ScanItem): boolean {
   return Math.abs(computed - Number(item.rawLineTotal)) > 0.02
 }
 
+// ── Trust check ───────────────────────────────────────────────────────────────
+// True when the line needs an explicit "looks right" confirmation before it
+// can write a price: Claude flagged the OCR as low-confidence, or the link is
+// only a fuzzy MEDIUM match that would auto-update the price.
+export function needsTrustCheck(item: ScanItem): boolean {
+  if (item.action === 'SKIP') return false
+  if (item.ocrConfidence === 'low') return true
+  return (
+    item.matchConfidence === 'MEDIUM' &&
+    (item.action === 'UPDATE_PRICE' || item.action === 'ADD_SUPPLIER')
+  )
+}
+
 // ── Accent colour ─────────────────────────────────────────────────────────────
 // Single source of truth for card left-border accent and chip colour.
 export type Accent = 'danger' | 'warn' | 'info' | 'success' | null

@@ -208,3 +208,38 @@ export function PriceIssue({
     </IssueShell>
   )
 }
+
+// ── ConfIssue ────────────────────────────────────────────────────────────────
+// Low-trust line: Claude flagged the OCR as low confidence (ocrNotes says why),
+// or the link is only a fuzzy MEDIUM match. One decision: confirm it looks
+// right (the user can first fix the line via the existing link/math editors).
+export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) {
+  const ctx = useDrawerContext()
+  const acked = ctx.acknowledgedConfLines.has(lineId)
+  const reason = item.ocrConfidence === 'low'
+    ? `The scanner wasn't sure about this line${item.ocrNotes ? ` — ${item.ocrNotes}` : ''}.`
+    : `This was matched to "${item.matchedItem?.itemName ?? 'an item'}" by description similarity only — confirm it's the right product.`
+  return (
+    <IssueShell
+      kind="conf"
+      label="Check line"
+      resolved={acked}
+      actions={
+        <button
+          type="button"
+          disabled={acked}
+          onClick={() => ctx.acknowledgeConf(lineId)}
+          className={`inline-flex items-center gap-1.5 px-3 py-[7px] text-[12px] font-medium rounded-[7px] transition-colors ${
+            acked
+              ? 'bg-green-soft text-green-text cursor-default'
+              : 'bg-ink text-paper hover:bg-ink-2'
+          }`}
+        >
+          {acked ? 'Confirmed ✓' : 'Looks right'}
+        </button>
+      }
+    >
+      {reason}
+    </IssueShell>
+  )
+}

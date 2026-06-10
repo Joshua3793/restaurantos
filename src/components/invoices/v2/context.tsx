@@ -24,6 +24,7 @@ export interface DrawerContextValue {
   pickingLinkForId: string | null     // which line's link picker is open
   modeWritebackItems: Set<string>     // lines where user wants to update product default mode
   acknowledgedPriceLines: Set<string> // lines where the user accepted the price change
+  acknowledgedConfLines: Set<string>  // lines where the user confirmed a low-trust line
 
   // ── Reconciliation result ──────────────────────────────────────────────────
   reconciliation: ReconcileResult | null
@@ -59,6 +60,9 @@ export interface DrawerContextValue {
 
   // ── Price-change acknowledgement (resolves the price .issue) ───────────────
   acknowledgePrice: (id: string) => void
+
+  // ── Low-trust line confirmation (resolves the conf .issue) ─────────────────
+  acknowledgeConf: (id: string) => void
 
   // ── Active bbox for image highlight ────────────────────────────────────────
   activeBboxItemId: string | null     // which line card is expanded + has a bbox
