@@ -480,6 +480,10 @@ export function InvoiceReviewDrawer({
 
   // ── Line mutations ──────────────────────────────────────────────────────────
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Patches staged locally but not yet PATCHed to the server. Keyed by line id;
+  // merged per line so rapid edits to different lines/fields can't clobber
+  // each other (a single "latest patch" timer used to drop earlier edits).
+  const pendingEditsRef = useRef<Map<string, Partial<ScanItem>>>(new Map())
 
   const persistEdit = useCallback(async (id: string, patch: Partial<ScanItem>) => {
     if (!session) return
@@ -497,16 +501,30 @@ export function InvoiceReviewDrawer({
     }
   }, [session])
 
+  // Send every staged patch now. Used by the debounce timer and awaited by
+  // handleApprove so a consent/edit clicked moments before Approve is never
+  // lost to the debounce window.
+  const flushPendingEdits = useCallback(async () => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const pending = pendingEditsRef.current
+    if (pending.size === 0) return
+    pendingEditsRef.current = new Map()
+    await Promise.all(
+      Array.from(pending.entries()).map(([id, patch]) => persistEdit(id, patch))
+    )
+  }, [persistEdit])
+
   const updateLine = useCallback((id: string, patch: Partial<ScanItem>) => {
     setEditedLines(prev => {
       const next = new Map(prev)
       next.set(id, { ...prev.get(id), ...patch })
       return next
     })
-    // Debounce the server save by 600ms to batch rapid field edits
+    // Stage the patch (merged per line) and debounce the server save by 600ms
+    pendingEditsRef.current.set(id, { ...pendingEditsRef.current.get(id), ...patch })
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => persistEdit(id, patch), 600)
-  }, [persistEdit])
+    saveTimer.current = setTimeout(() => { void flushPendingEdits() }, 600)
+  }, [flushPendingEdits])
 
   const clearLineEdits = useCallback((id: string) => {
     setEditedLines(prev => {
@@ -590,6 +608,9 @@ export function InvoiceReviewDrawer({
     if (!session) return
     setApproving(true)
     try {
+      // Make sure staged line edits (e.g. a just-clicked format consent) are
+      // on the server before it snapshots the scan items.
+      await flushPendingEdits()
       const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -598,7 +619,7 @@ export function InvoiceReviewDrawer({
       const result = await res.json()
       if (res.status === 409 && result.duplicate && !force) {
         const ok = window.confirm(`${result.error}\n\nApprove anyway?`)
-        if (ok) { setApproving(false); return handleApprove(true) }
+        if (ok) { return await handleApprove(true) }
         return
       }
       if (!res.ok) {
