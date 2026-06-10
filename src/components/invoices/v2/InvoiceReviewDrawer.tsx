@@ -614,6 +614,12 @@ export function InvoiceReviewDrawer({
     setAcknowledgedConfLines(prev => new Set(prev).add(id))
   }, [])
 
+  // ── Mobile: jump to the image tab with a line's bbox highlighted ─────────────
+  const showLineOnImage = useCallback((id: string) => {
+    setActiveBboxItemId(id)
+    setMobileTab('image')
+  }, [])
+
   // ── Approve ─────────────────────────────────────────────────────────────────
   const handleApprove = async (force = false) => {
     if (!session) return
@@ -761,13 +767,14 @@ export function InvoiceReviewDrawer({
     acknowledgePrice,
     acknowledgeConf,
     activeBboxItemId,
+    showLineOnImage,
     toggleFilter,
     setSortMode,
   }), [
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
     activeFilters, sortMode, pickingLinkForId, modeWritebackItems, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, toggleModeWriteback, acknowledgePrice, acknowledgeConf, activeBboxItemId, toggleFilter,
+    setLineRc, toggleModeWriteback, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────

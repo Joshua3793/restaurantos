@@ -66,6 +66,8 @@ export interface DrawerContextValue {
 
   // ── Active bbox for image highlight ────────────────────────────────────────
   activeBboxItemId: string | null     // which line card is expanded + has a bbox
+  /** Mobile: switch the drawer to the image tab with this line's row highlighted. */
+  showLineOnImage: (id: string) => void
 
   // ── Filters / sort ─────────────────────────────────────────────────────────
   toggleFilter: (k: FilterKey) => void

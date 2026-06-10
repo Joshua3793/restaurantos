@@ -255,6 +255,21 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         </div>
       ) : null}
 
+      {/* mobile: jump to the invoice image with this line's row highlighted.
+          md:hidden — the drawer's mobile tab bar exists below md; at md+ the
+          image viewer is already side-by-side. */}
+      {!isPicking && item.bbox != null && (
+        <div className="md:hidden px-4 pt-2.5 flex">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); ctx.showLineOnImage(lineId) }}
+            className="inline-flex items-center gap-1.5 self-start px-3 py-[7px] text-[12px] font-medium rounded-[7px] bg-paper text-ink-2 border border-line hover:border-ink-4 transition-colors"
+          >
+            View on invoice
+          </button>
+        </div>
+      )}
+
       {/* issue blocks */}
       {!isPicking && (
         <>
