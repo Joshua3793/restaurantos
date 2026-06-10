@@ -66,6 +66,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         nominalWeight:      body.nominalWeight     !== undefined ? body.nominalWeight     : undefined,
         lineCategory:       body.lineCategory      !== undefined ? body.lineCategory      : undefined,
         supplierItemCode:   body.supplierItemCode  !== undefined ? body.supplierItemCode  : undefined,
+        applyInvoiceFormat: body.applyInvoiceFormat !== undefined ? body.applyInvoiceFormat : undefined,
+        formatMismatch:     body.formatMismatch     !== undefined ? body.formatMismatch     : undefined,
       },
     })
     return NextResponse.json(item)

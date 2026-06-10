@@ -586,12 +586,21 @@ export function InvoiceReviewDrawer({
   }, [])
 
   // ── Approve ─────────────────────────────────────────────────────────────────
-  const handleApprove = async () => {
+  const handleApprove = async (force = false) => {
     if (!session) return
     setApproving(true)
     try {
-      const res    = await fetch(`/api/invoices/sessions/${session.id}/approve`, { method: 'POST' })
+      const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      })
       const result = await res.json()
+      if (res.status === 409 && result.duplicate && !force) {
+        const ok = window.confirm(`${result.error}\n\nApprove anyway?`)
+        if (ok) { setApproving(false); return handleApprove(true) }
+        return
+      }
       if (!res.ok) {
         alert(`Approval failed: ${result.error ?? res.statusText}`)
         return
@@ -926,7 +935,7 @@ export function InvoiceReviewDrawer({
                     supplierLink={initialAttention.supplier && !!linkedSupplierId}
                     canApprove={canApprove}
                     disabledReason={disabledReason}
-                    onApprove={handleApprove}
+                    onApprove={() => handleApprove()}
                     onReject={handleReject}
                     saveStatus={saveStatus}
                   />

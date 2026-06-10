@@ -404,7 +404,7 @@ function FormatMismatchNotice({ item, lineId }: { item: ScanItem; lineId: string
       <div className="flex gap-1.5 flex-wrap">
         <button
           type="button"
-          onClick={() => updateLine(lineId, { formatMismatch: false })}
+          onClick={() => updateLine(lineId, { formatMismatch: false, applyInvoiceFormat: true })}
           className="inline-flex items-center gap-1.5 px-3 py-[7px] text-[12px] font-medium rounded-[7px] bg-ink text-paper hover:bg-ink-2 transition-colors"
         >
           Use invoice format
@@ -415,6 +415,7 @@ function FormatMismatchNotice({ item, lineId }: { item: ScanItem; lineId: string
             if (!inv) return
             updateLine(lineId, {
               formatMismatch: false,
+              applyInvoiceFormat: false,
               invoicePackQty:  String(inv.qtyPerPurchaseUnit),
               invoicePackSize: String(inv.packSize),
               invoicePackUOM:  inv.packUOM ?? undefined,

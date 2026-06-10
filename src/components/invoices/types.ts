@@ -53,6 +53,7 @@ export interface ScanItem {
   newPrice: string | null
   priceDiffPct: string | null
   formatMismatch: boolean
+  applyInvoiceFormat?: boolean
   invoicePackQty: string | null
   invoicePackSize: string | null
   invoicePackUOM: string | null
