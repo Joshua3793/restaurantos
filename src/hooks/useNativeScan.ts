@@ -4,6 +4,7 @@
 import { useState, useCallback } from 'react'
 import { scanDocument } from '@/lib/capacitor'
 import { useUploadThing } from '@/lib/uploadthing-client'
+import { compressImageFile } from '@/lib/image-compress'
 
 interface Options {
   activeRcId: string | null
@@ -16,22 +17,6 @@ function base64ToUint8Array(b64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes
-}
-
-// Merges an array of base64 JPEG strings into a single PDF Blob.
-async function mergePagesToPdf(base64Images: string[]): Promise<Blob> {
-  const { PDFDocument } = await import('pdf-lib')
-  const doc = await PDFDocument.create()
-  for (const raw of base64Images) {
-    // Strip data URI prefix if the plugin includes it
-    const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
-    const bytes = base64ToUint8Array(b64)
-    const image = await doc.embedJpg(bytes)
-    const page = doc.addPage([image.width, image.height])
-    page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height })
-  }
-  const pdfBytes = await doc.save()
-  return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
 }
 
 export function useNativeScan({ activeRcId, onComplete }: Options) {
@@ -49,11 +34,17 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
       const pages = await scanDocument()
       if (!pages.length) { setIsScanning(false); return }
 
-      // 2. Merge pages into a single PDF
-      const pdfBlob = await mergePagesToPdf(pages)
-      const pdfFile = new File([pdfBlob], `scan_${Date.now()}.pdf`, {
-        type: 'application/pdf',
-      })
+      // 2. Convert pages to compressed JPEG files. Individual images (not a
+      // merged PDF) so the server runs them through the sharp enhancement
+      // pipeline and one combined multi-image OCR call — and bbox page
+      // indexes line up with file order.
+      const pageFiles = await Promise.all(pages.map(async (raw, i) => {
+        const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
+        const bytes = base64ToUint8Array(b64)
+        const file = new File([new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' })],
+          `scan_p${i + 1}.jpg`, { type: 'image/jpeg' })
+        return compressImageFile(file)
+      }))
 
       // 3. Create session
       const sessRes = await fetch('/api/invoices/sessions', {
@@ -71,7 +62,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
       let uploadOk = false
       try {
         const uploaded = await Promise.race([
-          startUpload([pdfFile]),
+          startUpload(pageFiles),
           new Promise<null>((_, rej) =>
             setTimeout(() => rej(new Error('Cloud upload timed out')), 8_000)
           ),
@@ -84,7 +75,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
               files: uploaded.map(f => ({
                 url: f.url,
                 fileName: f.name,
-                fileType: 'application/pdf',
+                fileType: 'image/jpeg',
               })),
             }),
           })
@@ -97,15 +88,15 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
       // 4b. Local fallback (same as InvoiceUploadModal)
       if (!uploadOk) {
         const limitBytes = 4 * 1024 * 1024
-        if (pdfFile.size > limitBytes) {
+        const oversize = pageFiles.find(f => f.size > limitBytes)
+        if (oversize) {
           setScanError(
-            `Scanned PDF is too large (${(pdfFile.size / 1024 / 1024).toFixed(1)} MB). ` +
-            `Try scanning fewer pages.`
+            `A scanned page is too large (${(oversize.size / 1024 / 1024).toFixed(1)} MB) even after compression. Please retake the photo.`
           )
           return
         }
         const fd = new FormData()
-        fd.append('files', pdfFile)
+        for (const f of pageFiles) fd.append('files', f)
         const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
           method: 'POST',
           body: fd,
