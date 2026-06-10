@@ -16,6 +16,7 @@ interface ApproveResult {
   newItemsCreated: number
   priceAlerts: number
   recipeAlerts: number
+  skippedLines: number
 }
 
 async function doApprove(
@@ -25,6 +26,7 @@ async function doApprove(
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
+  let skippedLines = 0
   try {
     const itemsToProcess = session.scanItems.filter(
       item => item.action !== 'SKIP' && item.action !== 'PENDING'
@@ -91,6 +93,26 @@ async function doApprove(
           }
         }
 
+        // If the invoice's pack format genuinely differs from the stored item
+        // format and the user did NOT consent to adopting it, the CASE fallback
+        // below would divide an invoice-format price by inventory-format units —
+        // wrong by the format ratio. Skip the write; the line stays un-approved.
+        const invoiceFormatDiffers =
+          scanItem.invoicePackQty !== null &&
+          scanItem.invoicePackSize !== null &&
+          (Number(scanItem.invoicePackQty)  !== Number(item.qtyPerPurchaseUnit) ||
+           Number(scanItem.invoicePackSize) !== Number(item.packSize))
+        const usedCaseFallback =
+          rawPriceType !== 'UOM' &&
+          !(scanItem.totalQty !== null && scanItem.totalQty !== undefined && Number(scanItem.totalQty) > 0)
+        if (!useInvoicePack && invoiceFormatDiffers && usedCaseFallback) {
+          console.error(
+            `[approve] Skipping price write for "${scanItem.rawDescription}" — invoice pack format differs from stored format without consent`
+          )
+          skippedLines++
+          continue
+        }
+
         // Never write a zero/NaN price to the spine — a 0 pricePerBaseUnit
         // silently zeroes every recipe cost that reads this item. Leave the
         // line un-approved so it stays visible in the session for follow-up.
@@ -98,6 +120,7 @@ async function doApprove(
           console.error(
             `[approve] Skipping price write for "${scanItem.rawDescription}" — computed pricePerBaseUnit=${newPricePerBase}`
           )
+          skippedLines++
           continue
         }
 
@@ -213,10 +236,20 @@ async function doApprove(
       }
     }
 
-    // Mark session as APPROVED
+    // Mark session as APPROVED. If any lines were skipped (price not safely
+    // resolvable), surface that on the session so it isn't silently lost.
     await prisma.invoiceSession.update({
       where: { id: sessionId },
-      data: { status: 'APPROVED', approvedBy, approvedAt: new Date() },
+      data: {
+        status: 'APPROVED',
+        approvedBy,
+        approvedAt: new Date(),
+        ...(skippedLines > 0
+          ? {
+              errorMessage: `${skippedLines} line${skippedLines === 1 ? '' : 's'} skipped — price not updated (format or price could not be resolved safely). Re-open the invoice to review.`,
+            }
+          : {}),
+      },
     })
 
     // ── Clone session per RC ────────────────────────────────────────────
@@ -299,6 +332,7 @@ async function doApprove(
       newItemsCreated,
       priceAlerts:     priceAlertsCreated,
       recipeAlerts:    recipeAlertsCreated,
+      skippedLines,
     }
   } catch (err) {
     await prisma.invoiceSession.update({
@@ -344,7 +378,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const dup = await prisma.invoiceSession.findFirst({
       where: {
         id:            { not: session.id },
-        status:        'APPROVED',
+        status:        { in: ['APPROVED', 'APPROVING'] },
         invoiceNumber: session.invoiceNumber,
         supplierName:  session.supplierName,
       },
@@ -353,7 +387,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (dup) {
       return NextResponse.json(
         {
-          error: `Invoice ${session.invoiceNumber} from ${session.supplierName} was already approved${dup.approvedAt ? ` on ${new Date(dup.approvedAt).toLocaleDateString()}` : ''}. Approving again will apply its price changes a second time.`,
+          error: `Invoice ${session.invoiceNumber} from ${session.supplierName} was already approved${dup.approvedAt ? ` on ${new Date(dup.approvedAt).toLocaleDateString('en-CA')}` : ''}. Approving again will apply its price changes a second time.`,
           duplicate: true,
         },
         { status: 409 }
