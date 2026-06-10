@@ -353,7 +353,7 @@ export async function matchLineItems(
             },
           },
         },
-        orderBy: { useCount: 'desc' },
+        orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
       })
     } catch {
       // Column may not exist yet on stale clients — fall through to text matching
@@ -419,7 +419,7 @@ export async function matchLineItems(
       // A rule learned under THIS supplier is authoritative. A generic rule
       // (saved when the supplier was unknown, supplierName '') applied to a
       // session with a known supplier is only a hint — surface it as MEDIUM so
-      // the trust-check gate (resolution.ts) asks the user to confirm it.
+      // the review UI can ask the user to confirm it instead of trusting it outright.
       const supplierSpecific = !supplierName || learned.supplierName === supplierName
       return buildMatchResult(
         ocrItem,
@@ -486,6 +486,23 @@ export async function saveMatchRule(
   format?: { packQty: number; packSize: number; packUOM: string } | null,
   supplierItemCode?: string | null
 ): Promise<void> {
+  const code = supplierItemCode?.trim() || null
+
+  // A code maps to exactly one item per supplier. If sibling rules (different
+  // descriptions) carry this code but point at a different item, the user's
+  // fresh confirmation wins — strip the code from the stale rules so tier-0
+  // can't keep resurrecting the old mapping.
+  if (code && supplierName) {
+    await prisma.invoiceMatchRule.updateMany({
+      where: {
+        supplierName,
+        supplierItemCode: code,
+        inventoryItemId: { not: inventoryItemId },
+      },
+      data: { supplierItemCode: null },
+    })
+  }
+
   await prisma.invoiceMatchRule.upsert({
     where: {
       rawDescription_supplierName: {
@@ -497,7 +514,7 @@ export async function saveMatchRule(
       rawDescription,
       supplierName: supplierName || '',
       inventoryItemId,
-      supplierItemCode: supplierItemCode ?? null,
+      supplierItemCode: code,
       invoicePackQty: format?.packQty ?? null,
       invoicePackSize: format?.packSize ?? null,
       invoicePackUOM: format?.packUOM ?? null,
@@ -506,7 +523,7 @@ export async function saveMatchRule(
       inventoryItemId,
       useCount: { increment: 1 },
       lastUsed: new Date(),
-      ...(supplierItemCode ? { supplierItemCode } : {}),
+      ...(code ? { supplierItemCode: code } : {}),
       ...(format ? { invoicePackQty: format.packQty, invoicePackSize: format.packSize, invoicePackUOM: format.packUOM } : {}),
     },
   })
