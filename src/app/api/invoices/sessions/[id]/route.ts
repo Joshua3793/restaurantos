@@ -68,6 +68,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         supplierItemCode:   body.supplierItemCode  !== undefined ? body.supplierItemCode  : undefined,
         applyInvoiceFormat: body.applyInvoiceFormat !== undefined ? body.applyInvoiceFormat : undefined,
         formatMismatch:     body.formatMismatch     !== undefined ? body.formatMismatch     : undefined,
+        matchConfidence:    body.matchConfidence   !== undefined ? body.matchConfidence   : undefined,
+        matchScore:         body.matchScore        !== undefined ? body.matchScore        : undefined,
       },
     })
     return NextResponse.json(item)

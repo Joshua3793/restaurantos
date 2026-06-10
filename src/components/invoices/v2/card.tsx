@@ -83,6 +83,10 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         innerQty: null,
       },
       action: 'UPDATE_PRICE',
+      // A hand-picked link is no longer a fuzzy match — clear the MEDIUM-match
+      // trust check so ConfIssue stops claiming "description similarity only".
+      matchConfidence: 'HIGH',
+      matchScore: 100,
     })
     ctx.closeLinkPicker()
   }

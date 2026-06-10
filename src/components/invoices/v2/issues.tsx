@@ -216,6 +216,7 @@ export function PriceIssue({
 export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) {
   const ctx = useDrawerContext()
   const acked = ctx.acknowledgedConfLines.has(lineId)
+  const fuzzyMatch = item.ocrConfidence !== 'low'
   const reason = item.ocrConfidence === 'low'
     ? `The scanner wasn't sure about this line${item.ocrNotes ? ` — ${item.ocrNotes}` : ''}.`
     : `This was matched to "${item.matchedItem?.itemName ?? 'an item'}" by description similarity only — confirm it's the right product.`
@@ -225,18 +226,14 @@ export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
       label="Check line"
       resolved={acked}
       actions={
-        <button
-          type="button"
-          disabled={acked}
-          onClick={() => ctx.acknowledgeConf(lineId)}
-          className={`inline-flex items-center gap-1.5 px-3 py-[7px] text-[12px] font-medium rounded-[7px] transition-colors ${
-            acked
-              ? 'bg-green-soft text-green-text cursor-default'
-              : 'bg-ink text-paper hover:bg-ink-2'
-          }`}
-        >
-          {acked ? 'Confirmed ✓' : 'Looks right'}
-        </button>
+        <>
+          <ActButton variant={acked ? 'primary' : 'default'} onClick={() => ctx.acknowledgeConf(lineId)}>
+            {acked ? 'Confirmed ✓' : 'Looks right'}
+          </ActButton>
+          {fuzzyMatch && (
+            <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Change link</ActButton>
+          )}
+        </>
       }
     >
       {reason}
