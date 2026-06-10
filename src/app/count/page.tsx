@@ -4,7 +4,7 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react'
 import {
-  AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
+  AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown,
   Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -220,6 +220,13 @@ export default function CountPage() {
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
   const [searchQuery,   setSearchQuery]   = useState('')
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
+
+  // ── Review screen: interactive table controls ──────────────────────────────
+  const [reviewSearch, setReviewSearch] = useState('')
+  const [reviewCat,    setReviewCat]    = useState<string | null>(null)
+  const [reviewBucket, setReviewBucket] = useState<'all' | 'flagged' | 'over' | 'short'>('all')
+  const [reviewSort,   setReviewSort]   = useState<ReviewSortKey>('costImpact')
+  const [reviewDir,    setReviewDir]    = useState<'asc' | 'desc'>('desc')
 
   // ── Storage areas (for partial count picker) ─────────────────────────────
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([])
@@ -2579,9 +2586,48 @@ export default function CountPage() {
       const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
       return s + base * linePrice(l)
     }, 0)
-    const sorted       = [...countedLines].sort(
-      (a, b) => Math.abs(lineVarCost(b)) - Math.abs(lineVarCost(a))
-    )
+
+    // ── Interactive checkpoint table: one row model, filter then sort ──────────
+    const rows = countedLines.map(l => {
+      const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
+      return {
+        line:        l,
+        name:        l.inventoryItem.itemName,
+        category:    l.inventoryItem.category,
+        counted:     Number(l.countedQty),
+        invValue:    base * linePrice(l),
+        variancePct: Number(l.variancePct ?? 0),
+        costImpact:  lineVarCost(l),
+        reliable:    hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem),
+      }
+    })
+    const reviewCats = Array.from(new Set(rows.map(r => r.category))).sort()
+    const q = reviewSearch.trim().toLowerCase()
+    const filtered = rows.filter(r => {
+      if (q && !r.name.toLowerCase().includes(q)) return false
+      if (reviewCat && r.category !== reviewCat) return false
+      if (reviewBucket === 'flagged' && !(r.reliable && Math.abs(r.variancePct) > LARGE_VARIANCE_PCT)) return false
+      if (reviewBucket === 'over'    && !(r.costImpact > 0)) return false
+      if (reviewBucket === 'short'   && !(r.costImpact < 0)) return false
+      return true
+    })
+    const sortOpt = REVIEW_SORT_OPTIONS.find(o => o.key === reviewSort) ?? REVIEW_SORT_OPTIONS[5]
+    const sortedRows = [...filtered].sort((a, b) => {
+      let cmp: number
+      if (!sortOpt.numeric) cmp = String(a[reviewSort]).localeCompare(String(b[reviewSort]))
+      else {
+        const av = sortOpt.magnitude ? Math.abs(Number(a[reviewSort])) : Number(a[reviewSort])
+        const bv = sortOpt.magnitude ? Math.abs(Number(b[reviewSort])) : Number(b[reviewSort])
+        cmp = av - bv
+      }
+      return reviewDir === 'asc' ? cmp : -cmp
+    })
+    const filteredValue = filtered.reduce((s, r) => s + r.invValue, 0)
+    const filtersActive = !!(q || reviewCat || reviewBucket !== 'all')
+    const toggleSort = (k: ReviewSortKey) => {
+      if (reviewSort === k) setReviewDir(d => (d === 'asc' ? 'desc' : 'asc'))
+      else { setReviewSort(k); setReviewDir('desc') }
+    }
 
     return (
       <div className="max-w-4xl">
@@ -2634,14 +2680,69 @@ export default function CountPage() {
           ))}
         </div>
 
+        {/* Filter + sort controls — shared, drives both renderers */}
+        {rows.length > 0 && (
+          <div className="mb-4 space-y-3">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
+                <input
+                  value={reviewSearch}
+                  onChange={e => setReviewSearch(e.target.value)}
+                  placeholder="Search items…"
+                  className="w-full pl-9 pr-3 py-2 bg-paper border border-line rounded-[10px] text-[13px] text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-gold"
+                />
+              </div>
+              {/* Mobile sort control (desktop sorts via column headers) */}
+              <div className="flex md:hidden items-stretch gap-1">
+                <select
+                  value={reviewSort}
+                  onChange={e => setReviewSort(e.target.value as ReviewSortKey)}
+                  className="bg-paper border border-line rounded-[10px] text-[12px] text-ink-2 px-2 focus:outline-none focus:ring-2 focus:ring-gold"
+                >
+                  {REVIEW_SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <button
+                  onClick={() => setReviewDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+                  className="shrink-0 px-2.5 bg-paper border border-line rounded-[10px] text-ink-2"
+                  aria-label="Toggle sort direction"
+                >
+                  {reviewDir === 'asc' ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                </button>
+              </div>
+            </div>
+
+            {reviewCats.length > 1 && (
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                <Pill active={!reviewCat} onClick={() => setReviewCat(null)}>All cats</Pill>
+                {reviewCats.map(c => (
+                  <Pill key={c} active={reviewCat === c} onClick={() => setReviewCat(reviewCat === c ? null : c)}>{c}</Pill>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex gap-1.5">
+                {([['all', 'All'], ['flagged', `Flagged >${LARGE_VARIANCE_PCT}%`], ['over', 'Over'], ['short', 'Short']] as const).map(([k, label]) => (
+                  <Pill key={k} active={reviewBucket === k} onClick={() => setReviewBucket(k)}>{label}</Pill>
+                ))}
+              </div>
+              <span className="font-mono text-[10.5px] text-ink-3 shrink-0">
+                {filtersActive ? `${filtered.length} of ${rows.length}` : `${rows.length} items`} · {formatCurrency(filteredValue)}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Variance cards — mobile */}
-        {sorted.length > 0 && (
+        {rows.length === 0 ? (
+          <div className="block md:hidden mb-24"><Empty /></div>
+        ) : sortedRows.length === 0 ? (
+          <div className="block md:hidden mb-24"><Empty /></div>
+        ) : (
           <div className="block md:hidden space-y-2 mb-24">
-            {sorted.map(l => {
-              const vPct     = Number(l.variancePct ?? 0)
-              const vCost    = lineVarCost(l)
-              const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
-              const large    = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
+            {sortedRows.map(({ line: l, invValue, counted, variancePct: vPct, costImpact: vCost, reliable }) => {
+              const large = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
               return (
                 <div key={l.id} className="bg-paper rounded-xl border border-line overflow-hidden flex">
                   {large && <div className="w-1 shrink-0 bg-gold" />}
@@ -2655,12 +2756,12 @@ export default function CountPage() {
                   </div>
                   <div className="grid grid-cols-2 divide-x divide-line">
                     <div className="px-3 py-2">
-                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Expected</div>
-                      <div className="text-sm text-ink-2">{convertBaseToCountUom(Number(l.expectedQty), l.selectedUom, l.inventoryItem).toFixed(1)} {l.selectedUom}</div>
+                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Counted</div>
+                      <div className="text-sm font-semibold text-ink">{counted.toFixed(1)} {l.selectedUom}</div>
                     </div>
                     <div className="px-3 py-2">
-                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Counted</div>
-                      <div className="text-sm font-semibold text-ink">{Number(l.countedQty).toFixed(1)} {l.selectedUom}</div>
+                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Inv value</div>
+                      <div className="text-sm text-ink-2">{formatCurrency(invValue)}</div>
                     </div>
                     <div className="px-3 py-2 border-t border-line">
                       <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Variance</div>
@@ -2682,48 +2783,45 @@ export default function CountPage() {
           </div>
         )}
 
-        {/* Variance table — desktop */}
-        {sorted.length > 0 && (
+        {/* Variance table — desktop (sortable) */}
+        {rows.length > 0 && (
           <div className="hidden md:block bg-paper rounded-xl border border-line overflow-hidden mb-6">
-            <div className="px-4 py-3 border-b border-line">
-              <h2 className="font-mono text-[11px] text-ink-3 uppercase tracking-[0.06em]">Variance breakdown</h2>
+            <div className="px-4 py-2.5 border-b border-line grid grid-cols-[1fr_120px_90px_100px_64px_100px] gap-2">
+              <SortHeader label="Item"        col="name"        sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} />
+              <SortHeader label="Category"    col="category"    sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} />
+              <SortHeader label="Counted"     col="counted"     sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Inv value"   col="invValue"    sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Var %"       col="variancePct" sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Cost impact" col="costImpact"  sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
             </div>
-            <div className="divide-y divide-line">
-              <div className="px-4 py-2 grid grid-cols-[1fr_80px_80px_70px_90px] gap-2 font-mono text-[10px] text-ink-4 uppercase tracking-[0.05em]">
-                <span>Item</span>
-                <span className="text-right">Expected</span>
-                <span className="text-right">Counted</span>
-                <span className="text-right">Var %</span>
-                <span className="text-right">Cost impact</span>
-              </div>
-              {sorted.map(l => {
-                const vPct     = Number(l.variancePct ?? 0)
-                const vCost    = lineVarCost(l)
-                const reliable = hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem)
-                const large    = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
-                return (
-                  <div key={l.id}
-                    className={`px-4 py-2.5 grid grid-cols-[1fr_80px_80px_70px_90px] gap-2 items-center ${large ? 'bg-gold-soft/40' : ''}`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+            {sortedRows.length === 0 ? (
+              <Empty />
+            ) : (
+              <div className="divide-y divide-line">
+                {sortedRows.map(({ line: l, invValue, counted, variancePct: vPct, costImpact: vCost, reliable }) => {
+                  const large = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
+                  return (
+                    <div key={l.id}
+                      className={`px-4 py-2.5 grid grid-cols-[1fr_120px_90px_100px_64px_100px] gap-2 items-center ${large ? 'bg-gold-soft/40' : ''}`}
+                    >
+                      <div className="min-w-0 flex items-center gap-1.5">
                         {large && <AlertCircle size={12} className="text-gold shrink-0" />}
                         <span className="text-[13px] text-ink truncate">{l.inventoryItem.itemName}</span>
                       </div>
-                      <span className="font-mono text-[10.5px] text-ink-4">{l.inventoryItem.category}</span>
+                      <span className="font-mono text-[11px] text-ink-3 truncate">{l.inventoryItem.category}</span>
+                      <span className="text-right text-[13px] font-medium text-ink">{counted.toFixed(1)} {l.selectedUom}</span>
+                      <span className="text-right text-[13px] text-ink-2">{formatCurrency(invValue)}</span>
+                      <span className={`text-right text-[13px] font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
+                        {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
+                      </span>
+                      <span className={`text-right text-[13px] font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
+                        {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
+                      </span>
                     </div>
-                    <span className="text-right text-[13px] text-ink-2">{convertBaseToCountUom(Number(l.expectedQty), l.selectedUom, l.inventoryItem).toFixed(1)} {l.selectedUom}</span>
-                    <span className="text-right text-[13px] font-medium text-ink">{Number(l.countedQty).toFixed(1)} {l.selectedUom}</span>
-                    <span className={`text-right text-[13px] font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
-                      {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
-                    </span>
-                    <span className={`text-right text-[13px] font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
-                      {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -2745,20 +2843,22 @@ export default function CountPage() {
           </div>
         )}
 
-        {/* Footer — desktop */}
+        {/* Footer — desktop sticky approve bar (always reachable while scrolling) */}
         {!isFinalized ? (
-          <div className="hidden md:flex gap-3">
-            <button onClick={() => setView('count')}
-              className="flex-1 py-3 border border-line rounded-[10px] text-[13px] text-ink-2 hover:bg-bg-2 font-medium flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <ArrowLeft size={16} /> Back to counting
-            </button>
-            <button onClick={handleFinalize} disabled={finalizing}
-              className="flex-1 py-3 bg-ink text-paper rounded-[10px] text-[13px] font-semibold hover:bg-ink-2 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Check size={16} className="text-gold" />
-              {finalizing ? 'Updating…' : 'Approve & update inventory'}
-            </button>
+          <div className="hidden md:block sticky bottom-0 z-30 bg-paper/95 backdrop-blur border-t border-line pt-3 pb-3 shadow-[0_-6px_16px_rgba(0,0,0,0.05)]">
+            <div className="flex gap-3">
+              <button onClick={() => setView('count')}
+                className="flex-1 py-3 border border-line rounded-[10px] text-[13px] text-ink-2 hover:bg-bg-2 font-medium flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <ArrowLeft size={16} /> Back to counting
+              </button>
+              <button onClick={handleFinalize} disabled={finalizing}
+                className="flex-1 py-3 bg-ink text-paper rounded-[10px] text-[13px] font-semibold hover:bg-ink-2 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Check size={16} className="text-gold" />
+                {finalizing ? 'Updating…' : 'Approve & update inventory'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex items-center gap-2 bg-green-soft border border-green-soft rounded-xl px-4 py-3">
@@ -2792,4 +2892,42 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
 
 function Empty() {
   return <div className="text-center py-12 font-mono text-[12px] text-ink-4">No items match this filter</div>
+}
+
+// ── Review table: sortable columns ────────────────────────────────────────────
+type ReviewSortKey = 'name' | 'category' | 'counted' | 'invValue' | 'variancePct' | 'costImpact'
+
+// magnitude=true → sort by |value| so the biggest deviation/impact surfaces first
+const REVIEW_SORT_OPTIONS: { key: ReviewSortKey; label: string; numeric: boolean; magnitude: boolean }[] = [
+  { key: 'name',        label: 'Item',        numeric: false, magnitude: false },
+  { key: 'category',    label: 'Category',    numeric: false, magnitude: false },
+  { key: 'counted',     label: 'Counted',     numeric: true,  magnitude: false },
+  { key: 'invValue',    label: 'Inv value',   numeric: true,  magnitude: false },
+  { key: 'variancePct', label: 'Var %',       numeric: true,  magnitude: true  },
+  { key: 'costImpact',  label: 'Cost impact', numeric: true,  magnitude: true  },
+]
+
+function SortCaret({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
+  if (!active) return <ChevronsUpDown size={11} className="text-ink-4/60 shrink-0" />
+  return dir === 'asc'
+    ? <ChevronUp size={11} className="text-ink-2 shrink-0" />
+    : <ChevronDown size={11} className="text-ink-2 shrink-0" />
+}
+
+function SortHeader({ label, col, sortKey, dir, onSort, align = 'left' }: {
+  label: string; col: ReviewSortKey; sortKey: ReviewSortKey; dir: 'asc' | 'desc'
+  onSort: (k: ReviewSortKey) => void; align?: 'left' | 'right'
+}) {
+  const active = sortKey === col
+  return (
+    <button
+      onClick={() => onSort(col)}
+      className={`w-full flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.05em] transition-colors ${
+        active ? 'text-ink-2' : 'text-ink-4 hover:text-ink-3'
+      } ${align === 'right' ? 'justify-end' : ''}`}
+    >
+      <span>{label}</span>
+      <SortCaret active={active} dir={dir} />
+    </button>
+  )
 }
