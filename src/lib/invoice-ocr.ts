@@ -110,6 +110,7 @@ OUTPUT SCHEMA
   "pst":             number | null,
   "otherCharges":    [ { "label": string, "amount": number } ],
   "total":           number | null,
+  "formatNotes":     string | null,
   "lineItems": [ {
     "description":       string,
     "supplierItemCode":  string | null,
@@ -140,6 +141,13 @@ OUTPUT SCHEMA
     "bbox": { "page": 0, "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.05 } | null
   } ]
 }
+
+formatNotes: null normally. In LEARNING MODE only, fill it with a compact
+(< 600 chars) description of this supplier's invoice layout: the column names
+left-to-right, which column is the ANCHOR product code, how pricing mode is
+signaled, where the weight column is (if any), the pack-size notation, and any
+multi-row item pattern. Write it as instructions for parsing the NEXT invoice
+from this supplier.
 
 ═══════════════════════════════════════════════════════
 UNIVERSAL PURCHASE STRUCTURE
@@ -623,8 +631,17 @@ function getSupplierHint(supplierName: string | null | undefined): string {
   return ''
 }
 
-function buildSystemPrompt(supplierName?: string | null, learning = false): string {
-  const hint = getSupplierHint(supplierName)
+function buildSystemPrompt(
+  supplierName?: string | null,
+  learning = false,
+  savedFormatNotes?: string | null
+): string {
+  // Hardcoded hints win; otherwise fall back to layout notes a previous
+  // learning-mode run saved for this supplier.
+  const hint = getSupplierHint(supplierName) ||
+    (savedFormatNotes
+      ? `\nSUPPLIER LAYOUT NOTES (learned from previous invoices of ${supplierName ?? 'this supplier'}):\n${savedFormatNotes}`
+      : '')
   const learningNote = learning
     ? '\n\n⚑ LEARNING MODE: This is one of the first invoices from this supplier. ' +
       'Before processing any rows, scan the full invoice and complete these steps:\n' +
@@ -724,6 +741,9 @@ export interface OcrResult {
   pst: number | null
   otherCharges: Array<{ label: string; amount: number }>
   total: number | null
+
+  // Learning-mode only: Claude's own summary of this supplier's column layout
+  formatNotes: string | null
 
   // Lines
   lineItems: OcrLineItem[]
@@ -832,6 +852,7 @@ function parseOcrResponse(rawText: string): OcrResult {
       .map(o => ({ label: asStr(o.label) ?? '', amount: asNum(o.amount) ?? 0 }))
       .filter(o => o.label.length > 0),
     total:           asNum(parsed.total),
+    formatNotes:     asStr(parsed.formatNotes),
     lineItems:       rawItems.map(normalizeLineItem),
   }
 }
@@ -899,7 +920,8 @@ async function callWithJsonRetry(
 export async function extractInvoiceFromImages(
   files: Array<{ base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }>,
   supplierName?: string | null,
-  learning = false
+  learning = false,
+  savedFormatNotes?: string | null
 ): Promise<OcrResult> {
   const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
@@ -934,7 +956,7 @@ export async function extractInvoiceFromImages(
     const message = await (client.messages.stream({
       model: OCR_MODEL,
       max_tokens: maxTokens,
-      system: buildSystemPrompt(supplierName, learning),
+      system: buildSystemPrompt(supplierName, learning, savedFormatNotes),
       thinking: { type: 'enabled', budget_tokens: thinkingBudget },
       messages: [{
         role: 'user',
@@ -965,7 +987,8 @@ export async function extractInvoiceFromImage(
 export async function extractInvoiceFromPdf(
   pdfBuffer: Buffer,
   supplierName?: string | null,
-  learning = false
+  learning = false,
+  savedFormatNotes?: string | null
 ): Promise<OcrResult> {
   const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
@@ -980,7 +1003,7 @@ export async function extractInvoiceFromPdf(
     const message = await (client.messages.stream({
       model: OCR_MODEL,
       max_tokens: maxTokens,
-      system: buildSystemPrompt(supplierName, learning),
+      system: buildSystemPrompt(supplierName, learning, savedFormatNotes),
       thinking: { type: 'enabled', budget_tokens: thinkingBudget },
       messages: [{
         role: 'user',
@@ -1004,7 +1027,8 @@ export async function extractInvoiceFromPdf(
 export async function extractInvoiceFromText(
   text: string,
   supplierName?: string | null,
-  learning = false
+  learning = false,
+  savedFormatNotes?: string | null
 ): Promise<OcrResult> {
   const apiKey = resolveAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
@@ -1018,7 +1042,7 @@ export async function extractInvoiceFromText(
     const message = await (client.messages.stream({
       model: OCR_MODEL,
       max_tokens: maxTokens,
-      system: buildSystemPrompt(supplierName, learning),
+      system: buildSystemPrompt(supplierName, learning, savedFormatNotes),
       thinking: { type: 'enabled', budget_tokens: thinkingBudget },
       messages: [{
         role: 'user',
@@ -1116,7 +1140,7 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
       supplierName: null, invoiceNumber: null, invoiceDate: null, poNumber: null,
       subtotal: null, discount: null, fuelSurcharge: null, freight: null,
       minimumOrderFee: null, gst: null, hst: null, pst: null,
-      otherCharges: [], total: null, lineItems: [],
+      otherCharges: [], total: null, formatNotes: null, lineItems: [],
     }
   }
 
@@ -1169,6 +1193,6 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
     supplierName: null, invoiceNumber: null, invoiceDate: null, poNumber: null,
     subtotal: null, discount: null, fuelSurcharge: null, freight: null,
     minimumOrderFee: null, gst: null, hst: null, pst: null,
-    otherCharges: [], total: null, lineItems,
+    otherCharges: [], total: null, formatNotes: null, lineItems,
   }
 }

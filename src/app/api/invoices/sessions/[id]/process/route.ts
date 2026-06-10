@@ -96,6 +96,16 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     console.log(`[process] Learning mode active (supplier: ${session.supplierName ?? 'unknown'}, approved invoices: ${approvedCount})`)
   }
 
+  // Layout notes saved by a previous learning-mode run for this supplier.
+  let savedFormatNotes: string | null = null
+  if (session.supplierId) {
+    const sup = await prisma.supplier.findUnique({
+      where: { id: session.supplierId },
+      select: { ocrFormatNotes: true },
+    })
+    savedFormatNotes = sup?.ocrFormatNotes ?? null
+  }
+
   const needsFreshOcr = filesToProcess.some(f => !f.ocrRawJson)
   if (needsFreshOcr && !hasAnthropicKey()) {
     await prisma.invoiceSession.update({
@@ -147,7 +157,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       )
       try {
         console.log(`[process] Sending ${imageFiles.length} image(s) in one Claude call`)
-        const result = await extractInvoiceFromImages(imagePayloads, session.supplierName, isLearning)
+        const result = await extractInvoiceFromImages(imagePayloads, session.supplierName, isLearning, savedFormatNotes)
         mergeResult(result, sessionMeta)
         allOcrItems = [...allOcrItems, ...result.lineItems]
         await prisma.invoiceFile.update({
@@ -175,7 +185,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           // in the full ordered session file list.
           const pageIndexById = new Map(session.files.map((f, idx) => [f.id, idx]))
           const pageResults = await Promise.allSettled(
-            imagePayloads.map(p => extractInvoiceFromImages([p], session.supplierName, isLearning))
+            imagePayloads.map(p => extractInvoiceFromImages([p], session.supplierName, isLearning, savedFormatNotes))
           )
           let anyOk = false
           const pageOcrResults: { page: number; result: OcrResult }[] = []
@@ -244,7 +254,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           if (ft === 'text/csv' || file.fileName.endsWith('.csv')) {
             result = await extractInvoiceFromCsv(buf.toString('utf-8'))
           } else {
-            result = await extractInvoiceFromPdf(buf, session.supplierName, isLearning)
+            result = await extractInvoiceFromPdf(buf, session.supplierName, isLearning, savedFormatNotes)
           }
           await prisma.invoiceFile.update({
             where: { id: file.id },
@@ -366,6 +376,16 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       },
     })
 
+    // Persist learning-mode layout discovery for next time. autoSupplierId is
+    // resolved just above; prefer it over the session's original supplierId.
+    const formatNotesSupplierId = autoSupplierId ?? session.supplierId
+    if (isLearning && sessionMeta.formatNotes && formatNotesSupplierId) {
+      await prisma.supplier.update({
+        where: { id: formatNotesSupplierId },
+        data:  { ocrFormatNotes: sessionMeta.formatNotes.slice(0, 1000) },
+      }).catch(() => {}) // non-critical
+    }
+
     const updatedFiles = await prisma.invoiceFile.findMany({
       where: { sessionId: params.id },
       select: { ocrStatus: true },
@@ -444,4 +464,5 @@ function mergeResult(result: OcrResult, meta: Partial<OcrResult>) {
   if (meta.hst             == null && result.hst             != null) meta.hst             = result.hst
   if (meta.pst             == null && result.pst             != null) meta.pst             = result.pst
   if (meta.total           == null && result.total           != null) meta.total           = result.total
+  if (meta.formatNotes     == null && result.formatNotes     != null) meta.formatNotes     = result.formatNotes
 }
