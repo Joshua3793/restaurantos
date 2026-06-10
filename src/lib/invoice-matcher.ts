@@ -161,7 +161,8 @@ function buildMatchResult(
   // For per_weight items, the rate ($/kg) is the meaningful price to carry forward —
   // rawUnitPrice is the line total per container (e.g. $292/case) which changes each
   // shipment based on catch-weight and should never overwrite purchasePrice.
-  const effectiveUnitPrice = ocrItem.pricingMode === 'per_weight' && ocrItem.rate != null
+  const isPerWeight = ocrItem.pricingMode === 'per_weight' && ocrItem.rate != null
+  const effectiveUnitPrice = isPerWeight
     ? Number(ocrItem.rate)
     : ocrItem.unitPrice
   const rawUnitPrice = effectiveUnitPrice
@@ -188,20 +189,32 @@ function buildMatchResult(
     const total = format.packQty * format.packSize
     let normalisedOk = false
     if (total > 0 && rawUnitPrice !== null) {
-      const invoicePricePerPackUOM = rawUnitPrice / total  // e.g. $2.756/L
+      // per_weight: the rate ($/kg) is ALREADY a per-packUOM price and is
+      // independent of pack size. Dividing it by the pack total (as per_case
+      // prices require) double-divides it — corrupting both the delta and the
+      // carried newPrice by the pack-weight factor. So treat the rate as the
+      // per-packUOM price directly, and compare it against the item's stored
+      // per-UOM purchase price (which, for a UOM-priced item, IS the rate).
+      const invoicePricePerPackUOM = isPerWeight ? rawUnitPrice : rawUnitPrice / total  // e.g. $2.756/L
+      const invoiceUnit = isPerWeight ? (ocrItem.rateUOM ?? format.packUOM) : format.packUOM
       // Recompute inventory's price-per-packUOM from raw fields so we never
       // rely on the stored pricePerBaseUnit (which can be stale / mis-scaled).
       const invPackTotal = Number(bestItem.qtyPerPurchaseUnit) * Number(bestItem.packSize)
-      const invPricePerPackUOM = invPackTotal > 0 ? Number(bestItem.purchasePrice) / invPackTotal : 0
+      const invPricePerPackUOM = isPerWeight
+        ? Number(bestItem.purchasePrice)
+        : (invPackTotal > 0 ? Number(bestItem.purchasePrice) / invPackTotal : 0)
       const normalized = comparePricesNormalized(
-        invoicePricePerPackUOM, format.packUOM,    // invoice: $/packUOM
+        invoicePricePerPackUOM, invoiceUnit,       // invoice: $/packUOM
         invPricePerPackUOM,     bestItem.packUOM   // inventory: $/packUOM (recomputed)
       )
       if (normalized) {
         priceDiffPct = normalized.pctDiff
         normalisedOk = true
-        if (formatConfirmed) {
-          // Calculate newPrice normalized to inventory's purchase format
+        // per_case only: normalize the per-container price to the inventory's
+        // purchase format. per_weight carries the rate through unchanged
+        // (newPrice stays = rawUnitPrice = rate), so the spine writer's UOM path
+        // computes pricePerBaseUnit = rate / unitConv correctly.
+        if (formatConfirmed && !isPerWeight) {
           const calcPrice = calcNewPurchasePrice(
             invoicePricePerPackUOM, format.packUOM,
             Number(bestItem.qtyPerPurchaseUnit), Number(bestItem.packSize), bestItem.packUOM
