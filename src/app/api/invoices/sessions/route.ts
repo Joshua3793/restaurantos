@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     where,
     orderBy: { createdAt: 'desc' },
     include: {
-      files: { select: { id: true, fileName: true, ocrStatus: true } },
+      files: { select: { id: true, fileName: true, ocrStatus: true }, orderBy: { createdAt: 'asc' } },
       _count: { select: { scanItems: true, priceAlerts: true, recipeAlerts: true } },
     },
   })

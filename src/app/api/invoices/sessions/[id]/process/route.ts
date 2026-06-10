@@ -27,6 +27,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     include: {
       files: {
         select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, ocrRawJson: true },
+        orderBy: { createdAt: 'asc' },
       },
     },
   })
@@ -45,9 +46,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
 
   // Re-fetch files after potential retry reset
+  // File order defines OCR page order — bbox.page indexes into this array, and the viewer
+  // indexes session.files the same way. Keep all file queries ordered by createdAt asc
+  // (inserts are sequential).
   const filesToProcess = await prisma.invoiceFile.findMany({
     where: { sessionId: params.id, ocrStatus: 'PENDING' },
     select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, ocrRawJson: true },
+    orderBy: { createdAt: 'asc' },
   })
 
   if (!filesToProcess.length) {

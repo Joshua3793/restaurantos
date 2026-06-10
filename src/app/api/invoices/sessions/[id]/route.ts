@@ -8,7 +8,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
-      files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true } },
+      files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
         include: { matchedItem: { select: { id: true, itemName: true, purchaseUnit: true, pricePerBaseUnit: true, purchasePrice: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true, baseUnit: true, priceType: true, qtyUOM: true, innerQty: true } } },
         orderBy: { sortOrder: 'asc' },

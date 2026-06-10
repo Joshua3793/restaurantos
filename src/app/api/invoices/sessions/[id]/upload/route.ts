@@ -13,19 +13,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (!files.length) return NextResponse.json({ error: 'No files provided' }, { status: 400 })
 
-  const created = await Promise.all(
-    files.map(f =>
-      prisma.invoiceFile.create({
-        data: {
-          sessionId: params.id,
-          fileName:  f.fileName,
-          fileType:  f.fileType,
-          fileUrl:   f.url,
-          ocrStatus: 'PENDING',
-        },
-      })
-    )
-  )
+  // Sequential creates: createdAt order must match payload order, since OCR
+  // bbox.page indexes assume file order == page order.
+  const created = []
+  for (const f of files) {
+    created.push(await prisma.invoiceFile.create({
+      data: {
+        sessionId: params.id,
+        fileName:  f.fileName,
+        fileType:  f.fileType,
+        fileUrl:   f.url,
+        ocrStatus: 'PENDING',
+      },
+    }))
+  }
 
   // Advance session to PROCESSING
   await prisma.invoiceSession.update({

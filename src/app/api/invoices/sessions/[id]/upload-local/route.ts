@@ -14,23 +14,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (!files.length) return NextResponse.json({ error: 'No files provided' }, { status: 400 })
 
-  const created = await Promise.all(
-    files.map(async (f) => {
-      const bytes = await f.arrayBuffer()
-      const base64 = Buffer.from(bytes).toString('base64')
-      const dataUri = `data:${f.type || 'application/octet-stream'};base64,${base64}`
+  // Sequential creates: createdAt order must match array order, since OCR
+  // bbox.page indexes assume file order == page order.
+  const created = []
+  for (const f of files) {
+    const bytes = await f.arrayBuffer()
+    const base64 = Buffer.from(bytes).toString('base64')
+    const dataUri = `data:${f.type || 'application/octet-stream'};base64,${base64}`
 
-      return prisma.invoiceFile.create({
-        data: {
-          sessionId: params.id,
-          fileName:  f.name,
-          fileType:  f.type || 'application/octet-stream',
-          fileUrl:   dataUri,
-          ocrStatus: 'PENDING',
-        },
-      })
-    })
-  )
+    created.push(await prisma.invoiceFile.create({
+      data: {
+        sessionId: params.id,
+        fileName:  f.name,
+        fileType:  f.type || 'application/octet-stream',
+        fileUrl:   dataUri,
+        ocrStatus: 'PENDING',
+      },
+    }))
+  }
 
   await prisma.invoiceSession.update({
     where: { id: params.id },

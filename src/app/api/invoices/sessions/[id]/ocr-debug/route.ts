@@ -10,6 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       files: {
         select: { id: true, fileName: true, ocrStatus: true, ocrRawJson: true },
+        orderBy: { createdAt: 'asc' },
       },
       scanItems: { select: { id: true } },
     },

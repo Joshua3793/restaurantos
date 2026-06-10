@@ -37,14 +37,17 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
       // 2. Convert pages to compressed JPEG files. Individual images (not a
       // merged PDF) so the server runs them through the sharp enhancement
       // pipeline and one combined multi-image OCR call — and bbox page
-      // indexes line up with file order.
-      const pageFiles = await Promise.all(pages.map(async (raw, i) => {
+      // indexes line up with file order. Done sequentially, one canvas at a
+      // time: rasterizing every page concurrently can transiently hold
+      // hundreds of MB of bitmaps and OOM low-end mobile WebViews.
+      const pageFiles: File[] = []
+      for (const [i, raw] of pages.entries()) {
         const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
         const bytes = base64ToUint8Array(b64)
         const file = new File([new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' })],
           `scan_p${i + 1}.jpg`, { type: 'image/jpeg' })
-        return compressImageFile(file)
-      }))
+        pageFiles.push(await compressImageFile(file))
+      }
 
       // 3. Create session
       const sessRes = await fetch('/api/invoices/sessions', {
@@ -75,7 +78,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
               files: uploaded.map(f => ({
                 url: f.url,
                 fileName: f.name,
-                fileType: 'image/jpeg',
+                fileType: f.type ?? 'image/jpeg',
               })),
             }),
           })
@@ -85,7 +88,9 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
         // fall through to local fallback
       }
 
-      // 4b. Local fallback (same as InvoiceUploadModal)
+      // 4b. Local fallback — one page per request to stay under the ~4.5 MB
+      // serverless body limit (the route tolerates repeated calls; status
+      // reset to PROCESSING is idempotent).
       if (!uploadOk) {
         const limitBytes = 4 * 1024 * 1024
         const oversize = pageFiles.find(f => f.size > limitBytes)
@@ -95,19 +100,20 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
           )
           return
         }
-        const fd = new FormData()
-        for (const f of pageFiles) fd.append('files', f)
-        const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
-          method: 'POST',
-          body: fd,
-        })
-        if (localRes.ok) {
-          uploadOk = true
-        } else {
-          const body = await localRes.json().catch(() => ({}))
-          setScanError(body.error ?? `Upload failed (${localRes.status}).`)
-          return
+        for (const f of pageFiles) {
+          const fd = new FormData()
+          fd.append('files', f)
+          const localRes = await fetch(`/api/invoices/sessions/${sess.id}/upload-local`, {
+            method: 'POST',
+            body: fd,
+          })
+          if (!localRes.ok) {
+            const body = await localRes.json().catch(() => ({}))
+            setScanError(body.error ?? `Upload failed (${localRes.status}).`)
+            return
+          }
         }
+        uploadOk = true
       }
 
       // 5. Kick off OCR (fire-and-forget; drawer polls for status)
