@@ -45,6 +45,7 @@ model Supplier {
   orderPlatform   String?
   cutoffDays      String?
   deliveryDays    String?
+  ocrFormatNotes  String? // column-layout notes discovered by learning-mode OCR; injected into future OCR prompts
   createdAt       DateTime                 @default(now())
   inventory       InventoryItem[]
   supplierPrices  InventorySupplierPrice[]
@@ -365,6 +366,7 @@ model InvoiceScanItem {
   nominalWeight      Decimal?       // packQty × packSize when packUOM is weight/volume and differs from totalQty
   lineCategory       String?        // section header ("DAIRY") or column code ("PR", "DS")
   supplierItemCode   String?        // per-line product code from invoice
+  applyInvoiceFormat Boolean        @default(false) // user consented to writing the invoice's pack format back to the inventory item
   taxFlag            String?        // row-level tax code ("B", "G", "GP")
   lineTaxAmount      Decimal?       // inline tax shown on row (Snow Cap style)
   bbox               Json?          // { page, x, y, w, h } — 0-1 fractions of image dims, for highlight overlay
@@ -411,9 +413,11 @@ model InvoiceMatchRule {
   invoicePackQty  Decimal?
   invoicePackSize Decimal?
   invoicePackUOM  String?
+  supplierItemCode String?
   inventoryItem   InventoryItem @relation("InventoryMatchRules", fields: [inventoryItemId], references: [id])
 
   @@unique([rawDescription, supplierName])
+  @@index([supplierName, supplierItemCode])
 }
 
 model RecipeAlert {
