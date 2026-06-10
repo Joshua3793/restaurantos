@@ -59,7 +59,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         priceDiffPct:       body.priceDiffPct !== undefined ? body.priceDiffPct : undefined,
         approved:           body.approved !== undefined ? body.approved : undefined,
         isNewItem:          body.isNewItem !== undefined ? body.isNewItem : undefined,
-        newItemData:        body.newItemData !== undefined ? JSON.stringify(body.newItemData) : undefined,
+        // Accept either an object (AddNewItemModal) or an already-stringified
+        // JSON payload (drawer line edits stage the stored string shape) —
+        // never double-encode.
+        newItemData:        body.newItemData !== undefined
+          ? (typeof body.newItemData === 'string' ? body.newItemData : JSON.stringify(body.newItemData))
+          : undefined,
         invoicePackQty:     body.invoicePackQty !== undefined ? body.invoicePackQty : undefined,
         invoicePackSize:    body.invoicePackSize !== undefined ? body.invoicePackSize : undefined,
         invoicePackUOM:     body.invoicePackUOM !== undefined ? body.invoicePackUOM : undefined,

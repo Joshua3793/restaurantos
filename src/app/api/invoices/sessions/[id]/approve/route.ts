@@ -193,7 +193,18 @@ async function doApprove(
 
       // ── CREATE_NEW ──────────────────────────────────────────────────────
       if (scanItem.action === 'CREATE_NEW') {
-        const newData = scanItem.newItemData ? JSON.parse(scanItem.newItemData) : {}
+        // Only the drawer's AddNewItemModal sets CREATE_NEW, and it always
+        // persists newItemData (name, category, pack structure, price type).
+        // Without it we'd create a garbage item (category DRY, 1×1 each) —
+        // skip instead and leave the line un-approved.
+        if (!scanItem.newItemData) {
+          console.error(
+            `[approve] Skipping CREATE_NEW for "${scanItem.rawDescription}" — no newItemData configured`
+          )
+          skippedLines++
+          continue
+        }
+        const newData = JSON.parse(scanItem.newItemData)
         const newPurchasePrice = Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0
         const newPackQty  = Number(newData.qtyPerPurchaseUnit) || 1
         const newPackSize = Number(newData.packSize) || 1

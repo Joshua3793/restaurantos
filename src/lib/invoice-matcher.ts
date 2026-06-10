@@ -461,12 +461,17 @@ export async function matchLineItems(
     const confidence = confidenceFromScore(bestScore)
 
     if (!bestItem || confidence === 'NONE') {
+      // No match → PENDING, never CREATE_NEW. CREATE_NEW means "the user
+      // configured a new item" (the drawer's AddNewItemModal sets it together
+      // with newItemData); auto-setting it here made unmatched lines look
+      // resolved and let approve create items with default category/format.
+      // PENDING keeps the line in the unlinked state, which gates approval.
       return {
         ...ocrItem,
         matchedItemId: null,
         matchConfidence: 'NONE' as MatchConfidence,
         matchScore: bestScore,
-        action: 'CREATE_NEW' as LineItemAction,
+        action: 'PENDING' as LineItemAction,
         previousPrice: null,
         newPrice: ocrItem.unitPrice,
         priceDiffPct: null,

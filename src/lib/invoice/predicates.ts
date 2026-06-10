@@ -87,7 +87,10 @@ export function hasPriceChange(item: ScanItem, thresholdPct = 3): boolean {
 export function isUnlinked(item: ScanItem): boolean {
   return (
     !item.matchedItemId &&
-    item.action !== 'CREATE_NEW' &&
+    // CREATE_NEW only counts as a decision when the user actually configured
+    // the new item (newItemData from the AddNewItemModal). Legacy scan items
+    // auto-set to CREATE_NEW by the matcher carry no data and still need one.
+    !(item.action === 'CREATE_NEW' && item.newItemData) &&
     item.action !== 'SKIP'
   )
 }

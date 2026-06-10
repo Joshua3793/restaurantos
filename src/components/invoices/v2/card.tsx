@@ -36,7 +36,9 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const isFlashing  = ctx.flashingLineIds.has(lineId)
   const isPicking   = ctx.pickingLinkForId === lineId
   const isSkipped   = item.action === 'SKIP'
-  const isCreateNew = item.action === 'CREATE_NEW'
+  // Green "+ new item on approve" only when the user configured the item —
+  // an unconfigured CREATE_NEW (legacy auto-match) renders as unlinked instead.
+  const isCreateNew = item.action === 'CREATE_NEW' && !!item.newItemData
 
   const unlinked       = !isSkipped && isUnlinked(item)
   const modeMismatch   = !isSkipped && hasModeMismatch(item)

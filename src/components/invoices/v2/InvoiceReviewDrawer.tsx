@@ -1009,13 +1009,16 @@ export function InvoiceReviewDrawer({
         <AddNewItemModal
           item={creatingNewForItem}
           sessionId={session?.id ?? ''}
-          onSaved={() => {
+          onSaved={(newItemDataJson) => {
             if (creatingNewForItem) {
               updateLine(creatingNewForItem.id, {
                 action: 'CREATE_NEW',
                 isNewItem: true,
                 matchedItemId: null,
                 matchedItem: null,
+                // staged locally so the card reads as configured immediately —
+                // isUnlinked/isCreateNew key off newItemData being present
+                newItemData: newItemDataJson,
               })
             }
             setCreatingNewForItem(null)
@@ -1360,7 +1363,8 @@ function AddNewItemModal({
 }: {
   item: ScanItem
   sessionId: string
-  onSaved: () => void
+  /** Receives the configured newItemData as the stored JSON string. */
+  onSaved: (newItemDataJson: string) => void
   onClose: () => void
 }) {
   const [saving,          setSaving]          = useState(false)
@@ -1390,6 +1394,18 @@ function AddNewItemModal({
 
   const handleSave = async () => {
     setSaving(true)
+    const newItemData = {
+      itemName:           itemName.trim() || item.rawDescription,
+      category,
+      purchaseUnit,
+      qtyPerPurchaseUnit: Number(qtyPerPurchase) || 1,
+      packSize:           Number(packSize) || 1,
+      packUOM,
+      priceType,
+      purchasePrice:      Number(purchasePrice) || 0,
+      pricePerBaseUnit:   ppb ?? 0,
+      baseUnit:           packUOM,
+    }
     await fetch(`/api/invoices/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1398,22 +1414,11 @@ function AddNewItemModal({
         action:        'CREATE_NEW',
         isNewItem:     true,
         matchedItemId: null,
-        newItemData: {
-          itemName:           itemName.trim() || item.rawDescription,
-          category,
-          purchaseUnit,
-          qtyPerPurchaseUnit: Number(qtyPerPurchase) || 1,
-          packSize:           Number(packSize) || 1,
-          packUOM,
-          priceType,
-          purchasePrice:      Number(purchasePrice) || 0,
-          pricePerBaseUnit:   ppb ?? 0,
-          baseUnit:           packUOM,
-        },
+        newItemData,
       }),
     })
     setSaving(false)
-    onSaved()
+    onSaved(JSON.stringify(newItemData))
   }
 
   const inputCls = 'w-full border border-line rounded-lg px-3 py-[7px] text-[13px] focus:outline-none focus:ring-2 focus:ring-blue/20 focus:border-blue transition-colors'
