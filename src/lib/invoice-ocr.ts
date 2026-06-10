@@ -858,8 +858,20 @@ async function callWithJsonRetry(
     return parseOcrResponse(first)
   } catch (err) {
     const truncated = looksLikeTruncated(first.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim())
+    if (truncated) {
+      // A truncated response means the token budget was exhausted — retrying the
+      // same request with the same budget deterministically truncates again and
+      // burns 90–150s before the caller's per-page fallback can start. Fail fast.
+      console.error(
+        '[ocr] first response appears truncated — skipping retry (same token budget would truncate again):',
+        err instanceof Error ? err.message : err,
+      )
+      throw new Error(
+        `Failed to parse OCR response as JSON — the response was likely truncated (too many line items for the token budget): ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
     console.warn(
-      `[ocr] first response invalid JSON${truncated ? ' (appears truncated)' : ''}, retrying once:`,
+      '[ocr] first response invalid JSON, retrying once:',
       err instanceof Error ? err.message : err,
     )
     const suffix =
@@ -871,7 +883,9 @@ async function callWithJsonRetry(
       return parseOcrResponse(second)
     } catch (err2) {
       console.error('[ocr] retry also failed. First 500 chars:', second.slice(0, 500))
-      const hint = truncated
+      // The retry response can itself truncate — keep the hint so the caller's
+      // truncation fallback (per-page OCR) still triggers.
+      const hint = looksLikeTruncated(second.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim())
         ? ' — the response was likely truncated (too many line items for the token budget)'
         : ''
       throw new Error(

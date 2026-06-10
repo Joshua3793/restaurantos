@@ -40,7 +40,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       data: { status: 'PROCESSING', errorMessage: null },
     })
     await prisma.invoiceFile.updateMany({
-      where: { sessionId: params.id, ocrStatus: { in: ['ERROR', 'PENDING'] } },
+      // Include PROCESSING: a serverless kill can strand files there with no
+      // other reclaim path — the stale-session sweeper in the sessions list
+      // route flips the session to ERROR after 5 min, then this reset runs.
+      where: { sessionId: params.id, ocrStatus: { in: ['ERROR', 'PENDING', 'PROCESSING'] } },
       data: { ocrStatus: 'PENDING' },
     })
   }
@@ -162,6 +165,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         // The combined call can blow the output-token budget on very long
         // invoices. Fall back to OCR-ing each page separately and merging —
         // each page alone fits comfortably in the budget.
+        // Caveat: rows split across a page break (or reprinted under "continued"
+        // headers) may come back duplicated/partial — the combined call deduped
+        // these holistically.
         if (imageFiles.length > 1 && /truncated/i.test(msg)) {
           console.warn('[process] Combined image OCR truncated — falling back to per-page OCR')
           // The viewer indexes session.files[bbox.page], so re-index each
@@ -172,14 +178,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             imagePayloads.map(p => extractInvoiceFromImages([p], session.supplierName, isLearning))
           )
           let anyOk = false
+          const pageOcrResults: { page: number; result: OcrResult }[] = []
           for (const [i, r] of pageResults.entries()) {
             if (r.status === 'fulfilled') {
               anyOk = true
-              mergeResult(r.value, sessionMeta)
               const page = pageIndexById.get(imageFiles[i].id) ?? i
               for (const li of r.value.lineItems) {
                 if (li.bbox) li.bbox.page = page
               }
+              pageOcrResults.push({ page, result: r.value })
               allOcrItems = [...allOcrItems, ...r.value.lineItems]
               await prisma.invoiceFile.update({
                 where: { id: imageFiles[i].id },
@@ -193,7 +200,29 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
               })
             }
           }
-          if (!anyOk) throw err
+          if (!anyOk) {
+            const firstReason = pageResults.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined
+            throw new Error(
+              `Per-page OCR fallback failed for all pages: ${firstReason?.reason instanceof Error ? firstReason.reason.message : String(firstReason?.reason ?? err)}`
+            )
+          }
+          // Header merge: identity fields (supplier, invoice #, date, PO) read
+          // best from the FIRST page; financial fields (totals, taxes, fees)
+          // print on the LAST page of multi-page invoices. mergeResult is
+          // first-wins, so feed it page order for identity and reverse page
+          // order for the money fields.
+          const identityMeta: Partial<OcrResult> = {}
+          for (const { result } of pageOcrResults) mergeResult(result, identityMeta)
+          const moneyMeta: Partial<OcrResult> = {}
+          for (const { result } of [...pageOcrResults].reverse()) mergeResult(result, moneyMeta)
+          mergeResult({
+            ...(moneyMeta as OcrResult),
+            supplierName:  identityMeta.supplierName  ?? null,
+            invoiceNumber: identityMeta.invoiceNumber ?? null,
+            invoiceDate:   identityMeta.invoiceDate   ?? null,
+            poNumber:      identityMeta.poNumber      ?? null,
+            lineItems: [],
+          } as OcrResult, sessionMeta)
         } else {
           console.error('[process] Image OCR failed:', err)
           await prisma.invoiceFile.updateMany({
