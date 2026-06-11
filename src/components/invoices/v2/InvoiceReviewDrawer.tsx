@@ -39,12 +39,16 @@ function supplierInitials(name: string | null): string {
 
 function InvoiceHeader({
   session,
+  revenueCenters,
+  onRcChange,
   onClose,
   queuePos,
   onPrev,
   onNext,
 }: {
   session: Session
+  revenueCenters: RevenueCenter[]
+  onRcChange: (rcId: string) => void
   onClose: () => void
   queuePos: { idx: number; total: number }
   onPrev?: () => void
@@ -91,6 +95,18 @@ function InvoiceHeader({
                 {p}
               </span>
             ))}
+          </div>
+          <div className="mt-2">
+            <select
+              value={session.revenueCenterId ?? ''}
+              onChange={e => onRcChange(e.target.value)}
+              aria-label="Invoice revenue center"
+              className="font-mono text-[11px] text-ink-3 bg-bg border border-line rounded px-1.5 py-[3px] hover:bg-bg-2 focus:outline-none focus:ring-1 focus:ring-gold/40 cursor-pointer"
+            >
+              {revenueCenters.map(r => (
+                <option key={r.id} value={r.id}>{r.name}{r.isDefault ? ' (default)' : ''}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
@@ -267,6 +283,16 @@ export function InvoiceReviewDrawer({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ supplierId }),
+    })
+  }, [session])
+
+  const handleSessionRcChange = useCallback(async (rcId: string) => {
+    if (!session) return
+    setSession(prev => (prev ? { ...prev, revenueCenterId: rcId } : prev))
+    await fetch(`/api/invoices/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revenueCenterId: rcId }),
     })
   }, [session])
 
@@ -766,6 +792,7 @@ export function InvoiceReviewDrawer({
     revenueCenters,
     sessionSupplierName: session?.supplierName ?? null,
     sessionSupplierId: session?.supplierId ?? null,
+    sessionRcId: session?.revenueCenterId ?? null,
     editedLines,
     expandedLineIds,
     flashingLineIds,
@@ -843,6 +870,8 @@ export function InvoiceReviewDrawer({
             {/* Full-width header */}
             <InvoiceHeader
               session={session}
+              revenueCenters={revenueCenters}
+              onRcChange={handleSessionRcChange}
               onClose={onClose}
               queuePos={queuePos}
               onPrev={navPrev}

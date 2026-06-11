@@ -94,7 +94,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   }
 
   const handleMathChange = (patch: Partial<ScanItem>) => ctx.updateLine(lineId, patch)
-  const defaultRcId = ctx.revenueCenters.find(r => r.isDefault)?.id ?? ''
+  const defaultRcId = ctx.sessionRcId ?? ctx.revenueCenters.find(r => r.isDefault)?.id ?? ''
   const handleRcChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const picked = ctx.revenueCenters.find(r => r.id === e.target.value) ?? null
     ctx.setLineRc(lineId, picked)
