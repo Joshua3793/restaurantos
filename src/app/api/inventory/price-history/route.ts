@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     where: {
       matchedItemId: { in: ids },
       approved: true,
+      splitToSessionId: null,
       session: { status: 'APPROVED' },
       rawUnitPrice: { not: null },
     },

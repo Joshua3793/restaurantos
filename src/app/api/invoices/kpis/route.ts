@@ -44,19 +44,19 @@ export async function GET(req: NextRequest) {
     lineItems,
   ] = await Promise.all([
     prisma.invoiceSession.aggregate({
-      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: weekStart, lt: weekEnd } }, rcWhere] },
+      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: weekStart, lt: weekEnd } }, rcWhere] },
       _sum: { total: true },
     }),
     prisma.invoiceSession.aggregate({
-      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: prevWeekStart, lt: prevWeekEnd } }, rcWhere] },
+      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: prevWeekStart, lt: prevWeekEnd } }, rcWhere] },
       _sum: { total: true },
     }),
     prisma.invoiceSession.aggregate({
-      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
+      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
       _sum: { total: true },
     }),
     prisma.invoiceSession.count({
-      where: { AND: [{ status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
+      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
     }),
     prisma.priceAlert.count({
       where: {
