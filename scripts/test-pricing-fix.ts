@@ -1,7 +1,7 @@
 // Deterministic reproduction + regression test for the 2026-06-11 pricing
 // corruption (Pork Butt $9990/kg; potato/cheese price inflation; lb-qty packSize
 // drop). Run: TS_NODE_BASEURL=. npx ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/test-pricing-fix.ts
-import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '../src/lib/utils'
+import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit, canonicalUom } from '../src/lib/utils'
 
 let failures = 0
 function check(name: string, got: number, want: number, tol = 1e-4) {
@@ -59,6 +59,19 @@ checkBase('create baseUnit: kg pack → g',   deriveBaseUnit('each', 'kg', 5),  
 checkBase('create baseUnit: L pack → ml',   deriveBaseUnit('each', 'l', 4),    'ml')
 checkBase('create baseUnit: each pack → each', deriveBaseUnit('each', 'each', 12), 'each')
 checkBase('create baseUnit: g pack → g',    deriveBaseUnit('each', 'g', 454),  'g')
+
+// ── Pack-UOM standardization: spelling/case variants → one canonical token,
+//    so formats compare and cost conversion resolves. ─────────────────────────
+checkBase('uom GR → g',   canonicalUom('GR'),   'g')
+checkBase('uom GRAM → g', canonicalUom('Gram'), 'g')
+checkBase('uom LTR → l',  canonicalUom('LTR'),  'l')
+checkBase('uom LT → l',   canonicalUom('LT'),   'l')
+checkBase('uom KG → kg',  canonicalUom('KG'),   'kg')
+checkBase('uom EA → each',canonicalUom('EA'),   'each')
+checkBase('uom CT → each',canonicalUom('CT'),   'each')
+check('conv LTR = 1000 (was 1, → 1000× cost bug)', getUnitConv('LTR'), 1000)
+check('conv GR = 1',                               getUnitConv('GR'),  1)
+check('conv KG = 1000',                            getUnitConv('KG'),  1000)
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
 process.exit(failures === 0 ? 0 : 1)

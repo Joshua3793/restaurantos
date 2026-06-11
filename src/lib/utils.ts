@@ -44,8 +44,37 @@ export function compatibleCountUnits(baseUnit: string): string[] {
   return [...EACH_COUNT_UOMS]
 }
 
+// Maps every spelling/abbreviation an invoice might use → one canonical token,
+// so pack formats are comparable and cost conversion always resolves. Keeps
+// distinct units within a dimension (g≠kg≠lb); only collapses spelling/case
+// (GR/GRAM→g, LTR/LT/LITRE→l, KG→kg, EA/CT/PC→each…).
+const UOM_CANON: Record<string, string> = {
+  // weight
+  g: 'g', gr: 'g', grm: 'g', gm: 'g', gram: 'g', grams: 'g',
+  kg: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg',
+  lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb', '#': 'lb',
+  oz: 'oz', ounce: 'oz', ounces: 'oz',
+  mg: 'mg',
+  // volume
+  ml: 'ml', mls: 'ml', milliliter: 'ml', millilitre: 'ml',
+  l: 'l', lt: 'l', ltr: 'l', ltrs: 'l', litre: 'l', liter: 'l', litres: 'l', liters: 'l',
+  cl: 'cl', dl: 'dl', gal: 'gal', gallon: 'gal',
+  floz: 'fl oz', 'fl oz': 'fl oz', 'fl.oz': 'fl oz',
+  // count
+  each: 'each', ea: 'each', ct: 'each', cnt: 'each', count: 'each',
+  pc: 'each', pcs: 'each', piece: 'each', pieces: 'each',
+  un: 'each', unit: 'each', units: 'each',
+}
+
+/** Normalize a unit string to its canonical token (case/abbreviation-insensitive). */
+export function canonicalUom(uom: string | null | undefined): string {
+  if (!uom) return ''
+  const k = uom.trim().toLowerCase().replace(/\.$/, '')
+  return UOM_CANON[k] ?? k
+}
+
 export function getUnitConv(uom: string): number {
-  return UNIT_CONV[uom?.toLowerCase()] ?? 1
+  return UNIT_CONV[canonicalUom(uom)] ?? UNIT_CONV[uom?.toLowerCase()] ?? 1
 }
 
 /** Price per base unit (g, ml, or each) based on purchase structure */

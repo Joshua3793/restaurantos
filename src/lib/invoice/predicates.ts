@@ -3,6 +3,7 @@
 // and footer task counts.
 
 import type { ScanItem } from '@/components/invoices/types'
+import { canonicalUom } from '@/lib/utils'
 
 const WEIGHT_VOL = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
 export const isWeightVolUOM = (uom: string | null | undefined) =>
@@ -48,8 +49,10 @@ const numEq = (a: string | number | null | undefined, b: string | number | null 
   if (Number.isNaN(na) || Number.isNaN(nb)) return String(a ?? '').trim() === String(b ?? '').trim()
   return Math.abs(na - nb) < 1e-9
 }
+// Canonical-UOM equality so case/abbreviation differences (250GR vs 250g,
+// 5LTR vs 5l) are not treated as format mismatches.
 const uomEq = (a: string | null | undefined, b: string | null | undefined): boolean =>
-  String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+  canonicalUom(a) === canonicalUom(b)
 
 export function hasFormatMismatch(item: ScanItem): boolean {
   if (item.formatMismatch !== true) return false

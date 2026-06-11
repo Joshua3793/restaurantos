@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
+import { canonicalUom } from '@/lib/utils'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
 const UOM_ALIASES: Record<string, string> = {
@@ -282,7 +283,9 @@ function buildMatchResult(
     (
       Number(format.packQty)  !== fmQty ||
       Number(format.packSize) !== fmSize ||
-      normalizeUOM(format.packUOM) !== normalizeUOM(fmUOM)
+      // Canonical UOM so "250GR" matches "250g", "5LTR" matches "5l", etc. —
+      // case/abbreviation differences are not real format mismatches.
+      canonicalUom(format.packUOM) !== canonicalUom(fmUOM)
     )
   )
 

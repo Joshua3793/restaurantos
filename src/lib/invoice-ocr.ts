@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
+import { canonicalUom } from '@/lib/utils'
 
 const OCR_MODEL = 'claude-sonnet-4-6'
 
@@ -763,6 +764,12 @@ function asStr(v: unknown): string | null {
   return s.length ? s : null
 }
 
+// asStr + canonical UOM normalization (returns null when absent).
+function canonStr(v: unknown): string | null {
+  const s = asStr(v)
+  return s ? (canonicalUom(s) || null) : null
+}
+
 function normalizeLineItem(raw: Record<string, unknown>): OcrLineItem {
   const description = asStr(raw.description) ?? ''
   const pricingMode = (raw.pricingMode === 'per_case' || raw.pricingMode === 'per_weight')
@@ -788,12 +795,14 @@ function normalizeLineItem(raw: Record<string, unknown>): OcrLineItem {
     qtyShippedUOM:  asStr(raw.qtyShippedUOM),
     packQty:        asNum(raw.packQty),
     packSize:       asNum(raw.packSize),
-    packUOM:        asStr(raw.packUOM),
+    // Standardize the measurement UOMs so "10x250GR" == "10x250g", "5LTR" == "5l"
+    // etc. — makes formats comparable/matchable and lets cost conversion resolve.
+    packUOM:        canonStr(raw.packUOM),
     unitPrice:      asNum(raw.unitPrice),
     rate:           asNum(raw.rate),
-    rateUOM:        asStr(raw.rateUOM),
+    rateUOM:        canonStr(raw.rateUOM),
     totalQty:       asNum(raw.totalQty),
-    totalQtyUOM:    asStr(raw.totalQtyUOM),
+    totalQtyUOM:    canonStr(raw.totalQtyUOM),
     isCatchweight:  raw.isCatchweight === true,
     nominalWeight:  asNum(raw.nominalWeight),
     lineTotal:      asNum(raw.lineTotal),
