@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   // Barcode exact match — used by count-page scanner
   if (barcode) {
     const item = await prisma.inventoryItem.findFirst({
-      where: { barcode, isActive: true },
+      where: { barcode, isActive: true, NOT: { recipe: { type: 'PREP' } } },
       select: {
         id: true,
         itemName: true,
@@ -50,6 +50,9 @@ export async function GET(req: NextRequest) {
   const items = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
+      // PREP recipe outputs are made in-house, not purchasable — never link an
+      // invoice line to one.
+      NOT: { recipe: { type: 'PREP' } },
       OR: q
         ? [
             { itemName: { contains: q, mode: 'insensitive' as const } },

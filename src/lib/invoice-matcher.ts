@@ -314,7 +314,12 @@ export async function matchLineItems(
   canonicalName?: string | null
 ): Promise<(OcrLineItem & MatchResult)[]> {
   const inventoryItems = await prisma.inventoryItem.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      // Exclude PREP recipe outputs — they're made in-house, not purchasable,
+      // so an invoice line must never fuzzy-match to one (e.g. "Adobo Pulled Pork").
+      NOT: { recipe: { type: 'PREP' } },
+    },
     select: {
       id: true,
       itemName: true,
