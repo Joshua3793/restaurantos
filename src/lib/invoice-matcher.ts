@@ -155,9 +155,14 @@ function buildMatchResult(
   confidence: MatchConfidence,
   bestScore: number,
   format?: { packQty: number; packSize: number; packUOM: string } | null,
-  formatConfirmed = false   // true only when format came from a saved learned rule
+  formatConfirmed = false,   // true only when format came from a saved learned rule
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  offer?: any | null   // InventorySupplierPrice row for (bestItem, session supplier)
 ): OcrLineItem & MatchResult {
-  const previousPrice = Number(bestItem.purchasePrice)
+  // "was" price = what THIS supplier charged last time, when known. Falls back
+  // to the item's purchase price (single-supplier behaviour) otherwise.
+  const offerLastPrice = offer?.lastPrice != null ? Number(offer.lastPrice) : null
+  const previousPrice = offerLastPrice ?? Number(bestItem.purchasePrice)
   // For per_weight items, the rate ($/kg) is the meaningful price to carry forward —
   // rawUnitPrice is the line total per container (e.g. $292/case) which changes each
   // shipment based on catch-weight and should never overwrite purchasePrice.
@@ -197,15 +202,22 @@ function buildMatchResult(
       // per-UOM purchase price (which, for a UOM-priced item, IS the rate).
       const invoicePricePerPackUOM = isPerWeight ? rawUnitPrice : rawUnitPrice / total  // e.g. $2.756/L
       const invoiceUnit = isPerWeight ? (ocrItem.rateUOM ?? format.packUOM) : format.packUOM
-      // Recompute inventory's price-per-packUOM from raw fields so we never
-      // rely on the stored pricePerBaseUnit (which can be stale / mis-scaled).
-      const invPackTotal = Number(bestItem.qtyPerPurchaseUnit) * Number(bestItem.packSize)
+      // Inventory side of the comparison: prefer the supplier's own offer
+      // (their price over their pack format); fall back to the item fields.
+      // Recomputed from raw fields so we never rely on the stored
+      // pricePerBaseUnit (which can be stale / mis-scaled).
+      const offerHasFormat = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
+      const invSidePrice  = offerLastPrice ?? Number(bestItem.purchasePrice)
+      const invSideQty    = offerHasFormat ? Number(offer.packQty)  : Number(bestItem.qtyPerPurchaseUnit)
+      const invSideSize   = offerHasFormat ? Number(offer.packSize) : Number(bestItem.packSize)
+      const invSideUOM    = offerHasFormat ? (offer.packUOM as string) : bestItem.packUOM
+      const invPackTotal = invSideQty * invSideSize
       const invPricePerPackUOM = isPerWeight
-        ? Number(bestItem.purchasePrice)
-        : (invPackTotal > 0 ? Number(bestItem.purchasePrice) / invPackTotal : 0)
+        ? invSidePrice
+        : (invPackTotal > 0 ? invSidePrice / invPackTotal : 0)
       const normalized = comparePricesNormalized(
         invoicePricePerPackUOM, invoiceUnit,       // invoice: $/packUOM
-        invPricePerPackUOM,     bestItem.packUOM   // inventory: $/packUOM (recomputed)
+        invPricePerPackUOM,     invSideUOM         // inventory: $/packUOM (recomputed)
       )
       if (normalized) {
         priceDiffPct = normalized.pctDiff
@@ -255,16 +267,20 @@ function buildMatchResult(
   }
 
   // A real format mismatch means the invoice's pack STRUCTURE (qty × size + uom)
-  // differs from the linked item's stored pack — not merely that the shipped-UOM
-  // label differs from the purchase-unit label (e.g. "cs" vs "case"), which is
-  // legitimate and produced false positives (4×4L flagged against 4×4L). Only
-  // flag when a format was parsed and it genuinely differs.
+  // differs from what THIS supplier is known to ship (their offer), falling back
+  // to the item's stored format when no offer format exists yet — not merely that
+  // the shipped-UOM label differs from the purchase-unit label (e.g. "cs" vs
+  // "case"), which is legitimate and produced false positives (4×4L flagged
+  // against 4×4L). Only flag when a format was parsed and it genuinely differs.
+  const fmQty  = offer?.packQty  != null ? Number(offer.packQty)  : Number(bestItem.qtyPerPurchaseUnit)
+  const fmSize = offer?.packSize != null ? Number(offer.packSize) : Number(bestItem.packSize)
+  const fmUOM  = (offer?.packUOM as string | null) ?? bestItem.packUOM
   const formatMismatch = !!(
     format &&
     (
-      Number(format.packQty)  !== Number(bestItem.qtyPerPurchaseUnit) ||
-      Number(format.packSize) !== Number(bestItem.packSize) ||
-      normalizeUOM(format.packUOM) !== normalizeUOM(bestItem.packUOM)
+      Number(format.packQty)  !== fmQty ||
+      Number(format.packSize) !== fmSize ||
+      normalizeUOM(format.packUOM) !== normalizeUOM(fmUOM)
     )
   )
 
@@ -380,6 +396,25 @@ export async function matchLineItems(
     }
   }
 
+  // ── This supplier's offers: per-supplier last price + pack format ─────────
+  // Comparing a line against the supplier's OWN offer (not the item's single
+  // price/format fields) is what stops supplier alternation from reading as
+  // price changes and format mismatches on every invoice.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let offerRows: any[] = []
+  if (supplierName) {
+    try {
+      offerRows = await prisma.inventorySupplierPrice.findMany({
+        where: { supplierName },
+      })
+    } catch {
+      // table/columns missing on a stale client — fall back to item comparison
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offerByItemId = new Map<string, any>()
+  for (const o of offerRows) offerByItemId.set(o.inventoryItemId, o)
+
   // Build learned map: description → best rule (supplier-specific beats generic)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const learnedMap = new Map<string, any>()
@@ -415,7 +450,8 @@ export async function matchLineItems(
         'HIGH',
         100,
         ruleFormat,
-        hasRuleFormat
+        hasRuleFormat,
+        offerByItemId.get(codeRule.inventoryItem.id) ?? null
       )
     }
 
@@ -440,7 +476,8 @@ export async function matchLineItems(
         supplierSpecific ? 'HIGH' : 'MEDIUM',
         supplierSpecific ? 100 : 60,
         learnedFormat,
-        hasLearnedFormat
+        hasLearnedFormat,
+        offerByItemId.get(learned.inventoryItem.id) ?? null
       )
     }
 
@@ -492,7 +529,7 @@ export async function matchLineItems(
       packUOM:  ocrItem.packUOM  ?? 'each',
     } : null
     const format = ocrFormat ?? parseFormatFromDescription(ocrItem.description)
-    return buildMatchResult(ocrItem, bestItem, confidence, bestScore, format, ocrHasPack)
+    return buildMatchResult(ocrItem, bestItem, confidence, bestScore, format, ocrHasPack, offerByItemId.get(bestItem.id) ?? null)
   })
 }
 
