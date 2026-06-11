@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
-import { convertBaseToCountUom } from '@/lib/count-uom'
+import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { computeScale } from '@/lib/prep-utils'
 
 export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
@@ -36,14 +36,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const nonNullItem = item
 
-  const displayUnit = nonNullItem.countUOM || nonNullItem.baseUnit
   // lastCountQty is the physically verified quantity — use as baseline.
   // Fall back to stockOnHand if item has never been formally counted.
   const baseQty = nonNullItem.lastCountQty != null ? Number(nonNullItem.lastCountQty) : Number(nonNullItem.stockOnHand)
   // Look back 90 days if never formally counted
   const since: Date = nonNullItem.lastCountDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
-  const itemDimsForDisplay = {
+  // Resolve the display unit exactly like the drawer header does: a stored
+  // countUOM that is no longer valid for the item's purchase structure (e.g.
+  // a stale "each" on a by-weight item) falls back to the first valid unit.
+  // Using the raw value here made the stock section read "each" while the rest
+  // of the panel read "KG".
+  const dimsBase = {
     baseUnit:           nonNullItem.baseUnit,
     purchaseUnit:       nonNullItem.purchaseUnit,
     qtyPerPurchaseUnit: Number(nonNullItem.qtyPerPurchaseUnit),
@@ -51,8 +55,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     innerQty:           nonNullItem.innerQty != null ? Number(nonNullItem.innerQty) : null,
     packSize:           Number(nonNullItem.packSize ?? 1),
     packUOM:            nonNullItem.packUOM ?? 'each',
-    countUOM:           displayUnit,
   }
+  const displayUnit = resolveCountUom({ ...dimsBase, countUOM: nonNullItem.countUOM || nonNullItem.baseUnit })
+
+  const itemDimsForDisplay = { ...dimsBase, countUOM: displayUnit }
 
   function toDisplay(qtyInBase: number): number {
     return convertBaseToCountUom(qtyInBase, displayUnit, itemDimsForDisplay)
