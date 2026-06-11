@@ -13,6 +13,7 @@ export interface StockMovement {
   qty: number   // in displayUnit, negative = deduction, positive = addition
   unit: string
   description: string
+  revenueCenterId?: string | null   // present on PURCHASE rows; which RC the purchase was attributed to
 }
 
 export interface StockMovementsResponse {
@@ -221,6 +222,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       qty:         toDisplay(m.qtyBase),
       unit:        displayUnit,
       description: m.description,
+      revenueCenterId: m.revenueCenterId ?? null,
     })),
   }
 
