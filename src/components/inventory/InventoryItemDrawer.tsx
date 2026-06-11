@@ -11,6 +11,7 @@ import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolve
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
+import { SupplierOffersSection } from './SupplierOffersSection'
 import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
 
@@ -884,6 +885,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     }}
                   />
                 )}
+
+                {/* Supplier offers */}
+                <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} />
 
                 {/* Price History */}
                 {priceHistory.length > 0 && (
