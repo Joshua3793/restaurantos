@@ -14,6 +14,9 @@ export default function TempChartsPage() {
   const { activeRc } = useRc()
   const { user } = useUser()
   const rcId = activeRc?.id ?? null
+  // New units are stamped with the active RC (the location you're managing).
+  // Surface that in the add-unit form so the assignment is visible, never silent.
+  const rcLabel = activeRc?.name ?? 'All centers (shared)'
   const recordedBy = user?.name || user?.email || null
   const TODAY = ymd(new Date())
 
@@ -158,6 +161,7 @@ export default function TempChartsPage() {
         setView={setView}
         addOpen={addOpen}
         setAddOpen={setAddOpen}
+        rcLabel={rcLabel}
         history={history}
         histLoading={histLoading}
         histUnit={histUnit}
@@ -173,6 +177,7 @@ export default function TempChartsPage() {
         metrics={metrics}
         handlers={handlers}
         today={TODAY}
+        rcLabel={rcLabel}
         history={history}
         histLoading={histLoading}
         ensureHistory={ensureHistory}

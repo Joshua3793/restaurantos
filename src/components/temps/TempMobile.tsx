@@ -20,6 +20,7 @@ export interface TempMobileProps {
   metrics: TempDayMetrics
   handlers: TempHandlers
   today: string
+  rcLabel: string
   history: HistoryReading[]
   histLoading: boolean
   ensureHistory: () => void
@@ -101,6 +102,7 @@ export function TempMobile(p: TempMobileProps) {
         {sheet?.kind === 'add' && (
           <AddUnitBody
             initialType={sheet.type}
+            rcLabel={p.rcLabel}
             onAdd={u => { handlers.addUnit(u); setSheet(null) }}
           />
         )}
@@ -323,7 +325,7 @@ function RangeField({ label, value, onChange, onCommit }: { label: string; value
 }
 
 // ── add-unit sheet body ───────────────────────────────────────────────────────
-function AddUnitBody({ initialType, onAdd }: { initialType: TempType; onAdd: (u: { name: string; type: TempType; safeMin: number | null; safeMax: number | null }) => void }) {
+function AddUnitBody({ initialType, rcLabel, onAdd }: { initialType: TempType; rcLabel: string; onAdd: (u: { name: string; type: TempType; safeMin: number | null; safeMax: number | null }) => void }) {
   const [name, setName] = useState('')
   const [type, setType] = useState<TempType>(initialType)
   const def = TEMP_TYPES[initialType].def
@@ -367,6 +369,8 @@ function AddUnitBody({ initialType, onAdd }: { initialType: TempType; onAdd: (u:
         <span className="text-ink-4 mt-3.5">–</span>
         <RangeField label="MAX °C" value={max} onChange={setMax} onCommit={() => {}} />
       </div>
+
+      <div className="font-mono text-[10px] text-ink-3 mb-3">Adds to <span className="font-semibold text-ink-2">{rcLabel}</span></div>
 
       <button onClick={submit} className="w-full h-[52px] rounded-2xl bg-ink text-paper inline-flex items-center justify-center gap-2 text-[15px] font-semibold" style={{ opacity: name.trim() ? 1 : 0.45 }}>
         <Plus size={18} className="text-gold" /> Add unit

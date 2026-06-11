@@ -557,6 +557,7 @@ function MenuPageInner() {
           onClose={() => setShowCatManager(false)}
           onUpdated={loadCategories}
           revenueCenterId={activeRcId}
+          revenueCenters={revenueCenters}
         />
       )}
     </div>

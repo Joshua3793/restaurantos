@@ -31,6 +31,7 @@ export interface TempDesktopProps {
   setView: (v: 'today' | 'history') => void
   addOpen: boolean
   setAddOpen: (b: boolean) => void
+  rcLabel: string
   history: HistoryReading[]
   histLoading: boolean
   histUnit: string
@@ -98,7 +99,7 @@ export function TempDesktop(p: TempDesktopProps) {
         </div>
       </div>
 
-      {p.addOpen && <AddUnitBar handlers={handlers} onDone={() => p.setAddOpen(false)} />}
+      {p.addOpen && <AddUnitBar handlers={handlers} rcLabel={p.rcLabel} onDone={() => p.setAddOpen(false)} />}
 
       {view === 'today' ? (
         <TodayView units={units} metrics={m} handlers={handlers} ringColor={ringColor} />
@@ -425,7 +426,7 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
 }
 
 // ── add-unit bar (desktop inline) ─────────────────────────────────────────────
-function AddUnitBar({ handlers, onDone }: { handlers: TempHandlers; onDone: () => void }) {
+function AddUnitBar({ handlers, rcLabel, onDone }: { handlers: TempHandlers; rcLabel: string; onDone: () => void }) {
   const [name, setName] = useState('')
   const [type, setType] = useState<TempType>('FRIDGE')
   const def = TEMP_TYPES[type].def
@@ -466,6 +467,7 @@ function AddUnitBar({ handlers, onDone }: { handlers: TempHandlers; onDone: () =
         Add unit
       </button>
       <button onClick={onDone} className="text-ink-3 grid place-items-center p-1.5"><X size={15} /></button>
+      <div className="basis-full font-mono text-[10.5px] text-ink-3">Adds to <span className="font-semibold text-ink-2">{rcLabel}</span></div>
     </div>
   )
 }

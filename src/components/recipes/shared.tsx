@@ -1953,27 +1953,39 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
 }
 
 // ─── CategoryManager ──────────────────────────────────────────────────────────
-export function CategoryManager({ type, categories, onClose, onUpdated, revenueCenterId }: {
+export function CategoryManager({ type, categories, onClose, onUpdated, revenueCenterId, revenueCenters }: {
   type: string
   categories: RecipeCategory[]
   onClose: () => void
   onUpdated: () => void
   revenueCenterId?: string | null
+  revenueCenters?: { id: string; name: string; isActive: boolean }[]
 }) {
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(CATEGORY_PALETTE[0])
+  // MENU categories are revenue-center-scoped. Make the RC an explicit, visible
+  // choice (pre-filled from the active filter) rather than a silent inherit —
+  // mirrors the required RC field on the menu recipe form. PREP categories are
+  // never RC-scoped (the API forces null), so no selector is shown for them.
+  const [newRcId, setNewRcId] = useState<string>(revenueCenterId ?? '')
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
+  const showRcPicker = type === 'MENU' && !!revenueCenters?.length
 
   const addCat = async () => {
     if (!newName.trim()) return
     await fetch('/api/recipes/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, type, color: newColor, revenueCenterId: revenueCenterId ?? null }),
+      body: JSON.stringify({
+        name: newName,
+        type,
+        color: newColor,
+        revenueCenterId: type === 'MENU' ? (newRcId || null) : null,
+      }),
     })
-    setNewName(''); setAdding(false); onUpdated()
+    setNewName(''); setNewRcId(revenueCenterId ?? ''); setAdding(false); onUpdated()
   }
 
   const updateCat = async (id: string, data: Record<string, unknown>) => {
@@ -2013,20 +2025,34 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
             </div>
           ))}
           {adding ? (
-            <div className="flex items-center gap-2 mt-2">
-              <div className="flex gap-1">
-                {CATEGORY_PALETTE.map(c => (
-                  <button key={c} onClick={() => setNewColor(c)}
-                    className={`w-5 h-5 rounded-full border-2 ${newColor === c ? 'border-ink-3' : 'border-transparent'}`}
-                    style={{ background: c }} />
-                ))}
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  {CATEGORY_PALETTE.map(c => (
+                    <button key={c} onClick={() => setNewColor(c)}
+                      className={`w-5 h-5 rounded-full border-2 ${newColor === c ? 'border-ink-3' : 'border-transparent'}`}
+                      style={{ background: c }} />
+                  ))}
+                </div>
+                <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addCat(); if (e.key === 'Escape') setAdding(false) }}
+                  placeholder="Category name"
+                  className="flex-1 border border-line rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
+                <button onClick={addCat} className="text-gold"><Check size={16} /></button>
+                <button onClick={() => setAdding(false)} className="text-ink-4"><X size={14} /></button>
               </div>
-              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addCat(); if (e.key === 'Escape') setAdding(false) }}
-                placeholder="Category name"
-                className="flex-1 border border-line rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
-              <button onClick={addCat} className="text-gold"><Check size={16} /></button>
-              <button onClick={() => setAdding(false)} className="text-ink-4"><X size={14} /></button>
+              {showRcPicker && (
+                <label className="flex items-center gap-2 text-xs text-ink-3 pl-1">
+                  Revenue center
+                  <select value={newRcId} onChange={e => setNewRcId(e.target.value)}
+                    className="flex-1 border border-line rounded-lg px-2.5 py-1.5 text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold">
+                    <option value="">Select…</option>
+                    {revenueCenters!.filter(rc => rc.isActive).map(rc => (
+                      <option key={rc.id} value={rc.id}>{rc.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           ) : (
             <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-sm text-gold hover:text-gold mt-2">
