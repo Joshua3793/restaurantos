@@ -109,6 +109,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // Learn alias: associate this OCR name with the chosen supplier
     if (body.supplierId && session.supplierName) {
       await learnAlias(body.supplierId, session.supplierName)
+
+      // Adopt orphaned offers: supplier prices recorded under this OCR text name
+      // with no supplier link belong to the now-linked supplier. Backfilling lets
+      // the Suppliers page attribute their spend/history to the real record.
+      await prisma.inventorySupplierPrice.updateMany({
+        where: { supplierName: session.supplierName, supplierId: null },
+        data:  { supplierId: body.supplierId },
+      })
     }
 
     return NextResponse.json(updated)

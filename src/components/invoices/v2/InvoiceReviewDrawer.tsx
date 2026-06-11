@@ -5,7 +5,7 @@
 import {
   useState, useEffect, useCallback, useMemo, useRef,
 } from 'react'
-import { X, Check, Loader2, AlertTriangle, ChevronUp, ChevronDown, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag, Search } from 'lucide-react'
+import { X, Check, Loader2, AlertTriangle, ChevronUp, ChevronDown, TrendingUp, TrendingDown, RotateCcw, Package, BookOpen, Tag, Search, Plus } from 'lucide-react'
 import { DrawerContext, type DrawerContextValue } from './context'
 import { LineItemCard } from './card'
 import { type ReconcileResult } from './composites'
@@ -269,6 +269,27 @@ export function InvoiceReviewDrawer({
       body: JSON.stringify({ supplierId }),
     })
   }, [session])
+
+  // Create a brand-new supplier from the unmatched invoice, then link it.
+  // The OCR name is stored as an alias so future invoices match automatically;
+  // linking (PATCH) backfills any orphaned offers stored under that name.
+  const handleCreateSupplier = useCallback(async (fields: {
+    name: string; contactName?: string; phone?: string; email?: string; orderPlatform?: string
+  }) => {
+    if (!session) return
+    const res = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...fields,
+        aliases: session.supplierName ? [session.supplierName] : [],
+      }),
+    })
+    if (!res.ok) throw new Error('Could not create supplier')
+    const created = await res.json()
+    setAllSuppliers(prev => [...prev, { id: created.id, name: created.name }])
+    await handleLinkSupplier(created.id)
+  }, [session, handleLinkSupplier])
 
   const fetchSession = useCallback(async (id: string) => {
     setLoading(true)
@@ -936,6 +957,7 @@ export function InvoiceReviewDrawer({
                           onSearch={setSupplierSearch}
                           onOpenCombo={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
                           onPick={handleLinkSupplier}
+                          onCreate={handleCreateSupplier}
                           onSkip={() => { setSupplierSkipped(true); setSupplierComboOpen(false) }}
                         />
                       )}
@@ -1571,6 +1593,7 @@ function SupplierLinkCard({
   onSearch,
   onOpenCombo,
   onPick,
+  onCreate,
   onSkip,
 }: {
   supplierName: string | null
@@ -1580,9 +1603,43 @@ function SupplierLinkCard({
   onSearch: (v: string) => void
   onOpenCombo: () => void
   onPick: (id: string) => void
+  onCreate: (fields: { name: string; contactName?: string; phone?: string; email?: string; orderPlatform?: string }) => Promise<void>
   onSkip: () => void
 }) {
   const filtered = suppliers.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
+
+  // Inline "create new" form state — local to the card.
+  const [createOpen, setCreateOpen] = useState(false)
+  const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', orderPlatform: '' })
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  const openCreate = () => {
+    setForm({ name: supplierName ?? '', contactName: '', phone: '', email: '', orderPlatform: '' })
+    setCreateError(null)
+    setCreateOpen(true)
+  }
+
+  const submitCreate = async () => {
+    const name = form.name.trim()
+    if (!name) { setCreateError('Name is required'); return }
+    setCreating(true)
+    setCreateError(null)
+    try {
+      await onCreate({
+        name,
+        contactName: form.contactName.trim() || undefined,
+        phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
+        orderPlatform: form.orderPlatform.trim() || undefined,
+      })
+      // Success unmounts this card (supplier becomes linked) — no reset needed.
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : 'Could not create supplier')
+      setCreating(false)
+    }
+  }
+
   return (
     <article className="bg-gold-soft/40 border border-[#fcd34d] rounded-lg overflow-hidden">
       <div className="px-4 py-3 flex flex-col gap-2.5">
@@ -1597,6 +1654,9 @@ function SupplierLinkCard({
         <div className="flex gap-1.5 flex-wrap">
           <ActButton variant="primary" onClick={onOpenCombo}>
             <Search size={12} /> Link to existing
+          </ActButton>
+          <ActButton variant="default" onClick={createOpen ? () => setCreateOpen(false) : openCreate}>
+            <Plus size={12} /> Create new
           </ActButton>
           <ActButton variant="danger" onClick={onSkip}>Skip for this invoice</ActButton>
         </div>
@@ -1625,7 +1685,55 @@ function SupplierLinkCard({
             </div>
           </div>
         )}
+
+        {createOpen && (
+          <div className="bg-paper border border-line rounded-lg p-3 flex flex-col gap-2">
+            <SupplierField label="Name" value={form.name} autoFocus
+              onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="Supplier name" />
+            <div className="grid grid-cols-2 gap-2">
+              <SupplierField label="Contact" value={form.contactName}
+                onChange={v => setForm(f => ({ ...f, contactName: v }))} placeholder="Contact name" />
+              <SupplierField label="Phone" value={form.phone}
+                onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="Phone" />
+              <SupplierField label="Email" value={form.email}
+                onChange={v => setForm(f => ({ ...f, email: v }))} placeholder="Email" />
+              <SupplierField label="Order platform" value={form.orderPlatform}
+                onChange={v => setForm(f => ({ ...f, orderPlatform: v }))} placeholder="e.g. phone, portal" />
+            </div>
+            {createError && <p className="text-[11.5px] text-red-text">{createError}</p>}
+            <div className="flex gap-1.5 pt-0.5">
+              <ActButton variant="primary" onClick={submitCreate} disabled={creating}>
+                {creating ? 'Creating…' : 'Create & link'}
+              </ActButton>
+              <ActButton variant="default" onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</ActButton>
+            </div>
+          </div>
+        )}
       </div>
     </article>
+  )
+}
+
+// Compact labelled text input for the inline create-supplier form.
+function SupplierField({
+  label, value, onChange, placeholder, autoFocus,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  autoFocus?: boolean
+}) {
+  return (
+    <label className="flex flex-col gap-1 min-w-0">
+      <span className="text-[10.5px] font-medium uppercase tracking-wide text-ink-4">{label}</span>
+      <input
+        autoFocus={autoFocus}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-2.5 py-1.5 text-[13px] border border-line rounded-md focus:outline-none focus:border-ink-4"
+      />
+    </label>
   )
 }
