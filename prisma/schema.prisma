@@ -373,19 +373,28 @@ model InvoiceScanItem {
   matchedItem        InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
   revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
   session            InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([matchedItemId])
 }
 
 model InventorySupplierPrice {
-  id               String        @id @default(uuid())
-  inventoryItemId  String
-  supplierName     String
-  supplierId       String?
-  lastPrice        Decimal
-  pricePerBaseUnit Decimal
-  lastUpdated      DateTime      @default(now())
-  isPrimary        Boolean       @default(false)
-  inventoryItem    InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  supplier         Supplier?     @relation(fields: [supplierId], references: [id])
+  id                   String        @id @default(uuid())
+  inventoryItemId      String
+  supplierName         String
+  supplierId           String?
+  lastPrice            Decimal
+  pricePerBaseUnit     Decimal
+  lastUpdated          DateTime      @default(now())
+  isPrimary            Boolean       @default(false)
+  supplierItemCode     String?  // this supplier's SKU for the item
+  packQty              Decimal? // THIS supplier's pack format (qty per case)
+  packSize             Decimal?
+  packUOM              String?
+  lastInvoiceSessionId String?  // provenance: approval that last set this offer
+  inventoryItem        InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  supplier             Supplier?     @relation(fields: [supplierId], references: [id])
+
+  @@unique([inventoryItemId, supplierName])
 }
 
 model PriceAlert {
