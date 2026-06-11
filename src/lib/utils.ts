@@ -59,7 +59,14 @@ export function calcPricePerBaseUnit(
   priceType: 'CASE' | 'UOM' = 'CASE',
 ): number {
   if (priceType === 'UOM') {
-    const conv = getUnitConv(packUOM)
+    // A UOM ("priced per weight/volume") item's purchasePrice is a rate
+    // ($/kg, $/L…), so its denominator must be that weight/volume unit — never
+    // a count unit. Catch-weight items packed in pieces store packUOM='each'
+    // (conv 1), which left the rate unconverted and inflated the cost 1000×.
+    // Fall back to a weight/volume unit when packUOM is a count unit.
+    const WV = ['g', 'mg', 'kg', 'lb', 'oz', 'ml', 'cl', 'dl', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
+    const rateUnit = WV.includes((packUOM ?? '').toLowerCase()) ? packUOM : 'kg'
+    const conv = getUnitConv(rateUnit)
     return conv > 0 ? purchasePrice / conv : 0
   }
   const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']

@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
-import { parseFormatFromDescription, comparePricesNormalized, calcNewPurchasePrice } from '@/lib/invoice-format'
+import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
 const UOM_ALIASES: Record<string, string> = {
@@ -222,17 +222,15 @@ function buildMatchResult(
       if (normalized) {
         priceDiffPct = normalized.pctDiff
         normalisedOk = true
-        // per_case only: normalize the per-container price to the inventory's
-        // purchase format. per_weight carries the rate through unchanged
-        // (newPrice stays = rawUnitPrice = rate), so the spine writer's UOM path
-        // computes pricePerBaseUnit = rate / unitConv correctly.
-        if (formatConfirmed && !isPerWeight) {
-          const calcPrice = calcNewPurchasePrice(
-            invoicePricePerPackUOM, format.packUOM,
-            Number(bestItem.qtyPerPurchaseUnit), Number(bestItem.packSize), bestItem.packUOM
-          )
-          if (calcPrice !== null) newPrice = calcPrice
-        }
+        // newPrice stays = rawUnitPrice (the supplier's actual case price / rate
+        // as printed). It was previously reconstructed via calcNewPurchasePrice,
+        // round-tripping the price through the INVOICE's parsed format then the
+        // INVENTORY's format — when those disagreed (OCR mis-read the pack, or
+        // the user corrected the format in review without it recomputing) the
+        // price inflated by the format ratio (e.g. $34.32 → $1716). The approve
+        // route's spine derives pricePerBaseUnit from rawUnitPrice over the
+        // RESOLVED format, and its format-mismatch guard skips unconsented
+        // mismatches — so the round-trip is both redundant and the bug source.
       }
     }
 
