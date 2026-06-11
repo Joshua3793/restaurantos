@@ -166,28 +166,55 @@ async function doApprove(
         await prisma.$transaction(itemOps)
         updatedItemIds.push(scanItem.matchedItemId)
 
-        // Upsert supplier price record (non-critical, outside transaction)
+        // Upsert this supplier's offer: their last price, their pack format
+        // (post-review resolved values), their SKU. Non-critical, outside the
+        // transaction. Unique (inventoryItemId, supplierName) replaced the old
+        // findFirst/create dance (the SP-1 migration deduped old rows).
+        //
+        // PRICE DENOMINATION: lastPrice must be the supplier's own price over
+        // the pack format stored on this same row — the matcher divides one by
+        // the other next invoice. UOM mode: the rate ($/uom). CASE mode: the
+        // case price as printed (rawUnitPrice), NOT newPrice (which may have
+        // been normalized into the ITEM's purchase format).
         if (session.supplierName) {
-          const existing = await prisma.inventorySupplierPrice.findFirst({
-            where: { inventoryItemId: scanItem.matchedItemId, supplierName: session.supplierName },
-          })
-          if (existing) {
-            await prisma.inventorySupplierPrice.update({
-              where: { id: existing.id },
-              data: { lastPrice: newPurchasePrice, pricePerBaseUnit: newPricePerBase, lastUpdated: new Date() },
-            })
-          } else {
-            await prisma.inventorySupplierPrice.create({
-              data: {
+          const offerLastPrice = rawPriceType === 'UOM'
+            ? newPurchasePrice
+            : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : newPurchasePrice)
+          const offerPack = scanItem.invoicePackQty !== null && scanItem.invoicePackSize !== null
+            ? {
+                packQty:  Number(scanItem.invoicePackQty),
+                packSize: Number(scanItem.invoicePackSize),
+                packUOM:  scanItem.invoicePackUOM ?? 'each',
+              }
+            : {}
+          await prisma.inventorySupplierPrice.upsert({
+            where: {
+              inventoryItemId_supplierName: {
                 inventoryItemId: scanItem.matchedItemId,
                 supplierName:    session.supplierName,
-                supplierId:      session.supplierId || null,
-                lastPrice:       newPurchasePrice,
-                pricePerBaseUnit: newPricePerBase,
-                isPrimary:       false,
               },
-            })
-          }
+            },
+            create: {
+              inventoryItemId:      scanItem.matchedItemId,
+              supplierName:         session.supplierName,
+              supplierId:           session.supplierId || null,
+              lastPrice:            offerLastPrice,
+              pricePerBaseUnit:     newPricePerBase,
+              isPrimary:            false,
+              supplierItemCode:     scanItem.supplierItemCode ?? null,
+              lastInvoiceSessionId: sessionId,
+              ...offerPack,
+            },
+            update: {
+              lastPrice:            offerLastPrice,
+              pricePerBaseUnit:     newPricePerBase,
+              lastUpdated:          new Date(),
+              lastInvoiceSessionId: sessionId,
+              ...(session.supplierId ? { supplierId: session.supplierId } : {}),
+              ...(scanItem.supplierItemCode ? { supplierItemCode: scanItem.supplierItemCode } : {}),
+              ...offerPack,
+            },
+          }).catch((e) => console.error('[approve] offer upsert failed:', e))
         }
       }
 
