@@ -9,6 +9,7 @@ import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { derivePricingMode } from '@/lib/invoice/predicates'
+import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── IssueShell ────────────────────────────────────────────────────────────────
@@ -238,5 +239,38 @@ export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
     >
       {reason}
     </IssueShell>
+  )
+}
+
+// ─── SupplierSwitchNote ────────────────────────────────────────────────────────
+// Info-tone note when the spine price moved only because the purchase switched
+// suppliers: this supplier's own price is steady, but another supplier set the
+// current costing price. Not an issue — needs no decision.
+export function SupplierSwitchNote({ item, sessionSupplierName }: { item: ScanItem; sessionSupplierName: string | null }) {
+  const norm  = computeNormalisedPrices(item)
+  const offer = offerForSupplier(item, sessionSupplierName)
+  if (!norm || !offer) return null
+  const offerPPB = Number(offer.pricePerBaseUnit)
+  if (offerPPB <= 0) return null
+  const vsSelf  = Math.abs(((norm.invoicePPB - offerPPB) / offerPPB) * 100)
+  const vsSpine = Math.abs(norm.pctDiff)
+  // Only when the apparent move is a supplier artifact: steady vs self, ≥3% vs spine.
+  if (vsSelf >= 3 || vsSpine < 3) return null
+  const other = cheapestOtherOffer(item, sessionSupplierName)
+  const factor = norm.baseUnit === 'g' || norm.baseUnit === 'ml' ? 1000 : 1
+  const unit   = norm.baseUnit === 'g' ? 'kg' : norm.baseUnit === 'ml' ? 'L' : (norm.baseUnit || 'each')
+  return (
+    <div className="mx-4 my-2.5 flex items-start gap-2.5 bg-blue-soft border border-blue-soft rounded-lg px-3 py-2.5">
+      <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-blue-soft text-blue-text shrink-0">
+        Supplier switch
+      </span>
+      <span className="text-[12.5px] text-ink-2 leading-[1.45]">
+        {sessionSupplierName ?? 'This supplier'}&rsquo;s price is steady at{' '}
+        <b className="font-semibold text-ink">{formatCurrency(norm.invoicePPB * factor)}/{unit}</b> — your costing price
+        currently comes from a different supplier
+        {other ? <> ({other.supplierName} <b className="font-semibold text-ink">{formatCurrency(Number(other.pricePerBaseUnit) * factor)}/{unit}</b>)</> : null}.
+        Approving will re-cost at this supplier&rsquo;s price.
+      </span>
+    </div>
   )
 }

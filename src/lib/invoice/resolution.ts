@@ -26,21 +26,46 @@ export interface ResolveOpts {
   confAck: boolean
 }
 
+// ── Supplier offers on the matched item ──────────────────────────────────────
+export function offerForSupplier(item: ScanItem, supplierName: string | null | undefined) {
+  if (!supplierName || !item.matchedItem?.supplierPrices) return null
+  return item.matchedItem.supplierPrices.find(o => o.supplierName === supplierName) ?? null
+}
+
+/** Cheapest OTHER supplier's offer, for the supplier-switch note. */
+export function cheapestOtherOffer(item: ScanItem, supplierName: string | null | undefined) {
+  const offers = (item.matchedItem?.supplierPrices ?? [])
+    .filter(o => o.supplierName !== supplierName && Number(o.pricePerBaseUnit) > 0)
+  if (offers.length === 0) return null
+  return offers.reduce((min, o) => Number(o.pricePerBaseUnit) < Number(min.pricePerBaseUnit) ? o : min)
+}
+
 // Big price jumps (>15%) on a linked item are the only price deltas promoted to
 // a decision-required `.issue` — smaller drifts surface only as a variance pill.
-export function isBigPriceChange(item: ScanItem): boolean {
+export function isBigPriceChange(item: ScanItem, sessionSupplierName?: string | null): boolean {
   if (!item.matchedItem) return false
   // Prefer the unit-normalised comparison (handles $/cs vs $/L etc.) — the stored
   // priceDiffPct can be computed in mismatched units and read as a huge jump when
   // the real per-base-unit price is unchanged. Fall back to the stored pct only
   // when prices can't be normalised (e.g. per-case with no base unit).
   const norm = computeNormalisedPrices(item)
-  if (norm) return Math.abs(norm.pctDiff) > 15
+  if (norm) {
+    // Compare against THIS supplier's own last $/base when we know it — a
+    // supplier switch with both suppliers flat must not demand an ack.
+    const offer = offerForSupplier(item, sessionSupplierName)
+    const offerPPB = offer ? Number(offer.pricePerBaseUnit) : 0
+    if (offerPPB > 0) {
+      return Math.abs(((norm.invoicePPB - offerPPB) / offerPPB) * 100) > 15
+    }
+    return Math.abs(norm.pctDiff) > 15
+  }
   return hasPriceChange(item, 15)
 }
 
 // Which issue badges a line currently shows, and whether each is resolved.
-export function lineIssues(item: ScanItem, opts: ResolveOpts): Array<{ kind: IssueKind; resolved: boolean }> {
+// `sessionSupplierName` scopes the big-price check to the invoice's supplier —
+// pass it wherever the session is in scope so the card and the approve gate agree.
+export function lineIssues(item: ScanItem, opts: ResolveOpts, sessionSupplierName?: string | null): Array<{ kind: IssueKind; resolved: boolean }> {
   if (isCharge(item)) return []
   const out: Array<{ kind: IssueKind; resolved: boolean }> = []
 
@@ -57,7 +82,7 @@ export function lineIssues(item: ScanItem, opts: ResolveOpts): Array<{ kind: Iss
   if (hasFormatMismatch(item) && !hasModeMismatch(item)) out.push({ kind: 'mode', resolved: false })
 
   // Big price change — resolved once acknowledged.
-  if (isBigPriceChange(item)) out.push({ kind: 'price', resolved: opts.priceAck })
+  if (isBigPriceChange(item, sessionSupplierName)) out.push({ kind: 'price', resolved: opts.priceAck })
 
   // Low-trust line — resolved once the user confirms it looks right.
   if (needsTrustCheck(item)) out.push({ kind: 'conf', resolved: opts.confAck })
@@ -66,8 +91,8 @@ export function lineIssues(item: ScanItem, opts: ResolveOpts): Array<{ kind: Iss
 }
 
 // True when a line still has at least one issue awaiting a decision.
-export function lineUnresolved(item: ScanItem, opts: ResolveOpts): boolean {
+export function lineUnresolved(item: ScanItem, opts: ResolveOpts, sessionSupplierName?: string | null): boolean {
   // A math check is a hard blocker even though it has no badge of its own.
   if (!isCharge(item) && hasMathCheck(item)) return true
-  return lineIssues(item, opts).some(i => !i.resolved)
+  return lineIssues(item, opts, sessionSupplierName).some(i => !i.resolved)
 }

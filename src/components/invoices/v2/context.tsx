@@ -12,6 +12,8 @@ export interface DrawerContextValue {
   // ── Server-sourced data ────────────────────────────────────────────────────
   lines: ScanItem[]
   revenueCenters: RevenueCenter[]
+  /** The invoice's supplier — used for supplier-scoped price comparisons. */
+  sessionSupplierName: string | null
 
   // ── Client-side staged edits ───────────────────────────────────────────────
   editedLines: Map<string, Partial<ScanItem>>

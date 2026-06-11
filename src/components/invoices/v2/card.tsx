@@ -14,7 +14,7 @@ import {
   InvoiceMathFields,
   type InventorySearchResult,
 } from './composites'
-import { ModeIssue, NewSkuIssue, PriceIssue, ConfIssue } from './issues'
+import { ModeIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote } from './issues'
 import {
   derivePricingMode, isCatchweight, hasModeMismatch, hasFormatMismatch,
   hasMathCheck, isUnlinked, needsTrustCheck,
@@ -44,7 +44,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const modeMismatch   = !isSkipped && hasModeMismatch(item)
   const formatMismatch = !isSkipped && hasFormatMismatch(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
-  const bigPrice       = !isSkipped && isBigPriceChange(item)
+  const bigPrice       = !isSkipped && isBigPriceChange(item, ctx.sessionSupplierName)
   const trustCheck     = !isSkipped && needsTrustCheck(item)
   const isAttention    = unlinked || modeMismatch || formatMismatch || mathCheck || bigPrice || trustCheck
   const isCatch        = isCatchweight(item)
@@ -55,7 +55,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
     modeWriteback: ctx.modeWritebackItems.has(lineId),
     priceAck:      ctx.acknowledgedPriceLines.has(lineId),
     confAck:       ctx.acknowledgedConfLines.has(lineId),
-  })
+  }, ctx.sessionSupplierName)
 
   // data-task for the footer's goToTask() targeting (highest-priority first).
   const dataTask = isSkipped ? undefined
@@ -278,6 +278,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
           {modeMismatch && <ModeIssue item={item} lineId={lineId} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
+          {!bigPrice && <SupplierSwitchNote item={item} sessionSupplierName={ctx.sessionSupplierName} />}
           {trustCheck && <ConfIssue item={item} lineId={lineId} />}
           {formatMismatch && !modeMismatch && (
             <div className="px-4 py-2.5 border-b border-dashed border-line">

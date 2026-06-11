@@ -23,6 +23,16 @@ export interface InventoryMatch {
   priceType: string
   qtyUOM: string
   innerQty: string | null
+  supplierPrices?: Array<{
+    id: string
+    supplierName: string
+    lastPrice: string | number          // Prisma Decimal serialises as string
+    pricePerBaseUnit: string | number
+    packQty: string | number | null
+    packSize: string | number | null
+    packUOM: string | null
+    isPrimary: boolean
+  }>
 }
 
 export type PricingMode = 'per_case' | 'per_weight' | 'unknown'
