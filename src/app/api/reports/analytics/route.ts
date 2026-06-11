@@ -490,7 +490,11 @@ async function buildMultiSupplierBlock(days: number) {
   }
   const volatile = [...hist.entries()]
     .map(([k, prices]) => {
-      const [itemId, supplier] = k.split('|')
+      // Split on the FIRST separator only — item ids never contain '|', but
+      // free-text supplier names could.
+      const sep = k.indexOf('|')
+      const itemId = k.slice(0, sep)
+      const supplier = k.slice(sep + 1)
       const v = volatilityOf(prices)
       return { name: itemMeta.get(itemId)?.name ?? '?', supplier, volatility: v, stability: stabilityOf(v), purchases: prices.length }
     })

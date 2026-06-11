@@ -137,7 +137,7 @@ export default function PurchasingTab({ period }: { period: number }) {
             </Card>
 
             <Card>
-              <SectionHeader title="Most Volatile Prices" subtitle="Price variation per item & supplier (90d window of this period)" />
+              <SectionHeader title="Most Volatile Prices" subtitle="Price variation per item & supplier over the selected period" />
               {ms.volatile.length > 0 ? (
                 <div className="space-y-2">
                   {ms.volatile.map((v, i) => (
