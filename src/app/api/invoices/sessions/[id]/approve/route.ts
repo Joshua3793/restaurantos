@@ -342,26 +342,37 @@ async function doApprove(
           },
         })
 
-        await prisma.invoiceScanItem.createMany({
-          data: rcItems.map(item => ({
-            sessionId:       clone.id,
-            rawDescription:  item.rawDescription,
-            rawQty:          item.rawQty,
-            rawUnit:         item.rawUnit,
-            rawUnitPrice:    item.rawUnitPrice,
-            rawLineTotal:    item.rawLineTotal,
-            matchedItemId:   item.matchedItemId,
-            matchConfidence: item.matchConfidence,
-            matchScore:      item.matchScore,
-            action:          item.action,
-            approved:        true,
-            newPrice:        item.newPrice,
-            previousPrice:   item.previousPrice,
-            priceDiffPct:    item.priceDiffPct,
-            revenueCenterId: rcId,
-            sortOrder:       item.sortOrder,
-          })),
-        })
+        // Copy the lines into the clone and flag the parent originals atomically,
+        // so a failure can never leave both sets of lines live (double-count).
+        await prisma.$transaction([
+          prisma.invoiceScanItem.createMany({
+            data: rcItems.map(item => ({
+              sessionId:       clone.id,
+              rawDescription:  item.rawDescription,
+              rawQty:          item.rawQty,
+              rawUnit:         item.rawUnit,
+              rawUnitPrice:    item.rawUnitPrice,
+              rawLineTotal:    item.rawLineTotal,
+              matchedItemId:   item.matchedItemId,
+              matchConfidence: item.matchConfidence,
+              matchScore:      item.matchScore,
+              action:          item.action,
+              approved:        true,
+              newPrice:        item.newPrice,
+              previousPrice:   item.previousPrice,
+              priceDiffPct:    item.priceDiffPct,
+              revenueCenterId: rcId,
+              sortOrder:       item.sortOrder,
+            })),
+          }),
+          // Move-not-copy: flag the parent's originals so they are excluded from
+          // spend aggregation. The clone's copies (splitToSessionId = null) are the
+          // canonical home for these lines. Parent keeps the lines for fidelity.
+          prisma.invoiceScanItem.updateMany({
+            where: { id: { in: rcItems.map(i => i.id) } },
+            data:  { splitToSessionId: clone.id },
+          }),
+        ])
       }
     }
 

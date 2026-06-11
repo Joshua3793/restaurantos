@@ -76,11 +76,11 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
     }),
     // Purchases current period
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, session: { approvedAt: { gte: since } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: since } } },
       _sum: { rawLineTotal: true },
     }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, session: { approvedAt: { gte: prevSince, lt: since } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: prevSince, lt: since } } },
       _sum: { rawLineTotal: true },
     }),
   ])
@@ -338,7 +338,7 @@ async function getInventory(since: Date) {
 async function getPurchasing(since: Date, days: number) {
   const [scanItems, supplierPrices] = await Promise.all([
     prisma.invoiceScanItem.findMany({
-      where: { approved: true, session: { approvedAt: { gte: since } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: since } } },
       select: {
         rawDescription: true, rawQty: true, rawUnitPrice: true, rawLineTotal: true,
         matchedItem: { select: { itemName: true, category: true } },
@@ -427,6 +427,7 @@ async function buildMultiSupplierBlock(days: number) {
   const lines = await prisma.invoiceScanItem.findMany({
     where: {
       approved: true,
+      splitToSessionId: null,
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
       matchedItemId: { in: [...byItem.keys()] },
       session: { status: 'APPROVED', approvedAt: { gte: since } },

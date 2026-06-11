@@ -353,6 +353,7 @@ model InvoiceScanItem {
   totalQty           Decimal?
   totalQtyUOM        String?
   revenueCenterId    String?
+  splitToSessionId   String?        // set on a PARENT line moved into an RC clone; null = live/countable
   ocrConfidence      String?        // 'low' | 'medium' | 'high' — Claude's self-rated confidence in this line
   ocrNotes           String?        // Optional reason Claude flagged a line as low-confidence
   // ── Mode-aware OCR fields (from the mode-first OCR schema) ─────────────────
@@ -375,6 +376,7 @@ model InvoiceScanItem {
   session            InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([matchedItemId])
+  @@index([splitToSessionId])
 }
 
 model InventorySupplierPrice {

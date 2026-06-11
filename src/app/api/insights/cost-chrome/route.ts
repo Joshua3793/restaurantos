@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
     prisma.invoiceScanItem.aggregate({
       where: {
         approved: true,
+        splitToSessionId: null,
         session: { approvedAt: { gte: weekStart }, ...purchaseSessionFilter },
       },
       _sum: { rawLineTotal: true },
@@ -71,6 +72,7 @@ export async function GET(req: NextRequest) {
     prisma.invoiceScanItem.aggregate({
       where: {
         approved: true,
+        splitToSessionId: null,
         session: { approvedAt: { gte: sevenDaysAgo }, ...purchaseSessionFilter },
       },
       _sum: { rawLineTotal: true },
@@ -78,6 +80,7 @@ export async function GET(req: NextRequest) {
     prisma.invoiceScanItem.aggregate({
       where: {
         approved: true,
+        splitToSessionId: null,
         session: { approvedAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo }, ...purchaseSessionFilter },
       },
       _sum: { rawLineTotal: true },

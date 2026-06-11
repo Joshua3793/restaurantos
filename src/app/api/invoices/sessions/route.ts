@@ -92,12 +92,25 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { supplierName, supplierId, revenueCenterId } = await req.json().catch(() => ({}))
 
+  // Every invoice gets an RC so it is always visible to per-RC reporting.
+  // Sidebar filtering is view-only and must NOT drive the invoice's RC, so we
+  // fall back to the main (default) revenue center rather than any client value
+  // derived from the active filter.
+  let rcId: string | null = revenueCenterId || null
+  if (!rcId) {
+    const defaultRc = await prisma.revenueCenter.findFirst({
+      where: { isDefault: true },
+      select: { id: true },
+    })
+    rcId = defaultRc?.id ?? null
+  }
+
   const session = await prisma.invoiceSession.create({
     data: {
       status: 'UPLOADING',
       supplierName: supplierName || null,
       supplierId: supplierId || null,
-      revenueCenterId: revenueCenterId || null,
+      revenueCenterId: rcId,
     },
   })
 

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.salesEntry.findMany({ where: { date: { gte: weekAgo }, ...rcFilter } }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, session: { approvedAt: { gte: weekAgo } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: weekAgo } } },
       _sum: { rawLineTotal: true },
     }),
   ])

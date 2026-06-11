@@ -193,7 +193,7 @@ export async function GET(req: NextRequest) {
     },
     include: {
       scanItems: {
-        where: { approved: true, action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] } },
+        where: { approved: true, splitToSessionId: null, action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] } },
         include: { matchedItem: { select: { category: true } } },
       },
     },

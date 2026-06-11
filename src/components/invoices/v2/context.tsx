@@ -16,6 +16,8 @@ export interface DrawerContextValue {
   sessionSupplierName: string | null
   /** Canonical supplier id when the session resolved one — the reliable offer join. */
   sessionSupplierId: string | null
+  /** The invoice's (session-level) revenue center id — the default for unset lines. */
+  sessionRcId: string | null
 
   // ── Client-side staged edits ───────────────────────────────────────────────
   editedLines: Map<string, Partial<ScanItem>>

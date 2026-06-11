@@ -14,6 +14,7 @@ export async function GET(
     where: {
       matchedItemId: id,
       approved: true,
+      splitToSessionId: null,
       session: { status: 'APPROVED' },
       rawUnitPrice: { not: null },
     },

@@ -26,7 +26,7 @@ export async function GET() {
       select: { revenueCenterId: true, totalRevenue: true, foodSalesPct: true },
     }),
     prisma.invoiceScanItem.findMany({
-      where: { approved: true, session: { approvedAt: { gte: weekStart } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: weekStart } } },
       select: { rawLineTotal: true, session: { select: { revenueCenterId: true } } },
     }),
     prisma.stockAllocation.groupBy({ by: ['revenueCenterId'], _count: { _all: true } }),
