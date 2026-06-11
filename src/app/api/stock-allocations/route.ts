@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { convertCountQtyToBase, convertBaseToCountUom } from '@/lib/count-uom'
 
 // GET /api/stock-allocations?itemId= — allocations for a specific inventory item
 export async function GET(req: NextRequest) {
@@ -36,10 +37,27 @@ export async function POST(req: NextRequest) {
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
 
-  const available = Number(item.stockOnHand)
-  if (available < qty) {
+  // `quantity` arrives in the item's countUOM (e.g. kg), but stockOnHand is
+  // stored in baseUnit (e.g. g). Convert before decrementing / comparing —
+  // otherwise pulling 2.28 kg decremented stockOnHand by 2.28 g, leaving the
+  // main pool ~unchanged while the RC allocation showed the full amount.
+  const countUOM = item.countUOM || item.baseUnit
+  const dims = {
+    baseUnit:           item.baseUnit,
+    purchaseUnit:       item.purchaseUnit,
+    qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
+    qtyUOM:             item.qtyUOM ?? 'each',
+    innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
+    packSize:           Number(item.packSize ?? 1),
+    packUOM:            item.packUOM ?? 'each',
+    countUOM,
+  }
+  const qtyBase     = convertCountQtyToBase(qty, countUOM, dims)
+  const availBase   = Number(item.stockOnHand)
+  if (availBase < qtyBase) {
+    const availDisplay = convertBaseToCountUom(availBase, countUOM, dims)
     return NextResponse.json(
-      { error: `Not enough stock. Available: ${available.toFixed(2)} ${item.countUOM || item.baseUnit}` },
+      { error: `Not enough stock. Available: ${availDisplay.toFixed(2)} ${countUOM}` },
       { status: 400 },
     )
   }
@@ -49,7 +67,7 @@ export async function POST(req: NextRequest) {
   await prisma.$transaction([
     prisma.inventoryItem.update({
       where: { id: inventoryItemId },
-      data: { stockOnHand: { decrement: qty } },
+      data: { stockOnHand: { decrement: qtyBase } },
     }),
     prisma.stockAllocation.upsert({
       where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId } },
