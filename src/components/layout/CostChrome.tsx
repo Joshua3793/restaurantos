@@ -120,7 +120,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
       )}
       {/* Alerts bell — detached from the collapsible nav, pinned in the top bar (desktop) */}
       <div className="hidden md:block shrink-0 [&>div>button]:text-ink-4 [&>div>button]:p-1.5 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/10">
-        <AlertsBell />
+        <AlertsBell dropdownAlign="right" />
       </div>
       <SpineAuditDrawer open={auditOpen} onClose={() => setAuditOpen(false)} />
     </div>
