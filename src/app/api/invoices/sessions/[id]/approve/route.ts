@@ -373,7 +373,9 @@ async function doApprove(
           saveMatchRule(
             item.rawDescription,
             item.matchedItemId!,
-            session.supplierName,
+            // Save under the CANONICAL supplier name so the rule applies to every
+            // name variant ("SYSCO Canada, Inc." / "… - Vancouver") next time.
+            offerSupplierName ?? session.supplierName,
             item.invoicePackQty ? {
               packQty:  Number(item.invoicePackQty),
               packSize: Number(item.invoicePackSize),

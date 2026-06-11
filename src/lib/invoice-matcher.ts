@@ -333,6 +333,14 @@ export async function matchLineItems(
     },
   })
 
+  // Supplier names a learned rule could be stored under: the raw OCR name, the
+  // canonical Supplier name, and the generic '' (supplier-agnostic). Matching by
+  // ALL of them is what makes a rule taught on "Sysco Canada, Inc." apply to an
+  // invoice that arrives as "SYSCO Canada, Inc." or "… - Vancouver" — the
+  // name-variant fix, now applied to match rules (was previously only offers).
+  const ruleSupplierNames = Array.from(new Set([supplierName ?? '', canonicalName ?? '', '']))
+  const codeSupplierNames = Array.from(new Set([supplierName, canonicalName].filter((n): n is string => !!n)))
+
   // Load learned rules — gracefully fall back to empty if the table doesn't exist yet
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let learnedRules: any[] = []
@@ -340,7 +348,7 @@ export async function matchLineItems(
     learnedRules = await prisma.invoiceMatchRule.findMany({
       where: {
         rawDescription: { in: ocrItems.map(i => i.description) },
-        supplierName: { in: [supplierName ?? '', ''] },
+        supplierName: { in: ruleSupplierNames },
       },
       include: {
         inventoryItem: {
@@ -371,11 +379,11 @@ export async function matchLineItems(
   const itemCodes = ocrItems
     .map(i => i.supplierItemCode)
     .filter((c): c is string => !!c)
-  if (supplierName && itemCodes.length > 0) {
+  if (codeSupplierNames.length > 0 && itemCodes.length > 0) {
     try {
       codeRules = await prisma.invoiceMatchRule.findMany({
         where: {
-          supplierName,
+          supplierName: { in: codeSupplierNames },
           supplierItemCode: { in: itemCodes },
         },
         include: {
@@ -488,7 +496,11 @@ export async function matchLineItems(
       // (saved when the supplier was unknown, supplierName '') applied to a
       // session with a known supplier is only a hint — surface it as MEDIUM so
       // the review UI can ask the user to confirm it instead of trusting it outright.
-      const supplierSpecific = !supplierName || learned.supplierName === supplierName
+      // A rule stored under the raw OR canonical supplier name is supplier-specific
+      // (HIGH). Only a generic '' rule on a known supplier is a mere hint (MEDIUM).
+      const supplierSpecific = !supplierName
+        || learned.supplierName === supplierName
+        || (!!canonicalName && learned.supplierName === canonicalName)
       return buildMatchResult(
         ocrItem,
         learned.inventoryItem as unknown as InventoryItem,
