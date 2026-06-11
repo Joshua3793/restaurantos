@@ -57,7 +57,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return convertBaseToCountUom(qtyInBase, displayUnit, itemDimsForDisplay)
   }
 
-  const raw: Array<{ id: string; date: Date; type: MovementType; qtyBase: number; description: string }> = []
+  const raw: Array<{ id: string; date: Date; type: MovementType; qtyBase: number; description: string; revenueCenterId?: string | null }> = []
 
   // ── WASTAGE ────────────────────────────────────────────────────────────────
   const wastageLogs = await prisma.wastageLog.findMany({
@@ -80,9 +80,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
       session: { status: 'APPROVED', approvedAt: { gte: since } },
       rawQty: { not: null },
+      splitToSessionId: null,
     },
     include: {
-      session: { select: { supplierName: true, invoiceDate: true, invoiceNumber: true, approvedAt: true } },
+      session: { select: { supplierName: true, invoiceDate: true, invoiceNumber: true, approvedAt: true, revenueCenterId: true } },
     },
   })
   for (const si of scanItems) {
@@ -108,7 +109,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const supplier = si.session.supplierName ?? 'Purchase'
     const invNum   = si.session.invoiceNumber ? ` · #${si.session.invoiceNumber}` : ''
     const date     = si.session.approvedAt ?? (si.session.invoiceDate ? new Date(si.session.invoiceDate) : new Date())
-    raw.push({ id: si.id, date, type: 'PURCHASE', qtyBase: baseUnits, description: `${supplier}${invNum}` })
+    raw.push({ id: si.id, date, type: 'PURCHASE', qtyBase: baseUnits, description: `${supplier}${invNum}`, revenueCenterId: si.session.revenueCenterId ?? null })
   }
 
   // ── SALES consumption ─────────────────────────────────────────────────────
