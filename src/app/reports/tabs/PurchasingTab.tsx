@@ -97,6 +97,67 @@ export default function PurchasingTab({ period }: { period: number }) {
           ) : <EmptyState message="No purchase data" />}
         </Card>
       </div>
+
+      {/* Multi-supplier comparison */}
+      {(() => {
+        const ms = data.multiSupplier as {
+          items: { itemId: string; name: string; baseUnit: string | null; offers: { supplier: string; ppb: number; isPrimary: boolean }[]; spreadPct: number; potentialSaving: number }[]
+          totalSaving: number
+          volatile: { name: string; supplier: string; volatility: number | null; stability: string | null; purchases: number }[]
+        } | undefined
+        if (!ms || (ms.items.length === 0 && ms.volatile.length === 0)) return null
+        const fmtPpb = (ppb: number, base: string | null) =>
+          base === 'g' ? `${formatCurrency(ppb * 1000)}/kg` : base === 'ml' ? `${formatCurrency(ppb * 1000)}/L` : `${formatCurrency(ppb)}/${base ?? 'ea'}`
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <SectionHeader
+                title="Multi-Supplier Items"
+                subtitle={ms.totalSaving > 0 ? `Buying each from its cheapest supplier would have saved ~${formatCurrency(ms.totalSaving)} over this period` : 'Price comparison across suppliers'}
+              />
+              {ms.items.length > 0 ? (
+                <div className="space-y-3 overflow-y-auto max-h-96">
+                  {ms.items.map(it => (
+                    <div key={it.itemId} className="border-b border-line pb-2.5 last:border-0">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium text-ink-2 truncate">{it.name}</span>
+                        <span className="text-ink-4 shrink-0 ml-2">spread {it.spreadPct}%{it.potentialSaving > 0 ? ` · ${formatCurrency(it.potentialSaving)} potential` : ''}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {it.offers.map((o, i) => (
+                          <span key={o.supplier} className={`font-mono text-[10.5px] px-2 py-[3px] rounded-full ${i === 0 ? 'bg-green-soft text-green-text font-semibold' : 'bg-bg text-ink-3'}`}>
+                            {o.supplier}: {fmtPpb(o.ppb, it.baseUnit)}{i === 0 ? ' ✓' : ''}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <EmptyState message="No items bought from multiple suppliers yet" />}
+            </Card>
+
+            <Card>
+              <SectionHeader title="Most Volatile Prices" subtitle="Price variation per item & supplier (90d window of this period)" />
+              {ms.volatile.length > 0 ? (
+                <div className="space-y-2">
+                  {ms.volatile.map((v, i) => (
+                    <div key={`${v.name}-${v.supplier}`} className="flex items-center gap-3 py-1.5 border-b border-line last:border-0">
+                      <span className="text-xs text-ink-4 w-5 text-right shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-ink-2 truncate">{v.name}</div>
+                        <div className="text-xs text-ink-4">{v.supplier} · {v.purchases} purchases</div>
+                      </div>
+                      <span className={`font-mono text-[10.5px] font-semibold px-2 py-[3px] rounded-full shrink-0 ${
+                        v.stability === 'volatile' ? 'bg-red-soft text-red-text' : v.stability === 'variable' ? 'bg-gold-soft text-gold-2' : 'bg-green-soft text-green-text'
+                      }`}>±{Math.round((v.volatility ?? 0) * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <EmptyState message="Not enough purchase history yet (3+ buys per supplier needed)" />}
+            </Card>
+          </div>
+        )
+      })()}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { volatilityOf, stabilityOf, scanLinePricePerBase } from '@/lib/supplier-offers'
 
 function startOf(daysAgo: number): Date {
   const d = new Date()
@@ -405,6 +406,97 @@ async function getPurchasing(since: Date, days: number) {
     supplierSpend,
     topItems,
     spendTrend,
+    multiSupplier: await buildMultiSupplierBlock(days),
     period: days,
   }
+}
+
+// ── Multi-supplier comparison (purchasing section) ───────────────────────────
+async function buildMultiSupplierBlock(days: number) {
+  // Items with offers from 2+ suppliers
+  const offers = await prisma.inventorySupplierPrice.findMany({
+    include: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true } } },
+  })
+  const byItem = new Map<string, typeof offers>()
+  for (const o of offers) {
+    if (!byItem.has(o.inventoryItemId)) byItem.set(o.inventoryItemId, [])
+    byItem.get(o.inventoryItemId)!.push(o)
+  }
+
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  const lines = await prisma.invoiceScanItem.findMany({
+    where: {
+      approved: true,
+      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
+      matchedItemId: { in: [...byItem.keys()] },
+      session: { status: 'APPROVED', approvedAt: { gte: since } },
+    },
+    select: {
+      matchedItemId: true, rawLineTotal: true,
+      newPrice: true, rate: true, rateUOM: true, pricingMode: true,
+      invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
+      session: { select: { supplierName: true } },
+    },
+  })
+
+  const items: Array<{
+    itemId: string; name: string; baseUnit: string | null
+    offers: Array<{ supplier: string; ppb: number; isPrimary: boolean }>
+    spreadPct: number
+    potentialSaving: number
+  }> = []
+  let totalSaving = 0
+
+  for (const [itemId, itemOffers] of byItem) {
+    if (itemOffers.length < 2) continue
+    const inv = itemOffers[0].inventoryItem
+    const offerList = itemOffers
+      .map(o => ({ supplier: o.supplierName, ppb: Number(o.pricePerBaseUnit), isPrimary: o.isPrimary }))
+      .filter(o => o.ppb > 0)
+      .sort((a, b) => a.ppb - b.ppb)
+    if (offerList.length < 2) continue
+    const minPPB = offerList[0].ppb
+    const maxPPB = offerList[offerList.length - 1].ppb
+    const spreadPct = Math.round(((maxPPB - minPPB) / minPPB) * 100)
+
+    // Savings: for every line of this item in the window, what you paid above
+    // the cheapest offer's $/base. lineTotal × (1 − minPPB / paidPPB).
+    let saving = 0
+    for (const l of lines) {
+      if (l.matchedItemId !== itemId || !l.rawLineTotal) continue
+      const paidPPB = scanLinePricePerBase(l, inv)
+      if (!paidPPB || paidPPB <= minPPB) continue
+      saving += Number(l.rawLineTotal) * (1 - minPPB / paidPPB)
+    }
+    totalSaving += saving
+    items.push({ itemId, name: inv.itemName, baseUnit: inv.baseUnit, offers: offerList, spreadPct, potentialSaving: Math.round(saving * 100) / 100 })
+  }
+  items.sort((a, b) => b.potentialSaving - a.potentialSaving)
+
+  // Most volatile (item, supplier) pairs over the window, from line history.
+  const histKey = (id: string, s: string) => `${id}|${s}`
+  const hist = new Map<string, number[]>()
+  const itemMeta = new Map<string, { name: string; inv: { qtyPerPurchaseUnit: unknown; packSize: unknown; packUOM: string | null } }>()
+  for (const o of offers) itemMeta.set(o.inventoryItemId, { name: o.inventoryItem.itemName, inv: o.inventoryItem })
+  for (const l of lines) {
+    const s = l.session?.supplierName
+    const meta = l.matchedItemId ? itemMeta.get(l.matchedItemId) : null
+    if (!s || !meta) continue
+    const ppb = scanLinePricePerBase(l, meta.inv)
+    if (ppb === null) continue
+    const k = histKey(l.matchedItemId!, s)
+    if (!hist.has(k)) hist.set(k, [])
+    hist.get(k)!.push(ppb)
+  }
+  const volatile = [...hist.entries()]
+    .map(([k, prices]) => {
+      const [itemId, supplier] = k.split('|')
+      const v = volatilityOf(prices)
+      return { name: itemMeta.get(itemId)?.name ?? '?', supplier, volatility: v, stability: stabilityOf(v), purchases: prices.length }
+    })
+    .filter(e => e.volatility !== null)
+    .sort((a, b) => (b.volatility ?? 0) - (a.volatility ?? 0))
+    .slice(0, 8)
+
+  return { items: items.slice(0, 12), totalSaving: Math.round(totalSaving * 100) / 100, volatile }
 }
