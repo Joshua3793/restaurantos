@@ -69,14 +69,18 @@ export async function POST(req: NextRequest) {
       where: { id: inventoryItemId },
       data: { stockOnHand: { decrement: qtyBase } },
     }),
+    // Allocation + transfer quantities are persisted in baseUnit — the canonical
+    // unit for all stock (matches stockOnHand and count-finalize). Display layers
+    // convert to countUOM. Writing the raw countUOM `qty` here made the inventory
+    // list (which treats the value as baseUnit) show ~0 after a pull.
     prisma.stockAllocation.upsert({
       where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId } },
-      update: { quantity: { increment: qty } },
-      create: { revenueCenterId: rcId, inventoryItemId, quantity: qty },
+      update: { quantity: { increment: qtyBase } },
+      create: { revenueCenterId: rcId, inventoryItemId, quantity: qtyBase },
     }),
     ...(defaultRc
       ? [prisma.stockTransfer.create({
-          data: { fromRcId: defaultRc.id, toRcId: rcId, inventoryItemId, quantity: qty, notes: notes || null },
+          data: { fromRcId: defaultRc.id, toRcId: rcId, inventoryItemId, quantity: qtyBase, notes: notes || null },
         })]
       : []),
   ])

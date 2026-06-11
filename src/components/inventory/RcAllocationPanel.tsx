@@ -26,10 +26,13 @@ interface Props {
   stockOnHand:  number
   countUOM:     string
   defaultRcId:  string | null
+  /** Convert a baseUnit quantity to countUOM. Allocation/transfer quantities are
+   *  stored in baseUnit; the default-RC stockOnHand prop is already in countUOM. */
+  toDisplay:    (base: number) => number
   onPulled:     () => void
 }
 
-export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, onPulled }: Props) {
+export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, toDisplay, onPulled }: Props) {
   const { revenueCenters } = useRc()
   const [allocations, setAllocations] = useState<Allocation[]>([])
   const [transfers, setTransfers]     = useState<Transfer[]>([])
@@ -139,7 +142,8 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
         {revenueCenters.map(rc => {
           const isDefaultRc  = rc.id === defaultRcId
           const alloc        = allocations.find(a => a.revenueCenterId === rc.id)
-          const qty          = isDefaultRc ? stockOnHand : (alloc ? Number(alloc.quantity) : 0)
+          // stockOnHand prop is already countUOM; allocation.quantity is baseUnit → convert.
+          const qty          = isDefaultRc ? stockOnHand : (alloc ? toDisplay(Number(alloc.quantity)) : 0)
           const parLevel     = alloc?.parLevel ?? null
           const isBelowPar   = parLevel !== null && qty < parLevel
           const isEditingPar = editParRcId === rc.id
@@ -315,7 +319,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                   <ArrowRight size={10} />
                   <span style={{ color: rcHex(t.toRc.color) }}>●</span>
                   {t.toRc.name}
-                  <span className="ml-auto font-medium">{Number(t.quantity).toFixed(2)} {countUOM}</span>
+                  <span className="ml-auto font-medium">{toDisplay(Number(t.quantity)).toFixed(2)} {countUOM}</span>
                 </div>
               ))}
             </div>

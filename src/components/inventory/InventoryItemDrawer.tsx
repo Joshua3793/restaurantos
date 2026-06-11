@@ -162,8 +162,9 @@ function normalizeItem(item: InventoryItem): InventoryItem {
   return { ...item, countUOM: resolveCountUom(dims) }
 }
 
-function displayStock(item: InventoryItem): number {
-  return convertBaseToCountUom(Number(item.stockOnHand), item.countUOM ?? 'each', {
+// Convert any baseUnit quantity to the item's countUOM for display.
+function baseToDisplay(item: InventoryItem, base: number): number {
+  return convertBaseToCountUom(base, item.countUOM ?? 'each', {
     baseUnit: item.baseUnit,
     purchaseUnit: item.purchaseUnit,
     qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
@@ -173,6 +174,10 @@ function displayStock(item: InventoryItem): number {
     packUOM: item.packUOM ?? 'each',
     countUOM: item.countUOM ?? 'each',
   })
+}
+
+function displayStock(item: InventoryItem): number {
+  return baseToDisplay(item, Number(item.stockOnHand))
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -879,6 +884,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     stockOnHand={displayStock(item)}
                     countUOM={item.countUOM || item.baseUnit}
                     defaultRcId={defaultRcId}
+                    toDisplay={(base) => baseToDisplay(item, base)}
                     onPulled={() => {
                       fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(setItem)
                       onUpdated?.()
