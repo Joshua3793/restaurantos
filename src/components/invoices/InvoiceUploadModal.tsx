@@ -76,7 +76,9 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
       const sessRes = await fetch('/api/invoices/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revenueCenterId: activeRcId }),
+        // Invoice RC is decided in review (defaults to the main RC server-side).
+        // The sidebar RC is a view filter only and must not set the invoice's RC.
+        body: JSON.stringify({}),
       })
       if (!sessRes.ok) {
         setScanError(`Session error (${sessRes.status}). Please try again.`)
