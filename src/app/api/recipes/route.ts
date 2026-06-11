@@ -11,8 +11,14 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search')
   const rcId = searchParams.get('rcId') || ''
 
-  // Only filter by RC for MENU recipes; PREP recipes are shared across all RCs
-  const rcFilter = (rcId && type === 'MENU') ? { revenueCenterId: rcId } : {}
+  // MENU: strict per-RC (unchanged). PREP: shared (null) + the active RC shown together.
+  const rcFilter = !rcId
+    ? {}
+    : type === 'MENU'
+      ? { revenueCenterId: rcId }
+      : type === 'PREP'
+        ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+        : {}
 
   const recipes = await prisma.recipe.findMany({
     where: {

@@ -6,12 +6,12 @@ export async function GET(req: NextRequest) {
   const type  = searchParams.get('type') || ''
   const rcId  = searchParams.get('rcId') || ''
 
-  // MENU categories are per-RC; PREP categories are shared (revenueCenterId = null)
-  const rcFilter = (type === 'MENU' && rcId)
-    ? { revenueCenterId: rcId }
+  // MENU: strict per-RC. PREP: shared (null) + active RC shown together. No rcId = All RCs.
+  const rcFilter = !rcId
+    ? {} // All RCs: return all categories of this type
     : type === 'MENU'
-      ? {} // All RCs: return all MENU categories
-      : { revenueCenterId: null } // PREP: shared only
+      ? { revenueCenterId: rcId }
+      : { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } // PREP
 
   const cats = await prisma.recipeCategory.findMany({
     where: {
