@@ -25,7 +25,7 @@ import {
 } from '@/lib/invoice/predicates'
 import { lineUnresolved, isCharge, isBigPriceChange } from '@/lib/invoice/resolution'
 import { formatCurrency } from '@/lib/invoice/formatters'
-import { PACK_UOMS, PURCHASE_UNITS, calcPricePerBaseUnit } from '@/lib/utils'
+import { PACK_UOMS, PURCHASE_UNITS, calcPricePerBaseUnit, deriveBaseUnit } from '@/lib/utils'
 
 // ─── InvoiceHeader ─────────────────────────────────────────────────────────────
 
@@ -1406,7 +1406,11 @@ function AddNewItemModal({
       priceType,
       purchasePrice:      Number(purchasePrice) || 0,
       pricePerBaseUnit:   ppb ?? 0,
-      baseUnit:           packUOM,
+      // baseUnit must be the canonical SI base (g/ml/each) so it stays
+      // consistent with ppb, which calcPricePerBaseUnit returns in $/SI-base.
+      // Using packUOM directly (e.g. 'kg') stored ppb in $/g under a kg label →
+      // recipe costs 1000× too low. deriveBaseUnit matches the manual form.
+      baseUnit:           deriveBaseUnit('each', packUOM, Number(packSize) || 1),
     }
     await fetch(`/api/invoices/sessions/${sessionId}`, {
       method: 'PATCH',

@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
-import { calcPricePerBaseUnit, getUnitConv } from '@/lib/utils'
+import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { requireSession, AuthError } from '@/lib/auth'
 
@@ -263,7 +263,9 @@ async function doApprove(
             purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
             qtyPerPurchaseUnit: newPackQty,
             purchasePrice:      newPurchasePrice,
-            baseUnit:           newData.baseUnit || newPackUOM,
+            // Canonical SI base (g/ml/each) — never the raw packUOM, which would
+            // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
+            baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
             packSize:           newPackSize,
             packUOM:            newPackUOM,
             conversionFactor:   Number(newData.conversionFactor) || 1,

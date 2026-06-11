@@ -1,7 +1,7 @@
 // Deterministic reproduction + regression test for the 2026-06-11 pricing
 // corruption (Pork Butt $9990/kg; potato/cheese price inflation; lb-qty packSize
 // drop). Run: TS_NODE_BASEURL=. npx ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/test-pricing-fix.ts
-import { calcPricePerBaseUnit, getUnitConv } from '../src/lib/utils'
+import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '../src/lib/utils'
 
 let failures = 0
 function check(name: string, got: number, want: number, tol = 1e-4) {
@@ -46,6 +46,19 @@ check('B: Kennebec 1×50lb at real $34.32',
 check('B: Cream cheese 1×1.5kg at real $26.25',
   calcPricePerBaseUnit(26.25, 1, 'each', null, 1.5, 'kg', 'CASE'),
   26.25 / (1.5 * getUnitConv('kg')))
+
+// ── Create-path prevention: new items from invoices must get a CANONICAL SI
+//    baseUnit (g/ml/each), never the raw packUOM (kg/lb/L) — else ppb ($/SI-base)
+//    is stored under a non-SI label and recipe costs run 1000× low. ───────────
+function checkBase(name: string, got: string, want: string) {
+  const ok = got === want
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}: got '${got}'  want '${want}'`)
+  if (!ok) failures++
+}
+checkBase('create baseUnit: kg pack → g',   deriveBaseUnit('each', 'kg', 5),   'g')
+checkBase('create baseUnit: L pack → ml',   deriveBaseUnit('each', 'l', 4),    'ml')
+checkBase('create baseUnit: each pack → each', deriveBaseUnit('each', 'each', 12), 'each')
+checkBase('create baseUnit: g pack → g',    deriveBaseUnit('each', 'g', 454),  'g')
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
 process.exit(failures === 0 ? 0 : 1)
