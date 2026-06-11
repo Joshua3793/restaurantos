@@ -288,12 +288,21 @@ export function InvoiceReviewDrawer({
 
   const handleSessionRcChange = useCallback(async (rcId: string) => {
     if (!session) return
+    const prevRcId = session.revenueCenterId ?? null
     setSession(prev => (prev ? { ...prev, revenueCenterId: rcId } : prev))
-    await fetch(`/api/invoices/sessions/${session.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revenueCenterId: rcId }),
-    })
+    try {
+      const res = await fetch(`/api/invoices/sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revenueCenterId: rcId }),
+      })
+      if (!res.ok) {
+        // Revert the optimistic update so the UI never shows an RC the server rejected.
+        setSession(prev => (prev ? { ...prev, revenueCenterId: prevRcId } : prev))
+      }
+    } catch {
+      setSession(prev => (prev ? { ...prev, revenueCenterId: prevRcId } : prev))
+    }
   }, [session])
 
   // Create a brand-new supplier from the unmatched invoice, then link it.
