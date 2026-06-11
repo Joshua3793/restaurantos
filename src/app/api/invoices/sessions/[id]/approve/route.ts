@@ -362,6 +362,14 @@ async function doApprove(
             sortOrder:       item.sortOrder,
           })),
         })
+
+        // Move-not-copy: flag the parent's originals so they are excluded from
+        // spend aggregation. The clone's copies (splitToSessionId = null) are the
+        // canonical home for these lines. Parent keeps the lines for fidelity.
+        await prisma.invoiceScanItem.updateMany({
+          where: { id: { in: rcItems.map(i => i.id) } },
+          data:  { splitToSessionId: clone.id },
+        })
       }
     }
 
