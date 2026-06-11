@@ -272,9 +272,13 @@ function buildMatchResult(
   // the shipped-UOM label differs from the purchase-unit label (e.g. "cs" vs
   // "case"), which is legitimate and produced false positives (4×4L flagged
   // against 4×4L). Only flag when a format was parsed and it genuinely differs.
-  const fmQty  = offer?.packQty  != null ? Number(offer.packQty)  : Number(bestItem.qtyPerPurchaseUnit)
-  const fmSize = offer?.packSize != null ? Number(offer.packSize) : Number(bestItem.packSize)
-  const fmUOM  = (offer?.packUOM as string | null) ?? bestItem.packUOM
+  // All-or-nothing: only use the offer's format when it's complete — a partial
+  // offer row mixed per-field with item fields would compare against a chimera
+  // format no supplier actually ships.
+  const offerFmtComplete = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
+  const fmQty  = offerFmtComplete ? Number(offer.packQty)  : Number(bestItem.qtyPerPurchaseUnit)
+  const fmSize = offerFmtComplete ? Number(offer.packSize) : Number(bestItem.packSize)
+  const fmUOM  = offerFmtComplete ? (offer.packUOM as string) : bestItem.packUOM
   const formatMismatch = !!(
     format &&
     (
