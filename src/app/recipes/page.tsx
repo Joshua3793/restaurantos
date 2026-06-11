@@ -5,6 +5,7 @@ import { X, BookOpen, Search, Link2, Check, Download, SlidersHorizontal } from '
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useRc } from '@/contexts/RevenueCenterContext'
 
 export default function RecipesPage() {
   return (
@@ -17,6 +18,7 @@ export default function RecipesPage() {
 function RecipesInner() {
   const searchParams = useSearchParams()
   const { setDrawerOpen } = useDrawer()
+  const { revenueCenters, activeRcId, activeRc } = useRc()
   const [recipes, setRecipes]               = useState<Recipe[]>([])
   const [categories, setCategories]         = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]       = useState<string | null>(null)
@@ -33,23 +35,26 @@ function RecipesInner() {
   const [bulkConfirm, setBulkConfirm]       = useState<'deactivate' | 'delete' | null>(null)
   const [newForm, setNewForm]               = useState({
     name: '', categoryId: '', baseYieldQty: '', yieldUnit: '',
-    portionSize: '', portionUnit: '', menuPrice: '', notes: '',
+    portionSize: '', portionUnit: '', menuPrice: '', notes: '', revenueCenterId: '',
   })
 
   const type = 'PREP'
 
   const loadCategories = useCallback(async () => {
-    const data = await fetch('/api/recipes/categories').then(r => r.json())
+    const p = new URLSearchParams({ type })
+    if (activeRcId) p.set('rcId', activeRcId)
+    const data = await fetch(`/api/recipes/categories?${p}`).then(r => r.json())
     setCategories(Array.isArray(data) ? data : [])
-  }, [])
+  }, [activeRcId])
 
   const loadRecipes = useCallback(async () => {
     const params = new URLSearchParams({ type })
     if (!showInactive) params.set('isActive', 'true')
     if (search) params.set('search', search)
+    if (activeRcId) params.set('rcId', activeRcId)
     const data = await fetch(`/api/recipes?${params}`).then(r => r.json())
     setRecipes(Array.isArray(data) ? data : [])
-  }, [showInactive, search])
+  }, [showInactive, search, activeRcId])
 
   const baseRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
   const displayRecipes = [...baseRecipes].sort((a, b) => {
@@ -60,6 +65,9 @@ function RecipesInner() {
 
   useEffect(() => { loadCategories() }, [loadCategories])
   useEffect(() => { loadRecipes() }, [loadRecipes])
+  useEffect(() => {
+    setNewForm(f => ({ ...f, revenueCenterId: activeRcId ?? '' }))
+  }, [activeRcId])
   useEffect(() => {
     const itemId = searchParams.get('item')
     if (itemId) setSelectedRecipeId(itemId)
@@ -82,7 +90,7 @@ function RecipesInner() {
     })
     const created = await res.json()
     setShowNewForm(false)
-    setNewForm({ name: '', categoryId: '', baseYieldQty: '', yieldUnit: '', portionSize: '', portionUnit: '', menuPrice: '', notes: '' })
+    setNewForm({ name: '', categoryId: '', baseYieldQty: '', yieldUnit: '', portionSize: '', portionUnit: '', menuPrice: '', notes: '', revenueCenterId: activeRcId ?? '' })
     await loadRecipes(); await loadCategories()
     setSelectedRecipeId(created.id)
   }
@@ -181,6 +189,7 @@ function RecipesInner() {
           <h1 className="text-[28px] sm:text-[32px] font-semibold text-ink tracking-[-0.04em] leading-none">Recipe Book</h1>
           <p className="text-[13px] text-ink-3 mt-2">
             <span className="font-medium text-ink">{recipes.length} {recipes.length === 1 ? 'recipe' : 'recipes'}</span>
+            {activeRc && <> · <span className="font-mono text-[11px]">{activeRc.name}</span></>}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -300,6 +309,19 @@ function RecipesInner() {
                   </select>
                 </div>
                 <div>
+                  <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">Revenue center</label>
+                  <select
+                    value={newForm.revenueCenterId}
+                    onChange={e => setNewForm(f => ({ ...f, revenueCenterId: e.target.value }))}
+                    className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] text-ink bg-paper focus:outline-none focus:border-ink-3"
+                  >
+                    <option value="">Shared (all RCs)</option>
+                    {revenueCenters.filter(rc => rc.isActive).map(rc => (
+                      <option key={rc.id} value={rc.id}>{rc.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="text-[12.5px] font-medium text-ink-2 block mb-1.5">
                     Base yield *
                     <span className="ml-1.5 font-mono text-[10.5px] font-normal text-ink-3">total qty produced</span>
@@ -395,7 +417,9 @@ function RecipesInner() {
       {showCatManager && (
         <CategoryManager type={type} categories={categories}
           onClose={() => setShowCatManager(false)}
-          onUpdated={loadCategories} />
+          onUpdated={loadCategories}
+          revenueCenterId={activeRcId}
+          revenueCenters={revenueCenters} />
       )}
 
       {selectedIds.size > 0 && !bulkConfirm && (
