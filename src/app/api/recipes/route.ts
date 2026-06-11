@@ -125,7 +125,8 @@ export async function POST(req: NextRequest) {
       menuPrice: menuPrice ? parseFloat(menuPrice) : null,
       notes: notes || null,
       isActive: isActive !== undefined ? isActive : true,
-      revenueCenterId: type === 'MENU' ? (revenueCenterId || null) : null,
+      // PREP and MENU both carry an RC now; null = Shared (visible in all RCs).
+      revenueCenterId: revenueCenterId || null,
       steps: Array.isArray(steps) ? steps.filter((s: unknown) => typeof s === 'string') : [],
     },
   })

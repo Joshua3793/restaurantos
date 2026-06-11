@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       type,
       color: color || null,
       sortOrder,
-      revenueCenterId: type === 'MENU' ? (revenueCenterId || null) : null,
+      revenueCenterId: revenueCenterId || null,
     },
   })
   return NextResponse.json(cat, { status: 201 })
