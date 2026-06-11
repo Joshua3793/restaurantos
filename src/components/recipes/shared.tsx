@@ -1011,11 +1011,12 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 })
 
 // ─── RecipePanel ──────────────────────────────────────────────────────────────
-export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
+export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueCenters }: {
   recipeId: string
   categories: RecipeCategory[]
   onClose: () => void
   onUpdated: () => void
+  revenueCenters?: { id: string; name: string; isActive: boolean }[]
 }) {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [scaleFactor, setScaleFactor] = useState(1)
@@ -1378,6 +1379,18 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated }: {
                 {categories.filter(c => c.type === recipe.type).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+            {revenueCenters && (
+              <div>
+                <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">Revenue Center</label>
+                <select value={recipe.revenueCenterId ?? ''} onChange={e => patchRecipe({ revenueCenterId: e.target.value || null })}
+                  className="w-full border border-line rounded-[10px] px-3 py-2 text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold">
+                  <option value="">Shared (all RCs)</option>
+                  {revenueCenters.filter(rc => rc.isActive).map(rc => (
+                    <option key={rc.id} value={rc.id}>{rc.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">
                 {isMenu ? 'Portions per batch' : 'Base Yield'}
@@ -1964,14 +1977,14 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(CATEGORY_PALETTE[0])
-  // MENU categories are revenue-center-scoped. Make the RC an explicit, visible
-  // choice (pre-filled from the active filter) rather than a silent inherit —
-  // mirrors the required RC field on the menu recipe form. PREP categories are
-  // never RC-scoped (the API forces null), so no selector is shown for them.
+  // Both MENU and PREP categories are revenue-center-scoped; null = Shared
+  // (visible in all RCs). Make the RC an explicit, visible choice (pre-filled
+  // from the active filter) rather than a silent inherit — mirrors the RC field
+  // on the recipe forms. The selector shows whenever revenueCenters is provided.
   const [newRcId, setNewRcId] = useState<string>(revenueCenterId ?? '')
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
-  const showRcPicker = type === 'MENU' && !!revenueCenters?.length
+  const showRcPicker = !!revenueCenters?.length
 
   const addCat = async () => {
     if (!newName.trim()) return
@@ -1982,7 +1995,7 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
         name: newName,
         type,
         color: newColor,
-        revenueCenterId: type === 'MENU' ? (newRcId || null) : null,
+        revenueCenterId: newRcId || null,
       }),
     })
     setNewName(''); setNewRcId(revenueCenterId ?? ''); setAdding(false); onUpdated()
@@ -2046,7 +2059,7 @@ export function CategoryManager({ type, categories, onClose, onUpdated, revenueC
                   Revenue center
                   <select value={newRcId} onChange={e => setNewRcId(e.target.value)}
                     className="flex-1 border border-line rounded-lg px-2.5 py-1.5 text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold">
-                    <option value="">Select…</option>
+                    <option value="">Shared (all RCs)</option>
                     {revenueCenters!.filter(rc => rc.isActive).map(rc => (
                       <option key={rc.id} value={rc.id}>{rc.name}</option>
                     ))}

@@ -411,7 +411,8 @@ function RecipesInner() {
       {selectedRecipeId && (
         <RecipePanel recipeId={selectedRecipeId} categories={categories}
           onClose={() => setSelectedRecipeId(null)}
-          onUpdated={() => { loadRecipes(); loadCategories() }} />
+          onUpdated={() => { loadRecipes(); loadCategories() }}
+          revenueCenters={revenueCenters} />
       )}
 
       {showCatManager && (
