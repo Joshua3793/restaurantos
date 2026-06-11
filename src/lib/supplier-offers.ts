@@ -120,24 +120,27 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
     select: {
       newPrice: true, rate: true, rateUOM: true, pricingMode: true,
       invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
-      session: { select: { supplierName: true, approvedAt: true, invoiceDate: true } },
+      session: { select: { supplierName: true, supplierId: true, approvedAt: true, invoiceDate: true } },
     },
     orderBy: { session: { approvedAt: 'asc' } },
   })
 
+  // Group history by supplier identity: supplierId when the session resolved
+  // one (collapses raw OCR name variants), else the raw name.
+  const keyOf = (id: string | null | undefined, name: string | null | undefined) => id ?? name ?? ''
   const bySupplier = new Map<string, { date: string; ppb: number }[]>()
   for (const l of lines) {
-    const supplier = l.session?.supplierName
-    if (!supplier) continue
+    const key = keyOf(l.session?.supplierId, l.session?.supplierName)
+    if (!key) continue
     const ppb = scanLinePricePerBase(l, item)
     if (ppb === null) continue
-    const date = l.session.invoiceDate ?? l.session.approvedAt?.toISOString().slice(0, 10) ?? ''
-    if (!bySupplier.has(supplier)) bySupplier.set(supplier, [])
-    bySupplier.get(supplier)!.push({ date, ppb })
+    const date = l.session!.invoiceDate ?? l.session!.approvedAt?.toISOString().slice(0, 10) ?? ''
+    if (!bySupplier.has(key)) bySupplier.set(key, [])
+    bySupplier.get(key)!.push({ date, ppb })
   }
 
   return offers.map(o => {
-    const history = bySupplier.get(o.supplierName) ?? []
+    const history = bySupplier.get(keyOf(o.supplierId, o.supplierName)) ?? []
     const volatility = volatilityOf(history.map(h => h.ppb))
     return {
       id: o.id,

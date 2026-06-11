@@ -184,16 +184,19 @@ async function doApprove(
         // case price as printed (rawUnitPrice), NOT newPrice (which may have
         // been normalized into the ITEM's purchase format).
         if (offerSupplierName) {
+          const hasLinePack = scanItem.invoicePackQty !== null && scanItem.invoicePackSize !== null
           const offerLastPrice = rawPriceType === 'UOM'
             ? newPurchasePrice
-            : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : newPurchasePrice)
-          const offerPack = scanItem.invoicePackQty !== null && scanItem.invoicePackSize !== null
+            : (hasLinePack && scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : newPurchasePrice)
+          // No line pack → store the ITEM-format price with cleared pack columns
+          // so the matcher falls back to item format on BOTH price and format.
+          const offerPack = hasLinePack
             ? {
                 packQty:  Number(scanItem.invoicePackQty),
                 packSize: Number(scanItem.invoicePackSize),
                 packUOM:  scanItem.invoicePackUOM ?? 'each',
               }
-            : {}
+            : { packQty: null, packSize: null, packUOM: null }
           await prisma.inventorySupplierPrice.upsert({
             where: {
               inventoryItemId_supplierName: {

@@ -246,9 +246,9 @@ export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
 // Info-tone note when the spine price moved only because the purchase switched
 // suppliers: this supplier's own price is steady, but another supplier set the
 // current costing price. Not an issue — needs no decision.
-export function SupplierSwitchNote({ item, sessionSupplierName }: { item: ScanItem; sessionSupplierName: string | null }) {
+export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; sessionSupplier: { supplierId: string | null; supplierName: string | null } }) {
   const norm  = computeNormalisedPrices(item)
-  const offer = offerForSupplier(item, sessionSupplierName)
+  const offer = offerForSupplier(item, sessionSupplier)
   if (!norm || !offer) return null
   const offerPPB = Number(offer.pricePerBaseUnit)
   if (offerPPB <= 0) return null
@@ -256,7 +256,7 @@ export function SupplierSwitchNote({ item, sessionSupplierName }: { item: ScanIt
   const vsSpine = Math.abs(norm.pctDiff)
   // Only when the apparent move is a supplier artifact: steady vs self, ≥3% vs spine.
   if (vsSelf >= 3 || vsSpine < 3) return null
-  const other = cheapestOtherOffer(item, sessionSupplierName)
+  const other = cheapestOtherOffer(item, sessionSupplier)
   const factor = norm.baseUnit === 'g' || norm.baseUnit === 'ml' ? 1000 : 1
   const unit   = norm.baseUnit === 'g' ? 'kg' : norm.baseUnit === 'ml' ? 'L' : (norm.baseUnit || 'each')
   return (
@@ -265,7 +265,7 @@ export function SupplierSwitchNote({ item, sessionSupplierName }: { item: ScanIt
         Supplier switch
       </span>
       <span className="text-[12.5px] text-ink-2 leading-[1.45]">
-        {sessionSupplierName ?? 'This supplier'}&rsquo;s price is steady at{' '}
+        {sessionSupplier.supplierName ?? 'This supplier'}&rsquo;s price is steady at{' '}
         <b className="font-semibold text-ink">{formatCurrency(norm.invoicePPB * factor)}/{unit}</b> — your costing price
         currently comes from a different supplier
         {other ? <> ({other.supplierName} <b className="font-semibold text-ink">{formatCurrency(Number(other.pricePerBaseUnit) * factor)}/{unit}</b>)</> : null}.

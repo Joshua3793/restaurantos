@@ -357,7 +357,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i) || hasFormatMismatch(i) || isBigPriceChange(i, session.supplierName) || needsTrustCheck(i)
+          isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i) || hasFormatMismatch(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
         ))
         .map(i => i.id),
     )
@@ -391,8 +391,8 @@ export function InvoiceReviewDrawer({
   )
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasModeMismatch(i) || hasFormatMismatch(i) || hasMathCheck(i) || isBigPriceChange(i, session?.supplierName) || needsTrustCheck(i),
-  [session?.supplierName])
+    isUnlinked(i) || hasModeMismatch(i) || hasFormatMismatch(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i),
+  [session?.supplierId, session?.supplierName])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
   const sections = useMemo(() => {
@@ -420,16 +420,16 @@ export function InvoiceReviewDrawer({
     let resolved = 0
     for (const id of initialAttention.lineIds) {
       const line = effectiveLines.find(l => l.id === id)
-      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id), session?.supplierName)) resolved++
+      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id), { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null })) resolved++
     }
     if (initialAttention.supplier && (linkedSupplierId || supplierSkipped)) resolved++
     return { total, resolved }
-  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped, session?.supplierName])
+  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped, session?.supplierId, session?.supplierName])
 
   // Approve gate — computed over CURRENT state so edits that introduce a new
   // issue re-block approval (the snapshot above only fixes the progress total).
   const currentlyUnresolved =
-    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), session?.supplierName)).length +
+    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null })).length +
     (supplierNeedsLink && initialAttention.supplier ? 1 : 0)
   const canApprove = currentlyUnresolved === 0
   const disabledReason = canApprove
@@ -744,6 +744,7 @@ export function InvoiceReviewDrawer({
     lines: session?.scanItems ?? [],
     revenueCenters,
     sessionSupplierName: session?.supplierName ?? null,
+    sessionSupplierId: session?.supplierId ?? null,
     editedLines,
     expandedLineIds,
     flashingLineIds,

@@ -435,9 +435,20 @@ async function buildMultiSupplierBlock(days: number) {
       matchedItemId: true, rawLineTotal: true,
       newPrice: true, rate: true, rateUOM: true, pricingMode: true,
       invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
-      session: { select: { supplierName: true } },
+      session: { select: { supplierName: true, supplierId: true } },
     },
   })
+
+  // Same reliability rule as the backfill: a per-case line without its own
+  // pack data can't be normalized trustworthily — exclude from report math.
+  const reliableLines = lines.filter(l =>
+    l.pricingMode === 'per_weight' || (l.invoicePackQty !== null && l.invoicePackSize !== null)
+  )
+
+  // Canonical display names for volatility keys that are supplier ids.
+  const supplierNameById = new Map(
+    (await prisma.supplier.findMany({ select: { id: true, name: true } })).map(s => [s.id, s.name]),
+  )
 
   const items: Array<{
     itemId: string; name: string; baseUnit: string | null
@@ -462,7 +473,7 @@ async function buildMultiSupplierBlock(days: number) {
     // Savings: for every line of this item in the window, what you paid above
     // the cheapest offer's $/base. lineTotal × (1 − minPPB / paidPPB).
     let saving = 0
-    for (const l of lines) {
+    for (const l of reliableLines) {
       if (l.matchedItemId !== itemId || !l.rawLineTotal) continue
       const paidPPB = scanLinePricePerBase(l, inv)
       if (!paidPPB || paidPPB <= minPPB) continue
@@ -478,8 +489,10 @@ async function buildMultiSupplierBlock(days: number) {
   const hist = new Map<string, number[]>()
   const itemMeta = new Map<string, { name: string; inv: { qtyPerPurchaseUnit: unknown; packSize: unknown; packUOM: string | null } }>()
   for (const o of offers) itemMeta.set(o.inventoryItemId, { name: o.inventoryItem.itemName, inv: o.inventoryItem })
-  for (const l of lines) {
-    const s = l.session?.supplierName
+  for (const l of reliableLines) {
+    // Key by supplier identity (id when the session resolved one) so raw OCR
+    // name variants of the same supplier land in one histogram.
+    const s = l.session?.supplierId ?? l.session?.supplierName
     const meta = l.matchedItemId ? itemMeta.get(l.matchedItemId) : null
     if (!s || !meta) continue
     const ppb = scanLinePricePerBase(l, meta.inv)
@@ -494,7 +507,8 @@ async function buildMultiSupplierBlock(days: number) {
       // free-text supplier names could.
       const sep = k.indexOf('|')
       const itemId = k.slice(0, sep)
-      const supplier = k.slice(sep + 1)
+      const supplierKey = k.slice(sep + 1)
+      const supplier = supplierNameById.get(supplierKey) ?? supplierKey
       const v = volatilityOf(prices)
       return { name: itemMeta.get(itemId)?.name ?? '?', supplier, volatility: v, stability: stabilityOf(v), purchases: prices.length }
     })

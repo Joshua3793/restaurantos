@@ -26,6 +26,7 @@ export interface InventoryMatch {
   supplierPrices?: Array<{
     id: string
     supplierName: string
+    supplierId: string | null
     lastPrice: string | number          // Prisma Decimal serialises as string
     pricePerBaseUnit: string | number
     packQty: string | number | null
