@@ -51,8 +51,24 @@ async function doApprove(
         scanItem.matchedItemId &&
         scanItem.newPrice !== null
       ) {
-        const newPurchasePrice = Number(scanItem.newPrice)
         const item = scanItem.matchedItem!
+
+        // Honor the pricing mode the user resolved in the drawer (persisted as
+        // `pricingMode`). Derive the mode exactly as the UI does.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight'
+        const rawPriceType: 'CASE' | 'UOM' = isUomMode ? 'UOM' : 'CASE'
+
+        // The price to write comes from the RAW, user-editable fields — NEVER
+        // the stored `newPrice`. newPrice is computed once at OCR/match time and
+        // saved on the scan item; a session matched by the pre-fix matcher kept
+        // an INFLATED newPrice (e.g. $172.79 × 25 = $4,319.75 for Butter), and
+        // approving it later still wrote the bad value. rawUnitPrice (per-case
+        // printed price) and rate ($/kg) are the reliable source and are exactly
+        // what the drawer edits, so user corrections are honored.
+        const newPurchasePrice = isUomMode
+          ? (scanItem.rate != null ? Number(scanItem.rate) : Number(scanItem.newPrice))
+          : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : Number(scanItem.newPrice))
 
         // Only overwrite the inventory item's stored pack structure when the
         // user explicitly chose "Use invoice format" in the drawer (sets
@@ -65,15 +81,6 @@ async function doApprove(
         const packQty  = useInvoicePack ? (Number(scanItem.invoicePackQty) || 1) : Number(item.qtyPerPurchaseUnit)
         const packSize = useInvoicePack ? Number(scanItem.invoicePackSize)        : Number(item.packSize)
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
-
-        // Honor the pricing mode the user resolved in the drawer (persisted as
-        // `pricingMode`). `rawPriceType` was never persisted by the OCR/process
-        // step, so reading it here silently forced EVERY line to CASE — dropping
-        // per-weight pricing and never writing the resolved mode back to the
-        // inventory item. Derive the mode exactly as the UI does.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight'
-        const rawPriceType: 'CASE' | 'UOM' = isUomMode ? 'UOM' : 'CASE'
 
         let newPricePerBase: number
         if (rawPriceType === 'UOM') {
