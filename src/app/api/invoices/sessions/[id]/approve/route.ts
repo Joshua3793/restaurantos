@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { saveMatchRule } from '@/lib/invoice-matcher'
+import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { calcPricePerBaseUnit, getUnitConv } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -33,6 +34,12 @@ async function doApprove(
     )
 
     const updatedItemIds: string[] = []
+
+    // Offers are keyed by canonical supplier name so OCR name variants
+    // ("… Inc." vs "… Inc. - Vancouver") can't split one supplier into two.
+    const offerSupplierName = session.supplierName
+      ? await canonicalSupplierName(session.supplierId, session.supplierName)
+      : null
 
     // Process items sequentially so each item's writes are fully committed before
     // the next begins — prevents concurrent approvals from interleaving updates
@@ -176,7 +183,7 @@ async function doApprove(
         // the other next invoice. UOM mode: the rate ($/uom). CASE mode: the
         // case price as printed (rawUnitPrice), NOT newPrice (which may have
         // been normalized into the ITEM's purchase format).
-        if (session.supplierName) {
+        if (offerSupplierName) {
           const offerLastPrice = rawPriceType === 'UOM'
             ? newPurchasePrice
             : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : newPurchasePrice)
@@ -191,12 +198,12 @@ async function doApprove(
             where: {
               inventoryItemId_supplierName: {
                 inventoryItemId: scanItem.matchedItemId,
-                supplierName:    session.supplierName,
+                supplierName:    offerSupplierName,
               },
             },
             create: {
               inventoryItemId:      scanItem.matchedItemId,
-              supplierName:         session.supplierName,
+              supplierName:         offerSupplierName,
               supplierId:           session.supplierId || null,
               lastPrice:            offerLastPrice,
               pricePerBaseUnit:     newPricePerBase,

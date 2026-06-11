@@ -79,6 +79,20 @@ export function scanLinePricePerBase(
   return divisor > 0 ? price / divisor : null
 }
 
+/**
+ * The canonical name for offer rows: the Supplier entity's name when the
+ * session resolved one, else the raw OCR name. Collapses OCR name variants
+ * ("Sysco Canada, Inc." vs "Sysco Canada, Inc. - Vancouver") onto one offer.
+ */
+export async function canonicalSupplierName(
+  supplierId: string | null | undefined,
+  fallbackName: string,
+): Promise<string> {
+  if (!supplierId) return fallbackName
+  const s = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { name: true } })
+  return s?.name ?? fallbackName
+}
+
 const HISTORY_WINDOW_DAYS = 90
 
 /** Offers for one inventory item, enriched with trailing-90-day history stats. */

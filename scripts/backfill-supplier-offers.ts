@@ -8,6 +8,12 @@ import { prisma } from '../src/lib/prisma'
 import { scanLinePricePerBase } from '../src/lib/supplier-offers'
 
 async function main() {
+  // Wipe first: the table is fully derivable from approved invoice history,
+  // and stale rows keyed by OCR name variants ("… Inc." vs "… Inc. - Vancouver")
+  // would otherwise survive canonicalization. isPrimary flags are reset —
+  // acceptable; the feature just shipped.
+  await prisma.inventorySupplierPrice.deleteMany({})
+
   const sessions = await prisma.invoiceSession.findMany({
     where: { status: 'APPROVED', supplierName: { not: null } },
     orderBy: [{ approvedAt: 'asc' }, { createdAt: 'asc' }],
@@ -24,9 +30,27 @@ async function main() {
   })
 
   let upserts = 0
+  // Canonical-name cache: Supplier.id → Supplier.name (avoids one query per session)
+  const supplierNameCache = new Map<string, string>()
   for (const s of sessions) {
+    // Canonicalize: key offers by the Supplier entity's name when the session
+    // resolved one, so OCR name variants collapse onto a single offer row.
+    let offerSupplierName = s.supplierName!
+    if (s.supplierId) {
+      let name = supplierNameCache.get(s.supplierId)
+      if (name === undefined) {
+        const sup = await prisma.supplier.findUnique({ where: { id: s.supplierId }, select: { name: true } })
+        name = sup?.name ?? s.supplierName!
+        supplierNameCache.set(s.supplierId, name)
+      }
+      offerSupplierName = name
+    }
     for (const li of s.scanItems) {
       if (!li.matchedItemId || li.newPrice == null) continue
+      // Skip unreliable per-case lines: without invoice pack data the fallback
+      // to the ITEM's stored format produced wrong ppb (50× artifacts).
+      // per_weight lines keep working off rate/rateUOM.
+      if (li.pricingMode !== 'per_weight' && (li.invoicePackQty == null || li.invoicePackSize == null)) continue
       const item = await prisma.inventoryItem.findUnique({
         where: { id: li.matchedItemId },
         select: { qtyPerPurchaseUnit: true, packSize: true, packUOM: true },
@@ -44,10 +68,10 @@ async function main() {
         ? { packQty: Number(li.invoicePackQty), packSize: Number(li.invoicePackSize), packUOM: li.invoicePackUOM ?? 'each' }
         : {}
       await prisma.inventorySupplierPrice.upsert({
-        where: { inventoryItemId_supplierName: { inventoryItemId: li.matchedItemId, supplierName: s.supplierName! } },
+        where: { inventoryItemId_supplierName: { inventoryItemId: li.matchedItemId, supplierName: offerSupplierName } },
         create: {
           inventoryItemId: li.matchedItemId,
-          supplierName: s.supplierName!,
+          supplierName: offerSupplierName,
           supplierId: s.supplierId,
           lastPrice,
           pricePerBaseUnit: ppb,

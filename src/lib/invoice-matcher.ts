@@ -309,7 +309,8 @@ function buildMatchResult(
 
 export async function matchLineItems(
   ocrItems: OcrLineItem[],
-  supplierName?: string | null
+  supplierName?: string | null,
+  canonicalName?: string | null
 ): Promise<(OcrLineItem & MatchResult)[]> {
   const inventoryItems = await prisma.inventoryItem.findMany({
     where: { isActive: true },
@@ -409,7 +410,10 @@ export async function matchLineItems(
   if (supplierName) {
     try {
       offerRows = await prisma.inventorySupplierPrice.findMany({
-        where: { supplierName },
+        // Offers are written under the CANONICAL supplier name (Supplier.name)
+        // since the name-variant fix; also query the raw OCR name so legacy
+        // rows keyed by a variant still match.
+        where: { supplierName: { in: canonicalName && canonicalName !== supplierName ? [supplierName, canonicalName] : [supplierName] } },
       })
     } catch {
       // table/columns missing on a stale client — fall back to item comparison
@@ -417,7 +421,12 @@ export async function matchLineItems(
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const offerByItemId = new Map<string, any>()
-  for (const o of offerRows) offerByItemId.set(o.inventoryItemId, o)
+  // Insert raw-name rows first so canonical-name rows overwrite them when
+  // both exist for the same item — the canonical offer wins.
+  for (const o of offerRows.filter(o => o.supplierName !== canonicalName)) offerByItemId.set(o.inventoryItemId, o)
+  if (canonicalName) {
+    for (const o of offerRows.filter(o => o.supplierName === canonicalName)) offerByItemId.set(o.inventoryItemId, o)
+  }
 
   // Build learned map: description → best rule (supplier-specific beats generic)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

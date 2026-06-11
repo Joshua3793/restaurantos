@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv, quickExtractMeta } from '@/lib/invoice-ocr'
 import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
+import { canonicalSupplierName } from '@/lib/supplier-offers'
 import type { OcrResult } from '@/lib/invoice-ocr'
 
 function hasAnthropicKey(): boolean {
@@ -288,7 +289,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     let matched: Awaited<ReturnType<typeof matchLineItems>> = []
     try {
-      matched = await matchLineItems(allOcrItems, session.supplierName)
+      // Offers are stored under the canonical Supplier.name — pass it so the
+      // matcher can find offers even when the OCR name is a variant.
+      const canonicalName = session.supplierName
+        ? await canonicalSupplierName(session.supplierId, session.supplierName)
+        : null
+      matched = await matchLineItems(allOcrItems, session.supplierName, canonicalName)
       await prisma.invoiceScanItem.deleteMany({ where: { sessionId: params.id } })
       if (matched.length > 0) {
         await prisma.invoiceScanItem.createMany({
