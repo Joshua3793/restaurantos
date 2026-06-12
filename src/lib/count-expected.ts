@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { getUnitConv } from '@/lib/utils'
+import { computeScale } from '@/lib/prep-utils'
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
@@ -286,4 +287,74 @@ export async function computeExpectedForItem(
     expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap),
     baseStock,
   }
+}
+
+/**
+ * Net prep movement since `since`, scoped to an RC (via the prep item's RC).
+ * Mirrors the old prep-apply write but accumulates into maps instead of writing
+ * stockOnHand: raws drawn down (consumption) and the prep item produced (output).
+ * Stops at sub-prep items (charges the sub-prep's own inventory item), exactly like
+ * the theoretical-usage report, so prep-in-prep never double-counts.
+ */
+export async function buildPrepMap(
+  since: Date,
+  rcId?: string | null,
+): Promise<{ consumption: Map<string, number>; output: Map<string, number> }> {
+  const logs = await prisma.prepLog.findMany({
+    where: {
+      status: { in: ['DONE', 'PARTIAL'] },
+      actualPrepQty: { not: null },
+      logDate: { gte: since },
+      ...(rcId ? { revenueCenterId: rcId } : {}),
+    },
+    include: {
+      prepItem: {
+        include: {
+          linkedRecipe: {
+            include: {
+              inventoryItem: { select: { id: true, baseUnit: true } },
+              ingredients: {
+                include: {
+                  inventoryItem: { select: { id: true, baseUnit: true } },
+                  linkedRecipe: { select: { inventoryItem: { select: { id: true, baseUnit: true } } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  const consumption = new Map<string, number>()
+  const output = new Map<string, number>()
+  const add = (m: Map<string, number>, id: string, q: number) => m.set(id, (m.get(id) ?? 0) + q)
+
+  for (const log of logs) {
+    const recipe = log.prepItem.linkedRecipe
+    if (!recipe) continue
+    const { scale } = computeScale(
+      Number(log.actualPrepQty),
+      log.prepItem.unit,
+      recipe.yieldUnit,
+      Number(recipe.baseYieldQty),
+    )
+
+    for (const ing of recipe.ingredients) {
+      const qty = Number(ing.qtyBase) * scale
+      if (ing.inventoryItemId && ing.inventoryItem) {
+        add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
+      } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
+        const prep = ing.linkedRecipe.inventoryItem
+        add(consumption, prep.id, convertQty(qty, ing.unit, prep.baseUnit))
+      }
+    }
+
+    if (recipe.inventoryItemId && recipe.inventoryItem) {
+      const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
+      add(output, recipe.inventoryItem.id, yieldInBase)
+    }
+  }
+
+  return { consumption, output }
 }
