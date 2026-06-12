@@ -64,10 +64,11 @@ export async function POST(req: NextRequest) {
 
     await prisma.prepLog.create({
       data: {
-        prepItemId:  item.id,
-        logDate:     today,
-        status:      'NOT_STARTED',
-        requiredQty: suggested,
+        prepItemId:     item.id,
+        logDate:        today,
+        status:         'NOT_STARTED',
+        requiredQty:    suggested,
+        revenueCenterId: item.revenueCenterId ?? null,
       },
     })
     created++
