@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
+import { periodPurchases } from '@/lib/cogs'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
@@ -160,60 +161,13 @@ export async function GET(req: NextRequest) {
     endingFallback = true
   }
 
-  // Purchases in range — from legacy Invoice model
-  const invoices = await prisma.invoice.findMany({
-    where: {
-      invoiceDate: { gte: rangeStart, lte: rangeEnd },
-      status:      { not: 'CANCELLED' },
-    },
-    include: {
-      lineItems: { include: { inventoryItem: { select: { category: true } } } },
-    },
-  })
-  let totalPurchases = 0
-  const purchasesByCategory: Record<string, number> = {}
-  for (const inv of invoices) {
-    for (const li of inv.lineItems) {
-      const amt = Number(li.lineTotal)
-      totalPurchases += amt
-      const cat = li.inventoryItem.category
-      purchasesByCategory[cat] = (purchasesByCategory[cat] || 0) + amt
-    }
-  }
-
-  // Also include purchases from approved InvoiceSessions (scanner invoices)
-  const invoiceSessions = await prisma.invoiceSession.findMany({
-    where: {
-      status:     'APPROVED',
-      approvedAt: { gte: rangeStart, lte: rangeEnd },
-      ...(rcId
-        ? (isDefault
-            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-            : { revenueCenterId: rcId })
-        : {}),
-    },
-    include: {
-      scanItems: {
-        where: { approved: true, splitToSessionId: null, action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] } },
-        include: { matchedItem: { select: { category: true } } },
-      },
-    },
-  })
-  for (const sess of invoiceSessions) {
-    for (const item of sess.scanItems) {
-      if (item.rawLineTotal !== null) {
-        const amt = Number(item.rawLineTotal)
-        totalPurchases += amt
-        const cat = item.matchedItem?.category || 'UNCATEGORIZED'
-        purchasesByCategory[cat] = (purchasesByCategory[cat] || 0) + amt
-      } else if (item.rawQty !== null && item.newPrice !== null) {
-        const amt = Number(item.rawQty) * Number(item.newPrice)
-        totalPurchases += amt
-        const cat = item.matchedItem?.category || 'UNCATEGORIZED'
-        purchasesByCategory[cat] = (purchasesByCategory[cat] || 0) + amt
-      }
-    }
-  }
+  // Purchases in range — canonical spine definition (see periodPurchases in
+  // src/lib/cogs.ts): approved, non-split scan items by session.approvedAt,
+  // RC-scoped. No action filter and no legacy Invoice rows, so this stays
+  // consistent with the live cost-chrome food-cost number and with
+  // computePeriodCogs (used by /api/insights/food-cost-variance).
+  const { total: totalPurchases, byCategory: purchasesByCategory, invoiceCount } =
+    await periodPurchases(rangeStart.getTime(), rangeEnd.getTime(), { rcId, isDefault })
 
   // Food sales
   // Shared sales scope: date range + RC filter. Reused by both the food-sales
@@ -267,7 +221,7 @@ export async function GET(req: NextRequest) {
     beginningInventory: (rcId || beginSession)
       ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.id ?? null), fallback: false }
       : { value: beginningValue, sessionDate: null, sessionId: null, fallback: beginningFallback },
-    purchases: { total: totalPurchases, invoiceCount: invoices.length + invoiceSessions.length },
+    purchases: { total: totalPurchases, invoiceCount },
     endingInventory: (rcId || endSession)
       ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.id ?? null), fallback: false }
       : { value: 0, sessionDate: null, sessionId: null, fallback: endingFallback },
