@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { startOfWeek } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
 
@@ -176,13 +177,4 @@ export async function GET(req: NextRequest) {
   }, {
     headers: { 'Cache-Control': 'no-store' },
   })
-}
-
-function startOfWeek(d: Date): Date {
-  // Monday as week start. Returns local 00:00 of that Monday.
-  const out = new Date(d)
-  const day = out.getDay() || 7 // Sun = 0 → 7
-  if (day !== 1) out.setHours(-24 * (day - 1))
-  out.setHours(0, 0, 0, 0)
-  return out
 }
