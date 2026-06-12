@@ -6,7 +6,7 @@ import { useUser } from '@/contexts/UserContext'
 import { TempDesktop } from '@/components/temps/TempDesktop'
 import { TempMobile } from '@/components/temps/TempMobile'
 import {
-  computeDayMetrics, exportTempCSV, ymd,
+  computeDayMetrics, exportTempCSV, exportTempByEquipmentCSV, ymd,
   type TempUnit, type TempHandlers, type HistoryReading,
 } from '@/components/temps/temp-utils'
 
@@ -30,6 +30,7 @@ export default function TempChartsPage() {
   const [histLoading, setHistLoading] = useState(false)
   const [histUnit, setHistUnit] = useState('')
   const [histRange, setHistRange] = useState('7')
+  const [histView, setHistView] = useState<'day' | 'equipment'>('day')
 
   // ── load today's units + readings ──
   const load = useCallback(async () => {
@@ -54,10 +55,10 @@ export default function TempChartsPage() {
   }, [load])
 
   // ── history ──
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (rangeArg?: string) => {
     setHistLoading(true)
     try {
-      const days = Number(histRange)
+      const days = Number(rangeArg ?? histRange)
       const qs = new URLSearchParams()
       if (rcId) qs.set('rcId', rcId)
       if (days > 0) {
@@ -80,9 +81,9 @@ export default function TempChartsPage() {
     if (view === 'history') loadHistory()
   }, [view, loadHistory])
 
-  // mobile: load on demand when the history sheet opens
-  const ensureHistory = useCallback(() => {
-    loadHistory()
+  // mobile: load on demand when the history sheet opens (optionally with a new range)
+  const ensureHistory = useCallback((rangeArg?: string) => {
+    loadHistory(rangeArg)
   }, [loadHistory])
 
   const showToast = (m: string) => setToast(m)
@@ -137,14 +138,17 @@ export default function TempChartsPage() {
   const metrics = computeDayMetrics(units)
   const histDays = new Set(history.map(r => r.logDate)).size
 
-  // Export the full record (independent of the current History filter window).
+  // Export the full record (independent of the History filter window). Shape
+  // follows the active History sub-view: daily readings vs equipment-focused.
   const onExport = async () => {
     try {
       const qs = new URLSearchParams()
       if (rcId) qs.set('rcId', rcId)
       const res = await fetch(`/api/temps/readings?${qs.toString()}`)
       const data: HistoryReading[] = await res.json()
-      exportTempCSV(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      if (histView === 'equipment') exportTempByEquipmentCSV(list)
+      else exportTempCSV(list)
     } catch {
       showToast('Export failed — try again')
     }
@@ -168,6 +172,8 @@ export default function TempChartsPage() {
         setHistUnit={setHistUnit}
         histRange={histRange}
         setHistRange={setHistRange}
+        histView={histView}
+        setHistView={setHistView}
         onExport={onExport}
         histDays={histDays}
       />
@@ -182,6 +188,10 @@ export default function TempChartsPage() {
         histLoading={histLoading}
         ensureHistory={ensureHistory}
         onExport={onExport}
+        histView={histView}
+        setHistView={setHistView}
+        histRange={histRange}
+        setHistRange={setHistRange}
       />
 
       {toast && (

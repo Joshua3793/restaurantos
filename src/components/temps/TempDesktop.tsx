@@ -8,6 +8,7 @@ import {
   type TempUnit, type TempType, type TempHandlers, type TempDayMetrics,
   type HistoryReading, type TempGroupKey,
 } from './temp-utils'
+import { TempEquipmentView } from './TempEquipmentView'
 
 const RING_C = 2 * Math.PI * 44 // 276.46
 
@@ -38,6 +39,8 @@ export interface TempDesktopProps {
   setHistUnit: (v: string) => void
   histRange: string
   setHistRange: (v: string) => void
+  histView: 'day' | 'equipment'
+  setHistView: (v: 'day' | 'equipment') => void
   onExport: () => void
   histDays: number
 }
@@ -134,6 +137,19 @@ function Tab({ active, onClick, icon, children }: { active: boolean; onClick: ()
       }`}
     >
       {icon}
+      {children}
+    </button>
+  )
+}
+
+function SubToggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium transition-colors ${
+        active ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'
+      }`}
+    >
       {children}
     </button>
   )
@@ -486,6 +502,10 @@ function HistoryView(p: TempDesktopProps) {
   return (
     <div>
       <div className="flex items-center gap-2.5 mb-4">
+        <div className="inline-flex rounded-[9px] border border-line bg-paper p-0.5">
+          <SubToggle active={p.histView === 'day'} onClick={() => p.setHistView('day')}>By day</SubToggle>
+          <SubToggle active={p.histView === 'equipment'} onClick={() => p.setHistView('equipment')}>By equipment</SubToggle>
+        </div>
         <select value={p.histUnit} onChange={e => p.setHistUnit(e.target.value)} className="bg-paper border border-line rounded-[9px] px-3 py-2.5 text-[13px] text-ink-2 outline-none cursor-pointer">
           <option value="">All units</option>
           {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -502,7 +522,13 @@ function HistoryView(p: TempDesktopProps) {
         </button>
       </div>
 
-      {p.histLoading ? (
+      {p.histView === 'equipment' ? (
+        p.histLoading ? (
+          <div className="text-center py-16 font-mono text-[11px] text-ink-4">LOADING…</div>
+        ) : (
+          <TempEquipmentView units={units} history={history} histUnit={p.histUnit} />
+        )
+      ) : p.histLoading ? (
         <div className="text-center py-16 font-mono text-[11px] text-ink-4">LOADING…</div>
       ) : dates.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-[60px] text-center text-ink-3">
