@@ -218,6 +218,7 @@ export async function buildWastageMap(
 /**
  * Compute theoretical expected qty for an inventory item given its base stock
  * and the consumption/purchase/wastage maps for a period.
+ * prepConsumptionMap and prepOutputMap are optional for backward compatibility.
  */
 export function computeExpected(
   itemId: string,
@@ -225,11 +226,15 @@ export function computeExpected(
   consumptionMap: Map<string, number>,
   purchaseMap: Map<string, number>,
   wastageMap: Map<string, number>,
+  prepConsumptionMap?: Map<string, number>,
+  prepOutputMap?: Map<string, number>,
 ): number {
   const consumption = consumptionMap.get(itemId) ?? 0
   const purchases   = purchaseMap.get(itemId)    ?? 0
   const wastage     = wastageMap.get(itemId)     ?? 0
-  return Math.max(0, baseStock + purchases - consumption - wastage)
+  const prepCons    = prepConsumptionMap?.get(itemId) ?? 0
+  const prepOut     = prepOutputMap?.get(itemId)      ?? 0
+  return Math.max(0, baseStock + purchases + prepOut - consumption - wastage - prepCons)
 }
 
 /**
@@ -277,17 +282,21 @@ export async function computeExpectedForItem(
   const since = item.lastCountDate
   if (!since) return { expectedBase: Math.max(0, baseStock), baseStock }
 
-  const [consumptionMap, purchaseMap, wastageMap] = await Promise.all([
+  const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
     buildConsumptionMap(since, rcId),
     buildPurchaseMap(since, rcId),
     buildWastageMap(since, [itemId], rcId),
+    buildPrepMap(since, rcId),
   ])
 
   return {
-    expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap),
+    expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output),
     baseStock,
   }
 }
+
+/** Public name for the per-item theoretical on-hand (baseUnit), scoped to an RC. */
+export const getTheoreticalStock = computeExpectedForItem
 
 /**
  * Net prep movement since `since`, scoped via the **log's `revenueCenterId`**
@@ -369,4 +378,57 @@ export async function buildPrepMap(
   }
 
   return { consumption, output }
+}
+
+/**
+ * Theoretical on-hand (baseUnit) for many items at once, scoped to an RC.
+ * Mirrors the count-session route: one lookback window (earliest lastCountDate),
+ * RC baseline rule (global stock for default/no RC; StockAllocation else, 0 if
+ * the RC never counted the item). Returns a Map itemId -> theoretical qty.
+ */
+export async function getTheoreticalStockMap(
+  rcId: string | null | undefined,
+  itemIds?: string[],
+): Promise<Map<string, number>> {
+  const items = await prisma.inventoryItem.findMany({
+    where: { isActive: true, ...(itemIds ? { id: { in: itemIds } } : {}) },
+    select: { id: true, stockOnHand: true, lastCountDate: true },
+  })
+
+  const ids = items.map(i => i.id)
+  const earliest = items
+    .map(i => i.lastCountDate)
+    .filter(Boolean)
+    .sort((a, b) => ((a as Date) > (b as Date) ? 1 : -1))[0] as Date | undefined
+
+  const empty = new Map<string, number>()
+  const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliest
+    ? await Promise.all([
+        buildConsumptionMap(earliest, rcId),
+        buildPurchaseMap(earliest, rcId),
+        buildWastageMap(earliest, ids, rcId),
+        buildPrepMap(earliest, rcId),
+      ])
+    : [empty, empty, empty, { consumption: empty, output: empty }]
+
+  const stockAllocationMap = new Map<string, number>()
+  let isDefaultRc = false
+  if (rcId && ids.length > 0) {
+    const rc = await prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { isDefault: true } })
+    isDefaultRc = !!rc?.isDefault
+    const allocs = await prisma.stockAllocation.findMany({
+      where: { revenueCenterId: rcId, inventoryItemId: { in: ids } },
+      select: { inventoryItemId: true, quantity: true },
+    })
+    for (const a of allocs) stockAllocationMap.set(a.inventoryItemId, Number(a.quantity))
+  }
+
+  const result = new Map<string, number>()
+  for (const item of items) {
+    const baseStock = rcId
+      ? (stockAllocationMap.has(item.id) ? stockAllocationMap.get(item.id)! : (isDefaultRc ? Number(item.stockOnHand) : 0))
+      : Number(item.stockOnHand)
+    result.set(item.id, computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output))
+  }
+  return result
 }

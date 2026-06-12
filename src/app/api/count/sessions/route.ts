@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, computeExpected } from '@/lib/count-expected'
 import { resolveCountUom } from '@/lib/count-uom'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
@@ -62,8 +62,8 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .sort((a, b) => ((a as Date) > (b as Date) ? 1 : -1))[0] as Date | undefined
 
-  // ── Maps: consumption, purchases, wastage ──────────────────────────────────
-  const [consumptionMap, purchaseMap, wastageMap] = await Promise.all([
+  // ── Maps: consumption, purchases, wastage, prep ────────────────────────────
+  const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
     earliestLastCount
       ? buildConsumptionMap(earliestLastCount, revenueCenterId)
       : Promise.resolve(new Map<string, number>()),
@@ -73,6 +73,9 @@ export async function POST(req: NextRequest) {
     earliestLastCount
       ? buildWastageMap(earliestLastCount, itemIds, revenueCenterId)
       : Promise.resolve(new Map<string, number>()),
+    earliestLastCount
+      ? buildPrepMap(earliestLastCount, revenueCenterId)
+      : Promise.resolve({ consumption: new Map<string, number>(), output: new Map<string, number>() }),
   ])
 
   // ── RC stock baseline ──────────────────────────────────────────────────────
@@ -113,7 +116,7 @@ export async function POST(req: NextRequest) {
                 : (isDefaultRc ? Number(item.stockOnHand) : 0))
             : Number(item.stockOnHand)
 
-          const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap)
+          const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
 
           return {
             inventoryItemId: item.id,
