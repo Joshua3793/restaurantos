@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, DollarSign, ShoppingCart, Package, ChefHat } from 'lucide-react'
+import { BarChart3, DollarSign, ShoppingCart, Package, ChefHat, Utensils } from 'lucide-react'
 
 const TABS = [
   { href: '/reports',            label: 'Overview',   icon: BarChart3 },
@@ -9,6 +9,7 @@ const TABS = [
   { href: '/reports/purchasing', label: 'Purchasing', icon: ShoppingCart },
   { href: '/reports/inventory',  label: 'Inventory',  icon: Package },
   { href: '/reports/prep',       label: 'Prep',       icon: ChefHat },
+  { href: '/reports/menu',       label: 'Menu',       icon: Utensils },
 ]
 
 /** In-page sub-navigation across the Reports overview + analytics sub-pages. */

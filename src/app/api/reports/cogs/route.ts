@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
+import { periodPurchases, periodSnapshotBounds } from '@/lib/cogs'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
@@ -73,37 +75,17 @@ export async function GET(req: NextRequest) {
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
-  // All finalized sessions ordered by finalizedAt asc (Prisma returns Date objects)
-  const allSessions = await prisma.countSession.findMany({
-    where:   { status: 'FINALIZED' },
-    orderBy: { finalizedAt: 'asc' },
-    include: { snapshots: true },
-  })
-
-  // Helper: get ms from either a Prisma Date or raw integer (legacy TEXT rows)
-  const ms = (v: Date | number | string | null | undefined): number => {
-    if (!v) return 0
-    if (v instanceof Date) return v.getTime()
-    if (typeof v === 'number') return v
-    return new Date(String(v).replace(' ', 'T')).getTime()
-  }
-
-  const startMs = rangeStart.getTime()
-  const endMs   = rangeEnd.getTime()
-
-  // Sort by finalizedAt ms (handles mixed storage formats)
-  allSessions.sort((a, b) => ms(a.finalizedAt as never) - ms(b.finalizedAt as never))
-
-  // Beginning: most recent session finalizedAt ≤ startDate
-  const beginSession = [...allSessions].reverse().find(s => ms(s.finalizedAt as never) <= startMs) ?? null
-
-  // Ending: most recent session finalizedAt ≤ endDate
-  const endSession = [...allSessions].reverse().find(s => ms(s.finalizedAt as never) <= endMs) ?? null
+  // Opening/closing inventory bounds — canonical shared resolver (see
+  // periodSnapshotBounds in src/lib/cogs.ts), so global COGS here matches
+  // computePeriodCogs (used by /api/insights/food-cost-variance) exactly.
+  // RC mode overrides these with current StockAllocation below.
+  const { opening: beginSession, closing: endSession } =
+    await periodSnapshotBounds(rangeStart.getTime(), rangeEnd.getTime())
 
   // Compute beginning inventory value
   let beginningValue = 0
   let beginningFallback = false
-  const beginByCategory: Record<string, number> = {}
+  let beginByCategory: Record<string, number> = {}
 
   if (rcId) {
     // RC mode: use StockAllocation for beginning inventory
@@ -117,11 +99,8 @@ export async function GET(req: NextRequest) {
       beginByCategory[a.inventoryItem.category] = (beginByCategory[a.inventoryItem.category] || 0) + v
     }
   } else if (beginSession) {
-    for (const snap of beginSession.snapshots) {
-      const v = Number(snap.totalValue)
-      beginningValue += v
-      beginByCategory[snap.category] = (beginByCategory[snap.category] || 0) + v
-    }
+    beginningValue = beginSession.value
+    beginByCategory = beginSession.byCategory
   } else {
     beginningFallback = true
     const items = await prisma.inventoryItem.findMany()
@@ -135,7 +114,7 @@ export async function GET(req: NextRequest) {
   // Compute ending inventory value
   let endingValue = 0
   let endingFallback = false
-  const endByCategory: Record<string, number> = {}
+  let endByCategory: Record<string, number> = {}
 
   if (rcId) {
     // RC mode: same StockAllocation snapshot — we use the current allocation
@@ -150,87 +129,52 @@ export async function GET(req: NextRequest) {
       endByCategory[a.inventoryItem.category] = (endByCategory[a.inventoryItem.category] || 0) + v
     }
   } else if (endSession) {
-    for (const snap of endSession.snapshots) {
-      const v = Number(snap.totalValue)
-      endingValue += v
-      endByCategory[snap.category] = (endByCategory[snap.category] || 0) + v
-    }
+    endingValue = endSession.value
+    endByCategory = endSession.byCategory
   } else {
     endingFallback = true
   }
 
-  // Purchases in range — from legacy Invoice model
-  const invoices = await prisma.invoice.findMany({
-    where: {
-      invoiceDate: { gte: rangeStart, lte: rangeEnd },
-      status:      { not: 'CANCELLED' },
-    },
-    include: {
-      lineItems: { include: { inventoryItem: { select: { category: true } } } },
-    },
-  })
-  let totalPurchases = 0
-  const purchasesByCategory: Record<string, number> = {}
-  for (const inv of invoices) {
-    for (const li of inv.lineItems) {
-      const amt = Number(li.lineTotal)
-      totalPurchases += amt
-      const cat = li.inventoryItem.category
-      purchasesByCategory[cat] = (purchasesByCategory[cat] || 0) + amt
-    }
-  }
-
-  // Also include purchases from approved InvoiceSessions (scanner invoices)
-  const invoiceSessions = await prisma.invoiceSession.findMany({
-    where: {
-      status:     'APPROVED',
-      approvedAt: { gte: rangeStart, lte: rangeEnd },
-      ...(rcId
-        ? (isDefault
-            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-            : { revenueCenterId: rcId })
-        : {}),
-    },
-    include: {
-      scanItems: {
-        where: { approved: true, splitToSessionId: null, action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] } },
-        include: { matchedItem: { select: { category: true } } },
-      },
-    },
-  })
-  for (const sess of invoiceSessions) {
-    for (const item of sess.scanItems) {
-      if (item.rawLineTotal !== null) {
-        const amt = Number(item.rawLineTotal)
-        totalPurchases += amt
-        const cat = item.matchedItem?.category || 'UNCATEGORIZED'
-        purchasesByCategory[cat] = (purchasesByCategory[cat] || 0) + amt
-      } else if (item.rawQty !== null && item.newPrice !== null) {
-        const amt = Number(item.rawQty) * Number(item.newPrice)
-        totalPurchases += amt
-        const cat = item.matchedItem?.category || 'UNCATEGORIZED'
-        purchasesByCategory[cat] = (purchasesByCategory[cat] || 0) + amt
-      }
-    }
-  }
+  // Purchases in range — canonical spine definition (see periodPurchases in
+  // src/lib/cogs.ts): approved, non-split scan items by session.approvedAt,
+  // RC-scoped. No action filter and no legacy Invoice rows, so this stays
+  // consistent with the live cost-chrome food-cost number and with
+  // computePeriodCogs (used by /api/insights/food-cost-variance).
+  const { total: totalPurchases, byCategory: purchasesByCategory, invoiceCount } =
+    await periodPurchases(rangeStart.getTime(), rangeEnd.getTime(), { rcId, isDefault })
 
   // Food sales
-  const salesEntries = await prisma.salesEntry.findMany({
-    where: {
-      date: { gte: rangeStart, lte: rangeEnd },
-      ...(rcId
-        ? (isDefault
-            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-            : { revenueCenterId: rcId })
-        : {}),
-    },
-  })
+  // Shared sales scope: date range + RC filter. Reused by both the food-sales
+  // denominator and the theoretical-cost numerator so they stay comparable in
+  // RC mode (a global numerator over RC-scoped sales would be inflated).
+  const salesWhere = {
+    date: { gte: rangeStart, lte: rangeEnd },
+    ...(rcId
+      ? (isDefault
+          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+          : { revenueCenterId: rcId })
+      : {}),
+  }
+  const salesEntries = await prisma.salesEntry.findMany({ where: salesWhere })
   const foodSales = salesEntries.reduce(
     (s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0
   )
 
   const cogs = Math.round((beginningValue + totalPurchases - endingValue) * 100) / 100
   const foodCostPct = foodSales > 0 ? Math.round((cogs / foodSales) * 10000) / 100 : 0
+
+  // Theoretical cost over the same range + RC scope (recipe-based), for variance.
+  const cogsLineItems = await prisma.saleLineItem.findMany({
+    where: { sale: salesWhere },
+    select: { recipeId: true, qtySold: true },
+  })
+  const cogsTheo = await theoreticalCostForLineItems(cogsLineItems)
+
+  const actualFoodCostPct      = foodSales > 0 ? (cogs / foodSales) * 100 : null
+  const theoreticalFoodCostPct = foodSales > 0 ? (cogsTheo.theoreticalCost / foodSales) * 100 : null
+  const foodCostVariancePts =
+    actualFoodCostPct != null && theoreticalFoodCostPct != null
+      ? actualFoodCostPct - theoreticalFoodCostPct : null
 
   // By category breakdown
   const allCats = new Set([
@@ -249,15 +193,20 @@ export async function GET(req: NextRequest) {
     startDate: startDateStr,
     endDate:   endDateStr,
     beginningInventory: (rcId || beginSession)
-      ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.id ?? null), fallback: false }
+      ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.sessionId ?? null), fallback: false }
       : { value: beginningValue, sessionDate: null, sessionId: null, fallback: beginningFallback },
-    purchases: { total: totalPurchases, invoiceCount: invoices.length + invoiceSessions.length },
+    purchases: { total: totalPurchases, invoiceCount },
     endingInventory: (rcId || endSession)
-      ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.id ?? null), fallback: false }
+      ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.sessionId ?? null), fallback: false }
       : { value: 0, sessionDate: null, sessionId: null, fallback: endingFallback },
     cogs,
     foodSales,
     foodCostPct,
     byCategory,
+    actualFoodCostPct,
+    theoreticalFoodCostPct,
+    foodCostVariancePts,
+    theoreticalCost: cogsTheo.theoreticalCost,
+    theoreticalCoverage: { costed: cogsTheo.costedRecipes, total: cogsTheo.totalRecipes },
   })
 }

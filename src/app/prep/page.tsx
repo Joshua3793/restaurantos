@@ -98,7 +98,7 @@ export default function PrepPage() {
     if (!silent) setLoading(true)
     try {
       if (!navigator.onLine) throw new Error('offline')
-      const res  = await fetch(`/api/prep/items?active=${activeOnly}`)
+      const res  = await fetch(`/api/prep/items?active=${activeOnly}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const fetched = Array.isArray(data) ? data : []

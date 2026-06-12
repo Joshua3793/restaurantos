@@ -27,6 +27,11 @@ interface VarianceResp {
 export default function VariancePage() {
   const [data, setData] = useState<VarianceResp | null>(null)
   const [range, setRange] = useState<7 | 14 | 30>(7)
+  const [fc, setFc] = useState<{ needsCounts: boolean; actualFoodCostPct?: number | null; theoreticalFoodCostPct?: number | null; variancePctPoints?: number | null; varianceDollars?: number } | null>(null)
+  useEffect(() => {
+    fetch('/api/insights/food-cost-variance', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null).then(j => j && setFc(j))
+  }, [])
 
   useEffect(() => {
     const end = new Date()
@@ -64,6 +69,17 @@ export default function VariancePage() {
           </div>
         }
       />
+
+      {fc && !fc.needsCounts && fc.variancePctPoints != null && (
+        <div className="mb-4 rounded-[12px] border border-line bg-paper p-4 flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-[12px]">
+          <span className="text-ink-3">FOOD COST · last count period</span>
+          <span>actual <b className="text-ink">{fc.actualFoodCostPct!.toFixed(1)}%</b></span>
+          <span>theoretical <b className="text-ink">{fc.theoreticalFoodCostPct!.toFixed(1)}%</b></span>
+          <span>drift <b className={fc.variancePctPoints > 0 ? 'text-red-text' : 'text-green'}>
+            {fc.variancePctPoints > 0 ? '+' : ''}{fc.variancePctPoints.toFixed(1)} pts
+          </b>{fc.varianceDollars != null && <> ({formatCurrency(fc.varianceDollars)})</>}</span>
+        </div>
+      )}
 
       {!data ? null : top.length === 0 ? (
         <div className="bg-paper border border-line rounded-[12px] p-12 text-center">

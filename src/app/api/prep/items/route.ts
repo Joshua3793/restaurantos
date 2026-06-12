@@ -169,8 +169,11 @@ export async function GET(req: NextRequest) {
     return a.name.localeCompare(b.name)
   })
 
+  // This list is mutated constantly (add to list, status, priority) and the client
+  // updates optimistically then refetches. A cached/SWR response makes load() return
+  // the pre-mutation snapshot, reverting optimistic adds — so never cache it.
   return NextResponse.json(enriched, {
-    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+    headers: { 'Cache-Control': 'no-store' },
   })
   } catch (err) {
     console.error('[prep/items GET]', err)
