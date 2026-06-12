@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { linkedRecipeUnitCost } from '@/lib/recipeCosts'
 
 /**
  * Recalculates totalCost, costPerPortion, and foodCostPct for any recipe
@@ -27,10 +28,9 @@ export async function recalculateRecipeCosts(
         include: {
           inventoryItem: { select: { id: true, pricePerBaseUnit: true, baseUnit: true } },
           linkedRecipe: {
-            include: {
-              ingredients: {
-                include: { inventoryItem: { select: { pricePerBaseUnit: true, baseUnit: true } } },
-              },
+            select: {
+              yieldUnit: true,
+              inventoryItem: { select: { pricePerBaseUnit: true, baseUnit: true } },
             },
           },
         },
@@ -49,15 +49,9 @@ export async function recalculateRecipeCosts(
       if (ing.inventoryItem) {
         newTotalCost += qty * Number(ing.inventoryItem.pricePerBaseUnit)
       } else if (ing.linkedRecipe) {
-        // Sub-recipe cost: sum its own ingredients
-        let subCost = 0
-        for (const subIng of ing.linkedRecipe.ingredients) {
-          if (subIng.inventoryItem) {
-            subCost += Number(subIng.qtyBase) * Number(subIng.inventoryItem.pricePerBaseUnit)
-          }
-        }
-        const subYield = Number(ing.linkedRecipe.baseYieldQty) || 1
-        const costPerUnit = subCost / subYield
+        // Sub-recipe cost comes off the spine (synced InventoryItem), which already
+        // accounts for nested PREP-in-PREP ingredients. See linkedRecipeUnitCost.
+        const { costPerUnit } = linkedRecipeUnitCost(ing.linkedRecipe)
         newTotalCost += qty * costPerUnit
       }
     }
@@ -128,10 +122,9 @@ export async function computeRecipeCost(recipeId: string): Promise<{
         include: {
           inventoryItem: { select: { pricePerBaseUnit: true } },
           linkedRecipe: {
-            include: {
-              ingredients: {
-                include: { inventoryItem: { select: { pricePerBaseUnit: true } } },
-              },
+            select: {
+              yieldUnit: true,
+              inventoryItem: { select: { pricePerBaseUnit: true, baseUnit: true } },
             },
           },
         },
@@ -145,14 +138,9 @@ export async function computeRecipeCost(recipeId: string): Promise<{
     if (ing.inventoryItem) {
       totalCost += qty * Number(ing.inventoryItem.pricePerBaseUnit)
     } else if (ing.linkedRecipe) {
-      let subCost = 0
-      for (const subIng of ing.linkedRecipe.ingredients) {
-        if (subIng.inventoryItem) {
-          subCost += Number(subIng.qtyBase) * Number(subIng.inventoryItem.pricePerBaseUnit)
-        }
-      }
-      const subYield = Number(ing.linkedRecipe.baseYieldQty) || 1
-      totalCost += qty * (subCost / subYield)
+      // Sub-recipe cost from the spine (synced InventoryItem) — includes nested PREP.
+      const { costPerUnit } = linkedRecipeUnitCost(ing.linkedRecipe)
+      totalCost += qty * costPerUnit
     }
   }
 

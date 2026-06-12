@@ -70,7 +70,7 @@ export function computeRecipeCost(
       inventoryItemId: string | null
       linkedRecipeId: string | null
       inventoryItem: { itemName: string; baseUnit: string; pricePerBaseUnit: Numeric } | null
-      linkedRecipe: { name: string; baseYieldQty: Numeric; portionSize: Numeric | null } | null
+      linkedRecipe: { name: string } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
     }>
@@ -138,6 +138,32 @@ export function computeRecipeCost(
   return { totalCost, costPerPortion, foodCostPct, ingredients: ingredientsWithCost }
 }
 
+/**
+ * Cost per 1 unit of a linked PREP sub-recipe's yield, read from the spine.
+ *
+ * A PREP recipe's fully-resolved cost — including any nested PREP-in-PREP
+ * ingredients — is canonically stored on its synced `InventoryItem.pricePerBaseUnit`
+ * (see `syncPrepToInventory`). Read that value directly.
+ *
+ * Re-deriving the cost by summing the sub-recipe's own ingredient rows (the old
+ * approach) silently drops any ingredient that is itself a linked PREP recipe —
+ * those rows have no `inventoryItem`, so they were counted as $0, undercounting
+ * every recipe that nests a prep inside a prep (e.g. Hollandaise → Clarified Butter).
+ *
+ * Returns the cost per 1 unit of `yieldUnit`, where `yieldUnit` is the synced
+ * item's `baseUnit` (the unit `pricePerBaseUnit` is denominated in).
+ */
+export function linkedRecipeUnitCost(linked: {
+  yieldUnit: string
+  inventoryItem: { pricePerBaseUnit: Numeric; baseUnit: string } | null
+}): { costPerUnit: number; yieldUnit: string } {
+  const item = linked.inventoryItem
+  return {
+    costPerUnit: item ? Number(item.pricePerBaseUnit) : 0,
+    yieldUnit:   item?.baseUnit ?? linked.yieldUnit,
+  }
+}
+
 /** Fetch a full recipe with computed costs, resolving linked recipe costs. */
 export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | null> {
   const recipe = await prisma.recipe.findUnique({
@@ -148,12 +174,10 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
         include: {
           inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
           linkedRecipe: {
-            include: {
-              ingredients: {
-                include: {
-                  inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } },
-                },
-              },
+            select: {
+              name: true,
+              yieldUnit: true,
+              inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } },
             },
           },
         },
@@ -168,14 +192,9 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     let linkedCostPerUnit = 0
     let linkedYieldUnit   = ing.unit
     if (ing.linkedRecipe) {
-      const linkedTotal = ing.linkedRecipe.ingredients.reduce((s, li) => {
-        const baseUnit     = li.inventoryItem?.baseUnit ?? li.unit
-        const qtyInBase    = convertQty(Number(li.qtyBase), li.unit, baseUnit)
-        return s + qtyInBase * Number(li.inventoryItem?.pricePerBaseUnit ?? 0)
-      }, 0)
-      const linkedYield  = Number(ing.linkedRecipe.baseYieldQty)
-      linkedCostPerUnit  = linkedYield > 0 ? linkedTotal / linkedYield : 0
-      linkedYieldUnit    = ing.linkedRecipe.yieldUnit
+      const resolved    = linkedRecipeUnitCost(ing.linkedRecipe)
+      linkedCostPerUnit = resolved.costPerUnit
+      linkedYieldUnit   = resolved.yieldUnit
     }
     return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
   })
@@ -187,7 +206,9 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
 
   const allergens = Array.from(new Set(recipe.ingredients.flatMap(ing => [
     ...(ing.inventoryItem?.allergens ?? []),
-    ...(ing.linkedRecipe?.ingredients.flatMap(li => li.inventoryItem?.allergens ?? []) ?? []),
+    // Linked PREP allergens come off its synced InventoryItem, which carries the
+    // recipe's full (incl. nested) allergen set — see syncPrepToInventory.
+    ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
   ])))
 
   return {

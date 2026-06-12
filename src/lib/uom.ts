@@ -14,7 +14,6 @@ export const UOM_GROUPS: UomGroup[] = [
     label: 'Weight',
     base: 'g',
     units: [
-      { label: 'mg',  toBase: 0.001 },
       { label: 'g',   toBase: 1 },
       { label: 'kg',  toBase: 1000 },
       { label: 'oz',  toBase: 28.3495 },

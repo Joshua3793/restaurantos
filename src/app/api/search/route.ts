@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost } from '@/lib/recipeCosts'
-import { convertQty } from '@/lib/uom'
+import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
 
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get('q')?.trim() ?? ''
@@ -24,8 +23,10 @@ export async function GET(req: NextRequest) {
           include: {
             inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true } },
             linkedRecipe: {
-              include: {
-                ingredients: { include: { inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } } } },
+              select: {
+                name: true,
+                yieldUnit: true,
+                inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } },
               },
             },
           },
@@ -64,14 +65,9 @@ export async function GET(req: NextRequest) {
       let linkedCostPerUnit = 0
       let linkedYieldUnit = ing.unit
       if (ing.linkedRecipe) {
-        const linkedTotal = ing.linkedRecipe.ingredients.reduce((s, li) => {
-          const baseUnit = li.inventoryItem?.baseUnit ?? li.unit
-          const qtyInBase = convertQty(Number(li.qtyBase), li.unit, baseUnit)
-          return s + qtyInBase * Number(li.inventoryItem?.pricePerBaseUnit ?? 0)
-        }, 0)
-        const linkedYield = Number(ing.linkedRecipe.baseYieldQty)
-        linkedCostPerUnit = linkedYield > 0 ? linkedTotal / linkedYield : 0
-        linkedYieldUnit = ing.linkedRecipe.yieldUnit
+        const resolved = linkedRecipeUnitCost(ing.linkedRecipe)
+        linkedCostPerUnit = resolved.costPerUnit
+        linkedYieldUnit = resolved.yieldUnit
       }
       return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
     })

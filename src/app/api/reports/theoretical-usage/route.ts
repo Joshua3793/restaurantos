@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost } from '@/lib/recipeCosts'
 import { convertQty } from '@/lib/uom'
 import { convertCountQtyToBase } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -29,19 +28,17 @@ export async function GET(req: NextRequest) {
     include: {
       sale: { select: { date: true } },
       recipe: {
-        include: {
+        select: {
+          baseYieldQty: true,
+          portionSize: true,
           ingredients: {
-            include: {
+            select: {
+              qtyBase: true, unit: true, inventoryItemId: true, linkedRecipeId: true,
               inventoryItem: { select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true } },
-              linkedRecipe: {
-                include: {
-                  ingredients: {
-                    include: {
-                      inventoryItem: { select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true } },
-                    },
-                  },
-                },
-              },
+              // A linked PREP is its OWN tracked stock item (PREPD). Selling depletes
+              // that prep stock — NOT its raw ingredients, which were already consumed
+              // (and the prep credited) at prep time. See prep/logs/[id]/route.ts.
+              linkedRecipe: { select: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true } } } },
             },
           },
         },
@@ -50,7 +47,9 @@ export async function GET(req: NextRequest) {
   })
 
   // ── 2. Accumulate theoretical usage per inventory item ───────────────────
-  // theoretical usage (baseUnit) = qtySold × ingredientQtyBase / baseYieldQty
+  // Theoretical usage stops at the PREP item (mirrors src/lib/count-expected.ts), so
+  // this report reconciles with count variance and never double-counts raws that moved
+  // at prep time. Recursing into a prep's raws here would double-count those raws.
   const usageMap: Record<string, {
     itemName: string
     baseUnit: string
@@ -67,43 +66,24 @@ export async function GET(req: NextRequest) {
 
   for (const sli of sales) {
     const recipe = sli.recipe
-    const qtySold = sli.qtySold
-    const batchYield = Number(recipe.baseYieldQty) || 1
+    // batches sold = portions sold ÷ portions per batch (same math as count-expected)
+    const portionsPerBatch =
+      recipe.portionSize && Number(recipe.portionSize) > 0
+        ? Number(recipe.baseYieldQty) / Number(recipe.portionSize)
+        : 1
+    const batches = sli.qtySold / portionsPerBatch
 
     for (const ing of recipe.ingredients) {
-      const ingQtyBase = Number(ing.qtyBase)
-      const qtyPerPortion = ingQtyBase / batchYield
-      const theoreticalUse = qtyPerPortion * qtySold
+      const qty = Number(ing.qtyBase) * batches
 
       if (ing.inventoryItemId && ing.inventoryItem) {
         // Direct inventory item
-        const baseUnit = ing.inventoryItem.baseUnit
-        const qtyInBase = convertQty(theoreticalUse, ing.unit, baseUnit)
-        addUsage(
-          ing.inventoryItem.id,
-          ing.inventoryItem.itemName,
-          baseUnit,
-          Number(ing.inventoryItem.pricePerBaseUnit),
-          qtyInBase
-        )
-      } else if (ing.linkedRecipeId && ing.linkedRecipe) {
-        // Sub-recipe: expand its ingredients proportionally
-        const subYield = Number(ing.linkedRecipe.baseYieldQty) || 1
-        for (const subIng of ing.linkedRecipe.ingredients) {
-          if (!subIng.inventoryItem) continue
-          const subQtyBase = Number(subIng.qtyBase)
-          const subQtyPerUnit = subQtyBase / subYield
-          const subTheoretical = subQtyPerUnit * theoreticalUse
-          const baseUnit = subIng.inventoryItem.baseUnit
-          const qtyInBase = convertQty(subTheoretical, subIng.unit, baseUnit)
-          addUsage(
-            subIng.inventoryItem.id,
-            subIng.inventoryItem.itemName,
-            baseUnit,
-            Number(subIng.inventoryItem.pricePerBaseUnit),
-            qtyInBase
-          )
-        }
+        const it = ing.inventoryItem
+        addUsage(it.id, it.itemName, it.baseUnit, Number(it.pricePerBaseUnit), convertQty(qty, ing.unit, it.baseUnit))
+      } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
+        // Linked PREP → charge the prep item's own stock and stop (no recursion)
+        const prep = ing.linkedRecipe.inventoryItem
+        addUsage(prep.id, prep.itemName, prep.baseUnit, Number(prep.pricePerBaseUnit), convertQty(qty, ing.unit, prep.baseUnit))
       }
     }
   }
