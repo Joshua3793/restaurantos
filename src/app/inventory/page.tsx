@@ -31,6 +31,8 @@ interface InventoryItem {
   packSize: number; packUOM: string; countUOM: string
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number
+  theoreticalStock?: number   // theoretical on-hand from engine (baseUnit); headline display
+  countedStock?: number       // real counted value (stockOnHand at time of API response)
   rcStock?: number        // set when viewing a non-default RC (from StockAllocation)
   parLevel?:   number | null  // in countUOM; null = no par set
   reorderQty?: number | null  // in purchaseUnit; null = auto-calculate
@@ -336,9 +338,12 @@ function InventoryPageInner() {
 
   const catNames = useMemo(() => categories.map(c => c.name), [categories])
 
-  // Effective stock: for non-default RCs use the allocated quantity (always in baseUnit)
+  // Effective stock: always prefer the theoretical value (engine-computed from count +
+  // sales/purchases/wastage/prep). For non-default RCs the API calls getTheoreticalStockMap
+  // with the selected rcId, so theoreticalStock is already the per-RC engine number.
+  // rcStock (raw allocation) is kept as a last-resort fallback in case theoretical is absent.
   const effStock = (i: InventoryItem) =>
-    i.rcStock !== undefined ? i.rcStock : parseFloat(String(i.stockOnHand))
+    i.theoreticalStock ?? i.rcStock ?? parseFloat(String(i.stockOnHand))
 
   // Stock converted from baseUnit to countUOM for human display
   const displayStock = (i: InventoryItem) => convertBaseToCountUom(effStock(i), i.countUOM || i.baseUnit, {
@@ -644,9 +649,22 @@ function InventoryPageInner() {
           <div className="font-mono text-[10.5px] text-ink-3 mt-0.5 whitespace-nowrap">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
         <td className="px-3 py-[13px]">
-          <span className="font-mono text-[13px] text-ink-2 whitespace-nowrap">
-            {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUOM || item.purchaseUnit}</small>
-          </span>
+          <div>
+            <span className="font-mono text-[13px] text-ink-2 whitespace-nowrap">
+              {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUOM || item.purchaseUnit}</small>
+            </span>
+            {item.countedStock != null && item.lastCountDate && (
+              <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
+                counted {convertBaseToCountUom(item.countedStock, item.countUOM || item.baseUnit, {
+                  baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
+                  qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each',
+                  innerQty: item.innerQty != null ? Number(item.innerQty) : null,
+                  packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each',
+                  countUOM: item.countUOM || item.baseUnit,
+                }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+              </div>
+            )}
+          </div>
         </td>
         <td className="px-3 py-[13px]">
           <span className={`font-mono text-[13px] whitespace-nowrap ${itemValue > 0 ? 'text-ink font-medium' : 'text-ink-4 font-normal'}`}>
@@ -715,6 +733,17 @@ function InventoryPageInner() {
             </span>
             {item.supplier && <span className="font-mono text-[10px] text-ink-4">· {item.supplier.name}</span>}
           </div>
+          {item.countedStock != null && item.lastCountDate && (
+            <div className="font-mono text-[9.5px] text-ink-4 mt-0.5">
+              counted {convertBaseToCountUom(item.countedStock, item.countUOM || item.baseUnit, {
+                baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
+                qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each',
+                innerQty: item.innerQty != null ? Number(item.innerQty) : null,
+                packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each',
+                countUOM: item.countUOM || item.baseUnit,
+              }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+            </div>
+          )}
           {item.allergens && item.allergens.length > 0 && (
             <div className="mt-0.5">
               <AllergenBadges allergens={item.allergens} size="xs" />

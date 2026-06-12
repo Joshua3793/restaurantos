@@ -465,14 +465,17 @@ model PrepItem {
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
   estimatedPrepTime      Int?
+  revenueCenterId        String?
   linkedInventoryItem    InventoryItem? @relation("PrepItemInventory", fields: [linkedInventoryItemId], references: [id])
   linkedRecipe           Recipe?        @relation("PrepItemRecipe", fields: [linkedRecipeId], references: [id])
+  revenueCenter          RevenueCenter? @relation("PrepItemRC", fields: [revenueCenterId], references: [id])
   logs                   PrepLog[]
 }
 
 model PrepLog {
   id                String   @id @default(uuid())
   prepItemId        String
+  revenueCenterId   String?
   logDate           DateTime
   status            String   @default("NOT_STARTED")
   requiredQty       Decimal?
@@ -484,7 +487,8 @@ model PrepLog {
   inventoryAdjusted Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-  prepItem          PrepItem @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
+  prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
+  revenueCenter     RevenueCenter? @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 
   @@unique([prepItemId, logDate])
 }
@@ -522,6 +526,8 @@ model RevenueCenter {
   transfersTo       StockTransfer[]   @relation("TransferTo")
   wastageLog        WastageLog[]      @relation("WastageRC")
   tempUnits         TempUnit[]        @relation("TempUnitRC")
+  prepItems         PrepItem[]        @relation("PrepItemRC")
+  prepLogs          PrepLog[]         @relation("PrepLogRC")
 }
 
 model StockAllocation {

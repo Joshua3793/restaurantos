@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
+import { getTheoreticalStock } from '@/lib/count-expected'
 
 export async function GET(
   _req: NextRequest,
@@ -43,11 +44,17 @@ export async function GET(
 
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const linkedInvId = item.linkedInventoryItem?.id ?? item.linkedRecipe?.inventoryItem?.id
   let onHand = 0
-  if (item.linkedInventoryItem) {
-    onHand = parseFloat(String(item.linkedInventoryItem.stockOnHand))
-  } else if (item.linkedRecipe?.inventoryItem) {
-    onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
+  if (linkedInvId) {
+    const theoretical = await getTheoreticalStock(linkedInvId, item.revenueCenterId)
+    if (theoretical != null) {
+      onHand = theoretical
+    } else if (item.linkedInventoryItem) {
+      onHand = parseFloat(String(item.linkedInventoryItem.stockOnHand))
+    } else if (item.linkedRecipe?.inventoryItem) {
+      onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
+    }
   }
 
   const parLevel     = parseFloat(String(item.parLevel))
@@ -124,6 +131,7 @@ export async function PUT(
       ...(body.estimatedPrepTime      !== undefined && { estimatedPrepTime: body.estimatedPrepTime ? parseInt(String(body.estimatedPrepTime)) : null }),
       ...(body.notes                  !== undefined && { notes: body.notes || null }),
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
+      ...(body.revenueCenterId        !== undefined && { revenueCenterId: body.revenueCenterId || null }),
       ...(body.isActive               !== undefined && { isActive: body.isActive }),
       ...(body.isOnList               !== undefined && { isOnList: body.isOnList }),
     },
