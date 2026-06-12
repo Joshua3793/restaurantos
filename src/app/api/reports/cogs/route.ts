@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
@@ -232,6 +233,19 @@ export async function GET(req: NextRequest) {
   const cogs = Math.round((beginningValue + totalPurchases - endingValue) * 100) / 100
   const foodCostPct = foodSales > 0 ? Math.round((cogs / foodSales) * 10000) / 100 : 0
 
+  // Theoretical cost over the same range (recipe-based), for variance.
+  const cogsLineItems = await prisma.saleLineItem.findMany({
+    where: { sale: { date: { gte: rangeStart, lte: rangeEnd } } },
+    select: { recipeId: true, qtySold: true },
+  })
+  const cogsTheo = await theoreticalCostForLineItems(cogsLineItems)
+
+  const actualFoodCostPct      = foodSales > 0 ? (cogs / foodSales) * 100 : null
+  const theoreticalFoodCostPct = foodSales > 0 ? (cogsTheo.theoreticalCost / foodSales) * 100 : null
+  const foodCostVariancePts =
+    actualFoodCostPct != null && theoreticalFoodCostPct != null
+      ? actualFoodCostPct - theoreticalFoodCostPct : null
+
   // By category breakdown
   const allCats = new Set([
     ...Object.keys(beginByCategory),
@@ -259,5 +273,10 @@ export async function GET(req: NextRequest) {
     foodSales,
     foodCostPct,
     byCategory,
+    actualFoodCostPct,
+    theoreticalFoodCostPct,
+    foodCostVariancePts,
+    theoreticalCost: cogsTheo.theoreticalCost,
+    theoreticalCoverage: { costed: cogsTheo.costedRecipes, total: cogsTheo.totalRecipes },
   })
 }
