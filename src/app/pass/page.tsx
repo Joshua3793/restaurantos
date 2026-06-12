@@ -224,7 +224,7 @@ export default function PassPage() {
 
         <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <HeroKPI chrome={chrome} dashboard={dashboard} />
-          <KPI label="ON HAND"
+          <KPI label="THEORETICAL ON HAND"
             value={dashboard ? formatCurrency(dashboard.totalInventoryValue) : '—'}
             delta={<><b>{dashboard?.outOfStockCount ?? 0}</b> out of stock</>}
           />

@@ -821,7 +821,7 @@ function InventoryPageInner() {
       {/* Mobile KPI strip */}
       <div className="flex sm:hidden gap-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
         <div className="flex-shrink-0 bg-ink text-paper rounded-[12px] px-3 py-2.5 min-w-[140px]">
-          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-4">Stock Value</div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-4">Theoretical Value</div>
           <div className="font-mono text-[18px] font-semibold text-paper mt-0.5 tracking-[-0.02em]">
             {(() => { const [d,c] = formatCurrency(kpis.totalValue).split('.'); return <>{d}<span className="text-gold">.{c ?? '00'}</span></> })()}
           </div>
@@ -852,7 +852,7 @@ function InventoryPageInner() {
             ))}
           </div>
           <div>
-            <div className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">CURRENT STOCK VALUE</div>
+            <div className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">THEORETICAL STOCK VALUE</div>
             <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2 whitespace-nowrap">
               {formatCurrency(kpis.totalValue).split('.')[0]}
               <sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline ml-[1px]">
@@ -867,9 +867,9 @@ function InventoryPageInner() {
 
         {/* Previous Stock Value */}
         <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px] relative">
-          <div className="absolute top-0 left-0 w-8 h-[2px] bg-line-2 rounded-[1px]" />
+          <div className="absolute top-0 left-0 w-8 h-[2px] bg-gold rounded-[1px]" />
           <div>
-            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">PREVIOUS STOCK VALUE</div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">LAST COUNTED VALUE</div>
             <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink whitespace-nowrap">
               {lastCount ? formatCurrency(lastCount.totalCountedValue).split('.')[0] : '$0'}
               <sub className="font-mono text-[18px] font-medium text-ink-3 tracking-[-0.02em] align-baseline ml-[1px]">
@@ -1496,7 +1496,7 @@ function InventoryPageInner() {
                 )}
                 <SortTh col="supplier" label="Supplier" colSort={colSort} onSort={toggleColSort} className="text-left hidden md:table-cell" />
                 <SortTh col="price" label="Purchase price" colSort={colSort} onSort={toggleColSort} className="text-left" />
-                <SortTh col="stock" label="Current stock" colSort={colSort} onSort={toggleColSort} className="text-left" />
+                <SortTh col="stock" label="Theoretical stock" colSort={colSort} onSort={toggleColSort} className="text-left" />
                 <SortTh col="value" label="Inv value" colSort={colSort} onSort={toggleColSort} className="text-left" />
                 <th className="px-3 py-[10px] font-mono text-[10.5px] text-ink-3 tracking-[0.01em] hidden sm:table-cell">Status</th>
                 <th className="px-3 py-[10px] font-mono text-[10.5px] text-ink-3 tracking-[0.01em] text-right w-24">Active</th>

@@ -95,7 +95,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
           />
           <CCDivider />
           <CCItem
-            label="On hand"
+            label="Theoretical on hand"
             value={loading ? '…' : fmtMoney(data?.onHand ?? null)}
           />
         </>
