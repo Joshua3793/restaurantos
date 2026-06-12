@@ -11,7 +11,10 @@ function attachTheoreticalFields<T extends Record<string, any>>(
   theoMap: Map<string, number>,
 ): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null })[] {
   return items.map(item => {
-    const counted = Number(item.stockOnHand)
+    // Use a pre-set countedStock when the caller already captured the raw value (e.g. the
+    // "All RCs" path pre-sets it before inflating stockOnHand with allocTotal). Otherwise
+    // derive it from the current stockOnHand.
+    const counted = item.countedStock !== undefined ? Number(item.countedStock) : Number(item.stockOnHand)
     const theoretical = theoMap.has(item.id) ? theoMap.get(item.id)! : counted
     const lastCountDate = item.lastCountDate
       ? (item.lastCountDate instanceof Date ? item.lastCountDate.toISOString() : String(item.lastCountDate))
@@ -119,8 +122,11 @@ export async function GET(req: NextRequest) {
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
   const items = rawItems.map(({ stockAllocations, ...item }) => {
+    const rawStockOnHand = Number(item.stockOnHand)  // actual last-counted value — used for countedStock anchor
     const allocTotal = stockAllocations.reduce((s, a) => s + Number(a.quantity), 0)
-    return { ...item, stockOnHand: Number(item.stockOnHand) + allocTotal }
+    // stockOnHand is inflated for display (pooled total across all RCs), but we pre-attach
+    // countedStock from the raw value so attachTheoreticalFields sees the true last-counted figure.
+    return { ...item, stockOnHand: rawStockOnHand + allocTotal, countedStock: rawStockOnHand }
   })
   const itemIds = items.map(i => i.id)
   const theoMap = await getTheoreticalStockMap(null, itemIds)

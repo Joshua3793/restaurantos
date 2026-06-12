@@ -338,10 +338,12 @@ function InventoryPageInner() {
 
   const catNames = useMemo(() => categories.map(c => c.name), [categories])
 
-  // Effective stock: for non-default RCs use the allocated quantity;
-  // otherwise prefer the theoretical value (engine-computed from count + sales/purchases/wastage/prep).
+  // Effective stock: always prefer the theoretical value (engine-computed from count +
+  // sales/purchases/wastage/prep). For non-default RCs the API calls getTheoreticalStockMap
+  // with the selected rcId, so theoreticalStock is already the per-RC engine number.
+  // rcStock (raw allocation) is kept as a last-resort fallback in case theoretical is absent.
   const effStock = (i: InventoryItem) =>
-    i.rcStock !== undefined ? i.rcStock : (i.theoreticalStock ?? parseFloat(String(i.stockOnHand)))
+    i.theoreticalStock ?? i.rcStock ?? parseFloat(String(i.stockOnHand))
 
   // Stock converted from baseUnit to countUOM for human display
   const displayStock = (i: InventoryItem) => convertBaseToCountUom(effStock(i), i.countUOM || i.baseUnit, {
