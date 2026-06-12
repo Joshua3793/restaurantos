@@ -410,6 +410,9 @@ function HistoryBody({
   setHistRange: (v: string) => void
   ensureHistory: (rangeArg?: string) => void
 }) {
+  // Mobile keeps its own unit filter as local pill state (the dual-renderer
+  // convention here) — desktop uses the page-level `histUnit` instead. Both
+  // feed the same `histUnit` prop on TempEquipmentView.
   const [unit, setUnit] = useState('')
   const byDay: Record<string, HistoryReading[]> = {}
   history.forEach(r => {
@@ -435,11 +438,11 @@ function HistoryBody({
         <div className="inline-flex rounded-[9px] border border-line bg-paper p-0.5">
           <button
             onClick={() => setHistView('day')}
-            className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium ${histView === 'day' ? 'bg-ink text-paper' : 'text-ink-3'}`}
+            className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium ${histView === 'day' ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'}`}
           >By day</button>
           <button
             onClick={() => setHistView('equipment')}
-            className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium ${histView === 'equipment' ? 'bg-ink text-paper' : 'text-ink-3'}`}
+            className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium ${histView === 'equipment' ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink-2'}`}
           >By equipment</button>
         </div>
         <select
