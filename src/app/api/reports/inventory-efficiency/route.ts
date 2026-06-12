@@ -31,7 +31,10 @@ export async function GET(req: NextRequest) {
   const periodCogs = cogs.cogs
   const dailyCogs = days > 0 ? periodCogs / days : 0
 
-  const turns      = avgInventory > 0 ? periodCogs / avgInventory : null
+  // Negative period COGS (closing > opening + purchases) yields a nonsensical
+  // negative turnover ratio — clamp to null, mirroring daysOnHand. Raw
+  // periodCogs stays in the payload for diagnostics; needsCounts flags why.
+  const turns      = avgInventory > 0 && periodCogs >= 0 ? periodCogs / avgInventory : null
   const turnsAnnual = turns != null ? turns * (365 / days) : null
   const daysOnHand = dailyCogs > 0 ? onHandValue / dailyCogs : null
 
