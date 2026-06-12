@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { getTheoreticalStockMap } from '@/lib/count-expected'
 
 const recipeInclude = {
   select: {
@@ -46,9 +47,9 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'asc' },
   })
 
-  const itemIds = items.map(i => i.id)
+  const prepItemIds = items.map(i => i.id)
   const doneLogs = await prisma.prepLog.findMany({
-    where: { prepItemId: { in: itemIds }, status: { in: ['DONE', 'PARTIAL'] } },
+    where: { prepItemId: { in: prepItemIds }, status: { in: ['DONE', 'PARTIAL'] } },
     orderBy: { logDate: 'desc' },
     select: { prepItemId: true, logDate: true },
   })
@@ -57,13 +58,40 @@ export async function GET(req: NextRequest) {
     if (!lastMadeByItem.has(l.prepItemId)) lastMadeByItem.set(l.prepItemId, l.logDate.toISOString())
   }
 
+  // Build theoretical stock maps grouped by revenueCenterId (batched, not per-item).
+  // Prep items span multiple RCs (including null = global/shared), so we group by RC,
+  // fetch one map per distinct RC, then look each item up in its RC's map.
+  // Mirrors the same pattern used in /api/prep/generate/route.ts.
+  const rcToInvIds = new Map<string | null, string[]>()
+  for (const item of items) {
+    const invId = item.linkedInventoryItem?.id ?? item.linkedRecipe?.inventoryItem?.id
+    if (!invId) continue
+    const rc = item.revenueCenterId ?? null
+    if (!rcToInvIds.has(rc)) rcToInvIds.set(rc, [])
+    rcToInvIds.get(rc)!.push(invId)
+  }
+  const theoreticalMaps = new Map<string | null, Map<string, number>>()
+  await Promise.all(
+    Array.from(rcToInvIds.entries()).map(async ([rc, ids]) => {
+      const map = await getTheoreticalStockMap(rc, ids)
+      theoreticalMaps.set(rc, map)
+    })
+  )
+
   const enriched = items.map(item => {
-    // Resolve onHand
+    // Resolve onHand from theoretical stock (same engine as inventory list page)
+    const invId = item.linkedInventoryItem?.id ?? item.linkedRecipe?.inventoryItem?.id
+    const rc = item.revenueCenterId ?? null
     let onHand = 0
-    if (item.linkedInventoryItem) {
-      onHand = parseFloat(String(item.linkedInventoryItem.stockOnHand))
-    } else if (item.linkedRecipe?.inventoryItem) {
-      onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
+    if (invId) {
+      const theoreticalQty = theoreticalMaps.get(rc)?.get(invId)
+      if (theoreticalQty !== undefined) {
+        onHand = theoreticalQty
+      } else if (item.linkedInventoryItem) {
+        onHand = parseFloat(String(item.linkedInventoryItem.stockOnHand))
+      } else if (item.linkedRecipe?.inventoryItem) {
+        onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
+      }
     }
 
     const parLevel     = parseFloat(String(item.parLevel))
