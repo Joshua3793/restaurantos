@@ -97,13 +97,14 @@ export default function PassPage() {
     varianceDollars?: number
     period?: { startDate: string; endDate: string }
   } | null>(null)
+  const [invEff, setInvEff] = useState<{ daysOnHand: number | null; turnsAnnual: number | null } | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
         const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''
-        const [d, c, k, p, s, a, fv] = await Promise.all([
+        const [d, c, k, p, s, a, fv, ie] = await Promise.all([
           fetch(`/api/reports/dashboard${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
@@ -111,6 +112,7 @@ export default function PassPage() {
           fetch('/api/count/sessions', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
           fetch('/api/invoices/alerts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { priceAlerts: [] }),
           fetch('/api/insights/food-cost-variance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch('/api/reports/inventory-efficiency?days=30', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
         ])
         if (cancelled) return
         if (d) setDashboard(d)
@@ -120,6 +122,7 @@ export default function PassPage() {
         if (Array.isArray(s)) setCountSessions(s)
         if (a?.priceAlerts) setPriceAlertCount(a.priceAlerts.length)
         if (fv) setFcVariance(fv)
+        if (ie) setInvEff(ie)
       } catch { /* swallow */ }
     }
     load()
@@ -264,7 +267,9 @@ export default function PassPage() {
           />
           <KPI label="THEORETICAL ON HAND"
             value={dashboard ? formatCurrency(dashboard.totalInventoryValue) : '—'}
-            delta={<><b>{dashboard?.outOfStockCount ?? 0}</b> out of stock</>}
+            delta={invEff?.daysOnHand != null
+              ? <><b>{invEff.daysOnHand.toFixed(0)}</b> days on hand · <b>{dashboard?.outOfStockCount ?? 0}</b> out of stock</>
+              : <><b>{dashboard?.outOfStockCount ?? 0}</b> out of stock</>}
           />
           <KPI label="PREP TO DO"
             value={prepSummary.total.toString()}
