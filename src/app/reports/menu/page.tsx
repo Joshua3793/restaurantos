@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { Utensils } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
+import { ReportsSubnav } from '../ReportsSubnav'
 import { formatCurrency } from '@/lib/utils'
 
 interface Dish {
@@ -30,9 +32,12 @@ export default function MenuEngineeringPage() {
   const groups: Array<keyof typeof QUADRANT_META> = ['STAR', 'PLOWHORSE', 'PUZZLE', 'DOG']
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-      <PageHead title="Menu Engineering"
+    <div>
+      <PageHead
+        crumbs={<><Utensils size={12} /> INSIGHTS / REPORTS / MENU</>}
+        title="Menu Engineering"
         sub={data ? <>Last <b>{data.days}d</b> · {data.dishes.length} dishes · split at median popularity <b>{data.medianPopularity}</b> / margin <b>{formatCurrency(data.medianMargin)}</b></> : <>Loading…</>} />
+      <ReportsSubnav />
 
       <div className="flex gap-2 mb-4">
         {([30, 60, 90] as const).map(d => (
