@@ -154,13 +154,34 @@ export interface TempHandlers {
 }
 
 // ── CSV / Excel export ───────────────────────────────────────────────────────
+
+// Serialize rows → CSV (RFC-4180 quoting), prepend a UTF-8 BOM, trigger download.
+function downloadCSV(rows: (string | number)[][], filename: string) {
+  const csv = rows
+    .map(r =>
+      r
+        .map(c => {
+          const s = String(c)
+          return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+        })
+        .join(','),
+    )
+    .join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 // Builds the food-safety record from a flat History reading list and triggers
 // a download. UTF-8 BOM so Excel opens it cleanly; columns mirror the prototype.
 export function exportTempCSV(readings: HistoryReading[], filename?: string) {
   const rows: (string | number)[][] = [
     ['Date', 'Unit', 'Type', 'Safe min (°C)', 'Safe max (°C)', 'Time', 'Temp (°C)', 'Status'],
   ]
-  // Oldest first reads better in a record.
   const sorted = [...readings].sort((a, b) =>
     a.logDate === b.logDate ? a.time.localeCompare(b.time) : a.logDate.localeCompare(b.logDate),
   )
@@ -177,21 +198,123 @@ export function exportTempCSV(readings: HistoryReading[], filename?: string) {
       safe === false ? 'OUT OF RANGE' : 'OK',
     ])
   })
-  const csv = rows
-    .map(r =>
-      r
-        .map(c => {
-          const s = String(c)
-          return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
-        })
-        .join(','),
-    )
-    .join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = filename || `temp-charts-${ymd(new Date())}.csv`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+  downloadCSV(rows, filename || `temp-charts-${ymd(new Date())}.csv`)
+}
+
+// ── per-unit chart series (By equipment view) ────────────────────────────────
+export interface UnitSeriesPoint {
+  ts: number // sortable timestamp (logDate + time), used only for ordering
+  label: string // short x-axis tick, e.g. "2 Jun 14:00"
+  logDate: string
+  time: string
+  temp: number
+  safe: boolean | null
+}
+
+export interface UnitSeries {
+  unit: { id: string; name: string; type: TempType; safeMin: number | null; safeMax: number | null }
+  points: UnitSeriesPoint[]
+  min: number | null
+  max: number | null
+  avg: number | null
+  outCount: number
+  total: number
+  pct: number // % of readings in range
+}
+
+const seriesLabel = (logDate: string, time: string) =>
+  `${new Date(logDate + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${time}`
+
+// Build one chronological point per reading for a single unit, plus rollup stats.
+// `history` may contain readings for other units — they are filtered out by unit.id.
+export function computeUnitSeries(
+  history: HistoryReading[],
+  unit: { id: string; name: string; type: TempType; safeMin: number | null; safeMax: number | null },
+): UnitSeries {
+  const rows = history
+    .filter(r => r.unitId === unit.id)
+    .sort((a, b) => (a.logDate === b.logDate ? a.time.localeCompare(b.time) : a.logDate.localeCompare(b.logDate)))
+
+  const points: UnitSeriesPoint[] = rows.map(r => ({
+    ts: new Date(`${r.logDate}T${r.time}:00`).getTime(),
+    label: seriesLabel(r.logDate, r.time),
+    logDate: r.logDate,
+    time: r.time,
+    temp: r.temp,
+    safe: isSafe(unit, r.temp),
+  }))
+
+  const temps = points.map(p => p.temp)
+  const total = points.length
+  const outCount = points.filter(p => p.safe === false).length
+  return {
+    unit,
+    points,
+    min: total ? Math.min(...temps) : null,
+    max: total ? Math.max(...temps) : null,
+    avg: total ? Math.round((temps.reduce((s, t) => s + t, 0) / total) * 10) / 10 : null,
+    outCount,
+    total,
+    pct: total ? Math.round(((total - outCount) / total) * 100) : 0,
+  }
+}
+
+// Equipment-focused export: a per-unit SUMMARY block, then DETAIL rows grouped
+// by unit (group order = TEMP_GROUPS, then unit name). Single CSV file.
+export function exportTempByEquipmentCSV(history: HistoryReading[], filename?: string) {
+  const byUnit = new Map<string, { unit: HistoryReading['unit']; rows: HistoryReading[] }>()
+  history.forEach(r => {
+    const g = byUnit.get(r.unitId) ?? { unit: r.unit, rows: [] }
+    g.rows.push(r)
+    byUnit.set(r.unitId, g)
+  })
+
+  const groupRank = (t: TempType) => {
+    const i = TEMP_GROUPS.findIndex(g => g.type === t)
+    return i === -1 ? TEMP_GROUPS.length : i
+  }
+  const units = [...byUnit.values()].sort((a, b) =>
+    groupRank(a.unit.type) === groupRank(b.unit.type)
+      ? a.unit.name.localeCompare(b.unit.name)
+      : groupRank(a.unit.type) - groupRank(b.unit.type),
+  )
+
+  const rows: (string | number)[][] = []
+  rows.push(['SUMMARY'])
+  rows.push(['Unit', 'Type', 'Safe range', 'Readings', 'Min (°C)', 'Max (°C)', 'Avg (°C)', 'Out of range', '% OK'])
+  units.forEach(({ unit, rows: r }) => {
+    const s = computeUnitSeries(r, unit)
+    rows.push([
+      unit.name,
+      TEMP_TYPES[unit.type].label,
+      rangeText(unit),
+      s.total,
+      s.min ?? '',
+      s.max ?? '',
+      s.avg ?? '',
+      s.outCount,
+      `${s.pct}%`,
+    ])
+  })
+
+  rows.push([])
+  rows.push(['DETAIL'])
+  rows.push(['Unit', 'Type', 'Date', 'Time', 'Temp (°C)', 'Status'])
+  units.forEach(({ unit, rows: r }) => {
+    ;[...r]
+      .sort((a, b) => (a.logDate === b.logDate ? a.time.localeCompare(b.time) : a.logDate.localeCompare(b.logDate)))
+      .forEach(rd => {
+        const safe = isSafe(unit, rd.temp)
+        rows.push([
+          unit.name,
+          TEMP_TYPES[unit.type].label,
+          rd.logDate,
+          rd.time,
+          fmtTemp(rd.temp),
+          safe === false ? 'OUT OF RANGE' : 'OK',
+        ])
+      })
+  })
+
+  downloadCSV(rows, filename || `temp-by-equipment-${ymd(new Date())}.csv`)
 }
