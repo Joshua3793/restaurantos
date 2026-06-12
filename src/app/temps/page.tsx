@@ -29,7 +29,9 @@ export default function TempChartsPage() {
   const [history, setHistory] = useState<HistoryReading[]>([])
   const [histLoading, setHistLoading] = useState(false)
   const [histUnit, setHistUnit] = useState('')
-  const [histRange, setHistRange] = useState('7')
+  const [histRange, setHistRange] = useState('7') // '7' | '14' | '30' | '0' (all) | 'custom'
+  const [histFrom, setHistFrom] = useState('') // 'YYYY-MM-DD', used when histRange === 'custom'
+  const [histTo, setHistTo] = useState('')
   const [histView, setHistView] = useState<'day' | 'equipment'>('day')
 
   // ── load today's units + readings ──
@@ -55,18 +57,35 @@ export default function TempChartsPage() {
   }, [load])
 
   // ── history ──
-  const loadHistory = useCallback(async (rangeArg?: string) => {
-    setHistLoading(true)
-    try {
-      const days = Number(rangeArg ?? histRange)
-      const qs = new URLSearchParams()
-      if (rcId) qs.set('rcId', rcId)
+  // Build the readings query for the current window. Presets ('7'|'14'|'30')
+  // compute a `from` N days back; '0' = all time (no bounds); 'custom' uses the
+  // from/to dates. Callers may pass an override so a control's onChange can
+  // query with its new value without waiting for a state flush (mobile).
+  type HistWindow = { range?: string; from?: string; to?: string }
+  const buildHistoryQS = useCallback((o?: HistWindow) => {
+    const range = o?.range ?? histRange
+    const qs = new URLSearchParams()
+    if (rcId) qs.set('rcId', rcId)
+    if (range === 'custom') {
+      const from = o?.from ?? histFrom
+      const to = o?.to ?? histTo
+      if (from) qs.set('from', from)
+      if (to) qs.set('to', to)
+    } else {
+      const days = Number(range)
       if (days > 0) {
         const c = new Date()
         c.setDate(c.getDate() - days + 1)
         qs.set('from', ymd(c))
       }
-      const res = await fetch(`/api/temps/readings?${qs.toString()}`)
+    }
+    return qs
+  }, [rcId, histRange, histFrom, histTo])
+
+  const loadHistory = useCallback(async (o?: HistWindow) => {
+    setHistLoading(true)
+    try {
+      const res = await fetch(`/api/temps/readings?${buildHistoryQS(o).toString()}`)
       const data = await res.json()
       setHistory(Array.isArray(data) ? data : [])
     } catch {
@@ -74,16 +93,18 @@ export default function TempChartsPage() {
     } finally {
       setHistLoading(false)
     }
-  }, [rcId, histRange])
+  }, [buildHistoryQS])
 
-  // desktop: reload history whenever the tab/filters change
+  // desktop: reload history whenever the tab/filters change (loadHistory's
+  // identity changes when range/from/to change, so this re-fires).
   useEffect(() => {
     if (view === 'history') loadHistory()
   }, [view, loadHistory])
 
-  // mobile: load on demand when the history sheet opens (optionally with a new range)
-  const ensureHistory = useCallback((rangeArg?: string) => {
-    loadHistory(rangeArg)
+  // mobile: load on demand when the history sheet opens (optionally with an
+  // explicit window so a select/date change queries its new value immediately).
+  const ensureHistory = useCallback((o?: HistWindow) => {
+    loadHistory(o)
   }, [loadHistory])
 
   const showToast = (m: string) => setToast(m)
@@ -138,13 +159,11 @@ export default function TempChartsPage() {
   const metrics = computeDayMetrics(units)
   const histDays = new Set(history.map(r => r.logDate)).size
 
-  // Export the full record (independent of the History filter window). Shape
-  // follows the active History sub-view: daily readings vs equipment-focused.
+  // Export matches the currently-displayed History window (same query builder)
+  // and sub-view: daily readings vs equipment-focused.
   const onExport = async () => {
     try {
-      const qs = new URLSearchParams()
-      if (rcId) qs.set('rcId', rcId)
-      const res = await fetch(`/api/temps/readings?${qs.toString()}`)
+      const res = await fetch(`/api/temps/readings?${buildHistoryQS().toString()}`)
       const data: HistoryReading[] = await res.json()
       const list = Array.isArray(data) ? data : []
       if (histView === 'equipment') exportTempByEquipmentCSV(list)
@@ -172,6 +191,10 @@ export default function TempChartsPage() {
         setHistUnit={setHistUnit}
         histRange={histRange}
         setHistRange={setHistRange}
+        histFrom={histFrom}
+        setHistFrom={setHistFrom}
+        histTo={histTo}
+        setHistTo={setHistTo}
         histView={histView}
         setHistView={setHistView}
         onExport={onExport}
@@ -192,6 +215,10 @@ export default function TempChartsPage() {
         setHistView={setHistView}
         histRange={histRange}
         setHistRange={setHistRange}
+        histFrom={histFrom}
+        setHistFrom={setHistFrom}
+        histTo={histTo}
+        setHistTo={setHistTo}
       />
 
       {toast && (

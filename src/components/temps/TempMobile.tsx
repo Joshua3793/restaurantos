@@ -24,12 +24,16 @@ export interface TempMobileProps {
   rcLabel: string
   history: HistoryReading[]
   histLoading: boolean
-  ensureHistory: (rangeArg?: string) => void
+  ensureHistory: (o?: { range?: string; from?: string; to?: string }) => void
   onExport: () => void
   histView: 'day' | 'equipment'
   setHistView: (v: 'day' | 'equipment') => void
   histRange: string
   setHistRange: (v: string) => void
+  histFrom: string
+  setHistFrom: (v: string) => void
+  histTo: string
+  setHistTo: (v: string) => void
 }
 
 export function TempMobile(p: TempMobileProps) {
@@ -126,6 +130,10 @@ export function TempMobile(p: TempMobileProps) {
             setHistView={p.setHistView}
             histRange={p.histRange}
             setHistRange={p.setHistRange}
+            histFrom={p.histFrom}
+            setHistFrom={p.setHistFrom}
+            histTo={p.histTo}
+            setHistTo={p.setHistTo}
             ensureHistory={p.ensureHistory}
           />
         )}
@@ -397,7 +405,8 @@ function AddUnitBody({ initialType, rcLabel, onAdd }: { initialType: TempType; r
 
 // ── history sheet body ────────────────────────────────────────────────────────
 function HistoryBody({
-  units, history, loading, today, onExport, histView, setHistView, histRange, setHistRange, ensureHistory,
+  units, history, loading, today, onExport, histView, setHistView,
+  histRange, setHistRange, histFrom, setHistFrom, histTo, setHistTo, ensureHistory,
 }: {
   units: TempUnit[]
   history: HistoryReading[]
@@ -408,7 +417,11 @@ function HistoryBody({
   setHistView: (v: 'day' | 'equipment') => void
   histRange: string
   setHistRange: (v: string) => void
-  ensureHistory: (rangeArg?: string) => void
+  histFrom: string
+  setHistFrom: (v: string) => void
+  histTo: string
+  setHistTo: (v: string) => void
+  ensureHistory: (o?: { range?: string; from?: string; to?: string }) => void
 }) {
   // Mobile keeps its own unit filter as local pill state (the dual-renderer
   // convention here) — desktop uses the page-level `histUnit` instead. Both
@@ -447,15 +460,36 @@ function HistoryBody({
         </div>
         <select
           value={histRange}
-          onChange={e => { setHistRange(e.target.value); ensureHistory(e.target.value) }}
+          onChange={e => { setHistRange(e.target.value); ensureHistory({ range: e.target.value }) }}
           className="ml-auto bg-paper border border-line rounded-[9px] px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none"
         >
           <option value="7">7 days</option>
           <option value="14">14 days</option>
           <option value="30">30 days</option>
           <option value="0">All</option>
+          <option value="custom">Custom</option>
         </select>
       </div>
+
+      {histRange === 'custom' && (
+        <div className="flex items-center gap-2 mt-2">
+          <input
+            type="date"
+            value={histFrom}
+            max={histTo || undefined}
+            onChange={e => { setHistFrom(e.target.value); ensureHistory({ range: 'custom', from: e.target.value, to: histTo }) }}
+            className="flex-1 min-w-0 bg-paper border border-line rounded-[9px] px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none"
+          />
+          <span className="text-ink-3 text-[12.5px] shrink-0">→</span>
+          <input
+            type="date"
+            value={histTo}
+            min={histFrom || undefined}
+            onChange={e => { setHistTo(e.target.value); ensureHistory({ range: 'custom', from: histFrom, to: e.target.value }) }}
+            className="flex-1 min-w-0 bg-paper border border-line rounded-[9px] px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none"
+          />
+        </div>
+      )}
 
       <button onClick={onExport} className="inline-flex items-center gap-2 my-3 text-[13px] font-semibold text-ink-2 bg-bg-2 rounded-[10px] px-3.5 py-2.5 tracking-[-0.01em]">
         <Download size={16} className="text-ink-3" /> Export to Excel (.csv)

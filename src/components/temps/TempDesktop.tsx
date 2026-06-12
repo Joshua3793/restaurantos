@@ -39,6 +39,10 @@ export interface TempDesktopProps {
   setHistUnit: (v: string) => void
   histRange: string
   setHistRange: (v: string) => void
+  histFrom: string
+  setHistFrom: (v: string) => void
+  histTo: string
+  setHistTo: (v: string) => void
   histView: 'day' | 'equipment'
   setHistView: (v: 'day' | 'equipment') => void
   onExport: () => void
@@ -87,12 +91,7 @@ export function TempDesktop(p: TempDesktopProps) {
           </p>
         </div>
         <div className="flex gap-2 items-center shrink-0">
-          <button
-            onClick={p.onExport}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium border border-line bg-paper text-ink-2 hover:border-ink-3 transition-colors"
-          >
-            <Download size={13} className="text-ink-3" /> Export Excel
-          </button>
+          {/* Export lives in the History view only — the log page doesn't export. */}
           <button
             onClick={() => p.setAddOpen(!p.addOpen)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium bg-ink text-paper border border-ink hover:bg-[#18181b]"
@@ -515,7 +514,27 @@ function HistoryView(p: TempDesktopProps) {
           <option value="14">Last 14 days</option>
           <option value="30">Last 30 days</option>
           <option value="0">All time</option>
+          <option value="custom">Custom range…</option>
         </select>
+        {p.histRange === 'custom' && (
+          <div className="inline-flex items-center gap-1.5">
+            <input
+              type="date"
+              value={p.histFrom}
+              max={p.histTo || undefined}
+              onChange={e => p.setHistFrom(e.target.value)}
+              className="bg-paper border border-line rounded-[9px] px-2.5 py-2 text-[13px] text-ink-2 outline-none cursor-pointer"
+            />
+            <span className="text-ink-3 text-[13px]">→</span>
+            <input
+              type="date"
+              value={p.histTo}
+              min={p.histFrom || undefined}
+              onChange={e => p.setHistTo(e.target.value)}
+              className="bg-paper border border-line rounded-[9px] px-2.5 py-2 text-[13px] text-ink-2 outline-none cursor-pointer"
+            />
+          </div>
+        )}
         <span className="flex-1" />
         <button onClick={p.onExport} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium border border-line bg-paper text-ink-2 hover:border-ink-3">
           <Download size={13} className="text-ink-3" /> Export Excel
