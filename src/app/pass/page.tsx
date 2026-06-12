@@ -89,19 +89,28 @@ export default function PassPage() {
   const [prepItems, setPrepItems] = useState<PrepItem[]>([])
   const [countSessions, setCountSessions] = useState<CountSession[]>([])
   const [priceAlertCount, setPriceAlertCount] = useState<number>(0)
+  const [fcVariance, setFcVariance] = useState<{
+    needsCounts: boolean
+    actualFoodCostPct?: number | null
+    theoreticalFoodCostPct?: number | null
+    variancePctPoints?: number | null
+    varianceDollars?: number
+    period?: { startDate: string; endDate: string }
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
         const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''
-        const [d, c, k, p, s, a] = await Promise.all([
+        const [d, c, k, p, s, a, fv] = await Promise.all([
           fetch(`/api/reports/dashboard${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch('/api/prep/items', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
           fetch('/api/count/sessions', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
           fetch('/api/invoices/alerts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { priceAlerts: [] }),
+          fetch('/api/insights/food-cost-variance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
         ])
         if (cancelled) return
         if (d) setDashboard(d)
@@ -110,6 +119,7 @@ export default function PassPage() {
         if (Array.isArray(p)) setPrepItems(p)
         if (Array.isArray(s)) setCountSessions(s)
         if (a?.priceAlerts) setPriceAlertCount(a.priceAlerts.length)
+        if (fv) setFcVariance(fv)
       } catch { /* swallow */ }
     }
     load()
@@ -272,6 +282,22 @@ export default function PassPage() {
               : <>tracked from <b>waste log</b></>}
           />
         </div>
+
+        {fcVariance && !fcVariance.needsCounts && fcVariance.variancePctPoints != null && (
+          <div className="mb-6 -mt-3 flex items-center gap-3 font-mono text-[11px] text-ink-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+            <span>
+              SHRINKAGE · last count period —
+              actual <b className="text-ink">{fcVariance.actualFoodCostPct!.toFixed(1)}%</b> vs
+              theoretical <b className="text-ink">{fcVariance.theoreticalFoodCostPct!.toFixed(1)}%</b> ·
+              drift <b className={fcVariance.variancePctPoints > 0 ? 'text-red-text' : 'text-green'}>
+                {fcVariance.variancePctPoints > 0 ? '+' : ''}{fcVariance.variancePctPoints.toFixed(1)} pts
+              </b>
+              {fcVariance.varianceDollars != null && <> ({formatCurrency(fcVariance.varianceDollars)})</>}
+            </span>
+            <span className="text-ink-4">global only</span>
+          </div>
+        )}
 
         <div className="grid gap-5 grid-cols-1 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5 min-w-0">
