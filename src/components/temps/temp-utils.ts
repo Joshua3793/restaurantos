@@ -250,8 +250,9 @@ export function computeUnitSeries(
   return {
     unit,
     points,
-    min: total ? Math.min(...temps) : null,
-    max: total ? Math.max(...temps) : null,
+    // reduce (not Math.min(...spread)) so a very long history window can't blow the arg limit
+    min: total ? temps.reduce((a, b) => (b < a ? b : a)) : null,
+    max: total ? temps.reduce((a, b) => (b > a ? b : a)) : null,
     avg: total ? Math.round((temps.reduce((s, t) => s + t, 0) / total) * 10) / 10 : null,
     outCount,
     total,

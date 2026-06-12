@@ -9,12 +9,15 @@ export function TempUnitChart({ series }: { series: UnitSeries }) {
   const color = TEMP_TYPES[unit.type].color
 
   // y-domain padded around the data AND the safe bounds so the band is visible.
+  // reduce (not Math.min(...spread)) to stay safe on long history windows.
   const temps = points.map(p => p.temp)
-  const lo = Math.min(...temps, unit.safeMin ?? Infinity, unit.safeMax ?? Infinity)
-  const hi = Math.max(...temps, unit.safeMin ?? -Infinity, unit.safeMax ?? -Infinity)
+  const lo = [...temps, unit.safeMin ?? Infinity, unit.safeMax ?? Infinity].reduce((a, b) => (b < a ? b : a), Infinity)
+  const hi = [...temps, unit.safeMin ?? -Infinity, unit.safeMax ?? -Infinity].reduce((a, b) => (b > a ? b : a), -Infinity)
   const pad = Math.max(1, (hi - lo) * 0.15)
   const domain: [number, number] = points.length ? [Math.floor(lo - pad), Math.ceil(hi + pad)] : [0, 10]
   const bandY1 = unit.safeMin ?? domain[0]
+  // One-sided range (e.g. hot-hold ≥63°C, no max): band extends to the chart
+  // ceiling — i.e. "safe = at/above the minimum", per the food-safety spec.
   const bandY2 = unit.safeMax ?? domain[1]
 
   return (
@@ -35,7 +38,7 @@ export function TempUnitChart({ series }: { series: UnitSeries }) {
               <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" minTickGap={28} />
               <YAxis domain={domain} tick={{ fontSize: 9 }} width={34} unit="°" allowDecimals={false} />
               <Tooltip
-                formatter={(v: unknown) => [`${fmtTemp(v as number)}°C`, 'Temp']}
+                formatter={(v: unknown) => [`${fmtTemp(Number(v))}°C`, 'Temp']}
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
               />
               <Line
