@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic'
  * Returns the 4 values shown in the strip + provenance fields for the
  * audit drawer.
  *
- * Optional `rcId` filters sales/purchases/wastage to a single revenue
- * center. Inventory value is always global (the inventory ledger isn't
- * per-RC).
+ * Optional `rcId` filters sales/purchases/wastage AND the on-hand inventory
+ * value to a single revenue center, mirroring the inventory page's stock
+ * model (default RC = global pool, non-default RC = its StockAllocation,
+ * no RC = global pool + all non-default allocations).
  */
 export async function GET(req: NextRequest) {
   try { await requireSession() }
@@ -91,15 +92,44 @@ export async function GET(req: NextRequest) {
       select: { approvedAt: true, supplierName: true, total: true },
     }),
     rcId
-      ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { targetFoodCostPct: true } })
-      : Promise.resolve<{ targetFoodCostPct: { toString: () => string } | null } | null>(null),
+      ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { targetFoodCostPct: true, isDefault: true } })
+      : Promise.resolve<{ targetFoodCostPct: { toString: () => string } | null; isDefault: boolean } | null>(null),
   ])
 
-  // ── On hand: Σ stockOnHand × pricePerBaseUnit ─────────────────────────
-  const onHand = inventory.reduce(
+  // ── On hand: RC-aware inventory value (mirrors the inventory page) ─────
+  //   • non-default RC → Σ StockAllocation.quantity × price (that RC's pool)
+  //   • default RC      → Σ stockOnHand × price (the default pool IS its stock)
+  //   • all RCs         → Σ (stockOnHand + non-default allocations) × price
+  const rcIsDefault = !!targetRC?.isDefault
+  const globalValue = inventory.reduce(
     (sum, it) => sum + Number(it.stockOnHand) * Number(it.pricePerBaseUnit),
     0,
   )
+  const sumAllocValue = (where: object) =>
+    prisma.stockAllocation
+      .findMany({
+        where: { ...where, inventoryItem: { isActive: true } },
+        select: { quantity: true, inventoryItem: { select: { pricePerBaseUnit: true } } },
+      })
+      .then(rows => ({
+        value: rows.reduce((s, a) => s + Number(a.quantity) * Number(a.inventoryItem.pricePerBaseUnit), 0),
+        count: rows.length,
+      }))
+
+  let onHand: number
+  let sourceItemCount: number
+  if (rcId && !rcIsDefault) {
+    const { value, count } = await sumAllocValue({ revenueCenterId: rcId })
+    onHand = value
+    sourceItemCount = count
+  } else if (rcId && rcIsDefault) {
+    onHand = globalValue
+    sourceItemCount = inventory.length
+  } else {
+    const { value } = await sumAllocValue({ revenueCenter: { isDefault: false } })
+    onHand = globalValue + value
+    sourceItemCount = inventory.length
+  }
 
   // ── Food cost % WTD ───────────────────────────────────────────────────
   const foodSalesWTD = salesWTD.reduce(
@@ -141,7 +171,7 @@ export async function GET(req: NextRequest) {
     onHand,                 // number          — total inventory $
     lastInvoiceAt: lastInvoice?.approvedAt ?? null,
     lastInvoiceSupplier: lastInvoice?.supplierName ?? null,
-    sourceItemCount: inventory.length,
+    sourceItemCount,
     rcId: rcId ?? null,
   }, {
     headers: { 'Cache-Control': 'no-store' },
