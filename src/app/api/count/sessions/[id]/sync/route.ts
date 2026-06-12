@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
 import { convertCountQtyToBase, resolveCountUom } from '@/lib/count-uom'
 
 // POST /api/count/sessions/:id/sync
@@ -70,13 +70,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     .filter(Boolean)
     .sort((a, b) => ((a as Date) > (b as Date) ? 1 : -1))[0] as Date | undefined
 
-  const [consumptionMap, purchaseMap, wastageMap] = earliestLastCount
+  const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliestLastCount
     ? await Promise.all([
         buildConsumptionMap(earliestLastCount, session.revenueCenterId),
         buildPurchaseMap(earliestLastCount, session.revenueCenterId),
         buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId),
+        buildPrepMap(earliestLastCount, session.revenueCenterId),
       ])
-    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>()]
+    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
 
   // RC stock allocation baseline (same rules as session creation: non-default RC
   // with no allocation falls back to 0, not global stockOnHand).
@@ -102,7 +103,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const baseStock = rcId
       ? (stockAllocationMap.has(itemId) ? stockAllocationMap.get(itemId)! : (isDefaultRc ? stockOnHand : 0))
       : stockOnHand
-    return computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap)
+    return computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
   }
 
   // Build nextSort from current max
