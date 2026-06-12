@@ -16,7 +16,6 @@ import { Navigation } from '@/components/Navigation'
 import { MobileRcBar } from '@/components/navigation/MobileRcBar'
 import { GlobalSearch } from '@/components/GlobalSearch'
 import { KeyboardShortcuts } from '@/components/layout/KeyboardShortcuts'
-import { SidebarProvider } from '@/contexts/SidebarContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { RcProvider } from '@/contexts/RevenueCenterContext'
 import { AiChat } from '@/components/AiChat'
@@ -55,14 +54,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ToastProvider>
         <NotificationProvider>
         <DrawerProvider>
-        <SidebarProvider>
           <Navigation />
           <MobileRcBar />
           <GlobalSearch />
           <KeyboardShortcuts />
           <AppShell>{children}</AppShell>
           <AiChat />
-        </SidebarProvider>
         </DrawerProvider>
         </NotificationProvider>
         </ToastProvider>

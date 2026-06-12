@@ -14,7 +14,6 @@ import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
-import { useSidebar } from '@/contexts/SidebarContext'
 import { createClient } from '@/lib/supabase/client'
 
 type NavItem = {
@@ -117,7 +116,6 @@ function TenantName() {
 function NavigationInner() {
   const pathname  = usePathname()
   const router    = useRouter()
-  const { pinned, peeking, setPeeking } = useSidebar()
   const [moreOpen, setMoreOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
@@ -171,15 +169,13 @@ function NavigationInner() {
     <>
       {/* ── Desktop Sidebar (v2) ─────────────────────────────────── */}
       <aside
-        onMouseEnter={() => { if (!pinned) setPeeking(true) }}
-        onMouseLeave={() => { if (!pinned) setPeeking(false) }}
-        className={`hidden md:flex flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-line-2 transition-transform duration-200 ${
+        className={`hidden md:flex flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-line-2 ${
           isAuthRoute(pathname) ? 'top-0 h-screen' : 'top-11 h-[calc(100vh-44px)]'
-        } ${pinned || peeking ? 'translate-x-0' : '-translate-x-full'} ${!pinned && peeking ? 'z-50 shadow-2xl shadow-black/40' : ''}`}
+        }`}
         style={{ background: '#09090b' }}
       >
-        {/* Brand + bell + revenue-center selector moved to the top KPI bar
-            (CostChrome) so they stay pinned when the nav collapses. */}
+        {/* Brand + bell + revenue-center selector live in the top KPI bar
+            (CostChrome); the sidebar is permanently docked on desktop. */}
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto -mx-0.5 px-0.5 flex flex-col gap-[6px]">
@@ -198,7 +194,6 @@ function NavigationInner() {
                     <Link
                       key={`${href}-${label}`}
                       href={href}
-                      onClick={() => setPeeking(false)}
                       className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                         active
                           ? 'bg-paper text-ink'
@@ -235,7 +230,6 @@ function NavigationInner() {
                 <Link
                   key={href}
                   href={href}
-                  onClick={() => setPeeking(false)}
                   className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                     active
                       ? 'bg-paper text-ink'
