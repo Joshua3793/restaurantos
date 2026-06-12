@@ -47,12 +47,20 @@ export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick,
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {onScanClick && (
-            <button onClick={onScanClick} className="w-10 h-10 rounded-xl bg-paper border border-line grid place-items-center text-ink-2 active:bg-bg-2"><Camera size={17} /></button>
+          {/* Scan (camera) is the primary action when available; upload drops to a
+              secondary icon. Without a camera (web), upload keeps the primary style. */}
+          {onScanClick ? (
+            <button onClick={onUploadClick} className="w-10 h-10 rounded-xl bg-paper border border-line grid place-items-center text-ink-2 active:bg-bg-2"><Upload size={17} /></button>
+          ) : (
+            <button onClick={onUploadClick} className="inline-flex items-center gap-1.5 px-3.5 h-10 rounded-xl bg-ink text-paper text-[13px] font-medium active:bg-ink-2">
+              <Upload size={15} className="text-gold" /> Upload
+            </button>
           )}
-          <button onClick={onUploadClick} className="inline-flex items-center gap-1.5 px-3.5 h-10 rounded-xl bg-ink text-paper text-[13px] font-medium active:bg-ink-2">
-            <Upload size={15} className="text-gold" /> Upload
-          </button>
+          {onScanClick && (
+            <button onClick={onScanClick} className="inline-flex items-center gap-1.5 px-3.5 h-10 rounded-xl bg-ink text-paper text-[13px] font-medium active:bg-ink-2">
+              <Camera size={15} className="text-gold" /> Scan
+            </button>
+          )}
         </div>
       </div>
 
