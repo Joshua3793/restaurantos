@@ -21,6 +21,14 @@ interface DashboardData {
   estimatedFoodCostPct: number
   weeklyRevenue: number
   weeklyPurchaseCost: number
+  purchaseFoodCostPct: number | null
+  theoreticalFoodCostPct: number | null
+  theoreticalCoverage: { costed: number; total: number }
+  wastagePctOfSales: number | null
+  coversWTD: number
+  avgCheck: number | null
+  revPerCover: number | null
+  costPerCover: number | null
 }
 
 interface KPIs {
@@ -222,8 +230,28 @@ export default function PassPage() {
           }
         />
 
-        <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-          <HeroKPI chrome={chrome} dashboard={dashboard} />
+        <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.2fr_1.2fr_1fr_1fr_1fr]">
+          <FoodCostHero
+            label="PURCHASE COST · WTD" sub="invoices ÷ food sales"
+            pct={dashboard?.purchaseFoodCostPct ?? chrome?.foodCostPct ?? null}
+            target={chrome?.targetPct ?? 27}
+          />
+          <FoodCostHero
+            label="THEORETICAL FOOD COST · WTD" sub="from recipe costs"
+            pct={dashboard?.theoreticalFoodCostPct ?? null}
+            target={chrome?.targetPct ?? 27}
+            footer={dashboard ? (
+              <>
+                {dashboard.costPerCover != null
+                  ? <><b className="text-paper">{formatCurrency(dashboard.costPerCover)}</b>/cover</>
+                  : <>per-cover n/a</>}
+                {' · '}
+                <span className="text-ink-4">
+                  {dashboard.theoreticalCoverage.costed}/{dashboard.theoreticalCoverage.total} items costed
+                </span>
+              </>
+            ) : undefined}
+          />
           <KPI label="THEORETICAL ON HAND"
             value={dashboard ? formatCurrency(dashboard.totalInventoryValue) : '—'}
             delta={<><b>{dashboard?.outOfStockCount ?? 0}</b> out of stock</>}
@@ -239,7 +267,9 @@ export default function PassPage() {
           <KPI label="WASTAGE · 7D"
             value={dashboard ? formatCurrency(dashboard.weeklyWastageCost) : '—'}
             valueClass={dashboard && dashboard.weeklyWastageCost > 0 ? 'text-red-text' : ''}
-            delta={<>tracked from <b>waste log</b></>}
+            delta={dashboard?.wastagePctOfSales != null
+              ? <><b className={dashboard.wastagePctOfSales > 3 ? 'text-red-text' : ''}>{dashboard.wastagePctOfSales.toFixed(1)}%</b> of food sales</>
+              : <>tracked from <b>waste log</b></>}
           />
         </div>
 
@@ -315,25 +345,29 @@ export default function PassPage() {
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function HeroKPI({ chrome, dashboard }: { chrome: CostChromeData | null; dashboard: DashboardData | null }) {
-  const pct = chrome?.foodCostPct ?? dashboard?.estimatedFoodCostPct ?? null
-  const target = chrome?.targetPct ?? 27
+function FoodCostHero({ label, sub, pct, target, footer }: {
+  label: string; sub: string; pct: number | null; target: number; footer?: React.ReactNode
+}) {
   const intStr = pct !== null ? Math.floor(pct).toString() : '—'
   const decimal = pct !== null ? `.${(pct % 1).toFixed(1).slice(2)}%` : ''
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
-        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
-        <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
-          {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decimal}</sub>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">{label}</div>
+        <div className="font-mono text-[9px] text-ink-4 tracking-[0.01em] mt-0.5">{sub}</div>
+        <div className="text-[44px] font-semibold tracking-[-0.045em] leading-none mt-2">
+          {intStr}<sub className="text-[20px] font-medium text-gold tracking-[-0.02em] align-baseline">{decimal}</sub>
         </div>
       </div>
       <div className="font-mono text-[11px] text-ink-3 tracking-[0]">
-        target <b className="text-paper">{target.toFixed(1)}</b>
-        {pct !== null && (
-          <> · <span className={pct > target ? 'text-red' : 'text-green'}>
-            {pct > target ? '+' : ''}{(pct - target).toFixed(1)}
-          </span> vs target</>
+        {footer ?? (
+          <>target <b className="text-paper">{target.toFixed(1)}</b>
+            {pct !== null && (
+              <> · <span className={pct > target ? 'text-red' : 'text-green'}>
+                {pct > target ? '+' : ''}{(pct - target).toFixed(1)}
+              </span> vs target</>
+            )}
+          </>
         )}
       </div>
     </div>
