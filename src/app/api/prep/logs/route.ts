@@ -48,11 +48,17 @@ export async function POST(req: NextRequest) {
   const date = logDate ? new Date(logDate) : new Date()
   date.setHours(0, 0, 0, 0)
 
+  const prepItem = await prisma.prepItem.findUnique({
+    where: { id: prepItemId },
+    select: { revenueCenterId: true },
+  })
+
   const log = await prisma.prepLog.upsert({
     where: { prepItemId_logDate: { prepItemId, logDate: date } },
     create: {
       prepItemId,
-      logDate:      date,
+      logDate:         date,
+      revenueCenterId: prepItem?.revenueCenterId ?? null,
       status:       status      ?? 'NOT_STARTED',
       requiredQty:  requiredQty  ? parseFloat(String(requiredQty))  : null,
       actualPrepQty: actualPrepQty ? parseFloat(String(actualPrepQty)) : null,

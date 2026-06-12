@@ -124,6 +124,7 @@ export async function PUT(
       ...(body.estimatedPrepTime      !== undefined && { estimatedPrepTime: body.estimatedPrepTime ? parseInt(String(body.estimatedPrepTime)) : null }),
       ...(body.notes                  !== undefined && { notes: body.notes || null }),
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
+      ...(body.revenueCenterId        !== undefined && { revenueCenterId: body.revenueCenterId || null }),
       ...(body.isActive               !== undefined && { isActive: body.isActive }),
       ...(body.isOnList               !== undefined && { isOnList: body.isOnList }),
     },

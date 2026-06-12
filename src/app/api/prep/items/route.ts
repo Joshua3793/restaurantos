@@ -155,6 +155,7 @@ export async function POST(req: NextRequest) {
     name, linkedRecipeId, linkedInventoryItemId,
     category, station, parLevel, unit, minThreshold,
     targetToday, shelfLifeDays, estimatedPrepTime, notes, manualPriorityOverride,
+    revenueCenterId,
   } = body
 
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
@@ -174,6 +175,7 @@ export async function POST(req: NextRequest) {
       estimatedPrepTime:     estimatedPrepTime ? parseInt(String(estimatedPrepTime)) : null,
       notes:                 notes || null,
       manualPriorityOverride: manualPriorityOverride || null,
+      revenueCenterId:        revenueCenterId        || null,
     },
   })
 
