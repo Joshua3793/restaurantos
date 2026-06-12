@@ -273,7 +273,7 @@ export default function CountPage() {
       params.set('rcId', activeRcId)
       if (activeRc?.isDefault) params.set('isDefault', 'true')
     }
-    const data = await fetch(`/api/count/sessions?${params}`).then(r => r.json()).catch(() => [])
+    const data = await fetch(`/api/count/sessions?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setSessions(Array.isArray(data) ? data : [])
   }, [activeRcId, activeRc])
 
@@ -297,7 +297,7 @@ export default function CountPage() {
       params.set('rcId', activeRcId)
       if (activeRc?.isDefault) params.set('isDefault', 'true')
     }
-    const data = await fetch(`/api/count/areas?${params}`).then(r => r.json()).catch(() => [])
+    const data = await fetch(`/api/count/areas?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setCountAreas(Array.isArray(data) ? data : [])
   }, [activeRcId, activeRc])
 

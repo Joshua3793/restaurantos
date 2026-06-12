@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
       const { lines, ...rest } = s
       return { ...rest, counts: { total, counted, skipped } }
     }),
-    { headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' } }
+    // The count page polls this list every 3s and refetches right after every
+    // session mutation (create/finalize/delete/edit). A cached/SWR response replays
+    // the stale pre-mutation snapshot for up to 10s — so never cache it.
+    { headers: { 'Cache-Control': 'no-store' } }
   )
 }
 

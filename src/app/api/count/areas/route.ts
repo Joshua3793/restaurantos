@@ -102,5 +102,8 @@ export async function GET(req: NextRequest) {
     })
     .filter(a => a.itemCount > 0)
 
-  return NextResponse.json(result, { headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' } })
+  // Drives the count landing (per-area active-session state). The page mutates
+  // sessions and immediately refetches; a cached/SWR response replays the stale
+  // pre-mutation snapshot (areas show no active session) — so never cache it.
+  return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
 }
