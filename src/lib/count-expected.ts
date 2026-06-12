@@ -290,7 +290,10 @@ export async function computeExpectedForItem(
 }
 
 /**
- * Net prep movement since `since`, scoped to an RC (via the prep item's RC).
+ * Net prep movement since `since`, scoped via the **log's `revenueCenterId`**
+ * (inherited from the prep item when the log was created). When `rcId` is
+ * provided, logs whose `revenueCenterId` doesn't match — including null-RC logs
+ * — are excluded, consistent with `buildConsumptionMap` / `buildWastageMap`.
  * Mirrors the old prep-apply write but accumulates into maps instead of writing
  * stockOnHand: raws drawn down (consumption) and the prep item produced (output).
  * Stops at sub-prep items (charges the sub-prep's own inventory item), exactly like
@@ -333,6 +336,13 @@ export async function buildPrepMap(
   for (const log of logs) {
     const recipe = log.prepItem.linkedRecipe
     if (!recipe) continue
+    // Skip logs with no positive qty — a PARTIAL with 0 entered contributes nothing.
+    if (Number(log.actualPrepQty) <= 0) continue
+
+    // When prepItem.unit doesn't match recipe yieldUnit, computeScale returns
+    // scale: 1 (one full batch regardless of actualPrepQty) with unitMismatch: true.
+    // We ignore unitMismatch here — same fallback the old applyInventoryTransaction
+    // used; a future enhancement could surface these as warnings.
     const { scale } = computeScale(
       Number(log.actualPrepQty),
       log.prepItem.unit,
@@ -341,6 +351,8 @@ export async function buildPrepMap(
     )
 
     for (const ing of recipe.ingredients) {
+      // qtyBase is in ing.unit (not yet base units); convertQty handles the
+      // conversion afterward — same pattern as recipeCosts.ts.
       const qty = Number(ing.qtyBase) * scale
       if (ing.inventoryItemId && ing.inventoryItem) {
         add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
