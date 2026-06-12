@@ -230,3 +230,60 @@ export function computeExpected(
   const wastage     = wastageMap.get(itemId)     ?? 0
   return Math.max(0, baseStock + purchases - consumption - wastage)
 }
+
+/**
+ * Theoretical on-hand (in baseUnit) for a single inventory item, scoped to a
+ * revenue centre — the single-item analogue of what the full-session create
+ * route computes per line. Used by the quick-count endpoint (GET preview +
+ * POST finalize) so both read the same baseline.
+ *
+ * Baseline rules mirror the session create route:
+ *   - default RC  → global `stockOnHand`
+ *   - non-default → this RC's `StockAllocation.quantity`, falling back to 0
+ *     (NOT global stock) when the RC has never been counted.
+ *   - no RC       → global `stockOnHand`.
+ * The lookback window is the item's own `lastCountDate`; with no prior count
+ * the maps are empty and expected collapses to the baseline.
+ */
+export async function computeExpectedForItem(
+  itemId: string,
+  rcId?: string | null,
+): Promise<{ expectedBase: number; baseStock: number } | null> {
+  const item = await prisma.inventoryItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, stockOnHand: true, lastCountDate: true },
+  })
+  if (!item) return null
+
+  let isDefaultRc = false
+  let baseStock = Number(item.stockOnHand)
+  if (rcId) {
+    const rc = await prisma.revenueCenter.findUnique({
+      where: { id: rcId },
+      select: { isDefault: true },
+    })
+    isDefaultRc = !!rc?.isDefault
+    if (!isDefaultRc) {
+      const alloc = await prisma.stockAllocation.findUnique({
+        where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId: itemId } },
+        select: { quantity: true },
+      })
+      // Never-counted RC falls back to 0, not the warehouse total.
+      baseStock = alloc ? Number(alloc.quantity) : 0
+    }
+  }
+
+  const since = item.lastCountDate
+  if (!since) return { expectedBase: Math.max(0, baseStock), baseStock }
+
+  const [consumptionMap, purchaseMap, wastageMap] = await Promise.all([
+    buildConsumptionMap(since, rcId),
+    buildPurchaseMap(since, rcId),
+    buildWastageMap(since, [itemId], rcId),
+  ])
+
+  return {
+    expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap),
+    baseStock,
+  }
+}

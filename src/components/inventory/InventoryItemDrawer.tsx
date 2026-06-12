@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { X, Pencil, Loader2 } from 'lucide-react'
+import { X, Pencil, Loader2, ClipboardCheck } from 'lucide-react'
 import {
   formatCurrency, formatUnitPrice,
   PACK_UOMS, COUNT_UOMS, PURCHASE_UNITS, QTY_UOMS,
@@ -12,6 +12,7 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { SupplierOffersSection } from './SupplierOffersSection'
+import { QuickCountSheet } from './QuickCountSheet'
 import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
 
@@ -183,11 +184,12 @@ function displayStock(item: InventoryItem): number {
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = 'z-50', initialEditMode = false }: Props) {
-  const { revenueCenters } = useRc()
+  const { revenueCenters, activeRc } = useRc()
   const defaultRcId = revenueCenters.find(rc => rc.isDefault)?.id ?? null
 
   const [item, setItem] = useState<InventoryItem | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showQuick, setShowQuick] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState<EditForm>({
@@ -373,12 +375,22 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     <button onClick={() => setEditMode(false)} className="px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors">Cancel</button>
                   </>
                 ) : (
-                  <button
-                    onClick={openEdit}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
-                  >
-                    <Pencil size={12} /> Edit
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setShowQuick(true)}
+                      disabled={!activeRc}
+                      title={activeRc ? `Quick count (${activeRc.name})` : 'Pick a revenue center to quick-count'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ClipboardCheck size={12} /> Count
+                    </button>
+                    <button
+                      onClick={openEdit}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
+                    >
+                      <Pencil size={12} /> Edit
+                    </button>
+                  </>
                 )}
                 <button onClick={onClose} aria-label="Close" className="w-8 h-8 grid place-items-center rounded-[8px] border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors bg-paper"><X size={16} /></button>
               </div>
@@ -919,6 +931,14 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   </div>
                 )}
               </div>
+            )}
+
+            {showQuick && (
+              <QuickCountSheet
+                item={item}
+                onClose={() => setShowQuick(false)}
+                onDone={() => { setShowQuick(false); onUpdated?.() }}
+              />
             )}
           </>
         )}

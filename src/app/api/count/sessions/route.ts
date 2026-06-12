@@ -10,11 +10,16 @@ export async function GET(req: NextRequest) {
   const isDefault = searchParams.get('isDefault') === 'true'
 
   const sessions = await prisma.countSession.findMany({
-    where: rcId
-      ? (isDefault
-          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-          : { revenueCenterId: rcId })
-      : {},
+    where: {
+      // QUICK sessions back single-item quick-counts — keep them out of the
+      // count-history list (snapshot/variance reports read them directly).
+      type: { not: 'QUICK' },
+      ...(rcId
+        ? (isDefault
+            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+            : { revenueCenterId: rcId })
+        : {}),
+    },
     orderBy: { startedAt: 'desc' },
     include: { lines: { select: { countedQty: true, skipped: true } } },
   })

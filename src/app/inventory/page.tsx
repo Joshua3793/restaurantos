@@ -7,6 +7,7 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
+import { QuickCountSheet } from '@/components/inventory/QuickCountSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
@@ -15,7 +16,7 @@ import { useToast } from '@/components/Toast'
 import {
   Search, Plus, X, Download, Loader2,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
-  ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy, UploadCloud,
+  ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy, UploadCloud, ClipboardCheck,
 } from 'lucide-react'
 
 interface StorageArea { id: string; name: string }
@@ -222,6 +223,7 @@ function InventoryPageInner() {
   const [colSort,      setColSort]      = useState<{ col: ColKey; dir: ColDir } | null>(null)
   const [activePill,   setActivePill]   = useState<FilterPill>('all')
   const [selected,     setSelected]     = useState<InventoryItem | null>(null)
+  const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
   const [showImport,   setShowImport]   = useState(false)
   const [form,         setForm]         = useState(defaultForm)
@@ -662,6 +664,14 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px]" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-end gap-2.5">
             <button
+              onClick={e => { e.stopPropagation(); setQuickItem(item) }}
+              disabled={!activeRcId}
+              title={activeRcId ? `Quick count (${activeRc?.name ?? 'RC'})` : 'Pick a revenue center to quick-count'}
+              className="text-ink-4 hover:text-ink transition-colors disabled:opacity-30 disabled:hover:text-ink-4 disabled:cursor-not-allowed"
+            >
+              <ClipboardCheck size={14} />
+            </button>
+            <button
               onClick={e => handleToggleActive(e, item)}
               title={item.isActive ? 'Deactivate item' : 'Activate item'}
               className={`relative inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${item.isActive ? 'bg-ink' : 'bg-line-2'}`}
@@ -717,6 +727,15 @@ function InventoryPageInner() {
           </div>
           <div className="font-mono text-[10px] text-ink-4">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : item.purchaseUnit}</div>
         </div>
+        {activeRcId && (
+          <button
+            onClick={e => { e.stopPropagation(); setQuickItem(item) }}
+            title={`Quick count (${activeRc?.name ?? 'RC'})`}
+            className="w-9 h-9 grid place-items-center rounded-[9px] border border-line text-ink-2 active:bg-bg shrink-0"
+          >
+            <ClipboardCheck size={16} />
+          </button>
+        )}
         <ChevronRight size={14} className="text-ink-4 shrink-0" />
       </div>
     )
@@ -1532,6 +1551,15 @@ function InventoryPageInner() {
           itemId={selected.id}
           onClose={() => setSelected(null)}
           onUpdated={fetchItems}
+        />
+      )}
+
+      {/* Quick count — single-item count without a full session */}
+      {quickItem && (
+        <QuickCountSheet
+          item={quickItem}
+          onClose={() => setQuickItem(null)}
+          onDone={() => { setQuickItem(null); fetchItems() }}
         />
       )}
 
