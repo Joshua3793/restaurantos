@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { startOfWeek } from '@/lib/dates'
+import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 
 export async function GET(req: NextRequest) {
   try { await requireSession('MANAGER') }
@@ -16,11 +18,12 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   const weekAgo  = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7)
   const monthAgo = new Date(now); monthAgo.setDate(monthAgo.getDate() - 30)
+  const weekStart = startOfWeek(now)
 
   // Sales / wastage filter: if a specific RC is selected, filter by it; otherwise all
   const rcFilter = rcId ? { revenueCenterId: rcId } : {}
 
-  const [inventoryRaw, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases] = await Promise.all([
+  const [inventoryRaw, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases, salesWTD, purchasesWTD] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true },
       select: {
@@ -42,6 +45,21 @@ export async function GET(req: NextRequest) {
     prisma.salesEntry.findMany({ where: { date: { gte: weekAgo }, ...rcFilter } }),
     prisma.invoiceScanItem.aggregate({
       where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: weekAgo } } },
+      _sum: { rawLineTotal: true },
+    }),
+    prisma.salesEntry.findMany({
+      where: { date: { gte: weekStart }, ...rcFilter },
+      select: {
+        totalRevenue: true, foodSalesPct: true, covers: true,
+        lineItems: { select: { recipeId: true, qtySold: true } },
+      },
+    }),
+    prisma.invoiceScanItem.aggregate({
+      where: {
+        approved: true,
+        splitToSessionId: null,
+        session: { approvedAt: { gte: weekStart }, ...(rcId ? { revenueCenterId: rcId } : {}) },
+      },
       _sum: { rawLineTotal: true },
     }),
   ])
@@ -108,6 +126,27 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b.lastValue - a.lastValue)
     .slice(0, 5)
 
+  // ── WTD food-cost block (single Monday-WTD window; all cells comparable) ──
+  const foodSalesWTD = salesWTD.reduce(
+    (s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
+  const revenueWTD = salesWTD.reduce((s, e) => s + Number(e.totalRevenue), 0)
+  const purchasesWTDTotal = Number(purchasesWTD._sum.rawLineTotal ?? 0)
+
+  const wtdLineItems = salesWTD.flatMap(e => e.lineItems)
+  const theo = await theoreticalCostForLineItems(wtdLineItems)
+
+  const purchaseFoodCostPct  = foodSalesWTD > 0 ? (purchasesWTDTotal / foodSalesWTD) * 100 : null
+  const theoreticalFoodCostPct = foodSalesWTD > 0 ? (theo.theoreticalCost / foodSalesWTD) * 100 : null
+
+  const coversWTD = salesWTD.reduce((s, e) => s + (e.covers ?? 0), 0)
+  const avgCheck     = coversWTD > 0 ? revenueWTD / coversWTD : null
+  const revPerCover  = coversWTD > 0 ? foodSalesWTD / coversWTD : null
+  const costPerCover = coversWTD > 0 ? theo.theoreticalCost / coversWTD : null
+
+  // Wastage % uses the existing rolling-7d wastage $ + 7d food sales so the two
+  // wastage figures (the $ cell and this %) share one window.
+  const wastagePctOfSales = weeklyFoodSales > 0 ? (weeklyWastageCost / weeklyFoodSales) * 100 : null
+
   return NextResponse.json({
     totalInventoryValue,
     weeklyWastageCost,
@@ -122,6 +161,18 @@ export async function GET(req: NextRequest) {
     estimatedFoodCostPct: foodCostPct,
     foodCostLabel,
     inventoryCount: inventory.length,
+    weekStartWTD: weekStart.toISOString(),
+    foodSalesWTD,
+    purchasesWTD: purchasesWTDTotal,
+    purchaseFoodCostPct,
+    theoreticalCostWTD: theo.theoreticalCost,
+    theoreticalFoodCostPct,
+    theoreticalCoverage: { costed: theo.costedRecipes, total: theo.totalRecipes },
+    wastagePctOfSales,
+    coversWTD,
+    avgCheck,
+    revPerCover,
+    costPerCover,
   }, {
     headers: { 'Cache-Control': 'no-store' },
   })
