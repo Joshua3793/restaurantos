@@ -216,16 +216,18 @@ export async function GET(req: NextRequest) {
   }
 
   // Food sales
-  const salesEntries = await prisma.salesEntry.findMany({
-    where: {
-      date: { gte: rangeStart, lte: rangeEnd },
-      ...(rcId
-        ? (isDefault
-            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-            : { revenueCenterId: rcId })
-        : {}),
-    },
-  })
+  // Shared sales scope: date range + RC filter. Reused by both the food-sales
+  // denominator and the theoretical-cost numerator so they stay comparable in
+  // RC mode (a global numerator over RC-scoped sales would be inflated).
+  const salesWhere = {
+    date: { gte: rangeStart, lte: rangeEnd },
+    ...(rcId
+      ? (isDefault
+          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+          : { revenueCenterId: rcId })
+      : {}),
+  }
+  const salesEntries = await prisma.salesEntry.findMany({ where: salesWhere })
   const foodSales = salesEntries.reduce(
     (s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0
   )
@@ -233,9 +235,9 @@ export async function GET(req: NextRequest) {
   const cogs = Math.round((beginningValue + totalPurchases - endingValue) * 100) / 100
   const foodCostPct = foodSales > 0 ? Math.round((cogs / foodSales) * 10000) / 100 : 0
 
-  // Theoretical cost over the same range (recipe-based), for variance.
+  // Theoretical cost over the same range + RC scope (recipe-based), for variance.
   const cogsLineItems = await prisma.saleLineItem.findMany({
-    where: { sale: { date: { gte: rangeStart, lte: rangeEnd } } },
+    where: { sale: salesWhere },
     select: { recipeId: true, qtySold: true },
   })
   const cogsTheo = await theoreticalCostForLineItems(cogsLineItems)
