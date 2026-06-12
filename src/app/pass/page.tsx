@@ -348,8 +348,10 @@ export default function PassPage() {
 function FoodCostHero({ label, sub, pct, target, footer }: {
   label: string; sub: string; pct: number | null; target: number; footer?: React.ReactNode
 }) {
-  const intStr = pct !== null ? Math.floor(pct).toString() : '—'
-  const decimal = pct !== null ? `.${(pct % 1).toFixed(1).slice(2)}%` : ''
+  const t = Number(target)
+  const formatted = pct !== null ? pct.toFixed(1) : null
+  const intStr = formatted !== null ? formatted.split('.')[0] : '—'
+  const decimal = formatted !== null ? `.${formatted.split('.')[1]}%` : ''
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
@@ -361,10 +363,10 @@ function FoodCostHero({ label, sub, pct, target, footer }: {
       </div>
       <div className="font-mono text-[11px] text-ink-3 tracking-[0]">
         {footer ?? (
-          <>target <b className="text-paper">{target.toFixed(1)}</b>
+          <>target <b className="text-paper">{t.toFixed(1)}</b>
             {pct !== null && (
-              <> · <span className={pct > target ? 'text-red' : 'text-green'}>
-                {pct > target ? '+' : ''}{(pct - target).toFixed(1)}
+              <> · <span className={pct > t ? 'text-red' : 'text-green'}>
+                {pct > t ? '+' : ''}{(pct - t).toFixed(1)}
               </span> vs target</>
             )}
           </>
