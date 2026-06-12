@@ -69,25 +69,67 @@ export async function periodPurchases(
   return { total, byCategory, invoiceCount: sessions.size }
 }
 
+/** A finalized-count inventory snapshot bounding one end of a period. */
+export interface SnapshotBound {
+  sessionId: string
+  sessionDate: Date
+  value: number
+  byCategory: Record<string, number>
+}
+
 /**
- * Global, snapshot-based COGS for a date range.
- * Opening = most recent finalized count ≤ startMs; Closing = most recent ≤ endMs.
- * Purchases via the canonical {@link periodPurchases} (global scope).
- * (Global only — per-RC actual COGS needs per-RC snapshots; not supported.)
+ * Resolve the opening/closing finalized-count inventory bounding a period —
+ * the SINGLE source of truth for global period inventory bounds, shared by
+ * computePeriodCogs and /api/reports/cogs so they can't drift.
+ *
+ * opening = most recent finalized count ≤ startMs; closing = most recent ≤ endMs.
+ * Value is summed from the session's InventorySnapshot rows (priced totalValue).
+ * This equals CountSession.totalCountedValue by construction (count-finalize
+ * writes both from the same per-line value), but the snapshot rows additionally
+ * carry the per-category breakdown the COGS report needs. Returns null for a
+ * bound when no finalized count precedes it. Global only.
  */
-export async function computePeriodCogs(startMs: number, endMs: number): Promise<PeriodCogs> {
+export async function periodSnapshotBounds(startMs: number, endMs: number): Promise<{
+  opening: SnapshotBound | null
+  closing: SnapshotBound | null
+}> {
   const sessions = await prisma.countSession.findMany({
     where: { status: 'FINALIZED', finalizedAt: { not: null } },
-    select: { id: true, finalizedAt: true, totalCountedValue: true },
+    select: {
+      id: true, finalizedAt: true, sessionDate: true,
+      snapshots: { select: { totalValue: true, category: true } },
+    },
   })
   // Sort descending so the first match in find() is the most recent ≤ bound.
   sessions.sort((a, b) => ms(b.finalizedAt) - ms(a.finalizedAt))
 
-  const opening = sessions.find(s => ms(s.finalizedAt) <= startMs) ?? null
-  const closing = sessions.find(s => ms(s.finalizedAt) <= endMs) ?? null
+  const pick = (boundMs: number): SnapshotBound | null => {
+    const s = sessions.find(x => ms(x.finalizedAt) <= boundMs)
+    if (!s) return null
+    let value = 0
+    const byCategory: Record<string, number> = {}
+    for (const snap of s.snapshots) {
+      const v = Number(snap.totalValue)
+      value += v
+      byCategory[snap.category] = (byCategory[snap.category] ?? 0) + v
+    }
+    return { sessionId: s.id, sessionDate: s.sessionDate, value, byCategory }
+  }
 
-  const openingValue = opening ? Number(opening.totalCountedValue) : 0
-  const closingValue = closing ? Number(closing.totalCountedValue) : 0
+  return { opening: pick(startMs), closing: pick(endMs) }
+}
+
+/**
+ * Global, snapshot-based COGS for a date range.
+ * Opening/closing via the canonical {@link periodSnapshotBounds}; purchases via
+ * the canonical {@link periodPurchases} (global scope).
+ * (Global only — per-RC actual COGS needs per-RC snapshots; not supported.)
+ */
+export async function computePeriodCogs(startMs: number, endMs: number): Promise<PeriodCogs> {
+  const { opening, closing } = await periodSnapshotBounds(startMs, endMs)
+
+  const openingValue = opening?.value ?? 0
+  const closingValue = closing?.value ?? 0
 
   const { total: purchases } = await periodPurchases(startMs, endMs)
 
@@ -101,8 +143,8 @@ export async function computePeriodCogs(startMs: number, endMs: number): Promise
     openingValue, closingValue, purchases,
     cogs: openingValue + purchases - closingValue,
     foodSales,
-    openingSessionId: opening?.id ?? null,
-    closingSessionId: closing?.id ?? null,
-    needsCounts: !opening || !closing || opening.id === closing.id,
+    openingSessionId: opening?.sessionId ?? null,
+    closingSessionId: closing?.sessionId ?? null,
+    needsCounts: !opening || !closing || opening.sessionId === closing.sessionId,
   }
 }

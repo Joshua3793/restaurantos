@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
-import { periodPurchases } from '@/lib/cogs'
+import { periodPurchases, periodSnapshotBounds } from '@/lib/cogs'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
@@ -75,37 +75,17 @@ export async function GET(req: NextRequest) {
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
-  // All finalized sessions ordered by finalizedAt asc (Prisma returns Date objects)
-  const allSessions = await prisma.countSession.findMany({
-    where:   { status: 'FINALIZED' },
-    orderBy: { finalizedAt: 'asc' },
-    include: { snapshots: true },
-  })
-
-  // Helper: get ms from either a Prisma Date or raw integer (legacy TEXT rows)
-  const ms = (v: Date | number | string | null | undefined): number => {
-    if (!v) return 0
-    if (v instanceof Date) return v.getTime()
-    if (typeof v === 'number') return v
-    return new Date(String(v).replace(' ', 'T')).getTime()
-  }
-
-  const startMs = rangeStart.getTime()
-  const endMs   = rangeEnd.getTime()
-
-  // Sort by finalizedAt ms (handles mixed storage formats)
-  allSessions.sort((a, b) => ms(a.finalizedAt as never) - ms(b.finalizedAt as never))
-
-  // Beginning: most recent session finalizedAt ≤ startDate
-  const beginSession = [...allSessions].reverse().find(s => ms(s.finalizedAt as never) <= startMs) ?? null
-
-  // Ending: most recent session finalizedAt ≤ endDate
-  const endSession = [...allSessions].reverse().find(s => ms(s.finalizedAt as never) <= endMs) ?? null
+  // Opening/closing inventory bounds — canonical shared resolver (see
+  // periodSnapshotBounds in src/lib/cogs.ts), so global COGS here matches
+  // computePeriodCogs (used by /api/insights/food-cost-variance) exactly.
+  // RC mode overrides these with current StockAllocation below.
+  const { opening: beginSession, closing: endSession } =
+    await periodSnapshotBounds(rangeStart.getTime(), rangeEnd.getTime())
 
   // Compute beginning inventory value
   let beginningValue = 0
   let beginningFallback = false
-  const beginByCategory: Record<string, number> = {}
+  let beginByCategory: Record<string, number> = {}
 
   if (rcId) {
     // RC mode: use StockAllocation for beginning inventory
@@ -119,11 +99,8 @@ export async function GET(req: NextRequest) {
       beginByCategory[a.inventoryItem.category] = (beginByCategory[a.inventoryItem.category] || 0) + v
     }
   } else if (beginSession) {
-    for (const snap of beginSession.snapshots) {
-      const v = Number(snap.totalValue)
-      beginningValue += v
-      beginByCategory[snap.category] = (beginByCategory[snap.category] || 0) + v
-    }
+    beginningValue = beginSession.value
+    beginByCategory = beginSession.byCategory
   } else {
     beginningFallback = true
     const items = await prisma.inventoryItem.findMany()
@@ -137,7 +114,7 @@ export async function GET(req: NextRequest) {
   // Compute ending inventory value
   let endingValue = 0
   let endingFallback = false
-  const endByCategory: Record<string, number> = {}
+  let endByCategory: Record<string, number> = {}
 
   if (rcId) {
     // RC mode: same StockAllocation snapshot — we use the current allocation
@@ -152,11 +129,8 @@ export async function GET(req: NextRequest) {
       endByCategory[a.inventoryItem.category] = (endByCategory[a.inventoryItem.category] || 0) + v
     }
   } else if (endSession) {
-    for (const snap of endSession.snapshots) {
-      const v = Number(snap.totalValue)
-      endingValue += v
-      endByCategory[snap.category] = (endByCategory[snap.category] || 0) + v
-    }
+    endingValue = endSession.value
+    endByCategory = endSession.byCategory
   } else {
     endingFallback = true
   }
@@ -219,11 +193,11 @@ export async function GET(req: NextRequest) {
     startDate: startDateStr,
     endDate:   endDateStr,
     beginningInventory: (rcId || beginSession)
-      ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.id ?? null), fallback: false }
+      ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.sessionId ?? null), fallback: false }
       : { value: beginningValue, sessionDate: null, sessionId: null, fallback: beginningFallback },
     purchases: { total: totalPurchases, invoiceCount },
     endingInventory: (rcId || endSession)
-      ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.id ?? null), fallback: false }
+      ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.sessionId ?? null), fallback: false }
       : { value: 0, sessionDate: null, sessionId: null, fallback: endingFallback },
     cogs,
     foodSales,
