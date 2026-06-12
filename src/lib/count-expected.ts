@@ -219,6 +219,8 @@ export async function buildWastageMap(
  * Compute theoretical expected qty for an inventory item given its base stock
  * and the consumption/purchase/wastage maps for a period.
  * prepConsumptionMap and prepOutputMap are optional for backward compatibility.
+ * `prepConsumptionMap`/`prepOutputMap` (optional): ingredients drawn down by prep
+ * production (subtracted) and prep yield produced (added).
  */
 export function computeExpected(
   itemId: string,
@@ -295,8 +297,11 @@ export async function computeExpectedForItem(
   }
 }
 
-/** Public name for the per-item theoretical on-hand (baseUnit), scoped to an RC. */
-export const getTheoreticalStock = computeExpectedForItem
+/** Theoretical on-hand quantity (baseUnit) for one item, scoped to an RC. null if the item doesn't exist. */
+export async function getTheoreticalStock(itemId: string, rcId?: string | null): Promise<number | null> {
+  const r = await computeExpectedForItem(itemId, rcId)
+  return r ? r.expectedBase : null
+}
 
 /**
  * Net prep movement since `since`, scoped via the **log's `revenueCenterId`**
