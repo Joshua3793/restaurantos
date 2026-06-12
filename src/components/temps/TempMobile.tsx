@@ -8,6 +8,7 @@ import {
   TEMP_TYPES, TEMP_GROUPS, groupOf, isSafe, rangeText, unitStatus, fmtTemp, nowHM, prettyDate,
   type TempUnit, type TempType, type TempHandlers, type TempDayMetrics, type HistoryReading,
 } from './temp-utils'
+import { TempEquipmentView } from './TempEquipmentView'
 
 type SheetState =
   | { kind: 'log'; uid: string }
@@ -23,8 +24,12 @@ export interface TempMobileProps {
   rcLabel: string
   history: HistoryReading[]
   histLoading: boolean
-  ensureHistory: () => void
+  ensureHistory: (rangeArg?: string) => void
   onExport: () => void
+  histView: 'day' | 'equipment'
+  setHistView: (v: 'day' | 'equipment') => void
+  histRange: string
+  setHistRange: (v: string) => void
 }
 
 export function TempMobile(p: TempMobileProps) {
@@ -111,7 +116,18 @@ export function TempMobile(p: TempMobileProps) {
       {/* history sheet */}
       <Sheet open={sheet?.kind === 'history'} onClose={() => setSheet(null)} title="History">
         {sheet?.kind === 'history' && (
-          <HistoryBody units={units} history={p.history} loading={p.histLoading} today={p.today} onExport={p.onExport} />
+          <HistoryBody
+            units={units}
+            history={p.history}
+            loading={p.histLoading}
+            today={p.today}
+            onExport={p.onExport}
+            histView={p.histView}
+            setHistView={p.setHistView}
+            histRange={p.histRange}
+            setHistRange={p.setHistRange}
+            ensureHistory={p.ensureHistory}
+          />
         )}
       </Sheet>
     </div>
@@ -380,7 +396,20 @@ function AddUnitBody({ initialType, rcLabel, onAdd }: { initialType: TempType; r
 }
 
 // ── history sheet body ────────────────────────────────────────────────────────
-function HistoryBody({ units, history, loading, today, onExport }: { units: TempUnit[]; history: HistoryReading[]; loading: boolean; today: string; onExport: () => void }) {
+function HistoryBody({
+  units, history, loading, today, onExport, histView, setHistView, histRange, setHistRange, ensureHistory,
+}: {
+  units: TempUnit[]
+  history: HistoryReading[]
+  loading: boolean
+  today: string
+  onExport: () => void
+  histView: 'day' | 'equipment'
+  setHistView: (v: 'day' | 'equipment') => void
+  histRange: string
+  setHistRange: (v: string) => void
+  ensureHistory: (rangeArg?: string) => void
+}) {
   const [unit, setUnit] = useState('')
   const byDay: Record<string, HistoryReading[]> = {}
   history.forEach(r => {
@@ -402,11 +431,42 @@ function HistoryBody({ units, history, loading, today, onExport }: { units: Temp
         })}
       </div>
 
+      <div className="flex items-center gap-2 mt-3">
+        <div className="inline-flex rounded-[9px] border border-line bg-paper p-0.5">
+          <button
+            onClick={() => setHistView('day')}
+            className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium ${histView === 'day' ? 'bg-ink text-paper' : 'text-ink-3'}`}
+          >By day</button>
+          <button
+            onClick={() => setHistView('equipment')}
+            className={`px-3 py-1.5 rounded-[7px] text-[12.5px] font-medium ${histView === 'equipment' ? 'bg-ink text-paper' : 'text-ink-3'}`}
+          >By equipment</button>
+        </div>
+        <select
+          value={histRange}
+          onChange={e => { setHistRange(e.target.value); ensureHistory(e.target.value) }}
+          className="ml-auto bg-paper border border-line rounded-[9px] px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none"
+        >
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+          <option value="0">All</option>
+        </select>
+      </div>
+
       <button onClick={onExport} className="inline-flex items-center gap-2 my-3 text-[13px] font-semibold text-ink-2 bg-bg-2 rounded-[10px] px-3.5 py-2.5 tracking-[-0.01em]">
         <Download size={16} className="text-ink-3" /> Export to Excel (.csv)
       </button>
 
-      {loading ? (
+      {histView === 'equipment' ? (
+        loading ? (
+          <div className="font-mono text-[11px] text-ink-4 text-center py-10">LOADING…</div>
+        ) : (
+          <div className="mt-3">
+            <TempEquipmentView units={units} history={history} histUnit={unit} />
+          </div>
+        )
+      ) : loading ? (
         <div className="font-mono text-[11px] text-ink-4 text-center py-10">LOADING…</div>
       ) : dates.length === 0 ? (
         <div className="font-mono text-[11px] text-ink-4 text-center py-10">NO READINGS YET</div>
