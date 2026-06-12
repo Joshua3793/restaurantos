@@ -155,6 +155,7 @@ export async function GET(req: NextRequest) {
       ingredientTotalCount,
       ingredientShortCount,
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
+      revenueCenterId: item.revenueCenterId ?? null,
       todayLog: item.logs[0] ?? null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
