@@ -13,37 +13,43 @@ export interface PeriodCogs {
   needsCounts: boolean
 }
 
-const ms = (v: Date | number | string | null | undefined): number => {
-  if (!v) return 0
-  if (v instanceof Date) return v.getTime()
-  if (typeof v === 'number') return v
-  return new Date(String(v).replace(' ', 'T')).getTime()
-}
+const ms = (v: Date | null): number => (v ? v.getTime() : 0)
 
 /**
  * Global, snapshot-based COGS for a date range.
  * Opening = most recent finalized count ≤ startMs; Closing = most recent ≤ endMs.
  * Purchases summed from approved InvoiceSession scan items in range.
  * (Global only — per-RC actual COGS needs per-RC snapshots; not supported.)
+ *
+ * NOTE: "purchases" here = ALL approved, non-split scan items by session
+ * approvedAt. This intentionally differs from the legacy /api/reports/cogs
+ * route, which sums legacy Invoice rows + scan items filtered to
+ * action IN ['UPDATE_PRICE','ADD_SUPPLIER']. The two surfaces can therefore
+ * report slightly different "actual food cost %" for the same period. A
+ * future task should converge them on one canonical purchase definition.
  */
 export async function computePeriodCogs(startMs: number, endMs: number): Promise<PeriodCogs> {
   const sessions = await prisma.countSession.findMany({
-    where: { status: 'FINALIZED' },
+    where: { status: 'FINALIZED', finalizedAt: { not: null } },
     select: { id: true, finalizedAt: true, totalCountedValue: true },
   })
-  sessions.sort((a, b) => ms(a.finalizedAt) - ms(b.finalizedAt))
+  // Sort descending so the first match in find() is the most recent ≤ bound.
+  sessions.sort((a, b) => ms(b.finalizedAt) - ms(a.finalizedAt))
 
-  const opening = [...sessions].reverse().find(s => ms(s.finalizedAt) <= startMs) ?? null
-  const closing = [...sessions].reverse().find(s => ms(s.finalizedAt) <= endMs) ?? null
+  const opening = sessions.find(s => ms(s.finalizedAt) <= startMs) ?? null
+  const closing = sessions.find(s => ms(s.finalizedAt) <= endMs) ?? null
 
   const openingValue = opening ? Number(opening.totalCountedValue) : 0
   const closingValue = closing ? Number(closing.totalCountedValue) : 0
 
+  // Half-open start (gt, not gte): a purchase approved at the exact instant of
+  // the opening count is already reflected in that count's on-hand value, so
+  // including it here would double-count it.
   const purchasesAgg = await prisma.invoiceScanItem.aggregate({
     where: {
       approved: true,
       splitToSessionId: null,
-      session: { approvedAt: { gte: new Date(startMs), lte: new Date(endMs) } },
+      session: { approvedAt: { gt: new Date(startMs), lte: new Date(endMs) } },
     },
     _sum: { rawLineTotal: true },
   })
