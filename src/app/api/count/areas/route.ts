@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,13 +45,14 @@ export async function GET(req: NextRequest) {
     .map(i => i.lastCountDate)
     .filter(Boolean)
     .sort((a, b) => (a as Date).getTime() - (b as Date).getTime())[0] as Date | undefined
-  const [consumptionMap, purchaseMap, wastageMap] = earliestLastCount
+  const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliestLastCount
     ? await Promise.all([
         buildConsumptionMap(earliestLastCount, rcId),
         buildPurchaseMap(earliestLastCount, rcId),
         buildWastageMap(earliestLastCount, items.map(i => i.id), rcId),
+        buildPrepMap(earliestLastCount, rcId),
       ])
-    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>()]
+    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
 
   type Agg = { itemCount: number; onHandValue: number; drift: number; lastCountDate: Date | null }
   const agg = new Map<string, Agg>()
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
     cur.itemCount += 1
     cur.onHandValue += bs * price
     if (it.lastCountDate) {
-      const expected = computeExpected(it.id, bs, consumptionMap, purchaseMap, wastageMap)
+      const expected = computeExpected(it.id, bs, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
       cur.drift += Math.abs(expected - bs) * price
     }
     if (it.lastCountDate && (!cur.lastCountDate || it.lastCountDate > cur.lastCountDate)) cur.lastCountDate = it.lastCountDate

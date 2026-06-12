@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
+import { getTheoreticalStockMap } from '@/lib/count-expected'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
   ] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true },
-      select: { stockOnHand: true, pricePerBaseUnit: true },
+      select: { id: true, stockOnHand: true, pricePerBaseUnit: true },
     }),
     prisma.salesEntry.findMany({
       where: { date: { gte: weekStart }, ...salesFilter },
@@ -98,22 +99,39 @@ export async function GET(req: NextRequest) {
   ])
 
   // ── On hand: RC-aware inventory value (mirrors the inventory page) ─────
-  //   • non-default RC → Σ StockAllocation.quantity × price (that RC's pool)
-  //   • default RC      → Σ stockOnHand × price (the default pool IS its stock)
-  //   • all RCs         → Σ (stockOnHand + non-default allocations) × price
+  //   • non-default RC → Σ theoretical(rcId) × price for that RC's items
+  //   • default RC      → Σ theoretical(null) × price (global pool = default pool)
+  //   • all RCs         → Σ theoretical(null) × price (global pool)
+  //
+  // "Theoretical" = last-counted baseline + purchases − sales − wastage − prep since
+  // last count, using getTheoreticalStockMap (same engine as the inventory list).
   const rcIsDefault = !!targetRC?.isDefault
+
+  // Determine which RC scope to pass to getTheoreticalStockMap:
+  //   - non-default RC: pass rcId so the engine uses StockAllocation as baseline
+  //   - default RC or no filter: pass null/undefined for the global pool
+  const theoreticalRcId: string | null = rcId && !rcIsDefault ? rcId : null
+  const itemIds = inventory.map(it => it.id)
+  const theoreticalMap = await getTheoreticalStockMap(theoreticalRcId, itemIds)
+
+  // Global theoretical value: Σ theoretical(itemId) × pricePerBaseUnit
   const globalValue = inventory.reduce(
-    (sum, it) => sum + Number(it.stockOnHand) * Number(it.pricePerBaseUnit),
+    (sum, it) => sum + (theoreticalMap.get(it.id) ?? Number(it.stockOnHand)) * Number(it.pricePerBaseUnit),
     0,
   )
+
   const sumAllocValue = (where: object) =>
     prisma.stockAllocation
       .findMany({
         where: { ...where, inventoryItem: { isActive: true } },
-        select: { quantity: true, inventoryItem: { select: { pricePerBaseUnit: true } } },
+        select: { inventoryItemId: true, quantity: true, inventoryItem: { select: { pricePerBaseUnit: true } } },
       })
       .then(rows => ({
-        value: rows.reduce((s, a) => s + Number(a.quantity) * Number(a.inventoryItem.pricePerBaseUnit), 0),
+        // Use theoretical qty from the map if available; fall back to raw allocation qty
+        value: rows.reduce(
+          (s, a) => s + (theoreticalMap.get(a.inventoryItemId) ?? Number(a.quantity)) * Number(a.inventoryItem.pricePerBaseUnit),
+          0,
+        ),
         count: rows.length,
       }))
 

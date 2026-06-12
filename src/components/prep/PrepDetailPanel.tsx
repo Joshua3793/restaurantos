@@ -98,7 +98,6 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
         ...(actualQty && { actualPrepQty: parseFloat(actualQty) }),
       }),
     }).then(r => r.json())
-    if (res.inventoryResult?.warning) setWarning(res.inventoryResult.warning)
     setLoading(false)
     onRefresh()
   }

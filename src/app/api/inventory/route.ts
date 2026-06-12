@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
 import { resolveCountUom } from '@/lib/count-uom'
+import { getTheoreticalStockMap } from '@/lib/count-expected'
+
+/** Attach theoreticalStock, countedStock, lastCountDate to each item row. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function attachTheoreticalFields<T extends Record<string, any>>(
+  items: T[],
+  theoMap: Map<string, number>,
+): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null })[] {
+  return items.map(item => {
+    // Use a pre-set countedStock when the caller already captured the raw value (e.g. the
+    // "All RCs" path pre-sets it before inflating stockOnHand with allocTotal). Otherwise
+    // derive it from the current stockOnHand.
+    const counted = item.countedStock !== undefined ? Number(item.countedStock) : Number(item.stockOnHand)
+    const theoretical = theoMap.has(item.id) ? theoMap.get(item.id)! : counted
+    const lastCountDate = item.lastCountDate
+      ? (item.lastCountDate instanceof Date ? item.lastCountDate.toISOString() : String(item.lastCountDate))
+      : null
+    return {
+      ...item,
+      theoreticalStock: theoretical,
+      countedStock: counted,
+      lastCountDate,
+    }
+  })
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -51,7 +76,9 @@ export async function GET(req: NextRequest) {
         (!storageAreaId || i.storageAreaId === storageAreaId) &&
         (isActive === null || isActive === '' || String(i.isActive) === isActive)
       )
-    return NextResponse.json(items, {
+    const itemIds = items.map(i => i.id)
+    const theoMap = await getTheoreticalStockMap(rcId, itemIds)
+    return NextResponse.json(attachTheoreticalFields(items, theoMap), {
       headers: { 'Cache-Control': 'no-store' },
     })
   }
@@ -78,7 +105,9 @@ export async function GET(req: NextRequest) {
         reorderQty: alloc?.reorderQty !== null && alloc?.reorderQty !== undefined ? Number(alloc.reorderQty) : null,
       }
     })
-    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
+    const itemIds = result.map(i => i.id)
+    const theoMap = await getTheoreticalStockMap(rcId, itemIds)
+    return NextResponse.json(attachTheoreticalFields(result, theoMap), { headers: { 'Cache-Control': 'no-store' } })
   }
 
   // "All Revenue Centers": total physical stock = stockOnHand (Cafe pool) + all RC allocations
@@ -93,10 +122,15 @@ export async function GET(req: NextRequest) {
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
   const items = rawItems.map(({ stockAllocations, ...item }) => {
+    const rawStockOnHand = Number(item.stockOnHand)  // actual last-counted value — used for countedStock anchor
     const allocTotal = stockAllocations.reduce((s, a) => s + Number(a.quantity), 0)
-    return { ...item, stockOnHand: Number(item.stockOnHand) + allocTotal }
+    // stockOnHand is inflated for display (pooled total across all RCs), but we pre-attach
+    // countedStock from the raw value so attachTheoreticalFields sees the true last-counted figure.
+    return { ...item, stockOnHand: rawStockOnHand + allocTotal, countedStock: rawStockOnHand }
   })
-  return NextResponse.json(items, {
+  const itemIds = items.map(i => i.id)
+  const theoMap = await getTheoreticalStockMap(null, itemIds)
+  return NextResponse.json(attachTheoreticalFields(items, theoMap), {
     headers: { 'Cache-Control': 'no-store' },
   })
 }

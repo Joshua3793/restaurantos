@@ -60,6 +60,7 @@ export interface PrepItemRich {
   ingredientShortCount: number | null
   ingredientTotalCount: number | null
   lastMadeAt: string | null
+  revenueCenterId: string | null
 }
 
 export interface IngredientAvailability {

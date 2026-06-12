@@ -463,6 +463,16 @@ git commit -m "feat(stock): prep terms in theoretical engine + batch accessor"
 
 ---
 
+### Task 4b: Prep-coverage for the remaining expected-computation routes (added during execution)
+
+Discovered during Task 4 review: two routes compute count "expected" via `computeExpected` with 5 args (no prep) and would silently undercount once the real prep write is removed.
+
+**Files:**
+- Modify: `src/app/api/count/areas/route.ts` (~line 66 `computeExpected(...)`)
+- Modify: `src/app/api/count/sessions/[id]/sync/route.ts` (~line 105, `getExpected`)
+
+- [ ] Add `buildPrepMap` to each route's map-building (same `since`/RC scope + `earliest`-guard pattern as the count-session route) and append `prepMap.consumption, prepMap.output` to each `computeExpected(...)` call. Verify build; commit.
+
 ## Phase 3 — Cut writes over to theoretical
 
 ### Task 5: Remove the prep real write

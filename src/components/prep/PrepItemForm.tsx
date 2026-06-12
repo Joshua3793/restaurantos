@@ -6,6 +6,7 @@ import type { PrepItemRich } from './types'
 
 
 interface Recipe { id: string; name: string; yieldUnit: string }
+interface RevenueCenter { id: string; name: string }
 
 interface Props {
   item?: PrepItemRich | null
@@ -19,6 +20,7 @@ const BLANK = {
   parLevel: '', unit: 'batch',
   targetToday: '', shelfLifeDays: '', estimatedPrepTime: '', notes: '',
   manualPriorityOverride: '',
+  revenueCenterId: '',
 }
 
 type TimeUnit = 'min' | 'hr' | 'day'
@@ -36,6 +38,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
   const [form, setForm]           = useState(BLANK)
   const [prepTimeUnit, setPrepTimeUnit] = useState<TimeUnit>('min')
   const [recipes, setRecipes]     = useState<Recipe[]>([])
+  const [revenueCenters, setRevenueCenters] = useState<RevenueCenter[]>([])
   const [saving, setSaving]       = useState(false)
   const [error, setError]         = useState<string | null>(null)
   const [stations, setStations] = useState<string[]>(PREP_STATIONS)
@@ -44,6 +47,13 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
     fetch('/api/recipes?type=PREP&isActive=true')
       .then(r => r.json())
       .then((data: Recipe[]) => setRecipes(Array.isArray(data) ? data : []))
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/revenue-centers')
+      .then(r => r.json())
+      .then((data: RevenueCenter[]) => setRevenueCenters(Array.isArray(data) ? data : []))
+      .catch(() => { /* keep empty on error */ })
   }, [])
 
   useEffect(() => {
@@ -70,6 +80,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
         estimatedPrepTime:     item.estimatedPrepTime != null ? (() => { const d = minutesToDisplay(item.estimatedPrepTime!); setPrepTimeUnit(d.unit); return d.value })() : '',
         notes:                 item.notes                ?? '',
         manualPriorityOverride: item.manualPriorityOverride ?? '',
+        revenueCenterId:       item.revenueCenterId       ?? '',
       })
     }
   }, [item])
@@ -97,6 +108,7 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
       estimatedPrepTime:     form.estimatedPrepTime ? Math.round(parseFloat(form.estimatedPrepTime) * TIME_UNIT_TO_MINUTES[prepTimeUnit]) : null,
       notes:                 form.notes || null,
       manualPriorityOverride: form.manualPriorityOverride || null,
+      revenueCenterId:       form.revenueCenterId || null,
     }
 
     const url    = item ? `/api/prep/items/${item.id}` : '/api/prep/items'
@@ -151,6 +163,13 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
             <select className={selCls} value={form.station} onChange={e => set('station', e.target.value)}>
               <option value="">— None —</option>
               {stations.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          ))}
+
+          {field('Revenue Center', (
+            <select className={selCls} value={form.revenueCenterId} onChange={e => set('revenueCenterId', e.target.value)}>
+              <option value="">Shared (all centers)</option>
+              {revenueCenters.map(rc => <option key={rc.id} value={rc.id}>{rc.name}</option>)}
             </select>
           ))}
 

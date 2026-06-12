@@ -25,14 +25,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       packSize,
       packUOM,
     )
-    const newStock = parseFloat(String(item.stockOnHand)) + parseFloat(String(li.qtyPurchased))
-
     await prisma.inventoryItem.update({
       where: { id: item.id },
       data: {
         purchasePrice: newPurchasePrice,
         pricePerBaseUnit: newPPBU,
-        stockOnHand: newStock,
         lastUpdated: new Date(),
       },
     })
