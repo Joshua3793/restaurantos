@@ -163,10 +163,21 @@ export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlo
 }
 
 /** Split on-list items into the design's groups. */
-export function groupPrepItems<T extends { priority: PrepPriority }>(items: T[]): { critical: T[]; needed: T[]; later: T[] } {
+export function groupPrepItems<
+  T extends { priority: PrepPriority; todayLog?: { status?: string | null } | null }
+>(items: T[]): { critical: T[]; needed: T[]; later: T[] } {
+  // Pin started (IN_PROGRESS) items to the top of each actionable group — mirrors
+  // the desktop board's startedFirst sort so mobile and desktop agree. Stable:
+  // non-started items keep their existing order.
+  const startedFirst = (rows: T[]) =>
+    [...rows].sort(
+      (a, b) =>
+        (a.todayLog?.status === 'IN_PROGRESS' ? 0 : 1) -
+        (b.todayLog?.status === 'IN_PROGRESS' ? 0 : 1),
+    )
   return {
-    critical: items.filter(i => i.priority === '911'),
-    needed:   items.filter(i => i.priority === 'NEEDED_TODAY'),
+    critical: startedFirst(items.filter(i => i.priority === '911')),
+    needed:   startedFirst(items.filter(i => i.priority === 'NEEDED_TODAY')),
     later:    items.filter(i => i.priority === 'LATER'),
   }
 }
