@@ -45,12 +45,17 @@ export async function GET(req: NextRequest) {
     .map(i => i.lastCountDate)
     .filter(Boolean)
     .sort((a, b) => (a as Date).getTime() - (b as Date).getTime())[0] as Date | undefined
+  // Per-item cutoff so each item's drift is measured from its OWN last count,
+  // not the batch's earliest (which double-counts movements already baked into
+  // a recently-counted item's baseline).
+  const cutoff = new Map<string, Date>()
+  for (const i of items) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
   const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliestLastCount
     ? await Promise.all([
-        buildConsumptionMap(earliestLastCount, rcId),
-        buildPurchaseMap(earliestLastCount, rcId),
-        buildWastageMap(earliestLastCount, items.map(i => i.id), rcId),
-        buildPrepMap(earliestLastCount, rcId),
+        buildConsumptionMap(earliestLastCount, rcId, cutoff),
+        buildPurchaseMap(earliestLastCount, rcId, cutoff),
+        buildWastageMap(earliestLastCount, items.map(i => i.id), rcId, cutoff),
+        buildPrepMap(earliestLastCount, rcId, cutoff),
       ])
     : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
 

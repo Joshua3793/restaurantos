@@ -27,24 +27,44 @@ type RecipeForExpansion = {
   ingredients: IngredientWithLinks[]
 }
 
+/**
+ * Per-item lookback gate. The movement maps are queried over a single wide
+ * window (the earliest `lastCountDate` in the batch) for efficiency, but each
+ * item's baseline is its OWN count. An event may only be applied to item X if
+ * it occurred on/after X's own `lastCountDate` — otherwise it is already baked
+ * into X's baseline and would be double-counted.
+ *
+ * When `cutoff` is omitted, every event passes (legacy single-window behaviour).
+ * When provided, items absent from the map (no count date) receive nothing —
+ * matching `computeExpectedForItem`, which collapses to the baseline with no
+ * lookback window.
+ */
+function inWindow(cutoff: Map<string, Date> | undefined, id: string, date: Date): boolean {
+  if (!cutoff) return true
+  const c = cutoff.get(id)
+  return c != null && date >= c
+}
+
 function expandRecipeIngredients(
   recipe: RecipeForExpansion,
   batches: number,
   map: Map<string, number>,
   visitedRecipes: Set<string>,
+  eventDate?: Date,
+  cutoff?: Map<string, Date>,
 ): void {
   if (visitedRecipes.has(recipe.id)) return
   visitedRecipes.add(recipe.id)
 
   for (const ing of recipe.ingredients) {
-    if (ing.inventoryItemId && ing.inventoryItem) {
+    if (ing.inventoryItemId && ing.inventoryItem && (!eventDate || inWindow(cutoff, ing.inventoryItemId, eventDate))) {
       const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, ing.inventoryItem.baseUnit)
       map.set(ing.inventoryItemId, (map.get(ing.inventoryItemId) ?? 0) + consumed)
     }
 
     if (ing.linkedRecipeId && ing.linkedRecipe && !visitedRecipes.has(ing.linkedRecipeId)) {
       const prep = ing.linkedRecipe
-      if (prep.inventoryItemId && prep.inventoryItem) {
+      if (prep.inventoryItemId && prep.inventoryItem && (!eventDate || inWindow(cutoff, prep.inventoryItemId, eventDate))) {
         const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, prep.inventoryItem.baseUnit)
         map.set(prep.inventoryItemId, (map.get(prep.inventoryItemId) ?? 0) + consumed)
       }
@@ -55,6 +75,7 @@ function expandRecipeIngredients(
 export async function buildConsumptionMap(
   since: Date,
   rcId?: string | null,
+  cutoff?: Map<string, Date>,
 ): Promise<Map<string, number>> {
   const lineItems = await prisma.saleLineItem.findMany({
     where: {
@@ -64,6 +85,7 @@ export async function buildConsumptionMap(
       },
     },
     include: {
+      sale: { select: { date: true } },
       recipe: {
         include: {
           ingredients: {
@@ -92,7 +114,7 @@ export async function buildConsumptionMap(
         ? Number(recipe.baseYieldQty) / Number(recipe.portionSize)
         : 1
     const batches = li.qtySold / portionsPerBatch
-    expandRecipeIngredients(recipe, batches, map, new Set<string>())
+    expandRecipeIngredients(recipe, batches, map, new Set<string>(), li.sale.date, cutoff)
   }
   return map
 }
@@ -100,6 +122,7 @@ export async function buildConsumptionMap(
 export async function buildPurchaseMap(
   since: Date,
   rcId?: string | null,
+  cutoff?: Map<string, Date>,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
 
@@ -122,6 +145,7 @@ export async function buildPurchaseMap(
         invoicePackQty:  true,
         invoicePackSize: true,
         invoicePackUOM:  true,
+        session: { select: { createdAt: true } },
         matchedItem: {
           select: {
             id: true, baseUnit: true,
@@ -133,6 +157,7 @@ export async function buildPurchaseMap(
 
     for (const si of scanItems) {
       if (!si.matchedItemId || !si.matchedItem) continue
+      if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
       const qty = Number(si.rawQty ?? 0)
       if (qty <= 0) continue
 
@@ -165,6 +190,7 @@ export async function buildPurchaseMap(
         },
       },
       include: {
+        invoice: { select: { invoiceDate: true } },
         inventoryItem: {
           select: {
             id: true, baseUnit: true,
@@ -176,6 +202,7 @@ export async function buildPurchaseMap(
 
     for (const p of purchaseRows) {
       if (!p.inventoryItem) continue
+      if (p.inventoryItemId && !inWindow(cutoff, p.inventoryItemId, p.invoice.invoiceDate)) continue
       const unitsPerCase =
         Number(p.inventoryItem.qtyPerPurchaseUnit) *
         Number(p.inventoryItem.packSize) *
@@ -192,6 +219,7 @@ export async function buildWastageMap(
   since: Date,
   itemIds: string[],
   rcId?: string | null,
+  cutoff?: Map<string, Date>,
 ): Promise<Map<string, number>> {
   const wastageRows = await prisma.wastageLog.findMany({
     where: {
@@ -203,12 +231,14 @@ export async function buildWastageMap(
       inventoryItemId: true,
       qtyWasted:       true,
       unit:            true,
+      date:            true,
       inventoryItem:   { select: { baseUnit: true } },
     },
   })
 
   const map = new Map<string, number>()
   for (const w of wastageRows) {
+    if (!inWindow(cutoff, w.inventoryItemId, w.date)) continue
     const converted = convertQty(Number(w.qtyWasted), w.unit, w.inventoryItem.baseUnit)
     map.set(w.inventoryItemId, (map.get(w.inventoryItemId) ?? 0) + converted)
   }
@@ -316,6 +346,7 @@ export async function getTheoreticalStock(itemId: string, rcId?: string | null):
 export async function buildPrepMap(
   since: Date,
   rcId?: string | null,
+  cutoff?: Map<string, Date>,
 ): Promise<{ consumption: Map<string, number>; output: Map<string, number> }> {
   const logs = await prisma.prepLog.findMany({
     where: {
@@ -369,14 +400,16 @@ export async function buildPrepMap(
       // conversion afterward — same pattern as recipeCosts.ts.
       const qty = Number(ing.qtyBase) * scale
       if (ing.inventoryItemId && ing.inventoryItem) {
-        add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
+        if (inWindow(cutoff, ing.inventoryItem.id, log.logDate))
+          add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         const prep = ing.linkedRecipe.inventoryItem
-        add(consumption, prep.id, convertQty(qty, ing.unit, prep.baseUnit))
+        if (inWindow(cutoff, prep.id, log.logDate))
+          add(consumption, prep.id, convertQty(qty, ing.unit, prep.baseUnit))
       }
     }
 
-    if (recipe.inventoryItemId && recipe.inventoryItem) {
+    if (recipe.inventoryItemId && recipe.inventoryItem && inWindow(cutoff, recipe.inventoryItem.id, log.logDate)) {
       const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
       add(output, recipe.inventoryItem.id, yieldInBase)
     }
@@ -406,13 +439,22 @@ export async function getTheoreticalStockMap(
     .filter(Boolean)
     .sort((a, b) => ((a as Date) > (b as Date) ? 1 : -1))[0] as Date | undefined
 
+  // Per-item cutoff: each item's movements are only those since its OWN count,
+  // even though we query the maps over one wide window. Without this, an item
+  // counted more recently than `earliest` double-counts movements that predate
+  // its count but are already in its baseline (so the batched map disagreed with
+  // the single-item computeExpectedForItem — e.g. a just-counted prep item
+  // reading par+yield instead of the counted qty).
+  const cutoff = new Map<string, Date>()
+  for (const i of items) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
+
   const empty = new Map<string, number>()
   const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliest
     ? await Promise.all([
-        buildConsumptionMap(earliest, rcId),
-        buildPurchaseMap(earliest, rcId),
-        buildWastageMap(earliest, ids, rcId),
-        buildPrepMap(earliest, rcId),
+        buildConsumptionMap(earliest, rcId, cutoff),
+        buildPurchaseMap(earliest, rcId, cutoff),
+        buildWastageMap(earliest, ids, rcId, cutoff),
+        buildPrepMap(earliest, rcId, cutoff),
       ])
     : [empty, empty, empty, { consumption: empty, output: empty }]
 

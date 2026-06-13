@@ -70,12 +70,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     .filter(Boolean)
     .sort((a, b) => ((a as Date) > (b as Date) ? 1 : -1))[0] as Date | undefined
 
+  // Per-item cutoff so each item's expected qty is measured from its OWN last
+  // count, not the batch's earliest (which double-counts movements already in a
+  // recently-counted item's baseline).
+  const cutoff = new Map<string, Date>()
+  for (const i of activeItems) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
+
   const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliestLastCount
     ? await Promise.all([
-        buildConsumptionMap(earliestLastCount, session.revenueCenterId),
-        buildPurchaseMap(earliestLastCount, session.revenueCenterId),
-        buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId),
-        buildPrepMap(earliestLastCount, session.revenueCenterId),
+        buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff),
+        buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff),
+        buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff),
+        buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff),
       ])
     : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
 
