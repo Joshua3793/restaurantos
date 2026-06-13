@@ -16,13 +16,17 @@ export interface PrepBoardProps {
 
 const notOnListIds = (rows: BoardRow[]) => rows.filter(r => !r.onList).map(r => r.id)
 
+// Pin started (in-progress) items to the top of a block; stable for the rest.
+const startedFirst = (rows: BoardRow[]) =>
+  [...rows].sort((a, b) => (a.status === 'in-progress' ? 0 : 1) - (b.status === 'in-progress' ? 0 : 1))
+
 export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll }: PrepBoardProps) {
   const h: RowHandlers = { ...handlers, view }
 
   if (view === 'todo') {
     const list = todayItems.map(toBoardRow)
-    const crit = list.filter(r => r.urgency === 'critical' && r.status !== 'done' && r.status !== 'skipped')
-    const low = list.filter(r => r.urgency !== 'critical' && r.status !== 'done' && r.status !== 'skipped')
+    const crit = startedFirst(list.filter(r => r.urgency === 'critical' && r.status !== 'done' && r.status !== 'skipped'))
+    const low = startedFirst(list.filter(r => r.urgency !== 'critical' && r.status !== 'done' && r.status !== 'skipped'))
     const closed = list.filter(r => r.status === 'done' || r.status === 'skipped')
     return (
       <div className="board">
