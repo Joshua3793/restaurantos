@@ -67,6 +67,24 @@ export function computeVariance(item: ScanItem): {
   return { percent: Math.abs(pct), direction: pct > 0 ? 'up' : 'down' }
 }
 
+// ── Display variance (for the compact collapsed line row) ────────────────────
+// Best-available price variance for an at-a-glance up/down indicator. Prefers
+// the normalised $/base-unit comparison (same basis as the expanded Inventory
+// comparison card so the two never disagree); falls back to the stored
+// purchase-price diff when the line can't be normalised. Returns null when
+// there's no comparable prior price or the change is negligible (< 0.1%).
+export function computeDisplayVariance(item: ScanItem): {
+  percent: number
+  direction: 'up' | 'down'
+} | null {
+  const norm = computeNormalisedPrices(item)
+  const pct = norm
+    ? norm.pctDiff
+    : item.priceDiffPct != null ? Number(item.priceDiffPct) : null
+  if (pct == null || Number.isNaN(pct) || Math.abs(pct) < 0.1) return null
+  return { percent: Math.abs(pct), direction: pct > 0 ? 'up' : 'down' }
+}
+
 // ── Normalised price comparison (for "Inventory result" row) ─────────────────
 // Uses pricePerBaseUnit (stored SI price, e.g. $/g or $/ml) from the matched
 // inventory item — the canonical value written on every approve — so the

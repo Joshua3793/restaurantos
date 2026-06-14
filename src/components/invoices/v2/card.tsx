@@ -5,7 +5,7 @@
 // inventory-cost comparison. Reads shared state from DrawerContext.
 
 import { useRef } from 'react'
-import { ChevronDown, ExternalLink, Ban, Undo2, Check } from 'lucide-react'
+import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown } from 'lucide-react'
 import { useDrawerContext } from './context'
 import { LineNumberChip } from './atoms'
 import {
@@ -21,7 +21,7 @@ import {
 } from '@/lib/invoice/predicates'
 import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
-import { computeNormalisedPrices } from '@/lib/invoice/calculations'
+import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
@@ -102,6 +102,9 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
 
   const total = item.rawLineTotal ? Number(item.rawLineTotal) : null
   const rate  = formatRateLabel(item)
+  // Price movement vs. the linked inventory item — surfaced on the collapsed row
+  // so a rising/falling cost is visible without expanding the line.
+  const variance = item.matchedItem ? computeDisplayVariance(item) : null
 
   // ── Charge / skipped line — "Other line items" section ──────────────────────
   if (isSkipped) {
@@ -161,6 +164,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
             matched
           </span>
         )}
+        {variance && <VariancePill variance={variance} />}
         <div className="font-mono text-[13px] font-semibold text-ink tabular-nums shrink-0">
           {total !== null ? formatCurrency(total) : '—'}
         </div>
@@ -336,6 +340,26 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         </>
       )}
     </article>
+  )
+}
+
+// ─── VariancePill ──────────────────────────────────────────────────────────────
+// Compact up/down price-movement chip for the collapsed line row. Up (cost rose)
+// reads red; down (cost fell) reads green — same colour convention as the
+// expanded InventoryComparisonCard so the two never appear to disagree.
+
+function VariancePill({ variance }: { variance: { percent: number; direction: 'up' | 'down' } }) {
+  const up = variance.direction === 'up'
+  return (
+    <span
+      title={`${up ? 'Up' : 'Down'} ${variance.percent.toFixed(1)}% vs current inventory cost`}
+      className={`font-mono text-[10px] font-semibold tabular-nums shrink-0 inline-flex items-center gap-0.5 px-1.5 py-[2px] rounded-full ${
+        up ? 'bg-red-soft text-red-text' : 'bg-green-soft text-green-text'
+      }`}
+    >
+      {up ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
+      {variance.percent.toFixed(1)}%
+    </span>
   )
 }
 
