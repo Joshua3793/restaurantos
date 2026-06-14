@@ -35,6 +35,22 @@ async function doApprove(
 
     const updatedItemIds: string[] = []
 
+    // (itemId, rcId) pairs to register as RC stock allocations. A line assigned to a
+    // non-default RC must make its inventory item appear in that RC's inventory list —
+    // which is gated by StockAllocation rows. Collected during the loop, upserted after.
+    const allocPairs: Array<{ itemId: string; rcId: string }> = []
+    const defaultRc = await prisma.revenueCenter.findFirst({
+      where: { isDefault: true },
+      select: { id: true },
+    })
+    const defaultRcId = defaultRc?.id ?? null
+    // The line's effective RC is its own override, else the invoice's active RC.
+    // Only non-default RCs need an allocation row (default RC reads global stockOnHand).
+    const registerAlloc = (itemId: string | null, lineRcId: string | null) => {
+      const rcId = lineRcId ?? session.revenueCenterId
+      if (itemId && rcId && rcId !== defaultRcId) allocPairs.push({ itemId, rcId })
+    }
+
     // Offers are keyed by canonical supplier name so OCR name variants
     // ("… Inc." vs "… Inc. - Vancouver") can't split one supplier into two.
     const offerSupplierName = session.supplierName
@@ -186,6 +202,7 @@ async function doApprove(
 
         await prisma.$transaction(itemOps)
         updatedItemIds.push(scanItem.matchedItemId)
+        registerAlloc(scanItem.matchedItemId, scanItem.revenueCenterId)
 
         // Upsert this supplier's offer: their last price, their pack format
         // (post-review resolved values), their SKU. Non-critical, outside the
@@ -283,6 +300,7 @@ async function doApprove(
         })
         updatedItemIds.push(created.id)
         newItemsCreated++
+        registerAlloc(created.id, scanItem.revenueCenterId)
         await prisma.invoiceScanItem.update({
           where: { id: scanItem.id },
           data: { matchedItemId: created.id, approved: true },
@@ -297,6 +315,25 @@ async function doApprove(
           where: { id: scanItem.id },
           data: { approved: true },
         })
+      }
+    }
+
+    // ── Register RC stock allocations ───────────────────────────────────
+    // Ensure each (item, non-default RC) pair has a StockAllocation row so the
+    // purchased item shows up in that RC's inventory list. Quantity stays at its
+    // existing value (0 for a fresh row) — theoretical on-hand fills in from the
+    // purchase history. Non-critical: a failure here must not fail the approval.
+    if (allocPairs.length > 0) {
+      const seen = new Set<string>()
+      for (const { itemId, rcId } of allocPairs) {
+        const key = `${rcId}::${itemId}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        await prisma.stockAllocation.upsert({
+          where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId: itemId } },
+          create: { revenueCenterId: rcId, inventoryItemId: itemId, quantity: 0 },
+          update: {}, // already allocated — leave quantity/par/reorder untouched
+        }).catch((e) => console.error('[approve] stock allocation upsert failed:', e))
       }
     }
 

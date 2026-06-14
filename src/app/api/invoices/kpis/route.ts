@@ -1,14 +1,17 @@
 // src/app/api/invoices/kpis/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { invoiceSpendByRc, type RcSpendResult } from '@/lib/invoice-spend'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
-  // Session-scoped RC filter: default RC also sees legacy null-RC sessions;
-  // non-default RC sees only its own.
+  // Session-scoped RC filter for the secondary counts (alerts / review / exceptions).
+  // Default RC also sees legacy null-RC sessions; non-default RC sees only its own.
   const rcWhere = rcId
     ? (isDefault
         ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
@@ -34,30 +37,13 @@ export async function GET(req: NextRequest) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-  const [
-    weekAgg,
-    prevWeekAgg,
-    monthAgg,
-    monthCount,
-    priceAlertCount,
-    awaitingCount,
-    lineItems,
-  ] = await Promise.all([
-    prisma.invoiceSession.aggregate({
-      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: weekStart, lt: weekEnd } }, rcWhere] },
-      _sum: { total: true },
-    }),
-    prisma.invoiceSession.aggregate({
-      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: prevWeekStart, lt: prevWeekEnd } }, rcWhere] },
-      _sum: { total: true },
-    }),
-    prisma.invoiceSession.aggregate({
-      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
-      _sum: { total: true },
-    }),
-    prisma.invoiceSession.count({
-      where: { AND: [{ status: 'APPROVED', parentSessionId: null, approvedAt: { gte: monthStart, lt: monthEnd } }, rcWhere] },
-    }),
+  // Spend is attributed per-RC by `invoiceSpendByRc` (the single source of truth):
+  // each line → its effective RC, skip/pending → default RC, invoice tax/extra →
+  // the invoice's active RC. This matches what lands in the RC's expenses.
+  const [week, prevWeek, month, priceAlertCount, awaitingCount, catLines] = await Promise.all([
+    invoiceSpendByRc(weekStart, weekEnd),
+    invoiceSpendByRc(prevWeekStart, prevWeekEnd),
+    invoiceSpendByRc(monthStart, monthEnd),
     prisma.priceAlert.count({
       where: {
         acknowledged: false,
@@ -67,10 +53,15 @@ export async function GET(req: NextRequest) {
     prisma.invoiceSession.count({
       where: { AND: [{ status: 'REVIEW' }, rcWhere] },
     }),
-    prisma.invoiceLineItem.findMany({
-      // Invoice records are created at approval time, so createdAt ≈ approvedAt
-      where: { invoice: { createdAt: { gte: monthStart, lt: monthEnd } } },
-      include: { inventoryItem: { select: { category: true } } },
+    // Category breakdown for the month, scoped to the requested RC via the line-level
+    // split (clone) mechanism — approved, non-split lines grouped by item category.
+    prisma.invoiceScanItem.findMany({
+      where: {
+        approved: true,
+        splitToSessionId: null,
+        session: { status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd }, ...rcWhere },
+      },
+      select: { rawLineTotal: true, matchedItem: { select: { category: true } } },
     }),
   ])
 
@@ -79,17 +70,29 @@ export async function GET(req: NextRequest) {
     where: { matchedItemId: null, session: { status: 'REVIEW' } },
   })
 
-  const weekSpend = Number(weekAgg._sum.total ?? 0)
-  const prevWeekSpend = Number(prevWeekAgg._sum.total ?? 0)
+  const pickSpend = (r: RcSpendResult): number => {
+    if (!rcId) {
+      let t = 0
+      for (const v of r.byRc.values()) t += v
+      return t
+    }
+    return r.byRc.get(rcId) ?? 0
+  }
+  const pickCount = (r: RcSpendResult): number =>
+    rcId ? (r.invoiceCountByRc.get(rcId) ?? 0) : r.totalInvoices
+
+  const weekSpend = pickSpend(week)
+  const prevWeekSpend = pickSpend(prevWeek)
   const weekSpendChangePct = prevWeekSpend === 0
     ? 0
     : Math.round(((weekSpend - prevWeekSpend) / prevWeekSpend) * 100)
 
   // Group line items by category
   const categoryMap: Record<string, number> = {}
-  for (const item of lineItems) {
-    const cat = item.inventoryItem.category
-    categoryMap[cat] = (categoryMap[cat] ?? 0) + Number(item.lineTotal)
+  for (const item of catLines) {
+    const cat = item.matchedItem?.category
+    if (!cat) continue
+    categoryMap[cat] = (categoryMap[cat] ?? 0) + Number(item.rawLineTotal ?? 0)
   }
   const topCategories = Object.entries(categoryMap)
     .sort(([, a], [, b]) => b - a)
@@ -99,8 +102,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     weekSpend,
     weekSpendChangePct,
-    monthSpend: Number(monthAgg._sum.total ?? 0),
-    monthInvoiceCount: monthCount,
+    monthSpend: pickSpend(month),
+    monthInvoiceCount: pickCount(month),
     priceAlertCount,
     awaitingApprovalCount: awaitingCount,
     exceptionsCount,
