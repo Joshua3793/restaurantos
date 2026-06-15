@@ -33,7 +33,7 @@ const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsMo
 
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
-  const { activeRc } = useRc()
+  const { activeRc, activeRcId } = useRc()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
@@ -357,6 +357,13 @@ export default function PrepPage() {
     if (pendingItems.current.has(itemId)) return
     const item = items.find(i => i.id === itemId)
     if (!item) return
+    // Recording a prep log is a stock movement — it needs a concrete revenue center.
+    // The API resolves prepItem.revenueCenterId ?? body.revenueCenterId, so only block
+    // when the item carries no RC of its own AND no concrete RC is active ("All" view).
+    if (!item.revenueCenterId && !activeRcId) {
+      setActionError('Select a revenue center (not "All") to record prep.')
+      return
+    }
     pendingItems.current.add(itemId)
 
     const now = new Date().toISOString()
@@ -400,7 +407,7 @@ export default function PrepPage() {
         const log = await fetch('/api/prep/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prepItemId: itemId }),
+          body: JSON.stringify({ prepItemId: itemId, revenueCenterId: activeRcId }),
         }).then(r => r.json())
         logId = log.id
         setItems(prev => prev.map(i => {
@@ -489,7 +496,7 @@ export default function PrepPage() {
           await fetch('/api/prep/logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prepItemId: itemId, status: 'SKIPPED' }),
+            body: JSON.stringify({ prepItemId: itemId, status: 'SKIPPED', revenueCenterId: activeRcId }),
           }).catch(() => {}) // non-critical — don't fail the whole operation
         }
       }

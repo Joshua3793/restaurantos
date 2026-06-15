@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { X, BookOpen, CheckCircle, Clock, AlertCircle, RotateCcw, ChevronRight, History } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
+import { useRc } from '@/contexts/RevenueCenterContext'
 import {
   PREP_PRIORITY_META,
   PREP_STATUS_META,
@@ -41,6 +42,11 @@ function fmtDate(iso: string) {
 }
 
 export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
+  const { activeRcId } = useRc()
+  // A prep log is a stock movement — it needs a concrete revenue center. The API
+  // resolves prepItem.revenueCenterId ?? body.revenueCenterId, so recording is only
+  // blocked when the item has no RC of its own AND no concrete RC is active ("All").
+  const canRecord = Boolean(item.revenueCenterId || activeRcId)
   const [detail, setDetail]             = useState<PrepItemDetail | null>(null)
   const [actualQty, setActualQty]       = useState('')
   const [newRevertQty, setNewRevertQty] = useState('')
@@ -76,12 +82,16 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
     const log = await fetch('/api/prep/logs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prepItemId: item.id }),
+      body: JSON.stringify({ prepItemId: item.id, revenueCenterId: activeRcId }),
     }).then(r => r.json())
     return log.id
   }
 
   async function updateStatus(newStatus: string) {
+    if (!canRecord) {
+      setWarning('Select a revenue center (not "All") to record prep.')
+      return
+    }
     const NEEDS_QTY = new Set(['DONE', 'PARTIAL'])
     if (NEEDS_QTY.has(newStatus) && !actualQty) {
       setWarning('Enter actual prep quantity first')
@@ -202,21 +212,27 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
               />
             </div>
 
+            {!canRecord && (
+              <div className="mb-2 flex items-start gap-2 text-[12px] text-red-text bg-red-soft border border-red-soft rounded-[9px] p-2.5">
+                <AlertCircle size={13} className="shrink-0 mt-0.5" /> Select a revenue center (not &quot;All&quot;) to record prep.
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => updateStatus('IN_PROGRESS')} disabled={loading}
-                className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] font-medium border border-[#fcd34d] text-gold-2 bg-gold-soft rounded-[9px] hover:bg-[#fde9c8] transition-colors disabled:opacity-50">
+              <button onClick={() => updateStatus('IN_PROGRESS')} disabled={loading || !canRecord}
+                className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] font-medium border border-[#fcd34d] text-gold-2 bg-gold-soft rounded-[9px] hover:bg-[#fde9c8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 <Clock size={14} /> Start
               </button>
-              <button onClick={() => updateStatus('DONE')} disabled={loading}
-                className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] font-medium bg-ink text-paper rounded-[9px] hover:bg-ink-2 transition-colors disabled:opacity-50">
+              <button onClick={() => updateStatus('DONE')} disabled={loading || !canRecord}
+                className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] font-medium bg-ink text-paper rounded-[9px] hover:bg-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 <CheckCircle size={14} className="text-green" /> Mark done
               </button>
-              <button onClick={() => updateStatus('PARTIAL')} disabled={loading}
-                className="px-3 py-2.5 text-[13px] font-medium border border-gold-soft text-gold-2 bg-gold-soft rounded-[9px] hover:bg-gold-soft transition-colors disabled:opacity-50">
+              <button onClick={() => updateStatus('PARTIAL')} disabled={loading || !canRecord}
+                className="px-3 py-2.5 text-[13px] font-medium border border-gold-soft text-gold-2 bg-gold-soft rounded-[9px] hover:bg-gold-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 Partial
               </button>
-              <button onClick={() => updateStatus('BLOCKED')} disabled={loading}
-                className="px-3 py-2.5 text-[13px] font-medium border border-red-soft text-red-text bg-red-soft rounded-[9px] hover:bg-red-soft transition-colors disabled:opacity-50">
+              <button onClick={() => updateStatus('BLOCKED')} disabled={loading || !canRecord}
+                className="px-3 py-2.5 text-[13px] font-medium border border-red-soft text-red-text bg-red-soft rounded-[9px] hover:bg-red-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 Blocked
               </button>
             </div>
