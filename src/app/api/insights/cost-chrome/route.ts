@@ -100,17 +100,20 @@ export async function GET(req: NextRequest) {
 
   // ── On hand: RC-aware inventory value (mirrors the inventory page) ─────
   //   • non-default RC → Σ theoretical(rcId) × price for that RC's items
-  //   • default RC      → Σ theoretical(null) × price (global pool = default pool)
-  //   • all RCs         → Σ theoretical(null) × price (global pool)
+  //   • default RC      → Σ theoretical(rcId) × price for ALL items (Cafe pool)
+  //   • all RCs         → Σ theoretical(null) × price + non-default allocations
   //
   // "Theoretical" = last-counted baseline + purchases − sales − wastage − prep since
   // last count, using getTheoreticalStockMap (same engine as the inventory list).
+  // The scope MUST match the selected RC: movements are attributed per-RC, so the
+  // default (Cafe) pool must use its own rcId — using the global (null) scope here
+  // wrongly subtracts every other RC's usage from the Cafe pool, understating it.
   const rcIsDefault = !!targetRC?.isDefault
 
-  // Determine which RC scope to pass to getTheoreticalStockMap:
-  //   - non-default RC: pass rcId so the engine uses StockAllocation as baseline
-  //   - default RC or no filter: pass null/undefined for the global pool
-  const theoreticalRcId: string | null = rcId && !rcIsDefault ? rcId : null
+  // Pass the selected rcId to the engine whenever ANY RC is selected (default or
+  // not) so the banner is scoped to that RC, exactly like the inventory list.
+  // null is used only for the unfiltered "all RCs" view.
+  const theoreticalRcId: string | null = rcId || null
   const itemIds = inventory.map(it => it.id)
   const theoreticalMap = await getTheoreticalStockMap(theoreticalRcId, itemIds)
 
