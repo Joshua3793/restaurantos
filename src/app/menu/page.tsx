@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { X, UtensilsCrossed, Search, Check, Download, SlidersHorizontal } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
+import { MENU_YIELD_UNITS } from '@/lib/uom'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
 
@@ -386,15 +387,7 @@ function MenuPageInner() {
                       className="w-28 border border-line rounded-[9px] px-2.5 py-2 text-[13px] text-ink bg-paper focus:outline-none focus:border-ink-3"
                     >
                       <option value="">Unit…</option>
-                      <option value="portion">portion</option>
-                      <option value="portions">portions</option>
-                      <option value="serving">serving</option>
-                      <option value="servings">servings</option>
-                      <option value="each">each</option>
-                      <option value="piece">piece</option>
-                      <option value="pieces">pieces</option>
-                      <option value="plate">plate</option>
-                      <option value="bowl">bowl</option>
+                      {MENU_YIELD_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                 </div>

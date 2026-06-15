@@ -1,7 +1,7 @@
 'use client'
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
@@ -140,8 +140,7 @@ function buildPurchaseDescription(
   packUOM: string,
 ): string {
   const pu = purchaseUnit || 'unit'
-  const weightVol = ['kg','g','lb','oz','l','ml']
-  if (weightVol.includes(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
+  if (isMeasuredUnit(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
   const hasWeight = packSize > 0 && packUOM && !['each',''].includes(packUOM)
   if (qtyUOM === 'pack' && innerQty) {
     return hasWeight

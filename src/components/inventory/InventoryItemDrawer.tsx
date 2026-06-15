@@ -5,7 +5,7 @@ import {
   formatCurrency, formatUnitPrice,
   PACK_UOMS, COUNT_UOMS, PURCHASE_UNITS, QTY_UOMS,
   calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit,
-  getUnitDimension, compatibleCountUnits, getUnitConv,
+  getUnitDimension, compatibleCountUnits, getUnitConv, isMeasuredUnit,
 } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -94,8 +94,7 @@ function buildPurchaseDescription(
   packUOM: string,
 ): string {
   const pu = purchaseUnit || 'unit'
-  const weightVol = ['kg', 'g', 'lb', 'oz', 'l', 'ml']
-  if (weightVol.includes(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
+  if (isMeasuredUnit(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
   const hasWeight = packSize > 0 && packUOM && !['each', ''].includes(packUOM)
   if (qtyUOM === 'pack' && innerQty) {
     return hasWeight

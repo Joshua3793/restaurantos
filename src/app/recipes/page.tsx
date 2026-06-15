@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { X, BookOpen, Search, Link2, Check, Download, SlidersHorizontal } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
+import { PREP_YIELD_UNITS } from '@/lib/uom'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 
@@ -334,18 +335,7 @@ function RecipesInner() {
                       onChange={e => setNewForm(f => ({ ...f, yieldUnit: e.target.value }))}
                       className="w-28 border border-line rounded-[9px] px-2.5 py-2 text-[13px] text-ink bg-paper focus:outline-none focus:border-ink-3">
                       <option value="">Unit…</option>
-                      <option value="g">g (grams)</option>
-                      <option value="kg">kg</option>
-                      <option value="ml">ml</option>
-                      <option value="L">L (litres)</option>
-                      <option value="each">each</option>
-                      <option value="oz">oz</option>
-                      <option value="lb">lb</option>
-                      <option value="portion">portion</option>
-                      <option value="portions">portions</option>
-                      <option value="batch">batch</option>
-                      <option value="cup">cup</option>
-                      <option value="tray">tray</option>
+                      {PREP_YIELD_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                 </div>

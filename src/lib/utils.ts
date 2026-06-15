@@ -1,12 +1,15 @@
-// Unit conversion factors — all weight → g, all volume → ml, count → 1
-export const UNIT_CONV: Record<string, number> = {
-  // weight
-  g: 1, mg: 0.001, kg: 1000, lb: 453.592, oz: 28.3495,
-  // volume
-  ml: 1, cl: 10, dl: 100, l: 1000, lt: 1000, 'fl oz': 29.5735, tsp: 4.92892, tbsp: 14.7868, cup: 236.588, gal: 3785.41,
-  // count
-  each: 1, ea: 1,
-}
+import { UNIT_FACTORS, canonicalUom, type UnitDimension } from './uom'
+
+// Re-exported so existing `@/lib/utils` importers keep working. Canonicalization
+// now lives in uom.ts (the single source of truth for unit conversion).
+export { canonicalUom }
+
+// Unit conversion factors — DERIVED from the canonical UNIT_FACTORS table in
+// uom.ts so this map can never drift from convertQty/UOM_GROUPS again. Keyed by
+// canonical token; getUnitConv canonicalizes before lookup so aliases resolve.
+export const UNIT_CONV: Record<string, number> = Object.fromEntries(
+  Object.entries(UNIT_FACTORS).map(([token, { toBase }]) => [token, toBase]),
+)
 
 export const PACK_UOMS = ['each', 'g', 'kg', 'lb', 'oz', 'ml', 'l'] as const
 
@@ -29,11 +32,18 @@ export const COUNT_UOMS = [
 ] as const
 
 /** Returns 'weight', 'volume', or 'count' for a given unit string */
-export function getUnitDimension(unit: string): 'weight' | 'volume' | 'count' {
-  const u = unit?.toLowerCase() ?? 'each'
-  if (['g', 'mg', 'kg', 'lb', 'oz'].includes(u)) return 'weight'
-  if (['ml', 'cl', 'dl', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'pt', 'qt', 'gal'].includes(u)) return 'volume'
-  return 'count'
+export function getUnitDimension(unit: string): UnitDimension {
+  return UNIT_FACTORS[canonicalUom(unit)]?.dim ?? 'count'
+}
+
+/**
+ * True when a unit measures weight or volume (i.e. NOT a count/pack/case unit).
+ * Single predicate used by all pricing/conversion maths so the "is this a
+ * measured unit?" decision can't drift between call sites.
+ */
+export function isMeasuredUnit(unit: string): boolean {
+  const d = getUnitDimension(unit)
+  return d === 'weight' || d === 'volume'
 }
 
 /** Returns the valid Count UOM options for a given base unit */
@@ -42,35 +52,6 @@ export function compatibleCountUnits(baseUnit: string): string[] {
   if (dim === 'weight') return [...WEIGHT_COUNT_UOMS, 'batch']
   if (dim === 'volume') return [...VOLUME_COUNT_UOMS, 'batch']
   return [...EACH_COUNT_UOMS]
-}
-
-// Maps every spelling/abbreviation an invoice might use → one canonical token,
-// so pack formats are comparable and cost conversion always resolves. Keeps
-// distinct units within a dimension (g≠kg≠lb); only collapses spelling/case
-// (GR/GRAM→g, LTR/LT/LITRE→l, KG→kg, EA/CT/PC→each…).
-const UOM_CANON: Record<string, string> = {
-  // weight
-  g: 'g', gr: 'g', grm: 'g', gm: 'g', gram: 'g', grams: 'g',
-  kg: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg',
-  lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb', '#': 'lb',
-  oz: 'oz', ounce: 'oz', ounces: 'oz',
-  mg: 'mg',
-  // volume
-  ml: 'ml', mls: 'ml', milliliter: 'ml', millilitre: 'ml',
-  l: 'l', lt: 'l', ltr: 'l', ltrs: 'l', litre: 'l', liter: 'l', litres: 'l', liters: 'l',
-  cl: 'cl', dl: 'dl', gal: 'gal', gallon: 'gal',
-  floz: 'fl oz', 'fl oz': 'fl oz', 'fl.oz': 'fl oz',
-  // count
-  each: 'each', ea: 'each', ct: 'each', cnt: 'each', count: 'each',
-  pc: 'each', pcs: 'each', piece: 'each', pieces: 'each',
-  un: 'each', unit: 'each', units: 'each',
-}
-
-/** Normalize a unit string to its canonical token (case/abbreviation-insensitive). */
-export function canonicalUom(uom: string | null | undefined): string {
-  if (!uom) return ''
-  const k = uom.trim().toLowerCase().replace(/\.$/, '')
-  return UOM_CANON[k] ?? k
 }
 
 export function getUnitConv(uom: string): number {
@@ -93,14 +74,11 @@ export function calcPricePerBaseUnit(
     // a count unit. Catch-weight items packed in pieces store packUOM='each'
     // (conv 1), which left the rate unconverted and inflated the cost 1000×.
     // Fall back to a weight/volume unit when packUOM is a count unit.
-    const WV = ['g', 'mg', 'kg', 'lb', 'oz', 'ml', 'cl', 'dl', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
-    const rateUnit = WV.includes((packUOM ?? '').toLowerCase()) ? packUOM : 'kg'
+    const rateUnit = isMeasuredUnit(packUOM) ? packUOM : 'kg'
     const conv = getUnitConv(rateUnit)
     return conv > 0 ? purchasePrice / conv : 0
   }
-  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
-  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
-  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+  const isWeightQty = isMeasuredUnit(qtyUOM)
 
   let divisor: number
   if (isWeightQty) {
@@ -115,16 +93,12 @@ export function calcPricePerBaseUnit(
 
 /** Derive the base unit (g / ml / each) from qtyUOM and packUOM */
 export function deriveBaseUnit(qtyUOM: string, packUOM: string, packSize?: number): string {
-  const q = qtyUOM?.toLowerCase() ?? ''
-  const p = packUOM?.toLowerCase() ?? ''
-  const weightUnits = ['g', 'mg', 'kg', 'lb', 'oz']
-  const volumeUnits = ['ml', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
-  if (weightUnits.includes(q)) return 'g'
-  if (volumeUnits.includes(q)) return 'ml'
+  if (getUnitDimension(qtyUOM) === 'weight') return 'g'
+  if (getUnitDimension(qtyUOM) === 'volume') return 'ml'
   // Only infer base unit from packUOM when an actual weight/volume per-each was entered
   if (packSize !== undefined && packSize <= 0) return 'each'
-  if (weightUnits.includes(p)) return 'g'
-  if (volumeUnits.includes(p)) return 'ml'
+  if (getUnitDimension(packUOM) === 'weight') return 'g'
+  if (getUnitDimension(packUOM) === 'volume') return 'ml'
   return 'each'
 }
 
@@ -137,9 +111,7 @@ export function calcConversionFactor(
   packSize: number,
   packUOM: string,
 ): number {
-  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
-  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
-  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+  const isWeightQty = isMeasuredUnit(qtyUOM)
 
   const itemBaseUnits = packSize * getUnitConv(packUOM)
   const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
@@ -167,6 +139,26 @@ export function formatCurrency(amount: number): string {
 
 export function formatUnitPrice(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(amount)
+}
+
+/**
+ * Display scale for a spine price (pricePerBaseUnit, denominated per g/ml/each).
+ * Weight/volume bases read better per kg/L (×1000); count bases stay per base
+ * unit. ONE place defines this rule so every $/unit readout agrees.
+ */
+export function priceDisplayScale(baseUnit: string | null | undefined): { factor: number; rateUnit: string } {
+  if (baseUnit === 'g')  return { factor: 1000, rateUnit: 'kg' }
+  if (baseUnit === 'ml') return { factor: 1000, rateUnit: 'L' }
+  return { factor: 1, rateUnit: baseUnit || 'each' }
+}
+
+/**
+ * Format a spine price for display, scaled via {@link priceDisplayScale}.
+ * Single helper so every page renders $/base identically.
+ */
+export function formatPricePerBase(ppb: number, baseUnit: string | null | undefined): string {
+  const { factor, rateUnit } = priceDisplayScale(baseUnit)
+  return `${formatCurrency(ppb * factor)}/${rateUnit}`
 }
 
 export function formatDate(date: Date | string): string {

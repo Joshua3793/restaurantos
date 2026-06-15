@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Star } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatPricePerBase } from '@/lib/utils'
 import type { SupplierOfferStats } from '@/lib/supplier-offers'
 
 const STABILITY_BADGE: Record<NonNullable<SupplierOfferStats['stability']>, { label: string; cls: string }> = {
@@ -20,11 +20,7 @@ function fmtPack(o: SupplierOfferStats): string {
 }
 
 // $/base shown per kg/L for weight/volume bases so the numbers are readable.
-function fmtPpb(ppb: number, baseUnit: string | null): string {
-  if (baseUnit === 'g')  return `${formatCurrency(ppb * 1000)}/kg`
-  if (baseUnit === 'ml') return `${formatCurrency(ppb * 1000)}/L`
-  return `${formatCurrency(ppb)}/${baseUnit ?? 'each'}`
-}
+const fmtPpb = formatPricePerBase
 
 export function SupplierOffersSection({ itemId, baseUnit }: { itemId: string; baseUnit: string | null }) {
   const [offers, setOffers] = useState<SupplierOfferStats[] | null>(null)

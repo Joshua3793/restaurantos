@@ -8,6 +8,7 @@ import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
 import { formatCurrency } from '@/lib/invoice/formatters'
+import { priceDisplayScale } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
 import type { ScanItem } from '@/components/invoices/types'
@@ -132,8 +133,7 @@ export function NewSkuIssue({ item, lineId }: { item: ScanItem; lineId: string }
 export function PriceCompare({ item }: { item: ScanItem }) {
   const norm = computeNormalisedPrices(item)
   if (!norm) return null
-  const factor   = norm.baseUnit === 'g' || norm.baseUnit === 'ml' ? 1000 : 1
-  const rateUnit = norm.baseUnit === 'g' ? 'kg' : norm.baseUnit === 'ml' ? 'L' : 'each'
+  const { factor, rateUnit } = priceDisplayScale(norm.baseUnit)
   const prev = norm.inventoryPPB * factor
   const next = norm.invoicePPB * factor
   const pct  = norm.pctDiff
@@ -176,8 +176,7 @@ export function PriceIssue({
   const acked = ctx.acknowledgedPriceLines.has(lineId)
   const norm = computeNormalisedPrices(item)
   const pct = norm ? norm.pctDiff : (item.priceDiffPct ? Number(item.priceDiffPct) : 0)
-  const factor = norm && (norm.baseUnit === 'g' || norm.baseUnit === 'ml') ? 1000 : 1
-  const rateUnit = norm ? (norm.baseUnit === 'g' ? 'kg' : norm.baseUnit === 'ml' ? 'L' : 'each') : ''
+  const { factor, rateUnit } = norm ? priceDisplayScale(norm.baseUnit) : { factor: 1, rateUnit: '' }
 
   return (
     <IssueShell
@@ -257,8 +256,7 @@ export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; 
   // Only when the apparent move is a supplier artifact: steady vs self, ≥3% vs spine.
   if (vsSelf >= 3 || vsSpine < 3) return null
   const other = cheapestOtherOffer(item, sessionSupplier)
-  const factor = norm.baseUnit === 'g' || norm.baseUnit === 'ml' ? 1000 : 1
-  const unit   = norm.baseUnit === 'g' ? 'kg' : norm.baseUnit === 'ml' ? 'L' : (norm.baseUnit || 'each')
+  const { factor, rateUnit: unit } = priceDisplayScale(norm.baseUnit)
   return (
     <div className="mx-4 my-2.5 flex items-start gap-2.5 bg-blue-soft border border-blue-soft rounded-lg px-3 py-2.5">
       <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-blue-soft text-blue-text shrink-0">

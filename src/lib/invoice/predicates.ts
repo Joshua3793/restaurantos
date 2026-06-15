@@ -3,11 +3,12 @@
 // and footer task counts.
 
 import type { ScanItem } from '@/components/invoices/types'
-import { canonicalUom } from '@/lib/utils'
+import { canonicalUom, isMeasuredUnit } from '@/lib/utils'
 
-const WEIGHT_VOL = new Set(['kg', 'g', 'lb', 'oz', 'l', 'ml'])
+// A UOM that measures weight or volume (vs a count/case unit). Delegates to the
+// canonical helper so it canonicalizes and covers the full unit set.
 export const isWeightVolUOM = (uom: string | null | undefined) =>
-  !!uom && WEIGHT_VOL.has(uom.toLowerCase())
+  !!uom && isMeasuredUnit(uom)
 
 // ── Pricing mode ─────────────────────────────────────────────────────────────
 // Priority:

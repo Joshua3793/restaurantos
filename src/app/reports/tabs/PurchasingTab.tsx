@@ -4,7 +4,7 @@ import { ShoppingCart } from 'lucide-react'
 import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatPricePerBase } from '@/lib/utils'
 import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
 
 export default function PurchasingTab({ period }: { period: number }) {
@@ -106,8 +106,7 @@ export default function PurchasingTab({ period }: { period: number }) {
           volatile: { name: string; supplier: string; volatility: number | null; stability: string | null; purchases: number }[]
         } | undefined
         if (!ms || (ms.items.length === 0 && ms.volatile.length === 0)) return null
-        const fmtPpb = (ppb: number, base: string | null) =>
-          base === 'g' ? `${formatCurrency(ppb * 1000)}/kg` : base === 'ml' ? `${formatCurrency(ppb * 1000)}/L` : `${formatCurrency(ppb)}/${base ?? 'ea'}`
+        const fmtPpb = formatPricePerBase
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>

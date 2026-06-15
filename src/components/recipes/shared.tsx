@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit, calcPricePerBaseUnit, deriveBaseUnit, PACK_UOMS, compatibleCountUnits, getUnitDimension } from '@/lib/utils'
-import { UOM_GROUPS, getUnitGroup, convertQty } from '@/lib/uom'
+import { UOM_GROUPS, getUnitGroup, convertQty, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
@@ -1404,15 +1404,9 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   onChange={e => patchRecipe({ yieldUnit: e.target.value })}
                   className="w-24 border border-line rounded-[10px] px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-paper"
                 >
-                  {(isMenu
-                    ? ['portion', 'portions', 'serving', 'servings', 'each', 'piece', 'pieces', 'plate', 'bowl']
-                    : ['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray']
-                  ).map(u => <option key={u} value={u}>{u}</option>)}
-                  {/* Allow the existing value even if not in the list */}
-                  {!(isMenu
-                    ? ['portion', 'portions', 'serving', 'servings', 'each', 'piece', 'pieces', 'plate', 'bowl']
-                    : ['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray']
-                  ).includes(recipe.yieldUnit) && (
+                  {(isMenu ? MENU_YIELD_UNITS : PREP_YIELD_UNITS).map(u => <option key={u} value={u}>{u}</option>)}
+                  {/* Allow the existing value even if not in the canonical list (legacy data) */}
+                  {!(isMenu ? MENU_YIELD_UNITS : PREP_YIELD_UNITS).includes(recipe.yieldUnit as never) && (
                     <option value={recipe.yieldUnit}>{recipe.yieldUnit}</option>
                   )}
                 </select>
@@ -1453,10 +1447,10 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                     onChange={e => patchRecipe({ portionUnit: e.target.value, portionSize: recipe.portionSize ?? null })}
                     className="w-24 border border-line rounded-[10px] px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-paper"
                   >
-                    {['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray'].map(u => (
+                    {PREP_YIELD_UNITS.map(u => (
                       <option key={u} value={u}>{u}</option>
                     ))}
-                    {!['g', 'kg', 'ml', 'L', 'each', 'oz', 'lb', 'portion', 'portions', 'batch', 'cup', 'tray'].includes(recipe.portionUnit ?? recipe.yieldUnit) && (
+                    {!PREP_YIELD_UNITS.includes((recipe.portionUnit ?? recipe.yieldUnit) as never) && (
                       <option value={recipe.portionUnit ?? recipe.yieldUnit}>{recipe.portionUnit ?? recipe.yieldUnit}</option>
                     )}
                   </select>

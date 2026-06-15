@@ -22,6 +22,7 @@ import {
 import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
+import { priceDisplayScale } from '@/lib/utils'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
@@ -375,8 +376,9 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   let rateUnit = ''
 
   if (norm) {
-    const factor = norm.baseUnit === 'g' || norm.baseUnit === 'ml' ? 1000 : 1
-    rateUnit  = norm.baseUnit === 'g' ? 'kg' : norm.baseUnit === 'ml' ? 'L' : 'each'
+    const scale = priceDisplayScale(norm.baseUnit)
+    const factor = scale.factor
+    rateUnit  = scale.rateUnit
     prevLabel = `${formatCurrency(norm.inventoryPPB * factor)}/${rateUnit}`
     nextLabel = `${formatCurrency(norm.invoicePPB * factor)}/${rateUnit}`
     pct       = norm.pctDiff

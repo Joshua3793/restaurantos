@@ -8,7 +8,7 @@
  */
 
 import { convertQty } from './uom'
-import { deriveBaseUnit, getUnitConv } from './utils'
+import { deriveBaseUnit, getUnitConv, getUnitDimension, isMeasuredUnit } from './utils'
 
 export interface CountableUom {
   label: string
@@ -44,12 +44,9 @@ function buildCaseHint(item: ItemDims): string {
   const ps = Number(item.packSize ?? 0)
   const pu = item.packUOM ?? 'each'
 
-  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
-  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
-
-  if (weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)) {
+  if (isMeasuredUnit(qtyUOM)) {
     const total = qty * getUnitConv(qtyUOM)
-    return total >= 1000 && weightUnits.includes(qtyUOM)
+    return total >= 1000 && getUnitDimension(qtyUOM) === 'weight'
       ? `${total / 1000} kg`
       : `${qty} ${qtyUOM}`
   }
@@ -73,9 +70,7 @@ function calcConversionFactorForItem(item: ItemDims): number {
   const pu  = item.packUOM ?? 'each'
   const innerQty = item.innerQty != null ? Number(item.innerQty) : null
 
-  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
-  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
-  if (weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)) {
+  if (isMeasuredUnit(qtyUOM)) {
     return qty * getUnitConv(qtyUOM)
   }
   if (qtyUOM === 'pack' && innerQty != null) {
@@ -110,9 +105,7 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
   const hasItemWeight = hasWeight && ps > 0
 
   // ── display helpers ────────────────────────────────────────────────────────
-  const WV_W = ['g', 'kg', 'lb', 'oz', 'mg']
-  const WV_V = ['ml', 'l', 'lt', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp', 'gal']
-  const isWV = (u: string) => { const x = (u || '').toLowerCase(); return WV_W.includes(x) || WV_V.includes(x) }
+  const isWV = (u: string) => isMeasuredUnit(u)
   const fmtWV = (val: number, unit: string) => {
     const x = (unit || '').toLowerCase()
     // keep up to 2 decimals (trim trailing zeros) so a 3.25kg wheel reads "3.25kg", not "3.3kg"
@@ -200,9 +193,7 @@ export function convertCountQtyToBase(
   const pu = item.packUOM ?? 'each'
   const innerQty = item.innerQty != null ? Number(item.innerQty) : null
 
-  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
-  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
-  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+  const isWeightQty = isMeasuredUnit(qtyUOM)
 
   const itemBaseUnits = ps * getUnitConv(pu)
   const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
@@ -246,9 +237,7 @@ export function convertBaseToCountUom(
   const pu = item.packUOM ?? 'each'
   const innerQty = item.innerQty != null ? Number(item.innerQty) : null
 
-  const weightUnits = ['g', 'kg', 'lb', 'oz', 'mg']
-  const volumeUnits = ['ml', 'l', 'cl', 'dl', 'fl oz', 'cup', 'tsp', 'tbsp']
-  const isWeightQty = weightUnits.includes(qtyUOM) || volumeUnits.includes(qtyUOM)
+  const isWeightQty = isMeasuredUnit(qtyUOM)
 
   const itemBaseUnits = ps * getUnitConv(pu)
   const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
