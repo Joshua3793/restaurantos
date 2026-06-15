@@ -286,6 +286,13 @@ export async function computeExpectedForItem(
   })
   if (!item) return null
 
+  // No RC selected → mirror getTheoreticalStockMap(null): sum across RCs.
+  if (!rcId) {
+    const m = await getTheoreticalStockMap(null, [itemId])
+    const q = m.get(itemId) ?? 0
+    return { expectedBase: q, baseStock: q }
+  }
+
   let isDefaultRc = false
   let baseStock = Number(item.stockOnHand)
   if (rcId) {
@@ -421,6 +428,16 @@ export async function getTheoreticalStockMap(
   rcId: string | null | undefined,
   itemIds?: string[],
 ): Promise<Map<string, number>> {
+  // "All RCs" = the SUM of every revenue center's theoretical map. This makes
+  // ALL = ΣRC true by construction (each RC floored at 0 independently).
+  if (!rcId) {
+    const rcs = await prisma.revenueCenter.findMany({ select: { id: true } })
+    const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, itemIds)))
+    const sum = new Map<string, number>()
+    for (const m of perRc) for (const [id, q] of m) sum.set(id, (sum.get(id) ?? 0) + q)
+    return sum
+  }
+
   const items = await prisma.inventoryItem.findMany({
     where: { isActive: true, ...(itemIds ? { id: { in: itemIds } } : {}) },
     select: { id: true, stockOnHand: true, lastCountDate: true },

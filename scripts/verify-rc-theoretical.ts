@@ -29,6 +29,28 @@ async function main() {
     check('Albacore counted once (≈9,072 g, not 90,718)', total > 8000 && total < 10000, `${total.toFixed(0)} g`)
   }
 
+  // ── ALL = sum of every RC, per item and in total ──
+  {
+    const { getTheoreticalStockMap } = await import('../src/lib/count-expected')
+    const items = await prisma.inventoryItem.findMany({ where: { isActive: true }, select: { id: true, pricePerBaseUnit: true } })
+    const ids = items.map(i => i.id)
+    const price = new Map(items.map(i => [i.id, Number(i.pricePerBaseUnit)]))
+    const rcs = await prisma.revenueCenter.findMany({ select: { id: true } })
+
+    const all = await getTheoreticalStockMap(null, ids)
+    const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, ids)))
+    const sumRc = new Map<string, number>()
+    for (const m of perRc) for (const [id, q] of m) sumRc.set(id, (sumRc.get(id) ?? 0) + q)
+
+    let maxItemDiff = 0
+    for (const id of ids) maxItemDiff = Math.max(maxItemDiff, Math.abs((all.get(id) ?? 0) - (sumRc.get(id) ?? 0)))
+    const valAll = ids.reduce((s, id) => s + (all.get(id) ?? 0) * price.get(id)!, 0)
+    const valSum = ids.reduce((s, id) => s + (sumRc.get(id) ?? 0) * price.get(id)!, 0)
+    check('ALL == ΣRC per item', maxItemDiff < 1e-6, `max item qty diff ${maxItemDiff}`)
+    check('ALL value == ΣRC value', Math.abs(valAll - valSum) < 0.01, `ALL $${valAll.toFixed(2)} vs ΣRC $${valSum.toFixed(2)}`)
+    console.log(`   ALL theoretical stock value = $${valAll.toFixed(2)}`)
+  }
+
   console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`)
   await prisma.$disconnect()
   process.exit(failures === 0 ? 0 : 1)
