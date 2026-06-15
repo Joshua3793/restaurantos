@@ -26,6 +26,17 @@ Today it isn't, due to two concrete bugs and one structural gap:
    is invisible to every per-RC view and only appears in the global scope. Under a per-RC model,
    a movement with no RC belongs to no one and breaks "All = Σ RC."
 
+4. **Per-weight purchase quantity inflated by case size.** `buildPurchaseMap` always treats
+   `rawQty` as "number of purchase units (cases)" and multiplies by case content
+   (`packSize × conv(packUOM)`). For **per-weight / catch-weight items** the invoice bills a weight
+   directly (`rawUnit = LB`, or a `totalQty`/`totalQtyUOM`), so `rawQty` is already the quantity —
+   multiplying by the case size inflates it by `packSize`. Proven: *Albacore tuna* — invoice
+   `rawQty 20, rawUnit LB, $18.50/lb, rawLineTotal $370` (20 lb bought) — the engine computed
+   `20 × (10 lb case × 453.592) = 90,718 g → $3,700`, a **10× inflation**; the correct value is
+   `convertQty(20 lb → g) = 9,072 g → $370`, matching `rawLineTotal`. This affects every
+   catch-weight item (Salmon, Brisket, …), so current per-RC purchase totals are materially
+   overstated independent of the RC double-count.
+
 ### Measured current state (2026-06-15)
 
 | View | Value | Makeup |
@@ -86,6 +97,14 @@ purchase lands only in Catering's purchase map — no baseline double-count once
   clause. (Fixes bug #1.)
 - `buildPurchaseMap` null branch: **remove** the legacy `InvoiceLineItem` path. Build maps are
   only ever called with a concrete `rcId`. (Removes the dead path behind bug #2.)
+- `buildPurchaseMap` quantity math: compute purchased base units from the **actual billed
+  quantity**, not `rawQty × case content`. (Fixes bug #4.) Resolution order per line:
+  1. `totalQty` present → `convertQty(totalQty, totalQtyUOM ?? packUOM, baseUnit)`.
+  2. else `rawUnit` is a weight/volume unit (per `isMeasuredUnit`) → `convertQty(rawQty, rawUnit, baseUnit)`.
+  3. else (count of purchase units) → existing `rawQty × (qtyPerPurchaseUnit × packSize × conv(packUOM))`.
+  The `invoicePackQty/Size/UOM` branch stays as a refinement of case (#3) where present, but must
+  not apply when the line is per-weight (#1/#2). This mirrors how the approve route already derives
+  price from `totalQty`. Validate against `rawLineTotal`: `baseUnits × pricePerBaseUnit ≈ rawLineTotal`.
 - `getTheoreticalStockMap(concreteRcId, itemIds?)`: unchanged for a concrete RC.
 - **`getTheoreticalStockMap(null, itemIds?)` is redefined to mean "sum of all RCs"** (it no longer
   reads the legacy global path). It delegates to a new internal sum:
@@ -137,6 +156,8 @@ enforcement — prevents new nulls.
 
 - Decomposition assertion: `theoretical(Cafe) + theoretical(Catering) == theoretical(ALL)`
   exactly, per item and in total; Albacore counts once (Catering); ALL includes purchases.
+- Per-weight purchase check: for each catch-weight line, `baseUnits × pricePerBaseUnit ≈ rawLineTotal`
+  (Albacore → $370, not $3,700). Spot-check Salmon/Brisket too.
 - Cross-surface: cost-chrome banner ALL == inventory "All RCs" KPI == Cafe + Catering.
 - `npm run build` clean.
 - Report corrected Cafe (current $32,943 minus reassigned-line over-count) and corrected ALL
@@ -144,10 +165,12 @@ enforcement — prevents new nulls.
 
 ## Expected consequences (not regressions)
 
-- **Cafe value drops** once the `splitToSessionId` fix lands — it stops counting lines reassigned
-  away (e.g. −$3,700 Albacore).
-- **All value rises substantially** — it starts including the RC-tagged purchases it currently
-  ignores.
+- **Cafe and Catering both drop materially** — the per-weight quantity fix (#4) removes the
+  case-size inflation on every catch-weight item (Albacore $3,700 → $370, ~10×), and the
+  `splitToSessionId` fix (#1) stops Cafe counting lines reassigned away. The current $32,943 Cafe /
+  $4,281 Catering are both meaningfully overstated.
+- **All becomes the true sum** — it starts including RC-tagged purchases (was ignoring them) but at
+  their *corrected* quantities, and equals Cafe + Catering exactly.
 
 ## Out of scope
 
