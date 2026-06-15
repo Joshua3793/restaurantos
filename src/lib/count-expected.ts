@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { convertQty } from '@/lib/uom'
+import { convertQty, UNIT_FACTORS, canonicalUom } from '@/lib/uom'
 import { getUnitConv } from '@/lib/utils'
 import { computeScale } from '@/lib/prep-utils'
 
@@ -171,23 +171,29 @@ export async function buildPurchaseMap(
     const baseUnit = si.matchedItem.baseUnit
     let baseUnits: number
 
-    if (si.matchedItem.priceType === 'UOM') {
-      // Per-weight / catch-weight: the invoice bills a weight/volume directly, so
-      // the quantity is NOT a count of cases. Use the invoice's stated total weight
-      // when present, else rawQty — each paired with ITS OWN unit (never cross
-      // totalQty with rawUnit, which describes the container). Multiplying by case
-      // size here was a 10× inflation (bug #4).
-      let billedQty: number
-      let billedUOM: string
+    // For UOM (per-weight / catch-weight) pricing, the invoice bills a weight/volume
+    // directly. Use the invoice's stated total when present, else rawQty — each paired
+    // with ITS OWN unit (never cross totalQty with rawUnit). Multiplying a per-weight
+    // qty by case size was a 10× inflation (bug #4).
+    const isUom = si.matchedItem.priceType === 'UOM'
+    let billedQty = qty
+    let billedUOM: string | null = null
+    if (isUom) {
       if (si.totalQty != null && Number(si.totalQty) > 0) {
-        billedQty = Number(si.totalQty)
-        billedUOM = si.totalQtyUOM ?? baseUnit
+        billedQty = Number(si.totalQty); billedUOM = si.totalQtyUOM ?? baseUnit
       } else {
-        billedQty = qty
-        billedUOM = si.rawUnit ?? baseUnit
+        billedQty = qty; billedUOM = si.rawUnit ?? baseUnit
       }
+    }
+
+    if (isUom && billedUOM && UNIT_FACTORS[canonicalUom(billedUOM)]) {
+      // Billed unit is a real measurement unit → convert the weight/volume directly.
       baseUnits = convertQty(billedQty, billedUOM, baseUnit)
     } else {
+      // CASE pricing, OR a UOM line billed in a CONTAINER unit the backbone can't
+      // convert (CS, PK, case, tray…): expand the raw line qty (purchase units) via the
+      // pack structure. Without this, a UOM line billed in cases passed straight through
+      // convertQty unscaled, under-counting purchases (e.g. "Beef Digital" billed in CS).
       const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
       const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
       const packUOM  = si.invoicePackUOM ?? null
