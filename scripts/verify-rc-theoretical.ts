@@ -14,8 +14,9 @@ function check(name: string, cond: boolean, detail = '') {
 async function main() {
   // ── Albacore catch-weight: 20 lb billed $370, NOT 200 lb / $3,700 ──
   const alb = await prisma.inventoryItem.findFirst({ where: { itemName: 'Albacore tuna' }, select: { id: true, pricePerBaseUnit: true } })
-  if (!alb) { console.log('Albacore not found — skipping line check'); }
-  else {
+  if (!alb) {
+    check('Albacore tuna fixture present (cannot verify per-weight fix without it)', false)
+  } else {
     const rcs = await prisma.revenueCenter.findMany({ select: { id: true, name: true } })
     let total = 0
     const since = new Date('2000-01-01')

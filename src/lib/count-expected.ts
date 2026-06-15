@@ -126,66 +126,84 @@ export async function buildPurchaseMap(
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
 
-  if (rcId) {
-    const scanItems = await prisma.invoiceScanItem.findMany({
-      where: {
-        session: { revenueCenterId: rcId, status: 'APPROVED', createdAt: { gte: since } },
-        approved: true,
-        splitToSessionId: null,                      // count each line in exactly ONE RC (bug #1)
-        action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
-        matchedItemId: { not: null },
-        rawQty: { not: null },
+  const scanItems = await prisma.invoiceScanItem.findMany({
+    where: {
+      session: {
+        status: 'APPROVED',
+        createdAt: { gte: since },
+        ...(rcId ? { revenueCenterId: rcId } : {}),   // null = all RCs (matches sibling maps)
       },
-      select: {
-        matchedItemId: true, rawQty: true, rawUnit: true,
-        totalQty: true, totalQtyUOM: true,
-        invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
-        session: { select: { createdAt: true } },
-        matchedItem: {
-          select: { id: true, baseUnit: true, priceType: true,
-                    qtyPerPurchaseUnit: true, packSize: true, packUOM: true },
+      approved: true,
+      splitToSessionId: null,                          // count each line in exactly ONE RC (bug #1)
+      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
+      matchedItemId: { not: null },
+      rawQty: { not: null },
+    },
+    select: {
+      matchedItemId: true,
+      rawQty: true,
+      rawUnit: true,
+      totalQty: true,
+      totalQtyUOM: true,
+      invoicePackQty: true,
+      invoicePackSize: true,
+      invoicePackUOM: true,
+      session: { select: { createdAt: true } },
+      matchedItem: {
+        select: {
+          id: true,
+          baseUnit: true,
+          priceType: true,
+          qtyPerPurchaseUnit: true,
+          packSize: true,
+          packUOM: true,
         },
       },
-    })
+    },
+  })
 
-    for (const si of scanItems) {
-      if (!si.matchedItemId || !si.matchedItem) continue
-      if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
-      const qty = Number(si.rawQty ?? 0)
-      if (qty <= 0) continue
+  for (const si of scanItems) {
+    if (!si.matchedItemId || !si.matchedItem) continue
+    if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
+    const qty = Number(si.rawQty ?? 0)
+    if (qty <= 0) continue
 
-      const baseUnit = si.matchedItem.baseUnit
-      let baseUnits: number
+    const baseUnit = si.matchedItem.baseUnit
+    let baseUnits: number
 
-      if (si.matchedItem.priceType === 'UOM') {
-        // Per-weight / catch-weight: the invoice bills a weight/volume directly,
-        // so rawQty (in rawUnit) is the quantity — NOT a count of cases. Prefer the
-        // invoice's stated total (totalQty/totalQtyUOM); fall back to rawQty/rawUnit.
-        // Multiplying by case size here was a 10× inflation (bug #4).
-        const billedQty = si.totalQty != null && Number(si.totalQty) > 0 ? Number(si.totalQty) : qty
-        const billedUOM = si.totalQtyUOM ?? si.rawUnit ?? baseUnit
-        baseUnits = convertQty(billedQty, billedUOM, baseUnit)
+    if (si.matchedItem.priceType === 'UOM') {
+      // Per-weight / catch-weight: the invoice bills a weight/volume directly, so
+      // the quantity is NOT a count of cases. Use the invoice's stated total weight
+      // when present, else rawQty — each paired with ITS OWN unit (never cross
+      // totalQty with rawUnit, which describes the container). Multiplying by case
+      // size here was a 10× inflation (bug #4).
+      let billedQty: number
+      let billedUOM: string
+      if (si.totalQty != null && Number(si.totalQty) > 0) {
+        billedQty = Number(si.totalQty)
+        billedUOM = si.totalQtyUOM ?? baseUnit
       } else {
-        const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
-        const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
-        const packUOM  = si.invoicePackUOM ?? null
-        if (packQty > 0 && packSize > 0 && packUOM) {
-          baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
-        } else {
-          const unitsPerCase =
-            Number(si.matchedItem.qtyPerPurchaseUnit) *
-            Number(si.matchedItem.packSize) *
-            getUnitConv(si.matchedItem.packUOM)
-          baseUnits = qty * unitsPerCase
-        }
+        billedQty = qty
+        billedUOM = si.rawUnit ?? baseUnit
       }
-
-      map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
+      baseUnits = convertQty(billedQty, billedUOM, baseUnit)
+    } else {
+      const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
+      const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
+      const packUOM  = si.invoicePackUOM ?? null
+      if (packQty > 0 && packSize > 0 && packUOM) {
+        baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
+      } else {
+        const unitsPerCase =
+          Number(si.matchedItem.qtyPerPurchaseUnit) *
+          Number(si.matchedItem.packSize) *
+          getUnitConv(si.matchedItem.packUOM)
+        baseUnits = qty * unitsPerCase
+      }
     }
-  }
 
-  // No `else`: build maps are only ever called with a concrete rcId. The "all
-  // RCs" total is the SUM of per-RC maps — see getTheoreticalStockMap(null).
+    map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
+  }
 
   return map
 }
