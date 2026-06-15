@@ -223,7 +223,9 @@ async function main() {
         notes: r.notes,
         createdAt: toDate(r.createdAt) ?? new Date(),
         periodType: 'day',
-      },
+        // Legacy SQLite predates revenue centers; carry the row's RC if present.
+        revenueCenterId: ((r as { revenueCenterId?: string | null }).revenueCenterId) ?? null,
+      } as Parameters<typeof prisma.salesEntry.upsert>[0]['create'],
       update: { totalRevenue: r.totalRevenue },
     })
   }
@@ -260,7 +262,9 @@ async function main() {
         costImpact: r.costImpact,
         loggedBy: r.loggedBy,
         notes: r.notes,
-      },
+        // Legacy SQLite predates revenue centers; carry the row's RC if present.
+        revenueCenterId: ((r as { revenueCenterId?: string | null }).revenueCenterId) ?? null,
+      } as Parameters<typeof prisma.wastageLog.upsert>[0]['create'],
       update: {},
     })
   }

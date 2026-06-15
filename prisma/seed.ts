@@ -32,6 +32,7 @@ async function main() {
 
   // Clean up
   await prisma.wastageLog.deleteMany()
+  await prisma.revenueCenter.deleteMany()
   await prisma.recipeIngredient.deleteMany()
   await prisma.recipeCategory.deleteMany()
   await prisma.invoiceLineItem.deleteMany()
@@ -39,6 +40,11 @@ async function main() {
   await prisma.inventoryItem.deleteMany()
   await prisma.supplier.deleteMany()
   await prisma.salesEntry.deleteMany()
+
+  // Default revenue center — every movement (sales, wastage, prep) is attributed to a concrete RC.
+  const mainRC = await prisma.revenueCenter.create({
+    data: { name: 'Main Dining Room', color: '#2563eb', isDefault: true },
+  })
 
   // Suppliers
   const sysco = await prisma.supplier.create({ data: { name: 'Sysco', contactName: 'John Smith', phone: '604-555-0101', email: 'orders@sysco.ca', orderPlatform: 'Online Portal', cutoffDays: 'Tuesday, Thursday', deliveryDays: 'Wednesday, Friday' } })
@@ -121,11 +127,11 @@ async function main() {
   // Wastage Logs
   await prisma.wastageLog.createMany({
     data: [
-      { inventoryItemId: salmon.id, date: new Date('2026-04-01'), qtyWasted: 200, unit: 'g', reason: 'SPOILAGE', costImpact: 200 * (24.00 / 1000), loggedBy: 'Chef Marco', notes: 'End of service trim' },
-      { inventoryItemId: mushrooms.id, date: new Date('2026-04-01'), qtyWasted: 150, unit: 'g', reason: 'PREP_TRIM', costImpact: 150 * (18.00 / 1000), loggedBy: 'Chef Marco' },
-      { inventoryItemId: tomatoes.id, date: new Date('2026-03-31'), qtyWasted: 500, unit: 'g', reason: 'SPOILAGE', costImpact: 500 * (28.00 / 9072), loggedBy: 'Sous Chef Lisa', notes: 'Overripe' },
-      { inventoryItemId: chickenThigh.id, date: new Date('2026-03-30'), qtyWasted: 300, unit: 'g', reason: 'BURNT', costImpact: 300 * (9.50 / 1000), loggedBy: 'Chef Marco' },
-      { inventoryItemId: heavyCream.id, date: new Date('2026-03-29'), qtyWasted: 250, unit: 'ml', reason: 'EXPIRED', costImpact: 250 * (7.20 / 2000), loggedBy: 'Sous Chef Lisa' },
+      { inventoryItemId: salmon.id, revenueCenterId: mainRC.id, date: new Date('2026-04-01'), qtyWasted: 200, unit: 'g', reason: 'SPOILAGE', costImpact: 200 * (24.00 / 1000), loggedBy: 'Chef Marco', notes: 'End of service trim' },
+      { inventoryItemId: mushrooms.id, revenueCenterId: mainRC.id, date: new Date('2026-04-01'), qtyWasted: 150, unit: 'g', reason: 'PREP_TRIM', costImpact: 150 * (18.00 / 1000), loggedBy: 'Chef Marco' },
+      { inventoryItemId: tomatoes.id, revenueCenterId: mainRC.id, date: new Date('2026-03-31'), qtyWasted: 500, unit: 'g', reason: 'SPOILAGE', costImpact: 500 * (28.00 / 9072), loggedBy: 'Sous Chef Lisa', notes: 'Overripe' },
+      { inventoryItemId: chickenThigh.id, revenueCenterId: mainRC.id, date: new Date('2026-03-30'), qtyWasted: 300, unit: 'g', reason: 'BURNT', costImpact: 300 * (9.50 / 1000), loggedBy: 'Chef Marco' },
+      { inventoryItemId: heavyCream.id, revenueCenterId: mainRC.id, date: new Date('2026-03-29'), qtyWasted: 250, unit: 'ml', reason: 'EXPIRED', costImpact: 250 * (7.20 / 2000), loggedBy: 'Sous Chef Lisa' },
     ]
   })
 
@@ -142,7 +148,7 @@ async function main() {
 
   for (const s of salesDates) {
     await prisma.salesEntry.create({
-      data: { date: new Date(s.date), totalRevenue: s.revenue, foodSalesPct: s.pct, covers: s.covers }
+      data: { date: new Date(s.date), totalRevenue: s.revenue, foodSalesPct: s.pct, covers: s.covers, revenueCenterId: mainRC.id }
     })
   }
 

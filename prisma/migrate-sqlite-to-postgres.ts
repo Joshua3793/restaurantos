@@ -237,7 +237,9 @@ async function main() {
         covers:       r.covers !== null && r.covers !== undefined ? Math.round(toNum(r.covers)) : null,
         notes:        r.notes as string | null ?? null,
         createdAt:    toDate(r.createdAt) ?? new Date(),
-      },
+        // Legacy SQLite predates revenue centers; carry the row's RC if present.
+        revenueCenterId: (r.revenueCenterId as string | null) ?? null,
+      } as Parameters<typeof prisma.salesEntry.upsert>[0]['create'],
     })
   }
 
@@ -274,7 +276,9 @@ async function main() {
         costImpact:      toNum(r.costImpact ?? r.cost),
         loggedBy:        (r.loggedBy as string) || 'System',
         notes:           r.notes as string | null ?? null,
-      },
+        // Legacy SQLite predates revenue centers; carry the row's RC if present.
+        revenueCenterId: (r.revenueCenterId as string | null) ?? null,
+      } as Parameters<typeof prisma.wastageLog.upsert>[0]['create'],
     })
   }
 
