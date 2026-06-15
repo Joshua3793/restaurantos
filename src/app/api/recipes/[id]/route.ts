@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { fetchRecipeWithCost, syncPrepToInventory } from '@/lib/recipeCosts'
+import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const recipe = await fetchRecipeWithCost(params.id)
@@ -21,15 +22,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json()
   const { name, categoryId, baseYieldQty, yieldUnit, portionSize, portionUnit, menuPrice, notes, isActive, baseIngredientId, steps, revenueCenterId } = body
 
+  // Validate + normalize units when they're being changed.
+  let canonYield: string | undefined
+  let canonPortion: string | null | undefined
+  try {
+    if (yieldUnit   !== undefined) canonYield   = assertKnownUnit(yieldUnit, 'yield unit')
+    if (portionUnit !== undefined) canonPortion = portionUnit ? assertKnownUnit(portionUnit, 'portion unit') : null
+  } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+
   await prisma.recipe.update({
     where: { id: params.id },
     data: {
       ...(name !== undefined ? { name } : {}),
       ...(categoryId !== undefined ? { categoryId } : {}),
       ...(baseYieldQty !== undefined ? { baseYieldQty: parseFloat(baseYieldQty) } : {}),
-      ...(yieldUnit !== undefined ? { yieldUnit } : {}),
+      ...(canonYield !== undefined ? { yieldUnit: canonYield } : {}),
       ...(portionSize !== undefined ? { portionSize: portionSize ? parseFloat(portionSize) : null } : {}),
-      ...(portionUnit !== undefined ? { portionUnit } : {}),
+      ...(canonPortion !== undefined ? { portionUnit: canonPortion } : {}),
       ...(menuPrice !== undefined ? { menuPrice: menuPrice ? parseFloat(menuPrice) : null } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(isActive !== undefined ? { isActive } : {}),

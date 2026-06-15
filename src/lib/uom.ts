@@ -40,7 +40,7 @@ export const UNIT_FACTORS: Record<string, { dim: UnitDimension; toBase: number }
   pt:      { dim: 'volume', toBase: 473.176 },
   qt:      { dim: 'volume', toBase: 946.353 },
   gal:     { dim: 'volume', toBase: 3785.41 },
-  // count — base unit: each (all 1:1)
+  // count — base unit: each (all 1:1, except dozen = 12 fixed)
   each:    { dim: 'count', toBase: 1 },
   pcs:     { dim: 'count', toBase: 1 },
   slice:   { dim: 'count', toBase: 1 },
@@ -48,7 +48,22 @@ export const UNIT_FACTORS: Record<string, { dim: UnitDimension; toBase: number }
   portion: { dim: 'count', toBase: 1 },
   serve:   { dim: 'count', toBase: 1 },
   batch:   { dim: 'count', toBase: 1 },
+  plate:   { dim: 'count', toBase: 1 },    // menu presentation units (1 = one serving)
+  bowl:    { dim: 'count', toBase: 1 },
+  dozen:   { dim: 'count', toBase: 12 },   // fixed multiplier, not pack-dependent → measurement
 }
+
+/**
+ * Container / purchase units with NO fixed conversion factor — a "case" or "box"
+ * only resolves to base units through an item's pack structure
+ * (qtyPerPurchaseUnit × packSize × packUOM), or to 1 "each" when there is no pack.
+ * They are KNOWN units (never "unknown"/silent-1) but must convert via pack, never
+ * via getUnitConv. Keep these canonical tokens; map spelling variants in UOM_CANON.
+ */
+export const CONTAINER_UNITS: ReadonlySet<string> = new Set([
+  'case', 'pack', 'box', 'bag', 'tray', 'jug', 'sleeve', 'pallet',
+  'clamshell', 'flat', 'carton', 'tin',
+])
 
 /**
  * Maps every spelling/abbreviation a unit might appear as → one canonical token,
@@ -77,6 +92,21 @@ const UOM_CANON: Record<string, string> = {
   slice: 'slice', bunch: 'bunch', batch: 'batch',
   portion: 'portion', portions: 'portion',
   serve: 'serve', serving: 'serve', servings: 'serve',
+  plate: 'plate', plates: 'plate', bowl: 'bowl', bowls: 'bowl',
+  dozen: 'dozen', dozens: 'dozen', doz: 'dozen', dz: 'dozen',
+  // container / purchase units (resolve via pack structure, not a factor)
+  case: 'case', cases: 'case', cs: 'case',
+  pack: 'pack', packs: 'pack', pk: 'pack', pkg: 'pack', pkgs: 'pack',
+  box: 'box', boxes: 'box',
+  bag: 'bag', bags: 'bag',
+  tray: 'tray', trays: 'tray',
+  jug: 'jug', jugs: 'jug',
+  sleeve: 'sleeve', sleeves: 'sleeve',
+  pallet: 'pallet', pallets: 'pallet',
+  clamshell: 'clamshell', clam: 'clamshell',
+  flat: 'flat', flats: 'flat',
+  carton: 'carton', cartons: 'carton', ctn: 'carton',
+  tin: 'tin', tins: 'tin',
 }
 
 /** Normalize a unit string to its canonical token (case/abbreviation-insensitive). */
@@ -84,6 +114,50 @@ export function canonicalUom(uom: string | null | undefined): string {
   if (!uom) return ''
   const k = uom.trim().toLowerCase().replace(/\.$/, '')
   return UOM_CANON[k] ?? k
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enforcement surface — classify + guard so an unrecognized unit can never
+// silently become factor 1 ("each") in conversion math.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type UnitKind = 'measurement' | 'container' | 'unknown'
+
+/**
+ * Classify a unit (after canonicalization):
+ *  - 'measurement' → has a fixed factor (UNIT_FACTORS); converts via getUnitConv/convertQty
+ *  - 'container'   → pack-dependent (CONTAINER_UNITS); converts via the item's pack structure
+ *  - 'unknown'     → not in the backbone; must be flagged/rejected, never silently treated as 1
+ */
+export function unitKind(uom: string | null | undefined): UnitKind {
+  const c = canonicalUom(uom)
+  if (UNIT_FACTORS[c]) return 'measurement'
+  if (CONTAINER_UNITS.has(c)) return 'container'
+  return 'unknown'
+}
+
+/** True when the unit resolves to the backbone (measurement or container). */
+export function isKnownUnit(uom: string | null | undefined): boolean {
+  return unitKind(uom) !== 'unknown'
+}
+
+/** Thrown by assertKnownUnit when a unit is outside the backbone. */
+export class UnitError extends Error {
+  constructor(public readonly uom: string, public readonly field?: string) {
+    super(`Unrecognized unit '${uom}'${field ? ` for ${field}` : ''}. Use a known measurement or container unit.`)
+    this.name = 'UnitError'
+  }
+}
+
+/**
+ * Validate + normalize a unit for storage in a conversion column. Returns the
+ * canonical token; throws UnitError if the unit is unknown. Use at write-time on
+ * controlled inputs (forms, CSV import) so bad units are rejected, not persisted.
+ */
+export function assertKnownUnit(uom: string | null | undefined, field?: string): string {
+  const c = canonicalUom(uom)
+  if (!isKnownUnit(c)) throw new UnitError((uom ?? '').toString().trim(), field)
+  return c
 }
 
 export interface UomGroup {

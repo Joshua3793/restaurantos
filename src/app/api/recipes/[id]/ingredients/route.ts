@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     )
   }
 
+  // Validate + normalize the ingredient unit against the UOM backbone.
+  let canonUnit: string
+  try { canonUnit = assertKnownUnit(unit, 'ingredient unit') }
+  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+
   const maxOrder = await prisma.recipeIngredient.aggregate({
     where: { recipeId: params.id },
     _max: { sortOrder: true },
@@ -30,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       inventoryItemId: inventoryItemId || null,
       linkedRecipeId: linkedRecipeId || null,
       qtyBase: parseFloat(qtyBase),
-      unit,
+      unit: canonUnit,
       sortOrder,
       notes: notes || null,
       recipePercent: recipePercent !== undefined && recipePercent !== null ? parseFloat(recipePercent) : null,

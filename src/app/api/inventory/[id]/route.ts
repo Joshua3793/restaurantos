@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
+import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { resolveCountUom } from '@/lib/count-uom'
 
@@ -53,8 +54,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const hasWeightPerEach = rawPs > 0
   const ps    = hasWeightPerEach ? rawPs : 1  // default 1 for price math (avoid ÷0)
   // When no weight-per-each was entered, normalize packUOM to 'each' so the data
-  // is unambiguous downstream (buildPurchaseDescription, getCountableUoms, etc.)
-  const pu    = hasWeightPerEach ? (packUOM ?? 'each') : 'each'
+  // is unambiguous downstream (buildPurchaseDescription, getCountableUoms, etc.).
+  // Validate packUOM against the UOM backbone (qtyUOM already validated above).
+  let pu: string
+  try { pu = assertKnownUnit(hasWeightPerEach ? (packUOM ?? 'each') : 'each', 'packUOM') }
+  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
   const qu    = canonQtyUom ?? 'each'
   const iq    = innerQty != null ? Number(innerQty) : null
   // Count UOM derives from the purchase format: keep an explicit, still-valid

@@ -1,7 +1,8 @@
 # UOM Backbone Hardening — Design
 
 **Date:** 2026-06-15
-**Status:** Approved (design), pending implementation plan
+**Status:** Implemented (2026-06-15). `plate`/`bowl` were also added to `UNIT_FACTORS` (count, 1) so the
+guard accepts MENU yield units. Data cleanup ran on the live DB (87 countUOM + others normalized).
 **Scope:** Perimeter hardening only (full tokenization of `selectedUom`/`purchaseUnit` is a documented Phase-2 follow-up).
 
 ## Problem

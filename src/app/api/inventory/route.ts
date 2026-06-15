@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { resolveCountUom } from '@/lib/count-uom'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 
@@ -143,9 +144,13 @@ export async function POST(req: NextRequest) {
   const rawPs = parseFloat(packSize ?? '')
   const hasWeightPerEach = rawPs > 0
   const ps    = hasWeightPerEach ? rawPs : 1
-  // Force packUOM to 'each' when no weight-per-each entered
-  const pu    = hasWeightPerEach ? (packUOM ?? 'each') : 'each'
-  const qu    = qtyUOM ?? 'each'
+  // Force packUOM to 'each' when no weight-per-each entered. Validate + normalize
+  // packUOM/qtyUOM against the UOM backbone — they feed the pricing math directly.
+  let pu: string, qu: string
+  try {
+    pu = assertKnownUnit(hasWeightPerEach ? (packUOM ?? 'each') : 'each', 'packUOM')
+    qu = assertKnownUnit(qtyUOM ?? 'each', 'qtyUOM')
+  } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
   const iq    = innerQty != null ? Number(innerQty) : null
   // Count UOM derives from the purchase format: keep an explicit, still-valid
   // choice (switchable per item) but never let it sit at a stale/invalid value —
