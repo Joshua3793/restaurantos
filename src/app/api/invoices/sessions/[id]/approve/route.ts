@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
+import { propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
@@ -434,10 +435,20 @@ async function doApprove(
         )
     )
 
-    // ── Recalculate recipe costs for changed items ──────────────────────
+    // ── Re-sync PREP costs + recalculate recipe costs for changed items ──
     let recipeAlertsCreated = 0
     if (updatedItemIds.length > 0) {
-      const alerts = await recalculateRecipeCosts(updatedItemIds, sessionId)
+      // Re-sync every PREP recipe whose cost depends on a changed item — directly
+      // OR transitively (prep-in-prep) — so its spine price (the value every other
+      // recipe/report/count reads) reflects the new ingredient price NOW, not only
+      // on the next manual recipe edit. Returns the prep output items that moved.
+      const movedPrepItemIds = await propagatePrepCostChanges(updatedItemIds)
+      // Alerts should cover recipes using a changed raw item OR a prep whose cost
+      // moved, so feed both sets into the recipe-cost recalc.
+      const alerts = await recalculateRecipeCosts(
+        [...new Set([...updatedItemIds, ...movedPrepItemIds])],
+        sessionId,
+      )
       recipeAlertsCreated = alerts.length
     }
 

@@ -280,3 +280,98 @@ export async function syncPrepToInventory(recipeId: string) {
     },
   })
 }
+
+/**
+ * Propagate spine price changes to every PREP recipe that depends on the changed
+ * inventory items — directly OR transitively (prep-in-prep) — by re-syncing each
+ * affected PREP recipe's computed cost back to its linked InventoryItem.
+ *
+ * Why this is needed: a PREP recipe's cost is computed live from its ingredients'
+ * `pricePerBaseUnit`, but the recipe's OWN synced `InventoryItem.pricePerBaseUnit`
+ * (the spine value every OTHER recipe / report / count reads) is written only by
+ * `syncPrepToInventory`. Historically that ran only on a recipe edit, so an
+ * invoice price change left every PREP using that ingredient — and every PREP
+ * using THAT prep's output (e.g. Hollandaise → Clarified Butter) — stale until
+ * someone re-saved it.
+ *
+ * Algorithm: worklist over the dependency graph. Seed with the changed items;
+ * re-sync each consuming PREP; if its output price actually moves, enqueue that
+ * output item so recipes built on it re-sync too. The re-triggering yields
+ * leaf-first ordering without an explicit topological sort, and a per-recipe
+ * sync cap bounds the work even if the graph contains a cycle.
+ *
+ * @returns ids of PREP output InventoryItems whose pricePerBaseUnit changed
+ *          (useful for cascading recipe-cost alerts to MENU recipes).
+ */
+export async function propagatePrepCostChanges(changedItemIds: string[]): Promise<string[]> {
+  const seedIds = [...new Set(changedItemIds.filter(Boolean))]
+  if (seedIds.length === 0) return []
+
+  const prepRecipes = await prisma.recipe.findMany({
+    where: { type: 'PREP', inventoryItemId: { not: null } },
+    select: {
+      id: true,
+      inventoryItemId: true,
+      ingredients: { select: { inventoryItemId: true, linkedRecipeId: true } },
+    },
+  })
+  if (prepRecipes.length === 0) return []
+
+  // recipeId → its synced output InventoryItem id
+  const outputItemOf = new Map<string, string>()
+  for (const r of prepRecipes) if (r.inventoryItemId) outputItemOf.set(r.id, r.inventoryItemId)
+
+  // input InventoryItem id → PREP recipes that consume it. A linkedRecipe
+  // ingredient depends on that sub-recipe's OUTPUT item (the spine it reads).
+  const consumersOfItem = new Map<string, Set<string>>()
+  const addConsumer = (itemId: string | null | undefined, recipeId: string) => {
+    if (!itemId) return
+    const set = consumersOfItem.get(itemId) ?? new Set<string>()
+    set.add(recipeId)
+    consumersOfItem.set(itemId, set)
+  }
+  for (const r of prepRecipes) {
+    for (const ing of r.ingredients) {
+      addConsumer(ing.inventoryItemId, r.id)
+      if (ing.linkedRecipeId) addConsumer(outputItemOf.get(ing.linkedRecipeId), r.id)
+    }
+  }
+
+  const movedOutputs = new Set<string>()
+  const syncCount = new Map<string, number>()
+  const maxSyncsPerRecipe = prepRecipes.length + 2  // safety bound for cyclic graphs
+
+  const queue: string[] = [...seedIds]
+  while (queue.length > 0) {
+    const itemId = queue.shift()!
+    const consumers = consumersOfItem.get(itemId)
+    if (!consumers) continue
+    for (const recipeId of consumers) {
+      const n = syncCount.get(recipeId) ?? 0
+      if (n >= maxSyncsPerRecipe) continue
+      syncCount.set(recipeId, n + 1)
+
+      const outId = outputItemOf.get(recipeId)
+      if (!outId) continue
+      const before = await prisma.inventoryItem.findUnique({
+        where: { id: outId }, select: { pricePerBaseUnit: true },
+      })
+      try {
+        await syncPrepToInventory(recipeId)
+      } catch (e) {
+        console.error(`[propagatePrepCostChanges] sync failed for recipe ${recipeId}:`, e)
+        continue
+      }
+      const after = await prisma.inventoryItem.findUnique({
+        where: { id: outId }, select: { pricePerBaseUnit: true },
+      })
+
+      const a = Number(before?.pricePerBaseUnit ?? 0)
+      const b = Number(after?.pricePerBaseUnit ?? 0)
+      const moved = a === 0 ? b !== 0 : Math.abs(a - b) / Math.abs(a) > 1e-6
+      if (moved) { movedOutputs.add(outId); queue.push(outId) }
+    }
+  }
+
+  return [...movedOutputs]
+}

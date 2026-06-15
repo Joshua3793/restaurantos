@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
-import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { resolveCountUom } from '@/lib/count-uom'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -109,6 +109,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (linkedRecipe) {
     await syncPrepToInventory(linkedRecipe.id)
   }
+
+  // A manual price edit is a spine write: propagate it to every PREP recipe that
+  // uses this item (directly or transitively) so their costs don't go stale —
+  // same reason the invoice-approve path does. Runs after the own-prep sync above
+  // so a prep item's freshly-derived price also propagates to its parents.
+  await propagatePrepCostChanges([params.id])
 
   // If allergens changed, cascade-sync every PREP recipe that uses this item
   // as an ingredient so their linked PREPD items stay up to date.
