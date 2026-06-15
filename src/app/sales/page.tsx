@@ -304,7 +304,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
   const [foodPct,       setFoodPct]       = useState(initial ? String(Math.round(Number(initial.foodSalesPct) * 100)) : '70')
   const [covers,        setCovers]        = useState(initial ? String(initial.covers ?? '') : '')
   const [notes,         setNotes]         = useState(initial?.notes ?? '')
-  const [rcId,          setRcId]          = useState<string | null>(initial ? initial.revenueCenterId : defaultRcId)
+  const [rcId,          setRcId]          = useState<string | null>(initial ? initial.revenueCenterId : (defaultRcId ?? revenueCenters[0]?.id ?? null))
   const [saving,        setSaving]        = useState(false)
   const [recipeSearch,  setRecipeSearch]  = useState('')
 
@@ -378,15 +378,6 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                       </button>
                     )
                   })}
-                  <button
-                    type="button"
-                    onClick={() => setRcId(null)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      rcId === null ? 'bg-ink text-white border-ink' : 'bg-white text-ink-3 border-line hover:border-line-2'
-                    }`}
-                  >
-                    Unassigned
-                  </button>
                 </div>
               </div>
             )}
@@ -460,7 +451,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
               className="flex-1 px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg">
               Cancel
             </button>
-            <button type="submit" disabled={saving}
+            <button type="submit" disabled={saving || !rcId}
               className="flex-1 px-4 py-2.5 rounded-xl bg-ink text-paper [&_svg]:text-gold text-sm font-medium hover:bg-ink-2 disabled:opacity-60">
               {saving ? 'Saving…' : (initial ? 'Save changes' : 'Record sales')}
             </button>

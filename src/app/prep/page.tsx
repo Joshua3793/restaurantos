@@ -395,7 +395,7 @@ export default function PrepPage() {
     }))
 
     if (!navigator.onLine) {
-      enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty })
+      enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty, revenueCenterId: item.revenueCenterId ?? activeRcId })
       setPendingCount(n => n + 1)
       pendingItems.current.delete(itemId)
       return
