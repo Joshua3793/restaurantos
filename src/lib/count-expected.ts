@@ -129,28 +129,21 @@ export async function buildPurchaseMap(
   if (rcId) {
     const scanItems = await prisma.invoiceScanItem.findMany({
       where: {
-        session: {
-          revenueCenterId: rcId,
-          status: 'APPROVED',
-          createdAt: { gte: since },
-        },
+        session: { revenueCenterId: rcId, status: 'APPROVED', createdAt: { gte: since } },
         approved: true,
+        splitToSessionId: null,                      // count each line in exactly ONE RC (bug #1)
         action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
         matchedItemId: { not: null },
         rawQty: { not: null },
       },
       select: {
-        matchedItemId: true,
-        rawQty: true,
-        invoicePackQty:  true,
-        invoicePackSize: true,
-        invoicePackUOM:  true,
+        matchedItemId: true, rawQty: true, rawUnit: true,
+        totalQty: true, totalQtyUOM: true,
+        invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
         session: { select: { createdAt: true } },
         matchedItem: {
-          select: {
-            id: true, baseUnit: true,
-            qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
-          },
+          select: { id: true, baseUnit: true, priceType: true,
+                    qtyPerPurchaseUnit: true, packSize: true, packUOM: true },
         },
       },
     })
@@ -161,56 +154,38 @@ export async function buildPurchaseMap(
       const qty = Number(si.rawQty ?? 0)
       if (qty <= 0) continue
 
+      const baseUnit = si.matchedItem.baseUnit
       let baseUnits: number
-      const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
-      const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
-      const packUOM  = si.invoicePackUOM ?? null
 
-      if (packQty > 0 && packSize > 0 && packUOM) {
-        baseUnits = convertQty(qty * packQty * packSize, packUOM, si.matchedItem.baseUnit)
+      if (si.matchedItem.priceType === 'UOM') {
+        // Per-weight / catch-weight: the invoice bills a weight/volume directly,
+        // so rawQty (in rawUnit) is the quantity — NOT a count of cases. Prefer the
+        // invoice's stated total (totalQty/totalQtyUOM); fall back to rawQty/rawUnit.
+        // Multiplying by case size here was a 10× inflation (bug #4).
+        const billedQty = si.totalQty != null && Number(si.totalQty) > 0 ? Number(si.totalQty) : qty
+        const billedUOM = si.totalQtyUOM ?? si.rawUnit ?? baseUnit
+        baseUnits = convertQty(billedQty, billedUOM, baseUnit)
       } else {
-        // Convert packUOM → baseUnit, matching the branch above and the legacy
-        // InvoiceLineItem path below. Omitting getUnitConv understated weight/
-        // volume purchases by the conversion factor (1000× for kg→g).
-        const unitsPerCase =
-          Number(si.matchedItem.qtyPerPurchaseUnit) *
-          Number(si.matchedItem.packSize) *
-          getUnitConv(si.matchedItem.packUOM)
-        baseUnits = qty * unitsPerCase
+        const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
+        const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
+        const packUOM  = si.invoicePackUOM ?? null
+        if (packQty > 0 && packSize > 0 && packUOM) {
+          baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
+        } else {
+          const unitsPerCase =
+            Number(si.matchedItem.qtyPerPurchaseUnit) *
+            Number(si.matchedItem.packSize) *
+            getUnitConv(si.matchedItem.packUOM)
+          baseUnits = qty * unitsPerCase
+        }
       }
 
       map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
     }
-  } else {
-    const purchaseRows = await prisma.invoiceLineItem.findMany({
-      where: {
-        invoice: {
-          invoiceDate: { gte: since },
-          status: { not: 'CANCELLED' },
-        },
-      },
-      include: {
-        invoice: { select: { invoiceDate: true } },
-        inventoryItem: {
-          select: {
-            id: true, baseUnit: true,
-            qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
-          },
-        },
-      },
-    })
-
-    for (const p of purchaseRows) {
-      if (!p.inventoryItem) continue
-      if (p.inventoryItemId && !inWindow(cutoff, p.inventoryItemId, p.invoice.invoiceDate)) continue
-      const unitsPerCase =
-        Number(p.inventoryItem.qtyPerPurchaseUnit) *
-        Number(p.inventoryItem.packSize) *
-        getUnitConv(p.inventoryItem.packUOM)
-      const baseUnits = Number(p.qtyPurchased) * unitsPerCase
-      map.set(p.inventoryItemId!, (map.get(p.inventoryItemId!) ?? 0) + baseUnits)
-    }
   }
+
+  // No `else`: build maps are only ever called with a concrete rcId. The "all
+  // RCs" total is the SUM of per-RC maps — see getTheoreticalStockMap(null).
 
   return map
 }
