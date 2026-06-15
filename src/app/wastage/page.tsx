@@ -49,6 +49,7 @@ export default function WastagePage() {
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10) })
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [showAdd, setShowAdd] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
     inventoryItemId: '',
     qtyWasted: '',
@@ -78,6 +79,11 @@ export default function WastagePage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!activeRcId) {
+      setError('Select a revenue center (not "All") to log wastage.')
+      return
+    }
+    setError(null)
     await fetch('/api/wastage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -335,6 +341,12 @@ export default function WastagePage() {
                   <span className="font-bold text-red-text">{formatCurrency(previewCost)}</span>
                 </div>
               )}
+              {(!activeRcId || error) && (
+                <div className="bg-red-soft text-red-text rounded-lg p-3 text-sm flex items-start gap-2">
+                  <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                  <span>{error ?? 'Select a revenue center (not "All") to log wastage.'}</span>
+                </div>
+              )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -345,7 +357,8 @@ export default function WastagePage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-red text-white rounded-lg py-2 text-sm hover:bg-red"
+                  disabled={!activeRcId}
+                  className="flex-1 bg-red text-white rounded-lg py-2 text-sm hover:bg-red disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Log Wastage
                 </button>

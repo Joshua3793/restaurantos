@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
   const itemId    = searchParams.get('itemId')
   const reason    = searchParams.get('reason')
   const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
   const logs = await prisma.wastageLog.findMany({
     where: {
@@ -18,7 +17,9 @@ export async function GET(req: NextRequest) {
         endDate   ? { date: { lte: new Date(endDate) } }  : {},
         itemId    ? { inventoryItemId: itemId }            : {},
         reason    ? { reason }                             : {},
-        rcId      ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId }) : {},
+        // revenueCenterId is NOT NULL on WastageLog (legacy nulls backfilled to the default
+        // RC), so the filter is just the concrete rcId — no null rows to union in.
+        rcId      ? { revenueCenterId: rcId }              : {},
       ],
     },
     include: { inventoryItem: true },
@@ -29,7 +30,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date, revenueCenterId } = body
+  const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date } = body
+
+  const revenueCenterId: string | null = body.revenueCenterId ?? null
+  if (!revenueCenterId) {
+    return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
 
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
   const ppbu = item ? parseFloat(String(item.pricePerBaseUnit)) : 0
@@ -46,7 +52,7 @@ export async function POST(req: NextRequest) {
       costImpact,
       loggedBy:        loggedBy || 'System',
       notes,
-      revenueCenterId: revenueCenterId || null,
+      revenueCenterId,
     },
     include: { inventoryItem: true },
   })

@@ -304,7 +304,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
   const [foodPct,       setFoodPct]       = useState(initial ? String(Math.round(Number(initial.foodSalesPct) * 100)) : '70')
   const [covers,        setCovers]        = useState(initial ? String(initial.covers ?? '') : '')
   const [notes,         setNotes]         = useState(initial?.notes ?? '')
-  const [rcId,          setRcId]          = useState<string | null>(initial ? initial.revenueCenterId : defaultRcId)
+  const [rcId,          setRcId]          = useState<string | null>(initial ? initial.revenueCenterId : (defaultRcId ?? revenueCenters[0]?.id ?? null))
   const [saving,        setSaving]        = useState(false)
   const [recipeSearch,  setRecipeSearch]  = useState('')
 
@@ -378,15 +378,6 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                       </button>
                     )
                   })}
-                  <button
-                    type="button"
-                    onClick={() => setRcId(null)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      rcId === null ? 'bg-ink text-white border-ink' : 'bg-white text-ink-3 border-line hover:border-line-2'
-                    }`}
-                  >
-                    Unassigned
-                  </button>
                 </div>
               </div>
             )}
@@ -460,7 +451,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
               className="flex-1 px-4 py-2.5 rounded-xl border border-line text-sm font-medium text-ink-2 hover:bg-bg">
               Cancel
             </button>
-            <button type="submit" disabled={saving}
+            <button type="submit" disabled={saving || !rcId}
               className="flex-1 px-4 py-2.5 rounded-xl bg-ink text-paper [&_svg]:text-gold text-sm font-medium hover:bg-ink-2 disabled:opacity-60">
               {saving ? 'Saving…' : (initial ? 'Save changes' : 'Record sales')}
             </button>
@@ -809,6 +800,7 @@ export default function SalesPage() {
   const [selectedPeriodKey, setSelectedPeriodKey] = useState<string | null>(null)
   const [granularity,       setGranularity]       = useState<Granularity>('day')
   const [showImport,    setShowImport]    = useState(false)
+  const [importError,   setImportError]   = useState<string | null>(null)
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
@@ -918,6 +910,7 @@ export default function SalesPage() {
   }
 
   const handleImport = async (row: Parameters<Parameters<typeof ImportModal>[0]['onImport']>[0]) => {
+    if (!activeRcId) { setImportError('Select a revenue center (not "All") to import sales.'); return }
     await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...row, revenueCenterId: activeRcId }) })
     setShowImport(false)
     fetchSales()
@@ -932,8 +925,9 @@ export default function SalesPage() {
           <p className="text-sm text-ink-3 mt-0.5">Daily sales records · inventory consumption tracking</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 border border-line bg-white text-ink-2 px-3 py-2 rounded-lg text-sm hover:bg-bg transition-colors">
+          <button onClick={() => { setImportError(null); setShowImport(true) }} disabled={!activeRcId}
+            title={!activeRcId ? 'Select a revenue center (not "All") to import sales.' : undefined}
+            className="flex items-center gap-2 border border-line bg-white text-ink-2 px-3 py-2 rounded-lg text-sm hover:bg-bg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white">
             <Upload size={15} /> Import
           </button>
           <button onClick={() => setShowAdd(true)}
@@ -942,6 +936,13 @@ export default function SalesPage() {
           </button>
         </div>
       </div>
+
+      {/* RC gate hint — import requires a concrete revenue center */}
+      {!activeRcId && (
+        <div className="bg-red-soft text-red-text rounded-lg px-3 py-2 text-sm">
+          {importError ?? 'You’re viewing all revenue centers. Select a specific revenue center (not "All") to import sales. You can still add a sales day and assign its revenue center in the form.'}
+        </div>
+      )}
 
       {/* Date range tabs */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -974,7 +975,7 @@ export default function SalesPage() {
             <h3 className="font-semibold text-blue-text text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
             <p className="text-xs text-gold leading-relaxed mb-3">
               Add each service day — total revenue, covers, and which menu items sold. This powers the food cost % calculation in your dashboard and analytics.
-              You can also <button onClick={() => setShowImport(true)} className="underline font-medium">import from Toast POS</button> if you have a ProductMix export.
+              You can also <button onClick={() => setShowImport(true)} disabled={!activeRcId} className="underline font-medium disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed">import from Toast POS</button> if you have a ProductMix export.
             </p>
             <button onClick={() => setShowAdd(true)}
               className="inline-flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-4 py-2 rounded-lg text-sm font-medium hover:bg-ink-2 transition-colors">

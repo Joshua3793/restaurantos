@@ -15,6 +15,7 @@ export interface OfflineMutation {
   status?:    string
   actualQty?: number
   priority?:  string
+  revenueCenterId?: string | null   // active RC captured at enqueue time (status type)
 }
 
 // ── Cache ──────────────────────────────────────────────────────────────────────
@@ -120,11 +121,13 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
 
         // If we still have no real ID, create the log first
         if (!logId) {
-          const log = await fetch('/api/prep/logs', {
+          const res = await fetch('/api/prep/logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prepItemId: m.itemId }),
-          }).then(r => r.json())
+            body: JSON.stringify({ prepItemId: m.itemId, revenueCenterId: m.revenueCenterId ?? null }),
+          })
+          if (!res.ok) { failed++; continue }   // e.g. RC-less Shared item — don't lose silently
+          const log = await res.json()
           logId = log.id
         }
 

@@ -126,90 +126,83 @@ export async function buildPurchaseMap(
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
 
-  if (rcId) {
-    const scanItems = await prisma.invoiceScanItem.findMany({
-      where: {
-        session: {
-          revenueCenterId: rcId,
-          status: 'APPROVED',
-          createdAt: { gte: since },
-        },
-        approved: true,
-        action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
-        matchedItemId: { not: null },
-        rawQty: { not: null },
+  const scanItems = await prisma.invoiceScanItem.findMany({
+    where: {
+      session: {
+        status: 'APPROVED',
+        createdAt: { gte: since },
+        ...(rcId ? { revenueCenterId: rcId } : {}),   // null = all RCs (matches sibling maps)
       },
-      select: {
-        matchedItemId: true,
-        rawQty: true,
-        invoicePackQty:  true,
-        invoicePackSize: true,
-        invoicePackUOM:  true,
-        session: { select: { createdAt: true } },
-        matchedItem: {
-          select: {
-            id: true, baseUnit: true,
-            qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
-          },
+      approved: true,
+      splitToSessionId: null,                          // count each line in exactly ONE RC (bug #1)
+      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
+      matchedItemId: { not: null },
+      rawQty: { not: null },
+    },
+    select: {
+      matchedItemId: true,
+      rawQty: true,
+      rawUnit: true,
+      totalQty: true,
+      totalQtyUOM: true,
+      invoicePackQty: true,
+      invoicePackSize: true,
+      invoicePackUOM: true,
+      session: { select: { createdAt: true } },
+      matchedItem: {
+        select: {
+          id: true,
+          baseUnit: true,
+          priceType: true,
+          qtyPerPurchaseUnit: true,
+          packSize: true,
+          packUOM: true,
         },
       },
-    })
+    },
+  })
 
-    for (const si of scanItems) {
-      if (!si.matchedItemId || !si.matchedItem) continue
-      if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
-      const qty = Number(si.rawQty ?? 0)
-      if (qty <= 0) continue
+  for (const si of scanItems) {
+    if (!si.matchedItemId || !si.matchedItem) continue
+    if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
+    const qty = Number(si.rawQty ?? 0)
+    if (qty <= 0) continue
 
-      let baseUnits: number
+    const baseUnit = si.matchedItem.baseUnit
+    let baseUnits: number
+
+    if (si.matchedItem.priceType === 'UOM') {
+      // Per-weight / catch-weight: the invoice bills a weight/volume directly, so
+      // the quantity is NOT a count of cases. Use the invoice's stated total weight
+      // when present, else rawQty — each paired with ITS OWN unit (never cross
+      // totalQty with rawUnit, which describes the container). Multiplying by case
+      // size here was a 10× inflation (bug #4).
+      let billedQty: number
+      let billedUOM: string
+      if (si.totalQty != null && Number(si.totalQty) > 0) {
+        billedQty = Number(si.totalQty)
+        billedUOM = si.totalQtyUOM ?? baseUnit
+      } else {
+        billedQty = qty
+        billedUOM = si.rawUnit ?? baseUnit
+      }
+      baseUnits = convertQty(billedQty, billedUOM, baseUnit)
+    } else {
       const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
       const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
       const packUOM  = si.invoicePackUOM ?? null
-
       if (packQty > 0 && packSize > 0 && packUOM) {
-        baseUnits = convertQty(qty * packQty * packSize, packUOM, si.matchedItem.baseUnit)
+        baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
       } else {
-        // Convert packUOM → baseUnit, matching the branch above and the legacy
-        // InvoiceLineItem path below. Omitting getUnitConv understated weight/
-        // volume purchases by the conversion factor (1000× for kg→g).
         const unitsPerCase =
           Number(si.matchedItem.qtyPerPurchaseUnit) *
           Number(si.matchedItem.packSize) *
           getUnitConv(si.matchedItem.packUOM)
         baseUnits = qty * unitsPerCase
       }
-
-      map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
     }
-  } else {
-    const purchaseRows = await prisma.invoiceLineItem.findMany({
-      where: {
-        invoice: {
-          invoiceDate: { gte: since },
-          status: { not: 'CANCELLED' },
-        },
-      },
-      include: {
-        invoice: { select: { invoiceDate: true } },
-        inventoryItem: {
-          select: {
-            id: true, baseUnit: true,
-            qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
-          },
-        },
-      },
-    })
 
-    for (const p of purchaseRows) {
-      if (!p.inventoryItem) continue
-      if (p.inventoryItemId && !inWindow(cutoff, p.inventoryItemId, p.invoice.invoiceDate)) continue
-      const unitsPerCase =
-        Number(p.inventoryItem.qtyPerPurchaseUnit) *
-        Number(p.inventoryItem.packSize) *
-        getUnitConv(p.inventoryItem.packUOM)
-      const baseUnits = Number(p.qtyPurchased) * unitsPerCase
-      map.set(p.inventoryItemId!, (map.get(p.inventoryItemId!) ?? 0) + baseUnits)
-    }
+    map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
   }
 
   return map
@@ -292,6 +285,13 @@ export async function computeExpectedForItem(
     select: { id: true, stockOnHand: true, lastCountDate: true },
   })
   if (!item) return null
+
+  // No RC selected → mirror getTheoreticalStockMap(null): sum across RCs.
+  if (!rcId) {
+    const m = await getTheoreticalStockMap(null, [itemId])
+    const q = m.get(itemId) ?? 0
+    return { expectedBase: q, baseStock: q }
+  }
 
   let isDefaultRc = false
   let baseStock = Number(item.stockOnHand)
@@ -428,6 +428,16 @@ export async function getTheoreticalStockMap(
   rcId: string | null | undefined,
   itemIds?: string[],
 ): Promise<Map<string, number>> {
+  // "All RCs" = the SUM of every revenue center's theoretical map. This makes
+  // ALL = ΣRC true by construction (each RC floored at 0 independently).
+  if (!rcId) {
+    const rcs = await prisma.revenueCenter.findMany({ select: { id: true } })
+    const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, itemIds)))
+    const sum = new Map<string, number>()
+    for (const m of perRc) for (const [id, q] of m) sum.set(id, (sum.get(id) ?? 0) + q)
+    return sum
+  }
+
   const items = await prisma.inventoryItem.findMany({
     where: { isActive: true, ...(itemIds ? { id: { in: itemIds } } : {}) },
     select: { id: true, stockOnHand: true, lastCountDate: true },

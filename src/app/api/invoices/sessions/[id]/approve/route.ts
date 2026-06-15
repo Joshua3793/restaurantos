@@ -45,10 +45,13 @@ async function doApprove(
       select: { id: true },
     })
     const defaultRcId = defaultRc?.id ?? null
+    // Approving without an RC attributes the invoice's purchases to no revenue
+    // center (dropped from per-RC theoretical stock). Default to the default RC.
+    const effectiveSessionRcId = session.revenueCenterId ?? defaultRcId
     // The line's effective RC is its own override, else the invoice's active RC.
     // Only non-default RCs need an allocation row (default RC reads global stockOnHand).
     const registerAlloc = (itemId: string | null, lineRcId: string | null) => {
-      const rcId = lineRcId ?? session.revenueCenterId
+      const rcId = lineRcId ?? effectiveSessionRcId
       if (itemId && rcId && rcId !== defaultRcId) allocPairs.push({ itemId, rcId })
     }
 
@@ -346,6 +349,7 @@ async function doApprove(
         status: 'APPROVED',
         approvedBy,
         approvedAt: new Date(),
+        revenueCenterId: effectiveSessionRcId,
         ...(skippedLines > 0
           ? {
               errorMessage: `${skippedLines} line${skippedLines === 1 ? '' : 's'} skipped — price not updated (format or price could not be resolved safely). Re-open the invoice to review.`,
@@ -355,8 +359,8 @@ async function doApprove(
     })
 
     // ── Clone session per RC ────────────────────────────────────────────
-    if (session.revenueCenterId) {
-      const sessionRcId = session.revenueCenterId
+    if (effectiveSessionRcId) {
+      const sessionRcId = effectiveSessionRcId
       const itemsByRc = new Map<string, typeof session.scanItems>()
       for (const item of session.scanItems) {
         const effectiveRcId = item.revenueCenterId ?? sessionRcId
