@@ -116,22 +116,22 @@ async function doApprove(
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
         } else {
-          // CASE and PKG both go through the same path (PKG newPrice is already per-case after drawer normalization)
-          if (scanItem.totalQty !== null && scanItem.totalQty !== undefined && Number(scanItem.totalQty) > 0) {
-            const tqUOM = scanItem.totalQtyUOM ?? packUOM
-            const conv  = getUnitConv(tqUOM)
-            newPricePerBase = conv > 0 ? newPurchasePrice / (Number(scanItem.totalQty) * conv) : 0
-          } else {
-            const iqNum = item.innerQty != null ? Number(item.innerQty) : null
-            newPricePerBase = calcPricePerBaseUnit(
-              newPurchasePrice,
-              packQty,
-              useInvoicePack ? 'each' : (item.qtyUOM ?? 'each'),
-              useInvoicePack ? null : iqNum,
-              packSize,
-              packUOM,
-            )
-          }
+          // CASE and PKG: the price is PER CASE (PKG newPrice is normalized to per-case by
+          // the drawer). pricePerBaseUnit derives from the pack STRUCTURE — never from the
+          // line's totalQty. rawUnitPrice is a per-case price, so dividing it by a total
+          // quantity is dimensionally wrong (and OCR totalQty is often inconsistent with the
+          // confirmed pack — e.g. Butter 2 CS @ $172.79 carried a stray totalQty 2.86 kg,
+          // yielding $0.0604/g instead of the correct $0.0152/g). calcPricePerBaseUnit is the
+          // canonical formula and matches the DELETE-revert path, so approve/revert agree.
+          const iqNum = item.innerQty != null ? Number(item.innerQty) : null
+          newPricePerBase = calcPricePerBaseUnit(
+            newPurchasePrice,
+            packQty,
+            useInvoicePack ? 'each' : (item.qtyUOM ?? 'each'),
+            useInvoicePack ? null : iqNum,
+            packSize,
+            packUOM,
+          )
         }
 
         // If the invoice's pack format genuinely differs from the stored item
@@ -359,6 +359,25 @@ async function doApprove(
     })
 
     // ── Clone session per RC ────────────────────────────────────────────
+    // Idempotency: a prior approval (before a reset → re-approve) may have created RC
+    // clone sessions and flagged parent lines with splitToSessionId. Re-approving must
+    // REPLACE those, not stack a second set — otherwise each clone's copies
+    // (splitToSessionId = null) are counted again as purchases/spend (double-count).
+    // Remove prior clones (cascade-deletes their copied scan items) and un-split the
+    // parent lines so each approval rebuilds exactly one set of clones.
+    const priorClones = await prisma.invoiceSession.findMany({
+      where: { parentSessionId: sessionId },
+      select: { id: true },
+    })
+    if (priorClones.length > 0) {
+      const cloneIds = priorClones.map(c => c.id)
+      await prisma.invoiceScanItem.updateMany({
+        where: { splitToSessionId: { in: cloneIds } },
+        data:  { splitToSessionId: null },
+      })
+      await prisma.invoiceSession.deleteMany({ where: { id: { in: cloneIds } } })
+    }
+
     if (effectiveSessionRcId) {
       const sessionRcId = effectiveSessionRcId
       const itemsByRc = new Map<string, typeof session.scanItems>()
