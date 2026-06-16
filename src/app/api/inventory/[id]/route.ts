@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
-import { assertKnownUnit, UnitError } from '@/lib/uom'
+import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { resolveCountUom } from '@/lib/count-uom'
 
@@ -59,6 +59,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   let pu: string
   try { pu = assertKnownUnit(hasWeightPerEach ? (packUOM ?? 'each') : 'each', 'packUOM') }
   catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+  // Normalize + validate purchaseUnit to a canonical token so the spine always
+  // stores a known token (never a display string).
+  let purchaseUnitTok: string
+  try { purchaseUnitTok = assertKnownUnit(purchaseUnitToken(rest.purchaseUnit ?? 'each'), 'purchaseUnit') }
+  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
   const qu    = canonQtyUom ?? 'each'
   const iq    = innerQty != null ? Number(innerQty) : null
   // Count UOM derives from the purchase format: keep an explicit, still-valid
@@ -66,7 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // fall back to the derived primary so count sessions read the right unit.
   const cu    = resolveCountUom({
     baseUnit:           '',                 // unused by the derivation
-    purchaseUnit:       rest.purchaseUnit ?? 'each',
+    purchaseUnit:       purchaseUnitTok,
     qtyPerPurchaseUnit: qty,
     qtyUOM:             qu,
     innerQty:           iq,
@@ -86,6 +91,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     where: { id: params.id },
     data: {
       ...rest,
+      purchaseUnit: purchaseUnitTok,
       purchasePrice: pp,
       qtyPerPurchaseUnit: qty,
       packSize: ps,

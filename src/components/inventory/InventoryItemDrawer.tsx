@@ -8,6 +8,7 @@ import {
   getUnitDimension, compatibleCountUnits, getUnitConv, isMeasuredUnit,
 } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
+import { purchaseUnitToken } from '@/lib/uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -80,9 +81,7 @@ interface Props {
 // ─── Purchase description ─────────────────────────────────────────────────────
 
 function normalizePurchaseUnit(raw: string): string {
-  if (PURCHASE_UNITS.includes(raw as typeof PURCHASE_UNITS[number])) return raw
-  const found = (PURCHASE_UNITS as readonly string[]).find(u => raw.toLowerCase().includes(u))
-  return found ?? 'case'
+  return purchaseUnitToken(raw)
 }
 
 function buildPurchaseDescription(

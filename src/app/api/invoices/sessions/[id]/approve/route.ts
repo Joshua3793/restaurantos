@@ -7,6 +7,7 @@ import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
+import { purchaseUnitToken } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -288,7 +289,7 @@ async function doApprove(
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
             category:           newData.category || 'DRY',
-            purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
+            purchaseUnit:       purchaseUnitToken(newData.purchaseUnit || scanItem.rawUnit || 'each'),
             qtyPerPurchaseUnit: newPackQty,
             purchasePrice:      newPurchasePrice,
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would

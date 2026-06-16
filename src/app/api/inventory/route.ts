@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
-import { assertKnownUnit, UnitError } from '@/lib/uom'
+import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { resolveCountUom } from '@/lib/count-uom'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 
@@ -151,13 +151,18 @@ export async function POST(req: NextRequest) {
     pu = assertKnownUnit(hasWeightPerEach ? (packUOM ?? 'each') : 'each', 'packUOM')
     qu = assertKnownUnit(qtyUOM ?? 'each', 'qtyUOM')
   } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+  // Normalize + validate purchaseUnit to a canonical token so the spine always
+  // stores a known token (never a display string).
+  let purchaseUnitTok: string
+  try { purchaseUnitTok = assertKnownUnit(purchaseUnitToken(rest.purchaseUnit ?? 'each'), 'purchaseUnit') }
+  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
   const iq    = innerQty != null ? Number(innerQty) : null
   // Count UOM derives from the purchase format: keep an explicit, still-valid
   // choice (switchable per item) but never let it sit at a stale/invalid value —
   // fall back to the derived primary so count sessions read the right unit.
   const cu    = resolveCountUom({
     baseUnit:           '',                 // unused by the derivation
-    purchaseUnit:       rest.purchaseUnit ?? 'each',
+    purchaseUnit:       purchaseUnitTok,
     qtyPerPurchaseUnit: qty,
     qtyUOM:             qu,
     innerQty:           iq,
@@ -172,6 +177,7 @@ export async function POST(req: NextRequest) {
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,
+      purchaseUnit: purchaseUnitTok,
       purchasePrice: pp,
       qtyPerPurchaseUnit: qty,
       packSize: ps,
