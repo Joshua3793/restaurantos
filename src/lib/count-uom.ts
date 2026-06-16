@@ -6,11 +6,11 @@
  * (e.g. a chain level "case" containing 6000 g, or "kg" when baseUnit = "g").
  * These functions handle converting back to baseUnit for persistence.
  *
- * The COUNT CONVERTERS resolve every unit through the item's pack CHAIN
- * (`packChain` + `dimension` + `baseUnit`) via the item-model engine — they
- * never read the legacy pack columns (qtyUOM/packSize/packUOM/innerQty/
- * qtyPerPurchaseUnit). Only the display-only helpers (`formatPurchaseDisplay`,
- * `buildCaseHint`) remain legacy-driven for now; Phase B converts the forms.
+ * EVERYTHING here — converters AND the display helper `formatPurchaseDisplay` —
+ * resolves units through the item's pack CHAIN (`packChain` + `dimension` +
+ * `baseUnit`) via the item-model engine. The legacy pack columns
+ * (qtyUOM/packSize/packUOM/innerQty/qtyPerPurchaseUnit/priceType/countUOM) are
+ * never read.
  */
 
 import { CONTAINER_UNITS, purchaseUnitToken } from './uom'
@@ -28,25 +28,16 @@ export interface CountableUom {
 }
 
 /**
- * Item facts the count converters need. The CONVERTERS read only the chain
- * fields (`dimension`/`baseUnit`/`packChain`/`countUnit`). The legacy pack
- * columns remain on the interface as OPTIONAL purely so the display-only
- * helpers (`formatPurchaseDisplay`/`buildCaseHint`) can keep their legacy
- * behaviour until Phase B — the converters never touch them.
+ * Item facts the count converters + display helper need — all chain-derived.
+ * (`countUOM` is tolerated only as a legacy fallback key in `resolveCountUom`,
+ * never as a pack-structure source.)
  */
 interface ItemDims {
   dimension: string
   baseUnit: string
   packChain: unknown
   countUnit?: string | null
-  // legacy, display-only (formatPurchaseDisplay / buildCaseHint)
-  purchaseUnit?: string
-  qtyPerPurchaseUnit?: number | { toString(): string }
-  qtyUOM?: string | null
-  innerQty?: { toString(): string } | number | null
-  packSize?: number | { toString(): string }
-  packUOM?: string
-  countUOM?: string
+  countUOM?: string | null
 }
 
 function fmtNum(n: number): string {
@@ -108,46 +99,78 @@ export function resolveCountUom(item: ItemDims): string {
   return leaf ?? ci.baseUnit
 }
 
-/** Legacy display-only shape — only the pack columns are read. Extra keys (e.g.
- *  baseUnit/countUOM on a full item row) are tolerated. */
+/** Pack-display shape — only the CHAIN fields are read. Extra keys on a full
+ *  item row are tolerated. */
 interface PurchaseDisplayDims {
-  purchaseUnit?: string
-  qtyPerPurchaseUnit?: number | { toString(): string }
-  qtyUOM?: string | null
-  innerQty?: { toString(): string } | number | null
-  packSize?: number | { toString(): string }
-  packUOM?: string
+  dimension?: string
+  baseUnit?: string
+  packChain?: unknown
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [k: string]: any
 }
 
 /**
- * Human-readable pack display derived ONLY from the legacy structured columns
- * (never a stored string). DISPLAY-ONLY — not used by the count converters.
- * Phase B converts this to the chain.
+ * Human-readable pack display derived from the pack CHAIN. DISPLAY-ONLY.
+ *
+ *   single link, measured leaf  →  "case (6,000 g)"
+ *   single link, count leaf     →  "case (12 each)"
+ *   multi link                  →  "case (12 × 1L)"      (top.per × leaf-base baseUnit)
+ *   no chain / leaf-only base    →  the unit token itself ("each", "kg")
+ *
+ * The top container name comes from `packChain[0].unit`; the base content comes
+ * from `levelBaseUnits`. Equivalent to the old legacy-column rendering because
+ * the chain was backfilled base-unit-equivalent to those columns.
  */
 export function formatPurchaseDisplay(item: PurchaseDisplayDims): string {
-  const token = purchaseUnitToken(item.purchaseUnit ?? 'each')
-  const isContainerTok = CONTAINER_UNITS.has(token)
-  const qtyUOM = item.qtyUOM ?? 'each'
-  const qty = Number(item.qtyPerPurchaseUnit ?? 1)
-  const ps = Number(item.packSize ?? 0)
-  const pu = item.packUOM ?? 'each'
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-  const fmtWV = (val: number, unit: string) => {
+  const ci = asChainItem(item as Parameters<typeof asChainItem>[0])
+  const chain = ci.packChain
+  const baseUnit = ci.baseUnit || 'each'
+
+  // No chain → just the base unit token.
+  if (!chain || chain.length === 0) return purchaseUnitToken(baseUnit) || 'each'
+
+  const levels = levelBaseUnits(chain)
+  const top = chain[0]
+  const topToken = purchaseUnitToken(top.unit)
+  const isContainerTok = CONTAINER_UNITS.has(topToken)
+  const topBase = levels[top.unit] ?? 0   // base units in one top container
+
+  // A single-link chain whose top IS the count leaf (top.unit === baseUnit and
+  // per resolves to base) is just a bare unit — no "(detail)" wrapper.
+  if (chain.length === 1 && top.unit.toLowerCase() === baseUnit.toLowerCase()) {
+    return topToken || 'each'
+  }
+
+  const fmtMeasured = (val: number, unit: string) => {
     const x = (unit || '').toLowerCase()
     const n = Number.isInteger(val) ? val.toString() : parseFloat(val.toFixed(2)).toString()
     return `${n}${x === 'l' || x === 'lt' ? 'L' : x}`
   }
-  let detail = ''
-  if (qtyUOM === 'pack' && innerQty && innerQty > 0) detail = `${fmtNum(qty)} pkg`
-  else if (isMeasuredUnit(qtyUOM) && qty > 1) detail = fmtWV(qty, qtyUOM)
-  else if (isMeasuredUnit(pu) && ps > 0) detail = qty > 1 ? `${fmtNum(qty)} × ${fmtWV(ps, pu)}` : fmtWV(ps, pu)
-  else if ((pu ?? 'each').toLowerCase() === 'each' && ps > 1) detail = `${fmtNum(qty > 1 ? qty * ps : ps)} each`
 
-  if (isContainerTok) return detail ? `${token} (${detail})` : token
-  if (detail) return detail
-  return token || 'each'
+  // Build the "what's inside one top container" detail.
+  let detail: string
+  if (chain.length >= 2) {
+    // Show structure: top.per inner units × the inner unit's own base content.
+    const inner = chain[1]
+    const innerBase = levels[inner.unit] ?? 0
+    if (ci.dimension !== 'COUNT' && isMeasuredUnit(baseUnit) && innerBase > 1) {
+      detail = `${fmtNum(Number(top.per))} × ${fmtMeasured(innerBase, baseUnit)}`
+    } else {
+      // COUNT or unit inner — show total base content.
+      detail = ci.dimension === 'COUNT'
+        ? `${fmtNum(topBase)} ${baseUnit}`
+        : fmtMeasured(topBase, baseUnit)
+    }
+  } else {
+    // Single link with non-trivial content: total base content of the container.
+    detail = ci.dimension === 'COUNT'
+      ? `${fmtNum(topBase)} ${baseUnit}`
+      : fmtMeasured(topBase, baseUnit)
+  }
+
+  if (isContainerTok) return `${topToken} (${detail})`
+  // Non-container top (e.g. a bare measured purchase unit): show the detail.
+  return detail || topToken || 'each'
 }
 
 /**

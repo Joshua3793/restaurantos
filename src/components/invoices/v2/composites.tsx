@@ -29,6 +29,12 @@ export interface InventorySearchResult {
   qtyPerPurchaseUnit: number
   packSize: number
   packUOM: string
+  // Chain pricing facts (PRICING_SELECT) — flow through to matchedItem so pack
+  // display + format prefill derive from the chain, not the legacy columns.
+  dimension?: string
+  packChain?: unknown
+  pricing?: unknown
+  countUnit?: string | null
 }
 
 export type ReconcileResult = {

@@ -166,9 +166,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
           matchedItem: {
             select: {
               id: true,
-              packUOM: true,
               baseUnit: true,
-              priceType: true,
+              pricing: true,
             },
           },
         },
@@ -187,12 +186,15 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
       const prevPrice = Number(scanItem.previousPrice)
       // Revert the spine by rolling the `pricing` chain back to the previous price
-      // (the computed pricePerBaseUnit derives from it). Mirror the process-route
-      // price-only rebuild: UOM → RATE, otherwise PACK. The pack FORMAT is untouched.
+      // (the computed pricePerBaseUnit derives from it). The pricing MODE follows
+      // the item's existing chain pricing (RATE keeps the rate's own unit), so a
+      // rate-priced item stays a rate; everything else is PACK. Pack FORMAT is untouched.
       const mi = scanItem.matchedItem
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const miPricing = mi.pricing as any
       const revertedPricing =
-        mi.priceType === 'UOM'
-          ? { mode: 'RATE', rate: prevPrice, rateUnit: mi.baseUnit || mi.packUOM || 'each' }
+        miPricing?.mode === 'RATE'
+          ? { mode: 'RATE', rate: prevPrice, rateUnit: miPricing.rateUnit || mi.baseUnit || 'each' }
           : { mode: 'PACK', purchasePrice: prevPrice }
 
       await prisma.inventoryItem.update({

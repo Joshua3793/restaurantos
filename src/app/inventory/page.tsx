@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, formatPricePerBase, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
 import {
-  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
+  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit, asChainItem,
   validateChainItem, type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { formToChain } from '@/lib/item-model-form'
@@ -204,6 +204,7 @@ interface InventoryItem {
   purchasePrice: number; baseUnit: string
   packSize: number; packUOM: string; countUOM: string
   dimension: Dimension; packChain: PackLink[]; countUnit: string
+  pricing?: Pricing
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number
   theoreticalStock?: number   // theoretical on-hand from engine (baseUnit); headline display
@@ -785,7 +786,7 @@ function InventoryPageInner() {
             innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
             packSize: parseFloat(editForm.packSize) || 1,
             packUOM: editForm.packUOM,
-            priceType: (selected.priceType === 'UOM' ? 'UOM' : 'CASE'),
+            priceType: (selected.pricing?.mode === 'RATE' ? 'UOM' : 'CASE'),
             countUOM: editForm.countUOM,
           }),
         ),
@@ -855,7 +856,7 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px]">
           <div className="font-mono text-[13px] whitespace-nowrap">
             <span className="text-gold-2">{formatCurrency(parseFloat(String(item.purchasePrice)))}</span>
-            <span className="text-ink-3 text-[10.5px] ml-1">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : formatPurchaseDisplay(item)}</span>
+            <span className="text-ink-3 text-[10.5px] ml-1">/{item.pricing?.mode === 'RATE' ? (item.pricing.rateUnit || item.baseUnit) : formatPurchaseDisplay(item)}</span>
           </div>
           <div className="font-mono text-[10.5px] text-ink-3 mt-0.5 whitespace-nowrap">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
@@ -962,7 +963,7 @@ function InventoryPageInner() {
           <div className="font-mono text-[13px] font-medium text-ink">
             {formatCurrency(parseFloat(String(item.purchasePrice)))}
           </div>
-          <div className="font-mono text-[10px] text-ink-4">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : formatPurchaseDisplay(item)}</div>
+          <div className="font-mono text-[10px] text-ink-4">/{item.pricing?.mode === 'RATE' ? (item.pricing.rateUnit || item.baseUnit) : formatPurchaseDisplay(item)}</div>
         </div>
         {activeRcId && (
           <button
@@ -1543,8 +1544,20 @@ function InventoryPageInner() {
         const suggestedQty = (item: InventoryItem): string => {
           if (item.reorderQty != null) return String(item.reorderQty)
           if (item.parLevel != null && item.parLevel > displayStock(item)) {
+            // `needed` is in countUOM units (same as parLevel/displayStock). Convert
+            // to PURCHASE units via the chain: countUOM units → base units →
+            // top-container units. countUOM-per-purchase = basePerTop / basePerCount.
             const needed = item.parLevel - displayStock(item)
-            return String(Math.ceil(needed / (Number(item.qtyPerPurchaseUnit) || 1)))
+            const ci = asChainItem({
+              dimension: item.dimension, baseUnit: item.baseUnit,
+              packChain: item.packChain, pricing: item.pricing,
+              countUnit: item.countUnit ?? undefined,
+            })
+            const top = ci.packChain[0]?.unit
+            const basePerPurchase = top ? basePerUnit(ci, top) : 1
+            const basePerCount = basePerUnit(ci, item.countUnit || item.baseUnit) || 1
+            const countPerPurchase = (basePerPurchase / basePerCount) || 1
+            return String(Math.ceil(needed / countPerPurchase))
           }
           return ''
         }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/lib/item-model'
+import { formatPurchaseDisplay } from '@/lib/count-uom'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,13 +13,6 @@ export async function GET() {
       category: true,
       supplier: { select: { name: true } },
       storageArea: { select: { name: true } },
-      purchaseUnit: true,
-      qtyPerPurchaseUnit: true,
-      qtyUOM: true,
-      priceType: true,
-      packSize: true,
-      packUOM: true,
-      countUOM: true,
       purchasePrice: true,
       ...PRICING_SELECT,
       stockOnHand: true,
@@ -59,25 +53,24 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, kpiSheet, 'KPI Summary')
 
   // Inventory sheet
-  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Purchase Unit', 'Qty/Purchase Unit', 'Qty UOM', 'Price Type', 'Pack Size', 'Pack UOM', 'Count UOM', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
+  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Pack Format', 'Purchase Unit', 'Pricing Mode', 'Count Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
   const rows = items.map(item => {
-    const ppb = pricePerBaseUnit(asChainItem(item))
+    const ci = asChainItem(item)
+    const ppb = pricePerBaseUnit(ci)
     const stockValue = parseFloat(item.stockOnHand.toString()) * ppb
+    const countUnit = item.countUnit || ci.baseUnit
     return [
       item.itemName,
       item.category,
       item.supplier?.name || '',
       item.storageArea?.name || '',
-      item.purchaseUnit,
-      parseFloat(item.qtyPerPurchaseUnit.toString()),
-      item.qtyUOM,
-      item.priceType,
-      parseFloat(item.packSize.toString()),
-      item.packUOM,
-      item.countUOM,
+      formatPurchaseDisplay(item),                       // e.g. "case (12 × 1L)"
+      ci.packChain[0]?.unit || ci.baseUnit,              // top-level purchase unit
+      ci.pricing.mode,                                   // PACK | RATE
+      countUnit,
       parseFloat(item.purchasePrice.toString()),
       item.baseUnit,
-      basePerUnit(asChainItem(item), item.countUOM),
+      basePerUnit(ci, countUnit),
       ppb,
       parseFloat(item.stockOnHand.toString()),
       stockValue,

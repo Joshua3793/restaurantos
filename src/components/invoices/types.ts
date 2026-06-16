@@ -23,6 +23,12 @@ export interface InventoryMatch {
   priceType: string
   qtyUOM: string
   innerQty: string | null
+  // Chain pricing facts (PRICING_SELECT). The card derives pack display + the
+  // "use invoice format" prefill from these, not the legacy columns above.
+  dimension?: string
+  packChain?: unknown
+  pricing?: unknown
+  countUnit?: string | null
   supplierPrices?: Array<{
     id: string
     supplierName: string
