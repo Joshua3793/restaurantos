@@ -161,13 +161,16 @@ export function assertKnownUnit(uom: string | null | undefined, field?: string):
 }
 
 /**
- * The canonical UNIT TOKEN for an item's purchase unit, tolerant of legacy display
- * strings. If the value is already a known token (measurement or container — e.g.
- * 'kg', 'batch', 'each', 'case', 'CS'), keep it. Otherwise it's a display string:
- * return the first CONTAINER word found anywhere ("25kg bag" → 'bag', "case (6×2.84 l)"
- * → 'case'), else 'each' (bare-weight packs like "5 kg" / "454 g").
+ * Tokenize ANY count-side UOM (countUOM / selectedUom), tolerant of legacy display
+ * strings, PRESERVING measurement units. If the value is already a known token
+ * (measurement or container — e.g. 'kg', 'batch', 'each', 'case', 'CS'), keep it.
+ * Otherwise it's a display string: return the first CONTAINER word found anywhere
+ * ("25kg bag" → 'bag', "case (6×2.84 l)" → 'case'), else 'each'.
+ *
+ * Unlike purchaseUnitToken, this keeps 'kg'/'l'/'lb'/… intact — you legitimately
+ * COUNT in a measurement unit, so these columns must retain it.
  */
-export function purchaseUnitToken(raw: string | null | undefined): string {
+export function countUomToken(raw: string | null | undefined): string {
   const v = (raw ?? '').trim()
   if (!v) return 'each'
   if (isKnownUnit(v)) return canonicalUom(v)
@@ -176,6 +179,21 @@ export function purchaseUnitToken(raw: string | null | undefined): string {
     if (CONTAINER_UNITS.has(c)) return c
   }
   return 'each'
+}
+
+/**
+ * The canonical UNIT TOKEN for an item's purchase unit. A purchase unit is a
+ * CONTAINER-or-'each' concept (case / bag / tray / a single weighed block) — it is
+ * NEVER a bare weight/volume measurement unit. A measurement unit stored here
+ * collides with the weight/volume branch in convertCountQtyToBase (counting in 'kg'
+ * would match `sel === purchaseUnit` and skip the measurement conversion), so we
+ * normalize kg/g/lb/oz/l/ml/… to 'each' (a single measured unit). Count-dimension
+ * tokens ('batch', 'dozen', 'each') and containers pass through unchanged.
+ */
+export function purchaseUnitToken(raw: string | null | undefined): string {
+  const t = countUomToken(raw)
+  const g = getUnitGroup(t)
+  return g === 'Weight' || g === 'Volume' ? 'each' : t
 }
 
 export interface UomGroup {
