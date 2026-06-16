@@ -298,6 +298,33 @@ async function doApprove(
                 packUOM:  scanItem.invoicePackUOM ?? 'each',
               }
             : { packQty: null, packSize: null, packUOM: null }
+
+          // ── Per-offer pack chain + pricing (ItemOffer semantics) ──────────
+          // This offer carries its OWN chain reflecting THIS supplier's pack
+          // format + price (exactly what this line resolved), so the offer's
+          // pricePerBaseUnit derives on read and cross-supplier comparison is a
+          // single numeric compare. UOM mode → RATE{rate,rateUnit} (the rate the
+          // line resolved); CASE mode → PACK over this offer's own pack format.
+          // The chain's dimension/baseUnit follow the parent item (the price was
+          // resolved against it). With no line pack, fall back to the item's
+          // current pack so the chain still reproduces newPricePerBase.
+          const offerChain = formToChain({
+            purchaseUnit:       itemAny.purchaseUnit ?? scanItem.rawUnit ?? 'case',
+            purchasePrice:      offerLastPrice,
+            qtyPerPurchaseUnit: hasLinePack ? Number(scanItem.invoicePackQty)  : (Number(item.qtyPerPurchaseUnit) || 1),
+            qtyUOM:             'each', // offer pack is expressed via packSize/packUOM
+            innerQty:           null,
+            packSize:           hasLinePack ? Number(scanItem.invoicePackSize) : (Number(item.packSize) || 1),
+            // UOM mode: pass the RESOLVED rate unit as packUOM so formToChain's
+            // RATE branch denominates by it (matches newPricePerBase exactly).
+            packUOM:            rawPriceType === 'UOM'
+              ? resolvedRateUnit
+              : (hasLinePack ? (scanItem.invoicePackUOM ?? 'each') : (item.packUOM ?? 'each')),
+            priceType:          rawPriceType,
+            countUOM:           itemAny.countUOM ?? 'each',
+            baseUnit:           item.baseUnit ?? undefined,
+          })
+
           await prisma.inventorySupplierPrice.upsert({
             where: {
               inventoryItemId_supplierName: {
@@ -315,6 +342,11 @@ async function doApprove(
               supplierItemCode:     scanItem.supplierItemCode ?? null,
               lastInvoiceSessionId: sessionId,
               ...offerPack,
+              // Per-offer chain (ItemOffer): offer ppb derives from this on read.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              packChain:            offerChain.packChain as any,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing:              offerChain.pricing as any,
             },
             update: {
               lastPrice:            offerLastPrice,
@@ -324,6 +356,10 @@ async function doApprove(
               ...(session.supplierId ? { supplierId: session.supplierId } : {}),
               ...(scanItem.supplierItemCode ? { supplierItemCode: scanItem.supplierItemCode } : {}),
               ...offerPack,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              packChain:            offerChain.packChain as any,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing:              offerChain.pricing as any,
             },
           }).catch((e) => console.error('[approve] offer upsert failed:', e))
         }

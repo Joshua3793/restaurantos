@@ -413,6 +413,12 @@ model InventorySupplierPrice {
   packQty              Decimal? // THIS supplier's pack format (qty per case)
   packSize             Decimal?
   packUOM              String?
+  // Per-offer pack-chain model (the design's ItemOffer): each supplier offer
+  // carries its own chain + pricing so its pricePerBaseUnit derives on read and
+  // cross-supplier comparison is one numeric compare. Legacy packQty/size/UOM +
+  // pricePerBaseUnit stay as fallback/provenance.
+  packChain            Json?
+  pricing              Json?
   lastInvoiceSessionId String?  // provenance: approval that last set this offer
   inventoryItem        InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
   supplier             Supplier?     @relation(fields: [supplierId], references: [id])
