@@ -7,6 +7,7 @@ import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
+import { formToChain } from '@/lib/item-model-form'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -100,6 +101,9 @@ async function doApprove(
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
 
         let newPricePerBase: number
+        // The RATE's resolved unit (only meaningful in UOM mode) — captured here
+        // so the chain `pricing` below can store { mode:'RATE', rate, rateUnit }.
+        let resolvedRateUnit = 'kg'
         if (rawPriceType === 'UOM') {
           // newPurchasePrice is a rate ($/kg, $/lb…). Divide by the RATE's OWN
           // unit — the scan line's rateUOM — not the physical pack unit. A
@@ -110,6 +114,7 @@ async function doApprove(
           const rateUnit = wv(scanItem.rateUOM) ? scanItem.rateUOM!
             : wv(item.packUOM) ? item.packUOM!
             : 'kg'
+          resolvedRateUnit = rateUnit
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
         } else {
@@ -167,6 +172,32 @@ async function doApprove(
         const prevPrice = Number(scanItem.previousPrice)
         const changePct = scanItem.priceDiffPct !== null ? Number(scanItem.priceDiffPct) : 0
 
+        // ── Dual-write the chain pricing (Principle: keep legacy writes, ADD chain) ──
+        // `pricing` always follows the resolved mode: UOM → RATE{rate,rateUnit};
+        // otherwise PACK{purchasePrice}. The pack FORMAT (packChain/dimension/
+        // countUnit) only changes when the user consented to adopt the invoice's
+        // format (useInvoicePack) — otherwise the stored format is preserved.
+        const newPricing = rawPriceType === 'UOM'
+          ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: resolvedRateUnit }
+          : { mode: 'PACK', purchasePrice: newPurchasePrice }
+        // matchedItem is loaded with `include: { matchedItem: true }` (full row)
+        // but typed narrowly above — read the extra fields off an `any` view.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const itemAny = item as any
+        const formatChain = useInvoicePack
+          ? formToChain({
+              purchaseUnit:       itemAny.purchaseUnit ?? scanItem.rawUnit ?? 'case',
+              purchasePrice:      newPurchasePrice,
+              qtyPerPurchaseUnit: packQty,
+              qtyUOM:             'each', // invoice-format pack is expressed via packSize/packUOM
+              innerQty:           null,
+              packSize,
+              packUOM,
+              priceType:          rawPriceType,
+              countUOM:           itemAny.countUOM ?? 'each',
+            })
+          : null
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const itemOps: any[] = [
           prisma.inventoryItem.update({
@@ -177,6 +208,17 @@ async function doApprove(
               priceType:        rawPriceType === 'UOM' ? 'UOM' : 'CASE', // PKG is a purchasing exception; stored as CASE
               lastUpdated:      new Date(),
               ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
+              // Chain dual-write: pricing always; format only under consent.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing: newPricing as any,
+              ...(formatChain
+                ? {
+                    dimension: formatChain.dimension,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    packChain: formatChain.packChain as any,
+                    countUnit: formatChain.countUnit,
+                  }
+                : {}),
             },
           }),
           prisma.invoiceScanItem.update({
@@ -281,6 +323,21 @@ async function doApprove(
         const newPriceType: 'CASE' | 'UOM' = newData.priceType === 'UOM' ? 'UOM' : 'CASE'
         const newPricePerBase = Number(newData.pricePerBaseUnit) ||
           calcPricePerBaseUnit(newPurchasePrice, newPackQty, 'each', null, newPackSize, newPackUOM, newPriceType)
+        const newCountUOM = newData.countUOM || 'each'
+        // Reconstruct the chain from the resolved pack fields so the new item is
+        // born with a chain that reproduces newPricePerBase via pricePerBaseUnit().
+        const newChain = formToChain({
+          purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
+          purchasePrice:      newPurchasePrice,
+          qtyPerPurchaseUnit: newPackQty,
+          qtyUOM:             'each',
+          innerQty:           null,
+          packSize:           newPackSize,
+          packUOM:            newPackUOM,
+          priceType:          newPriceType,
+          countUOM:           newCountUOM,
+          baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
+        })
         const created = await prisma.inventoryItem.create({
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
@@ -297,6 +354,13 @@ async function doApprove(
             pricePerBaseUnit:   newPricePerBase,
             priceType:          newPriceType,
             supplierId:         session.supplierId || null,
+            // Chain dual-write alongside the legacy fields.
+            dimension:          newChain.dimension,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            packChain:          newChain.packChain as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            pricing:            newChain.pricing as any,
+            countUnit:          newChain.countUnit,
           },
         })
         updatedItemIds.push(created.id)
