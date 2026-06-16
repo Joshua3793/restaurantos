@@ -368,7 +368,7 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       const outId = outputItemOf.get(recipeId)
       if (!outId) continue
       const before = await prisma.inventoryItem.findUnique({
-        where: { id: outId }, select: { pricePerBaseUnit: true },
+        where: { id: outId }, select: { ...PRICING_SELECT },
       })
       try {
         await syncPrepToInventory(recipeId)
@@ -377,11 +377,11 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
         continue
       }
       const after = await prisma.inventoryItem.findUnique({
-        where: { id: outId }, select: { pricePerBaseUnit: true },
+        where: { id: outId }, select: { ...PRICING_SELECT },
       })
 
-      const a = Number(before?.pricePerBaseUnit ?? 0)
-      const b = Number(after?.pricePerBaseUnit ?? 0)
+      const a = before ? chainPricePerBaseUnit(asChainItem(before)) : 0
+      const b = after ? chainPricePerBaseUnit(asChainItem(after)) : 0
       const moved = a === 0 ? b !== 0 : Math.abs(a - b) / Math.abs(a) > 1e-6
       if (moved) { movedOutputs.add(outId); queue.push(outId) }
     }

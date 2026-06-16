@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
 import { calcPricePerBaseUnit } from '@/lib/utils'
 import { requireSession, AuthError } from '@/lib/auth'
+import { PRICING_SELECT, withPpb } from '@/lib/item-model'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -17,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
-        include: { matchedItem: { select: { id: true, itemName: true, purchaseUnit: true, pricePerBaseUnit: true, purchasePrice: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true, baseUnit: true, priceType: true, qtyUOM: true, innerQty: true, supplierPrices: true } } },
+        include: { matchedItem: { select: { id: true, itemName: true, purchaseUnit: true, ...PRICING_SELECT, purchasePrice: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true, priceType: true, qtyUOM: true, innerQty: true, supplierPrices: true } } },
         orderBy: { sortOrder: 'asc' },
       },
       priceAlerts: {
@@ -30,7 +31,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(session)
+  // Re-populate the computed pricePerBaseUnit on each matchedItem so the invoice
+  // review UI (computeNormalisedPrices, composites/card/issues) survives the drop.
+  const scanItems = session.scanItems.map(si =>
+    si.matchedItem ? { ...si, matchedItem: withPpb(si.matchedItem) } : si
+  )
+  return NextResponse.json({ ...session, scanItems })
 }
 
 // PATCH /api/invoices/sessions/[id] — update session header fields or scan item actions

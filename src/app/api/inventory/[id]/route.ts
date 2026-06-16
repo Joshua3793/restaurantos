@@ -4,7 +4,7 @@ import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, c
 import { formToChain } from '@/lib/item-model-form'
 import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
-  validateChainItem, type ChainItem,
+  validateChainItem, withPpb, type ChainItem,
 } from '@/lib/item-model'
 import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
@@ -22,7 +22,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(item)
+  // Populate a computed `pricePerBaseUnit` so the InventoryItemDrawer / recipes
+  // PREP modal keep reading it after the legacy column is dropped.
+  return NextResponse.json(withPpb(item))
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -241,7 +243,7 @@ async function postUpdate(
     where: { id },
     include: { supplier: true, storageArea: true },
   })
-  return NextResponse.json(updated)
+  return NextResponse.json(updated ? withPpb(updated) : updated)
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

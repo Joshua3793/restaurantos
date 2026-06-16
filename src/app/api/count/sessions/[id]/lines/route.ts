@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
 // POST /api/count/sessions/:id/lines — add a single item to an existing session
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -39,5 +39,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     include: { inventoryItem: { include: { storageArea: true } } },
   })
 
-  return NextResponse.json(line, { status: 201 })
+  // Re-populate the computed pricePerBaseUnit the count page reads off the line.
+  return NextResponse.json({ ...line, inventoryItem: withPpb(line.inventoryItem) }, { status: 201 })
 }

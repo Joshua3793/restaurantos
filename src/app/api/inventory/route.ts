@@ -4,7 +4,7 @@ import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/li
 import { formToChain } from '@/lib/item-model-form'
 import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
-  validateChainItem, type ChainItem,
+  validateChainItem, withPpb, asChainItem, type ChainItem,
 } from '@/lib/item-model'
 import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { resolveCountUom } from '@/lib/count-uom'
@@ -15,7 +15,7 @@ import { getTheoreticalStockMap } from '@/lib/count-expected'
 function attachTheoreticalFields<T extends Record<string, any>>(
   items: T[],
   theoMap: Map<string, number>,
-): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null })[] {
+): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null; pricePerBaseUnit: number })[] {
   return items.map(item => {
     // Use a pre-set countedStock when the caller already captured the raw value (e.g. the
     // "All RCs" path pre-sets it before inflating stockOnHand with allocTotal). Otherwise
@@ -25,11 +25,16 @@ function attachTheoreticalFields<T extends Record<string, any>>(
     const lastCountDate = item.lastCountDate
       ? (item.lastCountDate instanceof Date ? item.lastCountDate.toISOString() : String(item.lastCountDate))
       : null
+    // Re-populate the `pricePerBaseUnit` response field by computing it from the
+    // chain so client readers (inventory/page, GlobalSearch, setup/categories,
+    // wastage selectedItem) survive the legacy column drop.
     return {
       ...item,
       theoreticalStock: theoretical,
       countedStock: counted,
       lastCountDate,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pricePerBaseUnit: chainPricePerBaseUnit(asChainItem(item as any)),
     }
   })
 }
@@ -200,7 +205,7 @@ export async function POST(req: NextRequest) {
       },
       include: { supplier: true, storageArea: true },
     })
-    return NextResponse.json(item, { status: 201 })
+    return NextResponse.json(withPpb(item), { status: 201 })
   }
 
   const { purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM, qtyUOM, innerQty, priceType, supplierId, storageAreaId, ...rest } = body
@@ -272,5 +277,5 @@ export async function POST(req: NextRequest) {
     },
     include: { supplier: true, storageArea: true },
   })
-  return NextResponse.json(item, { status: 201 })
+  return NextResponse.json(withPpb(item), { status: 201 })
 }

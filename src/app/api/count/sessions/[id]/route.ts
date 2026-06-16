@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { withPpb } from '@/lib/item-model'
 
 // GET /api/count/sessions/:id
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -32,8 +33,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const lines = session.lines.map(l => ({
     ...l,
+    // withPpb re-populates the computed pricePerBaseUnit the count page reads
+    // (page.tsx:2574 `l.inventoryItem.pricePerBaseUnit ?? l.priceAtCount`).
     inventoryItem: {
-      ...l.inventoryItem,
+      ...withPpb(l.inventoryItem),
       parLevel: parMap.get(l.inventoryItemId) ?? null,
     },
   }))

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
 import { convertCountQtyToBase, resolveCountUom } from '@/lib/count-uom'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
 // POST /api/count/sessions/:id/sync
 // Full sync: adds new active items, removes lines for deleted/inactive items,
@@ -221,7 +221,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
   const enriched = updatedLines.map(l => ({
     ...l,
-    inventoryItem: { ...l.inventoryItem, parLevel: parMap3.get(l.inventoryItemId) ?? null },
+    // withPpb re-populates the computed pricePerBaseUnit the count page reads.
+    inventoryItem: { ...withPpb(l.inventoryItem), parLevel: parMap3.get(l.inventoryItemId) ?? null },
   }))
 
   return NextResponse.json({

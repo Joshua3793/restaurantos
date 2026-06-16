@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase } from '@/lib/count-uom'
+import { withPpb } from '@/lib/item-model'
 
 // PATCH /api/count/sessions/:id/lines/:lineId
 export async function PATCH(
@@ -74,5 +75,6 @@ export async function PATCH(
     include: { inventoryItem: { include: { storageArea: true } } },
   })
 
-  return NextResponse.json(updated)
+  // Re-populate the computed pricePerBaseUnit the count page reads off the line.
+  return NextResponse.json({ ...updated, inventoryItem: withPpb(updated.inventoryItem) })
 }

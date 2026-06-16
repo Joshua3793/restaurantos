@@ -109,3 +109,13 @@ export function asChainItem(row: {
     stockOnHand: row.stockOnHand != null ? Number(row.stockOnHand) : 0,
   }
 }
+
+/**
+ * Attach a COMPUTED `pricePerBaseUnit` to an item row for API responses, so
+ * client components that read `item.pricePerBaseUnit` keep working after the
+ * stored column is dropped. The returned value is derived from the chain — it is
+ * NOT a column read. Spread `...PRICING_SELECT` into the row's select first.
+ */
+export function withPpb<T extends Parameters<typeof asChainItem>[0]>(row: T): T & { pricePerBaseUnit: number } {
+  return { ...row, pricePerBaseUnit: pricePerBaseUnit(asChainItem(row)) }
+}

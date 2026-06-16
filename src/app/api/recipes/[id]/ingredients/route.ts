@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       recipePercent: recipePercent !== undefined && recipePercent !== null ? parseFloat(recipePercent) : null,
     },
     include: {
-      inventoryItem: { select: { itemName: true, pricePerBaseUnit: true } },
+      inventoryItem: { select: { itemName: true } },
       linkedRecipe: { select: { name: true, yieldUnit: true } },
     },
   })

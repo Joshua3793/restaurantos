@@ -391,7 +391,6 @@ export async function matchLineItems(
               id: true,
               itemName: true,
               purchaseUnit: true,
-              pricePerBaseUnit: true,
               purchasePrice: true,
               baseUnit: true,
               qtyPerPurchaseUnit: true,

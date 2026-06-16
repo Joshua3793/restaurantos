@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
 export async function GET(req: NextRequest) {
   try { await requireSession('MANAGER') }
@@ -103,8 +103,9 @@ export async function GET(req: NextRequest) {
   ).length
 
   const topByValue = [...inventory]
+    // withPpb re-populates the computed pricePerBaseUnit reports/page.tsx reads off topItems.
     .map(item => ({
-      ...item,
+      ...withPpb(item),
       inventoryValue: item.stockOnHand * pricePerBaseUnit(asChainItem(item)),
     }))
     .sort((a, b) => b.inventoryValue - a.inventoryValue)
