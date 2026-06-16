@@ -225,28 +225,24 @@ export async function POST(req: NextRequest) {
   try { purchaseUnitTok = assertKnownUnit(purchaseUnitToken(rest.purchaseUnit ?? 'each'), 'purchaseUnit') }
   catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
   const iq    = innerQty != null ? Number(innerQty) : null
-  // Count UOM derives from the purchase format: keep an explicit, still-valid
-  // choice (switchable per item) but never let it sit at a stale/invalid value —
-  // fall back to the derived primary so count sessions read the right unit.
-  const cu    = resolveCountUom({
-    baseUnit:           '',                 // unused by the derivation
-    purchaseUnit:       purchaseUnitTok,
-    qtyPerPurchaseUnit: qty,
-    qtyUOM:             qu,
-    innerQty:           iq,
-    packSize:           ps,
-    packUOM:            pu,
-    countUOM:           hasWeightPerEach ? (countUOM ?? 'each') : 'each',
-  })
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
   // Non-stocked (recipe-only) items carry no inventory value — pricing chain reflects 0.
   const isStocked = body.isStocked !== false
+  // Build the chain first, then derive the count UOM FROM the chain: keep an
+  // explicit, still-valid choice (switchable per item) but never let it sit at a
+  // stale/invalid value — fall back to the chain's resolved unit.
+  const requestedCountUom = hasWeightPerEach ? (countUOM ?? 'each') : 'each'
   const chain = formToChain({
     purchaseUnit: purchaseUnitTok, purchasePrice: isStocked ? pp : 0,
     qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
-    priceType: pt, countUOM: cu,
+    priceType: pt, countUOM: requestedCountUom,
   })
+  const cu = resolveCountUom({
+    dimension: chain.dimension, baseUnit: chain.baseUnit,
+    packChain: chain.packChain, countUnit: requestedCountUom,
+  })
+  chain.countUnit = cu
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,

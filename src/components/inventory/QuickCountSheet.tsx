@@ -9,14 +9,11 @@ export interface QuickCountItem {
   id: string
   itemName: string
   category?: string
+  dimension?: string | null
   baseUnit: string
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  qtyUOM?: string | null
-  innerQty?: number | string | null
-  packSize: number
-  packUOM: string
-  countUOM: string
+  packChain?: unknown
+  countUnit?: string | null
+  countUOM?: string
   lastCountQty?: number | string | null
 }
 
@@ -34,14 +31,10 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
   const toast = useToast()
 
   const dims = useMemo(() => ({
-    baseUnit:           item.baseUnit,
-    purchaseUnit:       item.purchaseUnit,
-    qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-    qtyUOM:             item.qtyUOM ?? 'each',
-    innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-    packSize:           Number(item.packSize),
-    packUOM:            item.packUOM,
-    countUOM:           item.countUOM ?? 'each',
+    dimension: item.dimension ?? 'COUNT',
+    baseUnit:  item.baseUnit,
+    packChain: item.packChain ?? [],
+    countUnit: item.countUnit ?? item.countUOM ?? null,
   }), [item])
 
   const uoms       = useMemo(() => getCountableUoms(dims), [dims])
@@ -59,7 +52,13 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
     [uoms, selectedUom],
   )
   const stepBy    = /^(kg|l|lb|gal|qt)$/i.test(selectedUom) ? 0.1 : 1
-  const showCases = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
+  // Show the "cases" quick-add when the chain has a container level above the
+  // leaf (e.g. case → each). Derived from the pack chain, not legacy pack cols.
+  const chainArr  = (Array.isArray(item.packChain) ? item.packChain : []) as { unit: string; per: number }[]
+  const topUnit   = chainArr[0]?.unit ?? ''
+  const showCases = chainArr.length > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(topUnit)
+  // base units in one top-level case (running product of the chain).
+  const caseBase  = chainArr.reduce((acc, l) => acc * (Number(l?.per) || 0), 1)
 
   // Fetch theoretical on-hand for the active RC (for the live variance preview).
   useEffect(() => {
@@ -77,8 +76,11 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
     return () => { alive = false }
   }, [item.id, activeRc?.id])
 
-  const effectiveQty   = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
-  const effBase        = convertCountQtyToBase(effectiveQty, selectedUom, dims)
+  // The primary qty is in selectedUom; "+ unopened cases" adds whole top-level
+  // cases (each = caseBase base units) on top, summed in base.
+  const effBase        = convertCountQtyToBase(inputQty, selectedUom, dims) + (showCases ? caseQty * caseBase : 0)
+  // Counted qty expressed in the selected display unit (for the variance line).
+  const effDisplay     = convertBaseToCountUom(effBase, selectedUom, dims)
   const expectedDisplay = expectedBase != null ? convertBaseToCountUom(expectedBase, selectedUom, dims) : null
   const lastDisplay    = item.lastCountQty != null
     ? convertBaseToCountUom(Number(item.lastCountQty), selectedUom, dims)
@@ -94,7 +96,10 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
     setCaseQty(0)
   }
 
-  async function submit(qty = effectiveQty) {
+  // Submit the count in BASE units (selectedUom = baseUnit) so the optional
+  // "+ unopened cases" — which sums into effBase — is included exactly. `zero`
+  // records a 0 count.
+  async function submit(zero = false) {
     if (saving) return
     if (!activeRc) {
       toast.show({ type: 'error', title: 'Pick a revenue center to quick-count' })
@@ -105,7 +110,7 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
       const res = await fetch(`/api/inventory/count/${item.id}/quick`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ countedQty: qty, selectedUom, rcId: activeRc.id }),
+        body: JSON.stringify({ countedQty: zero ? 0 : effBase, selectedUom: item.baseUnit, rcId: activeRc.id }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -175,7 +180,7 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
         {/* Unopened cases */}
         {showCases && (
           <div className="flex items-center justify-between gap-3 border-t border-line mt-3 pt-3">
-            <span className="font-mono text-[11px] text-ink-2 uppercase tracking-[0.03em]">+ unopened cases <span className="text-ink-4">({f(Number(item.packSize))}/{item.packUOM || 'CS'})</span></span>
+            <span className="font-mono text-[11px] text-ink-2 uppercase tracking-[0.03em]">+ unopened cases <span className="text-ink-4">({f(caseBase)} {item.baseUnit}/{topUnit || 'CS'})</span></span>
             <div className="flex items-center gap-2 shrink-0">
               <button onClick={() => setCaseQty(v => Math.max(0, v - 1))} className="w-9 h-9 rounded-[9px] bg-bg-2 border border-line grid place-items-center active:bg-line"><Minus size={16} className="text-ink-2" /></button>
               <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{caseQty}</span>
@@ -194,7 +199,7 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
           const short   = liveVar !== null && liveVar < 0
           const bg = onTrack ? 'bg-bg-2' : short ? 'bg-red-soft' : 'bg-gold-soft'
           const fg = onTrack ? 'text-ink-3' : short ? 'text-red-text' : 'text-gold-2'
-          const delta = effectiveQty - expectedDisplay
+          const delta = effDisplay - expectedDisplay
           return (
             <div className={`flex items-center justify-between gap-2 mt-4 px-3 py-2.5 rounded-[10px] font-mono text-[11px] ${bg}`}>
               <span className="text-ink-3">
@@ -214,7 +219,7 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
           {saving ? <Loader2 size={17} className="animate-spin" /> : <Check size={17} className="text-gold" />} Save count
         </button>
         <div className="flex gap-2 mt-2">
-          <button onClick={() => submit(0)} disabled={saving || !activeRc}
+          <button onClick={() => submit(true)} disabled={saving || !activeRc}
             className="flex-1 h-10 border border-gold-soft bg-gold-soft text-gold-2 rounded-[10px] text-[12.5px] font-semibold disabled:opacity-50">Out of stock</button>
           <button onClick={onClose} disabled={saving}
             className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-3 font-medium disabled:opacity-50">Cancel</button>

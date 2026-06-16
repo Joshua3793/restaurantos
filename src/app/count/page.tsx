@@ -30,6 +30,9 @@ interface InventoryItemRef {
   itemName: string
   category: string
   baseUnit: string
+  dimension: string
+  packChain: unknown
+  countUnit?: string | null
   purchaseUnit: string
   qtyPerPurchaseUnit: number
   qtyUOM?: string | null
@@ -107,13 +110,9 @@ function uomBaseContentLabel(unitName: string, item: ItemDimsForLabel): string {
 // The shape convertCountQtyToBase needs — a subset of InventoryItemRef.
 type ItemDimsForLabel = {
   baseUnit: string
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  qtyUOM?: string | null
-  innerQty?: number | string | null
-  packSize: number
-  packUOM: string
-  countUOM: string
+  dimension: string
+  packChain: unknown
+  countUnit?: string | null
 }
 
 // ─── Mixed-unit entry rows (module scope so inputs keep focus) ──────────────────

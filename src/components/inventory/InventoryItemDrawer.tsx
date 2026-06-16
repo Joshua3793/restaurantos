@@ -345,23 +345,22 @@ function PricingEditor({ dimension, pricing, onChange }: {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function itemChainDims(item: InventoryItem) {
+  return {
+    dimension: (item.dimension ?? 'COUNT') as string,
+    baseUnit:  item.baseUnit,
+    packChain: (Array.isArray(item.packChain) ? item.packChain : []) as unknown,
+    countUnit: item.countUnit ?? item.countUOM ?? null,
+  }
+}
+
 function normalizeItem(item: InventoryItem): InventoryItem {
-  const dims = { baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit, qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each', innerQty: item.innerQty != null ? Number(item.innerQty) : null, packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each', countUOM: item.countUOM ?? 'each' }
-  return { ...item, countUOM: resolveCountUom(dims) }
+  return { ...item, countUOM: resolveCountUom(itemChainDims(item)) }
 }
 
 // Convert any baseUnit quantity to the item's countUOM for display.
 function baseToDisplay(item: InventoryItem, base: number): number {
-  return convertBaseToCountUom(base, item.countUOM ?? 'each', {
-    baseUnit: item.baseUnit,
-    purchaseUnit: item.purchaseUnit,
-    qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-    qtyUOM: item.qtyUOM ?? 'each',
-    innerQty: item.innerQty != null ? Number(item.innerQty) : null,
-    packSize: Number(item.packSize ?? 1),
-    packUOM: item.packUOM ?? 'each',
-    countUOM: item.countUOM ?? 'each',
-  })
+  return convertBaseToCountUom(base, item.countUOM ?? 'each', itemChainDims(item))
 }
 
 function displayStock(item: InventoryItem): number {

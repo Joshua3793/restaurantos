@@ -7,6 +7,7 @@ import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
   validateChainItem, type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
+import { formToChain } from '@/lib/item-model-form'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -202,6 +203,7 @@ interface InventoryItem {
   purchaseUnit: string; qtyPerPurchaseUnit: number
   purchasePrice: number; baseUnit: string
   packSize: number; packUOM: string; countUOM: string
+  dimension: Dimension; packChain: PackLink[]; countUnit: string
   conversionFactor: number; pricePerBaseUnit: number
   stockOnHand: number
   theoreticalStock?: number   // theoretical on-hand from engine (baseUnit); headline display
@@ -339,7 +341,7 @@ function normalizePurchaseUnit(raw: string): string {
 }
 
 function normalizeItem(item: InventoryItem): InventoryItem {
-  const dims = { baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit, qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each', innerQty: item.innerQty != null ? Number(item.innerQty) : null, packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each', countUOM: item.countUOM ?? 'each' }
+  const dims = { dimension: item.dimension, baseUnit: item.baseUnit, packChain: item.packChain, countUnit: item.countUnit }
   return { ...item, countUOM: resolveCountUom(dims) }
 }
 
@@ -528,14 +530,10 @@ function InventoryPageInner() {
 
   // Stock converted from baseUnit to countUOM for human display
   const displayStock = (i: InventoryItem) => convertBaseToCountUom(effStock(i), i.countUOM || i.baseUnit, {
+    dimension: i.dimension,
     baseUnit: i.baseUnit,
-    purchaseUnit: i.purchaseUnit,
-    qtyPerPurchaseUnit: Number(i.qtyPerPurchaseUnit),
-    qtyUOM: i.qtyUOM ?? 'each',
-    innerQty: i.innerQty != null ? Number(i.innerQty) : null,
-    packSize: Number(i.packSize ?? 1),
-    packUOM: i.packUOM ?? 'each',
-    countUOM: i.countUOM || i.baseUnit,
+    packChain: i.packChain,
+    countUnit: i.countUnit,
   })
 
   // KPIs
@@ -773,14 +771,24 @@ function InventoryPageInner() {
         countUOM: editForm.countUOM,
         qtyUOM: editForm.qtyUOM,
         innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-        stockOnHand: convertCountQtyToBase(parseFloat(editForm.stockOnHand) || 0, editForm.countUOM, {
-          baseUnit: selected.baseUnit,
-          purchaseUnit: editForm.purchaseUnit,
-          qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
-          packSize: parseFloat(editForm.packSize) || 1,
-          packUOM: editForm.packUOM,
-          countUOM: editForm.countUOM,
-        }),
+        stockOnHand: convertCountQtyToBase(
+          parseFloat(editForm.stockOnHand) || 0,
+          editForm.countUOM,
+          // Build a chain from the (possibly edited) legacy form fields so the
+          // count→base conversion reflects the structure being saved. Phase B
+          // replaces this legacy edit form with the chain editor.
+          formToChain({
+            purchaseUnit: editForm.purchaseUnit,
+            purchasePrice: parseFloat(editForm.purchasePrice) || 0,
+            qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
+            qtyUOM: editForm.qtyUOM || 'each',
+            innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
+            packSize: parseFloat(editForm.packSize) || 1,
+            packUOM: editForm.packUOM,
+            priceType: (selected.priceType === 'UOM' ? 'UOM' : 'CASE'),
+            countUOM: editForm.countUOM,
+          }),
+        ),
         isActive: editForm.isActive,
         allergens: editForm.allergens,
         barcode: editForm.barcode,
@@ -859,11 +867,8 @@ function InventoryPageInner() {
             {item.countedStock != null && item.lastCountDate && (
               <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
                 counted {convertBaseToCountUom(item.countedStock, item.countUOM || item.baseUnit, {
-                  baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
-                  qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each',
-                  innerQty: item.innerQty != null ? Number(item.innerQty) : null,
-                  packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each',
-                  countUOM: item.countUOM || item.baseUnit,
+                  dimension: item.dimension, baseUnit: item.baseUnit,
+                  packChain: item.packChain, countUnit: item.countUnit,
                 }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
               </div>
             )}
@@ -942,11 +947,8 @@ function InventoryPageInner() {
           {item.countedStock != null && item.lastCountDate && (
             <div className="font-mono text-[9.5px] text-ink-4 mt-0.5">
               counted {convertBaseToCountUom(item.countedStock, item.countUOM || item.baseUnit, {
-                baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
-                qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), qtyUOM: item.qtyUOM ?? 'each',
-                innerQty: item.innerQty != null ? Number(item.innerQty) : null,
-                packSize: Number(item.packSize ?? 1), packUOM: item.packUOM ?? 'each',
-                countUOM: item.countUOM || item.baseUnit,
+                dimension: item.dimension, baseUnit: item.baseUnit,
+                packChain: item.packChain, countUnit: item.countUnit,
               }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
             </div>
           )}

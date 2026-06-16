@@ -98,8 +98,8 @@ export async function GET(req: NextRequest) {
         include: {
           inventoryItem: {
             select: {
-              id: true, baseUnit: true, purchaseUnit: true,
-              qtyPerPurchaseUnit: true, packSize: true, packUOM: true, countUOM: true,
+              id: true, baseUnit: true,
+              dimension: true, packChain: true, countUnit: true,
             },
           },
         },
@@ -127,9 +127,8 @@ export async function GET(req: NextRequest) {
       if (cl.countedQty === null) continue
       const item = cl.inventoryItem
       const dims = {
-        baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
-        qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), packSize: Number(item.packSize),
-        packUOM: item.packUOM, countUOM: item.countUOM,
+        dimension: item.dimension, baseUnit: item.baseUnit,
+        packChain: item.packChain, countUnit: item.countUnit,
       }
       openMap[item.id] = convertCountQtyToBase(Number(cl.countedQty), cl.selectedUom, dims)
     }
@@ -137,9 +136,8 @@ export async function GET(req: NextRequest) {
       if (cl.countedQty === null) continue
       const item = cl.inventoryItem
       const dims = {
-        baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
-        qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit), packSize: Number(item.packSize),
-        packUOM: item.packUOM, countUOM: item.countUOM,
+        dimension: item.dimension, baseUnit: item.baseUnit,
+        packChain: item.packChain, countUnit: item.countUnit,
       }
       closeMap[item.id] = convertCountQtyToBase(Number(cl.countedQty), cl.selectedUom, dims)
     }

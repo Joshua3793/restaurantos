@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { computeScale } from '@/lib/prep-utils'
+import { asChainItem, basePerUnit } from '@/lib/item-model'
 
 export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
 
@@ -29,8 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     select: {
       id: true, baseUnit: true, countUOM: true,
       stockOnHand: true, lastCountDate: true, lastCountQty: true,
-      purchaseUnit: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
-      qtyUOM: true, innerQty: true,
+      dimension: true, packChain: true, countUnit: true, pricing: true,
     },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -48,20 +48,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // Using the raw value here made the stock section read "each" while the rest
   // of the panel read "KG".
   const dimsBase = {
-    baseUnit:           nonNullItem.baseUnit,
-    purchaseUnit:       nonNullItem.purchaseUnit,
-    qtyPerPurchaseUnit: Number(nonNullItem.qtyPerPurchaseUnit),
-    qtyUOM:             nonNullItem.qtyUOM ?? 'each',
-    innerQty:           nonNullItem.innerQty != null ? Number(nonNullItem.innerQty) : null,
-    packSize:           Number(nonNullItem.packSize ?? 1),
-    packUOM:            nonNullItem.packUOM ?? 'each',
+    dimension: nonNullItem.dimension,
+    baseUnit:  nonNullItem.baseUnit,
+    packChain: nonNullItem.packChain,
   }
-  const displayUnit = resolveCountUom({ ...dimsBase, countUOM: nonNullItem.countUOM || nonNullItem.baseUnit })
-
-  const itemDimsForDisplay = { ...dimsBase, countUOM: displayUnit }
+  const displayUnit = resolveCountUom({ ...dimsBase, countUnit: nonNullItem.countUnit ?? nonNullItem.countUOM ?? nonNullItem.baseUnit })
 
   function toDisplay(qtyInBase: number): number {
-    return convertBaseToCountUom(qtyInBase, displayUnit, itemDimsForDisplay)
+    return convertBaseToCountUom(qtyInBase, displayUnit, dimsBase)
   }
 
   const raw: Array<{ id: string; date: Date; type: MovementType; qtyBase: number; description: string; revenueCenterId?: string | null }> = []
@@ -103,15 +97,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (packQty > 0 && packSize > 0 && packUOM) {
       baseUnits = convertQty(qty * packQty * packSize, packUOM, nonNullItem.baseUnit)
     } else {
-      // Fall back to the inventory item's own pack structure. Must convert the
-      // packUOM → baseUnit (e.g. kg → g) exactly like the branch above and the
-      // pricePerBaseUnit spine (qtyPerPurchaseUnit × packSize × getUnitConv(packUOM));
-      // omitting it understated weight/volume purchases by the conversion factor (1000× for kg→g).
-      baseUnits = convertQty(
-        qty * Number(nonNullItem.qtyPerPurchaseUnit) * Number(nonNullItem.packSize),
-        nonNullItem.packUOM ?? 'each',
-        nonNullItem.baseUnit,
-      )
+      // Fall back to the item's own pack CHAIN: base units received =
+      // qtyShipped × the chain's top-level base content (levelBaseUnits[top]).
+      const ci = asChainItem(nonNullItem)
+      const top = ci.packChain[0]?.unit
+      baseUnits = qty * (top ? basePerUnit(ci, top) : 1)
     }
     const supplier = si.session.supplierName ?? 'Purchase'
     const invNum   = si.session.invoiceNumber ? ` · #${si.session.invoiceNumber}` : ''
