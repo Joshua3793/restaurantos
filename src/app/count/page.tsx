@@ -2326,8 +2326,10 @@ export default function CountPage() {
       </>
     )
 
-    const sidebarNavBtn = (active: boolean, onClick: () => void, label: React.ReactNode) => (
-      <button onClick={onClick}
+    // `key` is required when this is rendered inside a .map() (categories / locations /
+    // status filters); harmless when called directly.
+    const sidebarNavBtn = (active: boolean, onClick: () => void, label: React.ReactNode, key?: React.Key) => (
+      <button key={key} onClick={onClick}
         className={`w-full text-left px-3 py-2 rounded-[8px] text-[13px] transition-colors ${active ? 'bg-ink text-paper font-medium' : 'text-ink-2 hover:bg-bg-2'}`}>
         {label}
       </button>
@@ -2574,7 +2576,8 @@ export default function CountPage() {
                 )}
                 {categories.map(([cat, n]) =>
                   sidebarNavBtn(catFilter === cat, () => setCatFilter(catFilter === cat ? null : cat),
-                    <span className="flex items-center justify-between">{cat} <span className="font-mono text-[11px] opacity-50">{n}</span></span>
+                    <span className="flex items-center justify-between">{cat} <span className="font-mono text-[11px] opacity-50">{n}</span></span>,
+                    cat
                   )
                 )}
               </div>
@@ -2586,7 +2589,7 @@ export default function CountPage() {
                 <p className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.06em] mb-1.5 px-1">Location</p>
                 <div className="space-y-0.5">
                   {sidebarNavBtn(locFilter === null, () => setLocFilter(null), 'All locations')}
-                  {locations.map(loc => sidebarNavBtn(locFilter === loc.id, () => setLocFilter(locFilter === loc.id ? null : loc.id), loc.name))}
+                  {locations.map(loc => sidebarNavBtn(locFilter === loc.id, () => setLocFilter(locFilter === loc.id ? null : loc.id), loc.name, loc.id))}
                 </div>
               </div>
             )}
@@ -2597,7 +2600,8 @@ export default function CountPage() {
               <div className="space-y-0.5">
                 {(['all', 'uncounted', 'counted', 'skipped'] as const).map(f =>
                   sidebarNavBtn(statusFilter === f, () => setStatusFilter(f),
-                    f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : f === 'counted' ? 'Counted' : 'Skipped'
+                    f === 'all' ? 'All' : f === 'uncounted' ? 'Uncounted' : f === 'counted' ? 'Counted' : 'Skipped',
+                    f
                   )
                 )}
               </div>
