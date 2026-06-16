@@ -27,6 +27,10 @@
   "exclude": [
     "node_modules",
     "mobile",
+    "prisma/migrate-sqlite-to-postgres.ts",
+    "prisma/seed.ts",
+    "prisma/seed-count.ts",
+    "prisma/seed-recipes.ts",
     "scripts/migrate-sqlite-to-pg.ts",
     "scripts/backfill-supplier-offers.ts",
     "scripts/analyze-uom-normalization.ts",
