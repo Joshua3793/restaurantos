@@ -9,7 +9,7 @@ import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf } from '@/lib/item-model'
-import { purchaseUnitToken } from '@/lib/uom'
+import { purchaseUnitToken, dimensionallyCostable } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -27,7 +27,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null; dimension: string } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null; dimension: string; baseUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -150,14 +150,15 @@ async function doApprove(
         // every recipe/count that reads the spine. Skip the price write instead.
         // CASE mode is dimension-agnostic (a case price resolves via the item's
         // own pack structure), so it can never conflict — only UOM/rate mode is
-        // checked here.
-        if (rawPriceType === 'UOM' && item.dimension &&
-            dimensionOf(resolvedRateUnit) !== item.dimension) {
+        // checked here. Weight↔volume is tolerated (density≈1); the genuine
+        // catastrophe is a $/kg (or $/L) rate landing on a COUNT/each item.
+        if (rawPriceType === 'UOM' && item.baseUnit &&
+            !dimensionallyCostable(resolvedRateUnit, item.baseUnit)) {
           console.error(
             `[approve] Skipping price write for "${scanItem.rawDescription}" — ` +
             `rate unit '${resolvedRateUnit}' (${dimensionOf(resolvedRateUnit)}) ` +
-            `conflicts with item dimension '${item.dimension}'. A cross-dimension ` +
-            `rate can never overwrite this item's price.`
+            `can't be costed against item base '${item.baseUnit}' (${item.dimension}). ` +
+            `A cross-dimension rate can never overwrite this item's price.`
           )
           skippedLines++
           continue

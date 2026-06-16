@@ -272,3 +272,18 @@ function dimensionForUnit(unit: string): UnitDimension {
 export function sameDimension(unitA: string, unitB: string): boolean {
   return dimensionForUnit(unitA) === dimensionForUnit(unitB)
 }
+
+/**
+ * True when a qty in `unitA` can be costed against an item whose base is `unitB`.
+ * Same dimension is always costable; weight↔volume is TOLERATED (kitchens routinely
+ * weigh liquids — g of oil/vinegar/juice — relying on the density≈1 approximation,
+ * which convertQty already passes through 1:1). Only COUNT↔measured is a genuine
+ * conflict (e.g. `g` of a per-each item), where the conversion is undefined.
+ */
+export function dimensionallyCostable(unitA: string, unitB: string): boolean {
+  const a = dimensionForUnit(unitA)
+  const b = dimensionForUnit(unitB)
+  if (a === b) return true
+  const measured = (d: UnitDimension) => d === 'weight' || d === 'volume'
+  return measured(a) && measured(b)
+}

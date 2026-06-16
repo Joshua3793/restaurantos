@@ -4,7 +4,7 @@
  * Unit conversions are applied so e.g. 5 kg of an item priced per g costs correctly.
  */
 import { prisma } from './prisma'
-import { convertQty, sameDimension } from './uom'
+import { convertQty, dimensionallyCostable } from './uom'
 import { dimensionOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
@@ -93,9 +93,10 @@ export function computeRecipeCost(
     let ingredientType: 'inventory' | 'recipe' = 'inventory'
     let lineCostQty = qty   // qty converted to the ingredient's base unit for cost maths
     let ingredientBaseUnit = ing.unit  // fallback: use current unit as base
-    // True when the recipe unit is a different physical dimension than the
-    // ingredient's base/yield unit — convertQty silently passes qty through
-    // across dimensions, so the line would be mis-costed without a flag.
+    // True only when the recipe unit can't be costed against the ingredient's
+    // base unit — i.e. COUNT↔measured (e.g. `g` of a per-each item), where the
+    // conversion is undefined. Weight↔volume is tolerated (density≈1 kitchen
+    // convention; convertQty passes it through 1:1).
     let dimensionConflict = false
 
     if (ing.inventoryItem) {
@@ -103,7 +104,7 @@ export function computeRecipeCost(
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
-      dimensionConflict  = !sameDimension(ing.unit, ingredientBaseUnit)
+      dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit)
       // Convert recipe unit → inventory base unit before multiplying by price
       lineCostQty = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
     } else if (ing.linkedRecipe) {
@@ -113,7 +114,7 @@ export function computeRecipeCost(
       // Convert recipe unit → linked recipe's yield unit before multiplying by price
       const yieldUnit    = ing._linkedRecipeYieldUnit ?? ing.unit
       ingredientBaseUnit = yieldUnit
-      dimensionConflict  = !sameDimension(ing.unit, yieldUnit)
+      dimensionConflict  = !dimensionallyCostable(ing.unit, yieldUnit)
       lineCostQty        = convertQty(qty, ing.unit, yieldUnit)
     }
 
