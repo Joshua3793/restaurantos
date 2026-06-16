@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
     prisma.inventoryItem.findMany({
       where: {
         isActive: true,
+        // non-stocked items are valid recipe ingredients — do NOT filter isStocked
         // Exclude items auto-created by PREP recipes — those appear as recipe results.
         // Also exclude items in the PREPD category — they are managed as PREP recipes.
         recipe: null,

@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
 
   const [inventory, rawRecipes, invoices, suppliers] = await Promise.all([
     prisma.inventoryItem.findMany({
+      // non-stocked items are valid recipe ingredients — do NOT filter isStocked
       where: { isActive: true, itemName: contains },
       select: { id: true, itemName: true, category: true, stockOnHand: true, baseUnit: true, pricePerBaseUnit: true },
       orderBy: { itemName: 'asc' },
