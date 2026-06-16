@@ -1,8 +1,12 @@
 'use client'
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, formatPricePerBase, CATEGORY_COLORS, PURCHASE_UNITS, isMeasuredUnit } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
+import {
+  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
+  validateChainItem, type Dimension, type PackLink, type Pricing,
+} from '@/lib/item-model'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -18,6 +22,175 @@ import {
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
   ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy, UploadCloud, ClipboardCheck,
 } from 'lucide-react'
+
+// ─── Chain editor (module scope — must not be redefined per render or inputs lose focus) ──
+
+const DIM_UNITS: Record<Dimension, string[]> = {
+  MASS:   ['g', 'kg', 'lb', 'oz'],
+  VOLUME: ['ml', 'l', 'fl oz', 'cup'],
+  COUNT:  ['each'],
+}
+
+const chainInputCls =
+  'w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
+
+// Count-unit options: chain level names + same-dimension units, deduped.
+function countUnitOptions(dimension: Dimension, chain: PackLink[]): string[] {
+  return [...new Set([...chain.map(l => l.unit), ...DIM_UNITS[dimension]])]
+}
+
+function DimensionToggle({ dimension, onChange }: {
+  dimension: Dimension
+  onChange: (d: Dimension) => void
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-ink-3 mb-1">Dimension</label>
+      <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
+        {(['MASS', 'VOLUME', 'COUNT'] as Dimension[]).map(d => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => onChange(d)}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+              dimension === d ? 'bg-white text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'
+            }`}
+          >
+            {d === 'MASS' ? 'Weight' : d === 'VOLUME' ? 'Volume' : 'Count'}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-ink-4 mt-1">Base unit: <span className="font-mono">{DIMENSION_BASE[dimension]}</span></p>
+    </div>
+  )
+}
+
+function PackChainEditor({ chain, baseUnit, onChange }: {
+  chain: PackLink[]
+  baseUnit: string
+  onChange: (chain: PackLink[]) => void
+}) {
+  const setLink = (i: number, patch: Partial<PackLink>) =>
+    onChange(chain.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
+  const removeLink = (i: number) => onChange(chain.filter((_, idx) => idx !== i))
+  const addLink = () => onChange([...chain, { unit: 'unit', per: 1 }])
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-medium text-ink-3">Pack chain <span className="text-ink-4 normal-case font-normal">(outer → inner)</span></label>
+      {chain.map((link, i) => {
+        const isLeaf = i === chain.length - 1
+        return (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              value={link.unit}
+              onChange={e => setLink(i, { unit: e.target.value })}
+              placeholder="unit"
+              className="flex-1 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
+            />
+            <div className="flex items-center">
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={link.per}
+                onChange={e => setLink(i, { per: parseFloat(e.target.value) || 0 })}
+                className="w-24 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
+              />
+              <span className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-3 bg-bg min-w-[2.5rem] text-center">
+                {isLeaf ? baseUnit : '×'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => removeLink(i)}
+              disabled={chain.length <= 1}
+              aria-label="Remove level"
+              className="w-8 h-8 shrink-0 grid place-items-center rounded-lg border border-line text-ink-3 hover:border-red-text hover:text-red-text disabled:opacity-30 disabled:hover:border-line disabled:hover:text-ink-3 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )
+      })}
+      <button
+        type="button"
+        onClick={addLink}
+        className="text-xs font-medium text-gold-2 hover:text-gold transition-colors"
+      >
+        + add level
+      </button>
+    </div>
+  )
+}
+
+function PricingEditor({ dimension, pricing, onChange }: {
+  dimension: Dimension
+  pricing: Pricing
+  onChange: (p: Pricing) => void
+}) {
+  const setMode = (mode: 'PACK' | 'RATE') => {
+    if (mode === pricing.mode) return
+    onChange(
+      mode === 'PACK'
+        ? { mode: 'PACK', purchasePrice: 0 }
+        : { mode: 'RATE', rate: 0, rateUnit: DIM_UNITS[dimension][0] },
+    )
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
+        {(['PACK', 'RATE'] as const).map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+              pricing.mode === m ? 'bg-white text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'
+            }`}
+          >
+            {m === 'PACK' ? 'Per pack' : 'Per unit (rate)'}
+          </button>
+        ))}
+      </div>
+      {pricing.mode === 'PACK' ? (
+        <div>
+          <label className="block text-xs font-medium text-ink-3 mb-1">Purchase price ($)</label>
+          <input
+            type="number"
+            step="any"
+            value={pricing.purchasePrice}
+            onChange={e => onChange({ mode: 'PACK', purchasePrice: parseFloat(e.target.value) || 0 })}
+            className={chainInputCls}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-3 mb-1">Rate ($)</label>
+            <input
+              type="number"
+              step="any"
+              value={pricing.rate}
+              onChange={e => onChange({ mode: 'RATE', rate: parseFloat(e.target.value) || 0, rateUnit: pricing.rateUnit })}
+              className={chainInputCls}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-3 mb-1">Per</label>
+            <select
+              value={pricing.rateUnit}
+              onChange={e => onChange({ mode: 'RATE', rate: pricing.rate, rateUnit: e.target.value })}
+              className={`${chainInputCls} bg-white`}
+            >
+              {DIM_UNITS[dimension].map(u => <option key={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface StorageArea { id: string; name: string }
 interface Supplier    { id: string; name: string }
@@ -73,11 +246,17 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
   price: 'desc', stock: 'desc', value: 'desc',
 }
 
+const DEFAULT_CHAIN: PackLink[] = [{ unit: 'case', per: 1 }]
+const DEFAULT_PRICING: Pricing = { mode: 'PACK', purchasePrice: 0 }
+
 const defaultForm = {
   itemName: '', category: '', supplierId: '', storageAreaId: '',
-  purchaseUnit: 'case', qtyPerPurchaseUnit: '1', purchasePrice: '0',
-  packSize: '', packUOM: 'each', qtyUOM: 'each', countUOM: 'each',
-  baseUnit: 'g', stockOnHand: '0',
+  // Chain pricing model
+  dimension: 'COUNT' as Dimension,
+  chain: [...DEFAULT_CHAIN] as PackLink[],
+  pricing: { ...DEFAULT_PRICING } as Pricing,
+  countUnit: 'each',
+  stockOnHand: '0',
   location: '', allergens: [] as string[],
 }
 
@@ -536,22 +715,40 @@ function InventoryPageInner() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    const qty = parseFloat(form.qtyPerPurchaseUnit) || 1
-    const ps  = parseFloat(form.packSize) || 1
-    const stockBase = convertCountQtyToBase(parseFloat(form.stockOnHand) || 0, form.countUOM, {
-      baseUnit: form.baseUnit,
-      purchaseUnit: form.purchaseUnit,
-      qtyPerPurchaseUnit: qty,
-      qtyUOM: form.qtyUOM || 'each',
-      packSize: ps,
-      packUOM: form.packUOM,
-      countUOM: form.countUOM,
-    })
-    const conversionFactor = calcConversionFactor(form.countUOM, qty, form.qtyUOM || 'each', null, ps, form.packUOM)
-    await fetch('/api/inventory', {
+    // Chain item: stock is entered in countUnit, stored in base.
+    const ci = {
+      dimension: form.dimension,
+      baseUnit: DIMENSION_BASE[form.dimension],
+      packChain: form.chain,
+      pricing: form.pricing,
+      countUnit: form.countUnit,
+    }
+    const errors = validateChainItem(ci)
+    if (errors.length) { alert(errors.join('; ')); return }
+    const perCount = basePerUnit(ci, form.countUnit) || 1
+    const stockBase = (parseFloat(form.stockOnHand) || 0) * perCount
+    const res = await fetch('/api/inventory', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, stockOnHand: stockBase, conversionFactor }),
+      body: JSON.stringify({
+        itemName: form.itemName,
+        category: form.category,
+        supplierId: form.supplierId || null,
+        storageAreaId: form.storageAreaId || null,
+        location: form.location,
+        allergens: form.allergens,
+        // Chain shape (new body) — route derives all legacy fields.
+        dimension: form.dimension,
+        packChain: form.chain,
+        pricing: form.pricing,
+        countUnit: form.countUnit,
+        stockOnHand: stockBase,
+      }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      alert(err?.error ?? `Add failed (${res.status}). Please try again.`)
+      return
+    }
     setShowAdd(false); setForm(defaultForm); fetchItems()
   }
 
@@ -597,14 +794,15 @@ function InventoryPageInner() {
     fetchItems()
   }
 
-  const pricePreview = calcPricePerBaseUnit(
-    parseFloat(form.purchasePrice) || 0,
-    parseFloat(form.qtyPerPurchaseUnit) || 1,
-    'each',
-    null,
-    parseFloat(form.packSize) || 1,
-    form.packUOM,
-  )
+  const addChainItem = {
+    dimension: form.dimension,
+    baseUnit: DIMENSION_BASE[form.dimension],
+    packChain: form.chain,
+    pricing: form.pricing,
+    countUnit: form.countUnit,
+  }
+  const pricePreview = chainPricePerBaseUnit(addChainItem)
+  const previewPerCount = basePerUnit(addChainItem, form.countUnit)
 
   // Row renderer
   const renderRow = (item: InventoryItem) => {
@@ -1647,54 +1845,71 @@ function InventoryPageInner() {
                     {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Unit</label>
-                  <select required value={form.purchaseUnit} onChange={e => setForm(f => ({ ...f, purchaseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                    {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Qty per Purchase Unit</label>
-                  <input type="number" required value={form.qtyPerPurchaseUnit} onChange={e => setForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Pack Size</label>
-                  <input type="number" step="any" value={form.packSize} onChange={e => setForm(f => ({ ...f, packSize: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Pack UOM</label>
-                  <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                    {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Count UOM</label>
-                  <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                    {COUNT_UOMS.map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Price ($)</label>
-                  <input type="number" required value={form.purchasePrice} onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Base Unit</label>
-                  <select value={form.baseUnit} onChange={e => setForm(f => ({ ...f, baseUnit: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold">
-                    {BASE_UNITS.map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({form.countUOM})</label>
-                  <input type="number" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
-                </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-ink-3 mb-1">Location</label>
                   <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
               </div>
-              <div className="bg-gold/10 rounded-lg p-3 text-sm">
-                <span className="text-gold font-medium">Price per base unit preview: </span>
-                <span className="font-bold text-gold">{formatUnitPrice(pricePreview)} / {form.baseUnit}</span>
+
+              {/* Pricing chain */}
+              <div className="space-y-3 pt-1">
+                <DimensionToggle
+                  dimension={form.dimension}
+                  onChange={d => setForm(f => {
+                    // Switching dimension invalidates pricing rateUnit + may invalidate countUnit.
+                    const pricing: Pricing = f.pricing.mode === 'RATE'
+                      ? { mode: 'RATE', rate: f.pricing.rate, rateUnit: DIM_UNITS[d][0] }
+                      : f.pricing
+                    const opts = countUnitOptions(d, f.chain)
+                    return { ...f, dimension: d, pricing, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
+                  })}
+                />
+
+                <PackChainEditor
+                  chain={form.chain}
+                  baseUnit={DIMENSION_BASE[form.dimension]}
+                  onChange={chain => setForm(f => {
+                    const opts = countUnitOptions(f.dimension, chain)
+                    return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
+                  })}
+                />
+
+                <PricingEditor
+                  dimension={form.dimension}
+                  pricing={form.pricing}
+                  onChange={pricing => setForm(f => ({ ...f, pricing }))}
+                />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Count unit</label>
+                    <select value={form.countUnit} onChange={e => setForm(f => ({ ...f, countUnit: e.target.value }))}
+                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                      {countUnitOptions(form.dimension, form.chain).map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({form.countUnit})</label>
+                    <input type="number" step="any" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Live preview */}
+              <div className="bg-gold-soft rounded-lg p-3 space-y-1.5">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gold-2">Live preview</div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xs text-gold-2">Price:</span>
+                  <span className="text-lg font-bold text-gold-2">{formatPricePerBase(pricePreview, DIMENSION_BASE[form.dimension])}</span>
+                </div>
+                <div className="text-xs text-gold-2">
+                  1 {form.countUnit} = {previewPerCount.toLocaleString()} {DIMENSION_BASE[form.dimension]}
+                </div>
+                {(parseFloat(form.stockOnHand) || 0) > 0 && (
+                  <div className="text-xs text-gold-2">
+                    Stock value: <span className="font-semibold">{formatCurrency((parseFloat(form.stockOnHand) || 0) * previewPerCount * pricePreview)}</span>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAdd(false)} className="flex-1 border border-line rounded-lg py-2 text-sm hover:bg-bg">Cancel</button>
