@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
+import { deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
+import { formToChain } from '@/lib/item-model-form'
+import {
+  DIMENSION_BASE, validateChainItem, withPpb, type ChainItem,
+} from '@/lib/item-model'
 import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { resolveCountUom } from '@/lib/count-uom'
@@ -17,11 +21,69 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(item)
+  // Populate a computed `pricePerBaseUnit` so the InventoryItemDrawer / recipes
+  // PREP modal keep reading it after the legacy column is dropped.
+  return NextResponse.json(withPpb(item))
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
+
+  // ── New chain-form body ──────────────────────────────────────────────────
+  // When `packChain` is present the chain columns are authoritative; derive the
+  // legacy fields from them (dual-write) and leave the unread legacy pack columns
+  // (qtyUOM/packSize/packUOM/innerQty/qtyPerPurchaseUnit) untouched.
+  if (body.packChain) {
+    const {
+      dimension, packChain, pricing, countUnit, supplierId, storageAreaId,
+      supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
+      ...rest
+    } = body
+    delete rest.purchasePrice; delete rest.qtyPerPurchaseUnit; delete rest.packSize
+    delete rest.packUOM; delete rest.countUOM; delete rest.qtyUOM; delete rest.innerQty
+    delete rest.priceType; delete rest.conversionFactor; delete rest.pricePerBaseUnit
+    delete rest.baseUnit; delete rest.dimension; delete rest.pricing; delete rest.countUnit
+    delete rest.needsReview
+
+    const before = await prisma.inventoryItem.findUnique({
+      where: { id: params.id },
+      select: { allergens: true },
+    })
+    if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const ci: ChainItem = {
+      dimension,
+      baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
+      packChain,
+      pricing,
+      countUnit,
+    }
+    const errors = validateChainItem(ci)
+    if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
+
+    await prisma.inventoryItem.update({
+      where: { id: params.id },
+      data: {
+        ...rest,
+        dimension,
+        packChain: packChain as any,
+        pricing: pricing as any,
+        countUnit,
+        baseUnit: ci.baseUnit,
+        countUOM: countUnit,
+        priceType: pricing.mode === 'RATE' ? 'UOM' : 'CASE',
+        purchaseUnit: packChain[0]?.unit ?? 'each',
+        purchasePrice: pricing.mode === 'PACK' ? pricing.purchasePrice : pricing.rate,
+        needsReview: false,
+        lastUpdated: new Date(),
+        supplierId: supplierId || null,
+        storageAreaId: storageAreaId || null,
+      },
+    })
+
+    return await postUpdate(params.id, before.allergens ?? [], (rest as any).allergens)
+  }
+
   const {
     purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM,
     qtyUOM, innerQty, needsReview, priceType,
@@ -82,13 +144,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const existingPriceType = (before?.priceType === 'UOM' ? 'UOM' : 'CASE') as 'CASE' | 'UOM'
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : priceType === 'CASE' ? 'CASE' : existingPriceType
 
-  // Save using standard purchase formula first
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
-  const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
+  // Derive the canonical base unit for the legacy column (chain carries pricing).
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
-  // Non-stocked (recipe-only) items carry no inventory value — pin their spine price to 0.
+  // Non-stocked (recipe-only) items carry no inventory value — pricing chain reflects 0.
   const isStocked = rest.isStocked !== false
-  const finalPPB  = isStocked ? pricePerBaseUnit : 0
+  const chain = formToChain({
+    purchaseUnit: purchaseUnitTok, purchasePrice: isStocked ? pp : 0,
+    qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
+    priceType: pt, countUOM: cu,
+  })
 
   await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -104,9 +168,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       innerQty: iq,
       priceType: pt,
       needsReview: false,
-      conversionFactor,
-      pricePerBaseUnit: finalPPB,
       baseUnit,
+      dimension: chain.dimension,
+      packChain: chain.packChain as any,
+      pricing: chain.pricing as any,
+      countUnit: chain.countUnit,
       isStocked,
       lastUpdated: new Date(),
       supplierId: supplierId || null,
@@ -114,10 +180,24 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     },
   })
 
+  return await postUpdate(params.id, before?.allergens ?? [], rest.allergens)
+}
+
+/**
+ * Shared post-update side-effects for the inventory PUT route. After any spine
+ * write (legacy form OR chain form) we must: re-sync the item's own PREP recipe,
+ * propagate the price change to dependent PREP recipes, cascade allergen changes,
+ * and return the final (possibly recipe-overridden) state.
+ */
+async function postUpdate(
+  id: string,
+  prevAllergens: string[],
+  newAllergensInput: string[] | undefined,
+): Promise<NextResponse> {
   // If this item is the output of a PREP recipe, re-sync to override the
   // purchase-formula values with recipe-derived costs (preserves countUOM).
   const linkedRecipe = await prisma.recipe.findFirst({
-    where: { inventoryItemId: params.id, type: 'PREP' },
+    where: { inventoryItemId: id, type: 'PREP' },
     select: { id: true },
   })
   if (linkedRecipe) {
@@ -128,13 +208,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // uses this item (directly or transitively) so their costs don't go stale —
   // same reason the invoice-approve path does. Runs after the own-prep sync above
   // so a prep item's freshly-derived price also propagates to its parents.
-  await propagatePrepCostChanges([params.id])
+  await propagatePrepCostChanges([id])
 
   // If allergens changed, cascade-sync every PREP recipe that uses this item
   // as an ingredient so their linked PREPD items stay up to date.
-  const newAllergens: string[] = rest.allergens ?? before?.allergens ?? []
+  const newAllergens: string[] = newAllergensInput ?? prevAllergens ?? []
   const allergensChanged =
-    JSON.stringify([...(before?.allergens ?? [])].sort()) !==
+    JSON.stringify([...(prevAllergens ?? [])].sort()) !==
     JSON.stringify([...newAllergens].sort())
 
   if (allergensChanged) {
@@ -142,7 +222,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       where: {
         type: 'PREP',
         inventoryItemId: { not: null },
-        ingredients: { some: { inventoryItemId: params.id } },
+        ingredients: { some: { inventoryItemId: id } },
       },
       select: { id: true },
     })
@@ -151,10 +231,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // Return the final state (may have been updated by recipe sync)
   const updated = await prisma.inventoryItem.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: { supplier: true, storageArea: true },
   })
-  return NextResponse.json(updated)
+  return NextResponse.json(updated ? withPpb(updated) : updated)
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

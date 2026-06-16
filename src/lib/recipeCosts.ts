@@ -4,8 +4,8 @@
  * Unit conversions are applied so e.g. 5 kg of an item priced per g costs correctly.
  */
 import { prisma } from './prisma'
-import { convertQty } from './uom'
-import { getUnitConv } from './utils'
+import { convertQty, dimensionallyCostable } from './uom'
+import { dimensionOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
   id: string
@@ -22,6 +22,13 @@ export interface IngredientWithCost {
   lineCost: number
   /** The base unit of the linked inventory item / recipe — used to filter compatible UOM options in the UI */
   ingredientBaseUnit: string
+  /**
+   * True when `unit` is a DIFFERENT physical dimension than the ingredient's
+   * baseUnit (e.g. counting an each-item in grams). convertQty silently passes
+   * the qty through unchanged across dimensions, so the line would be mis-costed.
+   * When true, `lineCost` is forced to 0 (no garbage contribution).
+   */
+  dimensionConflict: boolean
 }
 
 export interface RecipeWithCost {
@@ -46,6 +53,8 @@ export interface RecipeWithCost {
   totalCost: number
   costPerPortion: number | null
   foodCostPct: number | null
+  /** Count of ingredients whose unit is a different dimension than the item's base unit. */
+  dimensionConflicts: number
   allergens: string[]
   baseIngredientId: string | null
 }
@@ -69,13 +78,13 @@ export function computeRecipeCost(
       recipePercent?: Numeric | null
       inventoryItemId: string | null
       linkedRecipeId: string | null
-      inventoryItem: { itemName: string; baseUnit: string; pricePerBaseUnit: Numeric } | null
+      inventoryItem: ({ itemName: string; baseUnit: string } & Parameters<typeof asChainItem>[0]) | null
       linkedRecipe: { name: string } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
     }>
   }
-): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; ingredients: IngredientWithCost[] } {
+): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[] } {
 
   const ingredientsWithCost: IngredientWithCost[] = recipe.ingredients.map(ing => {
     const qty = Number(ing.qtyBase)
@@ -84,12 +93,18 @@ export function computeRecipeCost(
     let ingredientType: 'inventory' | 'recipe' = 'inventory'
     let lineCostQty = qty   // qty converted to the ingredient's base unit for cost maths
     let ingredientBaseUnit = ing.unit  // fallback: use current unit as base
+    // True only when the recipe unit can't be costed against the ingredient's
+    // base unit — i.e. COUNT↔measured (e.g. `g` of a per-each item), where the
+    // conversion is undefined. Weight↔volume is tolerated (density≈1 kitchen
+    // convention; convertQty passes it through 1:1).
+    let dimensionConflict = false
 
     if (ing.inventoryItem) {
-      pricePerBaseUnit   = Number(ing.inventoryItem.pricePerBaseUnit)
+      pricePerBaseUnit   = chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
+      dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit)
       // Convert recipe unit → inventory base unit before multiplying by price
       lineCostQty = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
     } else if (ing.linkedRecipe) {
@@ -99,6 +114,7 @@ export function computeRecipeCost(
       // Convert recipe unit → linked recipe's yield unit before multiplying by price
       const yieldUnit    = ing._linkedRecipeYieldUnit ?? ing.unit
       ingredientBaseUnit = yieldUnit
+      dimensionConflict  = !dimensionallyCostable(ing.unit, yieldUnit)
       lineCostQty        = convertQty(qty, ing.unit, yieldUnit)
     }
 
@@ -114,11 +130,15 @@ export function computeRecipeCost(
       ingredientName,
       ingredientType,
       pricePerBaseUnit,
-      lineCost: lineCostQty * pricePerBaseUnit,
+      // On a dimension conflict the converted qty is meaningless — contribute 0
+      // rather than a garbage number.
+      lineCost: dimensionConflict ? 0 : lineCostQty * pricePerBaseUnit,
       ingredientBaseUnit,
+      dimensionConflict,
     }
   })
 
+  const dimensionConflicts = ingredientsWithCost.filter(i => i.dimensionConflict).length
   const totalCost    = ingredientsWithCost.reduce((s, i) => s + i.lineCost, 0)
   const baseYieldQty = Number(recipe.baseYieldQty)
   const portionSize  = recipe.portionSize !== null ? Number(recipe.portionSize) : null
@@ -135,7 +155,7 @@ export function computeRecipeCost(
       ? (costPerPortion / menuPrice) * 100
       : null
 
-  return { totalCost, costPerPortion, foodCostPct, ingredients: ingredientsWithCost }
+  return { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost }
 }
 
 /**
@@ -155,11 +175,11 @@ export function computeRecipeCost(
  */
 export function linkedRecipeUnitCost(linked: {
   yieldUnit: string
-  inventoryItem: { pricePerBaseUnit: Numeric; baseUnit: string } | null
+  inventoryItem: ({ baseUnit: string } & Parameters<typeof asChainItem>[0]) | null
 }): { costPerUnit: number; yieldUnit: string } {
   const item = linked.inventoryItem
   return {
-    costPerUnit: item ? Number(item.pricePerBaseUnit) : 0,
+    costPerUnit: item ? chainPricePerBaseUnit(asChainItem(item)) : 0,
     yieldUnit:   item?.baseUnit ?? linked.yieldUnit,
   }
 }
@@ -172,12 +192,12 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
       category: true,
       ingredients: {
         include: {
-          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
+          inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
           linkedRecipe: {
             select: {
               name: true,
               yieldUnit: true,
-              inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } },
+              inventoryItem: { select: { allergens: true, ...PRICING_SELECT } },
             },
           },
         },
@@ -199,7 +219,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
   })
 
-  const { totalCost, costPerPortion, foodCostPct, ingredients } = computeRecipeCost({
+  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
     ...recipe,
     ingredients: ingredientsWithLinked,
   })
@@ -233,6 +253,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     totalCost,
     costPerPortion,
     foodCostPct,
+    dimensionConflicts,
     allergens,
     baseIngredientId: recipe.baseIngredientId ?? null,
   }
@@ -248,34 +269,37 @@ export async function syncPrepToInventory(recipeId: string) {
 
   const baseYieldQty     = recipe.baseYieldQty > 0 ? recipe.baseYieldQty : 1
   const yieldUnit        = recipe.yieldUnit
-  const pricePerBaseUnit = recipe.totalCost / baseYieldQty
 
-  // Preserve the user-chosen countUOM; only recompute conversionFactor from it
+  // Preserve the user-chosen countUOM (drives the chain's countUnit below).
   const current = await prisma.inventoryItem.findUnique({
     where:  { id: recipe.inventoryItemId },
     select: { countUOM: true },
   })
   const countUOM = current?.countUOM ?? yieldUnit
 
-  // conversionFactor = how many baseUnits per 1 countUnit
-  // Uses getUnitConv (same constants as pricing) so recipe costs stay consistent with inventory
-  let conversionFactor = getUnitConv(countUOM) / getUnitConv(yieldUnit)
-  // 'batch' is a special pseudo-unit: 1 batch = full recipe yield
-  if (countUOM.toLowerCase() === 'batch') conversionFactor = baseYieldQty
-  // Incompatible or unknown units: getUnitConv returns 1 for both → ratio = 1 (safe fallback)
+  // Item-model chain (authoritative): a one-link PACK chain whose per = baseYieldQty
+  // and pricing.purchasePrice = totalCost reproduces the same ppb (totalCost /
+  // baseYieldQty) the legacy write computes above. NOTE: the legacy `baseUnit`
+  // write below stays `yieldUnit` (unchanged) — chain ppb is derived purely from
+  // packChain + pricing, so the stored baseUnit does not affect parity.
+  const prepDimension = dimensionOf(yieldUnit)
+  const prepChain = [{ unit: countUOM || 'batch', per: baseYieldQty }]
+  const prepPricing = { mode: 'PACK' as const, purchasePrice: recipe.totalCost }
 
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },
     data: {
       purchasePrice:      recipe.totalCost,
-      pricePerBaseUnit,
       baseUnit:           yieldUnit,
       packUOM:            yieldUnit,
       packSize:           baseYieldQty,
       qtyPerPurchaseUnit: 1,
       purchaseUnit:       'batch',
-      conversionFactor,
       allergens:          recipe.allergens,
+      dimension:          prepDimension,
+      packChain:          prepChain as any,
+      pricing:            prepPricing as any,
+      countUnit:          countUOM,
       lastUpdated: new Date(),
     },
   })
@@ -354,7 +378,7 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       const outId = outputItemOf.get(recipeId)
       if (!outId) continue
       const before = await prisma.inventoryItem.findUnique({
-        where: { id: outId }, select: { pricePerBaseUnit: true },
+        where: { id: outId }, select: { ...PRICING_SELECT },
       })
       try {
         await syncPrepToInventory(recipeId)
@@ -363,11 +387,11 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
         continue
       }
       const after = await prisma.inventoryItem.findUnique({
-        where: { id: outId }, select: { pricePerBaseUnit: true },
+        where: { id: outId }, select: { ...PRICING_SELECT },
       })
 
-      const a = Number(before?.pricePerBaseUnit ?? 0)
-      const b = Number(after?.pricePerBaseUnit ?? 0)
+      const a = before ? chainPricePerBaseUnit(asChainItem(before)) : 0
+      const b = after ? chainPricePerBaseUnit(asChainItem(after)) : 0
       const moved = a === 0 ? b !== 0 : Math.abs(a - b) / Math.abs(a) > 1e-6
       if (moved) { movedOutputs.add(outId); queue.push(outId) }
     }

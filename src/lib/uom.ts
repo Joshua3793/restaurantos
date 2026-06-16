@@ -258,3 +258,32 @@ export function getUnitGroup(unit: string): string | null {
   if (!def) return null
   return def.dim === 'weight' ? 'Weight' : def.dim === 'volume' ? 'Volume' : 'Count'
 }
+
+/**
+ * The physical dimension of a unit ('weight' | 'volume' | 'count'). Mirrors
+ * `utils.ts` getUnitDimension (unknown → 'count'); defined locally so uom.ts
+ * stays free of the utils.ts → uom.ts import cycle.
+ */
+function dimensionForUnit(unit: string): UnitDimension {
+  return UNIT_FACTORS[canonicalUom(unit)]?.dim ?? 'count'
+}
+
+/** True when both units share the same physical dimension (weight/volume/count). */
+export function sameDimension(unitA: string, unitB: string): boolean {
+  return dimensionForUnit(unitA) === dimensionForUnit(unitB)
+}
+
+/**
+ * True when a qty in `unitA` can be costed against an item whose base is `unitB`.
+ * Same dimension is always costable; weight↔volume is TOLERATED (kitchens routinely
+ * weigh liquids — g of oil/vinegar/juice — relying on the density≈1 approximation,
+ * which convertQty already passes through 1:1). Only COUNT↔measured is a genuine
+ * conflict (e.g. `g` of a per-each item), where the conversion is undefined.
+ */
+export function dimensionallyCostable(unitA: string, unitB: string): boolean {
+  const a = dimensionForUnit(unitA)
+  const b = dimensionForUnit(unitB)
+  if (a === b) return true
+  const measured = (d: UnitDimension) => d === 'weight' || d === 'volume'
+  return measured(a) && measured(b)
+}

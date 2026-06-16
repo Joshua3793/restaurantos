@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Resend } from 'resend'
 import { requireSession, AuthError } from '@/lib/auth'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n)
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
   ] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true },
-      select: { id: true, itemName: true, stockOnHand: true, pricePerBaseUnit: true, lastCountDate: true },
+      select: { id: true, itemName: true, stockOnHand: true, ...PRICING_SELECT, lastCountDate: true },
     }),
     prisma.salesEntry.findMany({
       where: { date: { gte: oneWeekAgo } },
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
       include: {
         ingredients: {
           include: {
-            inventoryItem: { select: { pricePerBaseUnit: true, baseUnit: true } },
+            inventoryItem: { select: { ...PRICING_SELECT } },
           },
         },
       },
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
       include: {
         lineItems: {
           include: {
-            inventoryItem: { select: { itemName: true, pricePerBaseUnit: true } },
+            inventoryItem: { select: { itemName: true, ...PRICING_SELECT } },
           },
         },
         supplier: { select: { name: true } },
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
   const totalWastageCost = thisWeekWastage.reduce((s, w) => s + Number(w.costImpact), 0)
 
   // Inventory value
-  const inventoryValue = allItems.reduce((s, i) => s + Number(i.stockOnHand) * Number(i.pricePerBaseUnit), 0)
+  const inventoryValue = allItems.reduce((s, i) => s + Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i)), 0)
 
   // Out of stock items (never null lastCountDate + stockOnHand <= 0)
   const outOfStock = allItems.filter(i => i.lastCountDate !== null && Number(i.stockOnHand) <= 0)
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     .map(r => {
       const cost = r.ingredients.reduce((s, ing) => {
         if (!ing.inventoryItem) return s
-        return s + Number(ing.qtyBase) * Number(ing.inventoryItem.pricePerBaseUnit)
+        return s + Number(ing.qtyBase) * pricePerBaseUnit(asChainItem(ing.inventoryItem))
       }, 0)
       const price = r.menuPrice ? Number(r.menuPrice) : null
       const fc = price && price > 0 ? (cost / price) * 100 : null
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
   for (const invoice of recentInvoices) {
     for (const li of invoice.lineItems) {
       if (!li.inventoryItem) continue
-      const oldPrice = Number(li.inventoryItem.pricePerBaseUnit)
+      const oldPrice = pricePerBaseUnit(asChainItem(li.inventoryItem))
       const newPrice = Number(li.unitPrice)
       if (oldPrice > 0 && Math.abs(newPrice - oldPrice) / oldPrice > 0.05) {
         priceChanges.push({

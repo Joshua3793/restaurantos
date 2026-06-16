@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
 import { getTheoreticalStock } from '@/lib/count-expected'
+import { PRICING_SELECT } from '@/lib/item-model'
 
 export async function GET(
   _req: NextRequest,
@@ -20,7 +21,7 @@ export async function GET(
               inventoryItem: {
                 select: {
                   id: true, itemName: true, stockOnHand: true,
-                  baseUnit: true, pricePerBaseUnit: true,
+                  ...PRICING_SELECT,
                 },
               },
               // Sub-recipe ingredients (e.g. Custard inside French Toast) carry a

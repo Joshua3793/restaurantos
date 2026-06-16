@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
+import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
   }
 
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
-  const ppbu = item ? parseFloat(String(item.pricePerBaseUnit)) : 0
+  const ppbu = item ? pricePerBaseUnit(asChainItem(item)) : 0
   const qtyBase = item ? convertQty(parseFloat(qtyWasted), unit, item.baseUnit) : parseFloat(qtyWasted)
   const costImpact = qtyBase * ppbu
 

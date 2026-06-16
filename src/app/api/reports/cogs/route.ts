@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { periodPurchases, periodSnapshotBounds } from '@/lib/cogs'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
     for (const item of inventory) {
       const cat = item.category
       inventoryByCategory[cat] = (inventoryByCategory[cat] || 0) +
-        Number(item.stockOnHand) * Number(item.pricePerBaseUnit)
+        Number(item.stockOnHand) * pricePerBaseUnit(asChainItem(item))
     }
     const wastageByItem: Record<string, { name: string; cost: number }> = {}
     for (const w of wastage) {
@@ -91,10 +92,10 @@ export async function GET(req: NextRequest) {
     // RC mode: use StockAllocation for beginning inventory
     const allocations = await prisma.stockAllocation.findMany({
       where: { revenueCenterId: rcId },
-      include: { inventoryItem: { select: { pricePerBaseUnit: true, category: true } } },
+      include: { inventoryItem: { select: { category: true, ...PRICING_SELECT } } },
     })
     for (const a of allocations) {
-      const v = Number(a.quantity) * Number(a.inventoryItem.pricePerBaseUnit)
+      const v = Number(a.quantity) * pricePerBaseUnit(asChainItem(a.inventoryItem))
       beginningValue += v
       beginByCategory[a.inventoryItem.category] = (beginByCategory[a.inventoryItem.category] || 0) + v
     }
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
     beginningFallback = true
     const items = await prisma.inventoryItem.findMany({ where: { isStocked: true } })
     for (const item of items) {
-      const v = Number(item.stockOnHand) * Number(item.pricePerBaseUnit)
+      const v = Number(item.stockOnHand) * pricePerBaseUnit(asChainItem(item))
       beginningValue += v
       beginByCategory[item.category] = (beginByCategory[item.category] || 0) + v
     }
@@ -121,10 +122,10 @@ export async function GET(req: NextRequest) {
     // (same as beginning; COGS formula will net them — user should run counts first)
     const allocations = await prisma.stockAllocation.findMany({
       where: { revenueCenterId: rcId },
-      include: { inventoryItem: { select: { pricePerBaseUnit: true, category: true } } },
+      include: { inventoryItem: { select: { category: true, ...PRICING_SELECT } } },
     })
     for (const a of allocations) {
-      const v = Number(a.quantity) * Number(a.inventoryItem.pricePerBaseUnit)
+      const v = Number(a.quantity) * pricePerBaseUnit(asChainItem(a.inventoryItem))
       endingValue += v
       endByCategory[a.inventoryItem.category] = (endByCategory[a.inventoryItem.category] || 0) + v
     }

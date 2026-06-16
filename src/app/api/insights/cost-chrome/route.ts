@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   ] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true, isStocked: true },
-      select: { id: true, stockOnHand: true, pricePerBaseUnit: true },
+      select: { id: true, stockOnHand: true, ...PRICING_SELECT },
     }),
     prisma.salesEntry.findMany({
       where: { date: { gte: weekStart }, ...salesFilter },
@@ -114,9 +115,9 @@ export async function GET(req: NextRequest) {
   //   no RC (all) → Σ theoreticalMap[item] × price   (map is the ΣRC sum)
   // No separate allocation add-back: each per-RC map already includes that RC's
   // allocation-based stock, and getTheoreticalStockMap(rcId) returns 0 for items
-  // not allocated to a non-default RC.
+  // not allocated to a non-default RC. Price is computed on-read from the chain.
   const onHand = inventory.reduce(
-    (sum, it) => sum + (theoreticalMap.get(it.id) ?? Number(it.stockOnHand)) * Number(it.pricePerBaseUnit),
+    (sum, it) => sum + (theoreticalMap.get(it.id) ?? Number(it.stockOnHand)) * pricePerBaseUnit(asChainItem(it)),
     0,
   )
   const sourceItemCount = inventory.length

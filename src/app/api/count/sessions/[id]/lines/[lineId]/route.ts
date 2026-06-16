@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { convertCountQtyToBase } from '@/lib/count-uom'
+import { convertCountQtyToBase, countEntriesToBase, type CountEntry } from '@/lib/count-uom'
+import { withPpb } from '@/lib/item-model'
 
 // PATCH /api/count/sessions/:id/lines/:lineId
 export async function PATCH(
@@ -8,7 +10,7 @@ export async function PATCH(
   { params }: { params: { id: string; lineId: string } }
 ) {
   const body = await req.json()
-  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt } = body
+  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt, entries } = body
 
   const line = await prisma.countLine.findUnique({
     where: { id: params.lineId },
@@ -43,10 +45,35 @@ export async function PATCH(
 
   let data: Parameters<typeof prisma.countLine.update>[0]['data'] = {}
 
+  // entries (mixed-unit) is authoritative when present and non-empty.
+  const validEntries: CountEntry[] | null =
+    Array.isArray(entries) && entries.length > 0
+      ? entries
+          .map((e: { unit?: unknown; qty?: unknown }) => ({ unit: String(e.unit ?? ''), qty: Number(e.qty) || 0 }))
+          .filter((e: CountEntry) => e.unit)
+      : null
+
   if (skipped === true) {
-    data = { skipped: true, countedQty: line.expectedQty, variancePct: 0, varianceCost: 0 }
+    data = { skipped: true, countedQty: line.expectedQty, variancePct: 0, varianceCost: 0, entries: Prisma.DbNull }
   } else if (skipped === false) {
-    data = { skipped: false, countedQty: null, variancePct: null, varianceCost: null }
+    data = { skipped: false, countedQty: null, variancePct: null, varianceCost: null, entries: Prisma.DbNull }
+  } else if (validEntries && validEntries.length > 0) {
+    // Mixed-unit count: entries are authoritative. We store the summed base as
+    // countedQty with selectedUom = baseUnit so every legacy reader that does
+    // convertCountQtyToBase(countedQty, selectedUom) (a base→base identity)
+    // still yields the correct base, while entries remain the source of truth.
+    const countedBase = countEntriesToBase(validEntries, itemDims)
+    const expected    = Number(line.expectedQty)
+    const price       = Number(line.priceAtCount)
+    data = {
+      entries:      validEntries as unknown as Prisma.InputJsonValue,
+      countedQty:   countedBase,
+      selectedUom:  item.baseUnit,
+      skipped:      false,
+      variancePct:  expected > 0 ? ((countedBase - expected) / expected) * 100 : 0,
+      varianceCost: (countedBase - expected) * price,
+      ...(notes !== undefined ? { notes } : {}),
+    }
   } else if (countedQty !== undefined) {
     const counted   = parseFloat(String(countedQty))
     // selectedUom from body takes priority; fall back to what's already on the line
@@ -58,6 +85,7 @@ export async function PATCH(
     data = {
       countedQty:   counted,
       skipped:      false,
+      entries:      Prisma.DbNull,  // single-unit path clears any prior mixed-unit entries
       variancePct:  expected > 0 ? ((countedBase - expected) / expected) * 100 : 0,
       varianceCost: (countedBase - expected) * price,
       ...(selectedUom !== undefined ? { selectedUom } : {}),
@@ -74,5 +102,6 @@ export async function PATCH(
     include: { inventoryItem: { include: { storageArea: true } } },
   })
 
-  return NextResponse.json(updated)
+  // Re-populate the computed pricePerBaseUnit the count page reads off the line.
+  return NextResponse.json({ ...updated, inventoryItem: withPpb(updated.inventoryItem) })
 }

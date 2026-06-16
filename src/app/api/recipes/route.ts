@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
+import { PRICING_SELECT } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export async function GET(req: NextRequest) {
@@ -33,12 +34,12 @@ export async function GET(req: NextRequest) {
       _count: { select: { usedInRecipes: true } },
       ingredients: {
         include: {
-          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
+          inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
           linkedRecipe: {
             select: {
               name: true,
               yieldUnit: true,
-              inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } },
+              inventoryItem: { select: { allergens: true, ...PRICING_SELECT } },
             },
           },
         },
@@ -60,7 +61,7 @@ export async function GET(req: NextRequest) {
       return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
     })
 
-    const { totalCost, costPerPortion, foodCostPct, ingredients } = computeRecipeCost({
+    const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
       ...recipe,
       ingredients: ingredientsWithLinked,
     })
@@ -88,6 +89,7 @@ export async function GET(req: NextRequest) {
       totalCost,
       costPerPortion,
       foodCostPct,
+      dimensionConflicts,
       usedInCount: recipe._count.usedInRecipes,
       allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => [
         ...(ing.inventoryItem?.allergens ?? []),
@@ -158,8 +160,6 @@ export async function POST(req: NextRequest) {
             packSize: 1,
             packUOM: canonYield,
             countUOM: canonYield,
-            conversionFactor: 1,
-            pricePerBaseUnit: 0,
             stockOnHand: 0,
           },
         })

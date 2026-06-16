@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get('q')?.trim() ?? ''
@@ -8,11 +9,11 @@ export async function GET(req: NextRequest) {
 
   const contains = { contains: q, mode: 'insensitive' as const }
 
-  const [inventory, rawRecipes, invoices, suppliers] = await Promise.all([
+  const [inventoryRaw, rawRecipes, invoices, suppliers] = await Promise.all([
     prisma.inventoryItem.findMany({
       // non-stocked items are valid recipe ingredients — do NOT filter isStocked
       where: { isActive: true, itemName: contains },
-      select: { id: true, itemName: true, category: true, stockOnHand: true, baseUnit: true, pricePerBaseUnit: true },
+      select: { id: true, itemName: true, category: true, stockOnHand: true, ...PRICING_SELECT },
       orderBy: { itemName: 'asc' },
       take: 6,
     }),
@@ -22,12 +23,12 @@ export async function GET(req: NextRequest) {
         category: { select: { name: true } },
         ingredients: {
           include: {
-            inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true } },
+            inventoryItem: { select: { itemName: true, ...PRICING_SELECT } },
             linkedRecipe: {
               select: {
                 name: true,
                 yieldUnit: true,
-                inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } },
+                inventoryItem: { select: { ...PRICING_SELECT } },
               },
             },
           },
@@ -59,6 +60,10 @@ export async function GET(req: NextRequest) {
       take: 4,
     }),
   ])
+
+  // Keep the response's inventory[].pricePerBaseUnit field populated by
+  // computing it from the chain (survives the legacy column drop).
+  const inventory = inventoryRaw.map(i => ({ ...i, pricePerBaseUnit: pricePerBaseUnit(asChainItem(i)) }))
 
   // Compute totalCost for each recipe the same way the recipes API does
   const recipes = rawRecipes.map(recipe => {

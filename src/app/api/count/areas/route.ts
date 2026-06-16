@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     prisma.storageArea.findMany({ orderBy: { name: 'asc' } }),
     prisma.inventoryItem.findMany({
       where: { isActive: true, isStocked: true },
-      select: { id: true, storageAreaId: true, stockOnHand: true, pricePerBaseUnit: true, lastCountDate: true, lastCountQty: true },
+      select: { id: true, storageAreaId: true, stockOnHand: true, lastCountDate: true, lastCountQty: true, ...PRICING_SELECT },
     }),
   ])
 
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
   for (const it of items) {
     if (!it.storageAreaId) continue   // unassigned items are only reachable via a full count
     const cur = agg.get(it.storageAreaId) ?? { itemCount: 0, onHandValue: 0, drift: 0, lastCountDate: null }
-    const price = Number(it.pricePerBaseUnit)
+    const price = pricePerBaseUnit(asChainItem(it))
     const bs = baseStock(it)
     cur.itemCount += 1
     cur.onHandValue += bs * price

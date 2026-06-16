@@ -9,6 +9,7 @@ export interface CountMutation {
   lineId:    string
   type:      'count' | 'skip'
   qty?:      number
+  entries?:  { unit: string; qty: number }[]   // mixed-unit count (authoritative when present)
 }
 
 // ── Session cache ──────────────────────────────────────────────────────────────
@@ -90,7 +91,13 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
       await fetch(`/api/count/sessions/${m.sessionId}/lines/${m.lineId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(m.type === 'skip' ? { skipped: true } : { countedQty: m.qty }),
+        body: JSON.stringify(
+          m.type === 'skip'
+            ? { skipped: true }
+            : m.entries && m.entries.length
+              ? { entries: m.entries }
+              : { countedQty: m.qty },
+        ),
       })
       synced++
     } catch {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { convertCountQtyToBase } from '@/lib/count-uom'
+import { lineCountedBase } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
 // GET /api/count/sessions/:id/report
@@ -30,7 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       packSize: Number(item.packSize),
       packUOM: item.packUOM, countUOM: item.countUOM,
     }
-    const qtyBase = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, itemDims)
+    const qtyBase = lineCountedBase(l, itemDims)
     return s + qtyBase * Number(l.priceAtCount)
   }, 0)
   const totalVarianceCost  = lines.reduce((s, l) => s + Math.abs(Number(l.varianceCost ?? 0)), 0)

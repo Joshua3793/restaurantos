@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcPricePerBaseUnit } from '@/lib/utils'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const invoice = await prisma.invoice.findUnique({
@@ -14,23 +13,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const li of invoice.lineItems) {
     const item = li.inventoryItem
     const newPurchasePrice = parseFloat(String(li.priceOverride ?? li.unitPrice))
-    const qty      = parseFloat(String(item.qtyPerPurchaseUnit))
-    const packSize = parseFloat(String(item.packSize))
     const packUOM  = item.packUOM
-    const newPPBU  = calcPricePerBaseUnit(
-      newPurchasePrice,
-      qty,
-      item.qtyUOM ?? 'each',
-      item.innerQty != null ? Number(item.innerQty) : null,
-      packSize,
-      packUOM,
-    )
+    // Price-only update: rebuild `pricing` to match the new price (do NOT touch
+    // packChain — the pack format is unchanged here). For a UOM/rate item, the
+    // price is a rate; for a CASE item it's the pack purchase price.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const itemAny = item as any
+    const newPricing =
+      itemAny.priceType === 'UOM'
+        ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: itemAny.baseUnit || packUOM || 'each' }
+        : { mode: 'PACK', purchasePrice: newPurchasePrice }
     await prisma.inventoryItem.update({
       where: { id: item.id },
       data: {
         purchasePrice: newPurchasePrice,
-        pricePerBaseUnit: newPPBU,
         lastUpdated: new Date(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pricing: newPricing as any,
       },
     })
   }

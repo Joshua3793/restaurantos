@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,11 +31,10 @@ export async function GET(_req: NextRequest) {
         id: true,
         itemName: true,
         category: true,
-        baseUnit: true,
         stockOnHand: true,
-        pricePerBaseUnit: true,
         lastUpdated: true,
         supplier: { select: { name: true } },
+        ...PRICING_SELECT,
       },
     }),
     prisma.invoiceSession.findMany({
@@ -59,24 +59,27 @@ export async function GET(_req: NextRequest) {
         name: true,
         updatedAt: true,
         inventoryItem: {
-          select: { id: true, itemName: true, pricePerBaseUnit: true, lastUpdated: true },
+          select: { id: true, itemName: true, lastUpdated: true, ...PRICING_SELECT },
         },
       },
     }),
   ])
 
   // Top by inventory value
-  const ranked = items.map(it => ({
-    id: it.id,
-    name: it.itemName,
-    category: it.category,
-    baseUnit: it.baseUnit,
-    pricePerBaseUnit: Number(it.pricePerBaseUnit),
-    stockOnHand: Number(it.stockOnHand),
-    inventoryValue: Number(it.stockOnHand) * Number(it.pricePerBaseUnit),
-    supplier: it.supplier?.name ?? null,
-    lastUpdated: it.lastUpdated,
-  }))
+  const ranked = items.map(it => {
+    const ppb = pricePerBaseUnit(asChainItem(it))
+    return {
+      id: it.id,
+      name: it.itemName,
+      category: it.category,
+      baseUnit: it.baseUnit,
+      pricePerBaseUnit: ppb,
+      stockOnHand: Number(it.stockOnHand),
+      inventoryValue: Number(it.stockOnHand) * ppb,
+      supplier: it.supplier?.name ?? null,
+      lastUpdated: it.lastUpdated,
+    }
+  })
   ranked.sort((a, b) => b.inventoryValue - a.inventoryValue)
 
   const totalValue = ranked.reduce((s, it) => s + it.inventoryValue, 0)
@@ -107,7 +110,7 @@ export async function GET(_req: NextRequest) {
         itemName: r.inventoryItem!.itemName,
         recipeId: r.id,
         recipeName: r.name,
-        pricePerBaseUnit: Number(r.inventoryItem!.pricePerBaseUnit),
+        pricePerBaseUnit: pricePerBaseUnit(asChainItem(r.inventoryItem!)),
         lastUpdated: r.inventoryItem!.lastUpdated,
       })),
   }, {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 function fuzzyScore(query: string, target: string): number {
   const q = query.toLowerCase().trim()
@@ -33,8 +34,7 @@ export async function GET(req: NextRequest) {
         itemName: true,
         purchaseUnit: true,
         purchasePrice: true,
-        pricePerBaseUnit: true,
-        baseUnit: true,
+        ...PRICING_SELECT,
         category: true,
         qtyPerPurchaseUnit: true,
         packSize: true,
@@ -42,12 +42,13 @@ export async function GET(req: NextRequest) {
         barcode: true,
       },
     })
-    return NextResponse.json(item ? [item] : [])
+    if (!item) return NextResponse.json([])
+    return NextResponse.json([{ ...item, pricePerBaseUnit: pricePerBaseUnit(asChainItem(item)) }])
   }
 
   const words = q.split(/\s+/).filter(w => w.length > 1)
 
-  const items = await prisma.inventoryItem.findMany({
+  const itemsRaw = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
       // non-stocked items are valid recipe ingredients — do NOT filter isStocked
@@ -66,8 +67,7 @@ export async function GET(req: NextRequest) {
       itemName: true,
       purchaseUnit: true,
       purchasePrice: true,
-      pricePerBaseUnit: true,
-      baseUnit: true,
+      ...PRICING_SELECT,
       category: true,
       qtyPerPurchaseUnit: true,
       packSize: true,
@@ -76,6 +76,10 @@ export async function GET(req: NextRequest) {
     orderBy: { itemName: 'asc' },
     take: Math.min(limit * 5, 100),
   })
+
+  // Keep the response's pricePerBaseUnit field populated by computing it from
+  // the chain (survives the legacy column drop).
+  const items = itemsRaw.map(i => ({ ...i, pricePerBaseUnit: pricePerBaseUnit(asChainItem(i)) }))
 
   if (!q) return NextResponse.json(items.slice(0, limit))
 

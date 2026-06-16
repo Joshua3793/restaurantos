@@ -5,6 +5,29 @@
 
 import { prisma } from '@/lib/prisma'
 import { getUnitConv } from '@/lib/utils'
+import { pricePerBaseUnit as chainPpb } from '@/lib/item-model'
+
+/**
+ * An offer's price-per-base-unit, PREFERRING the per-offer pack chain when
+ * present (the design's ItemOffer semantics) so cross-supplier comparison is a
+ * single numeric compare derived on read. Falls back to the stored
+ * `pricePerBaseUnit` column for legacy offers that have no chain yet.
+ */
+export function offerPricePerBase(offer: {
+  packChain?: unknown
+  pricing?: unknown
+  pricePerBaseUnit?: unknown
+}): number {
+  const chain = Array.isArray(offer.packChain) ? offer.packChain : null
+  const pricing = offer.pricing && typeof offer.pricing === 'object' ? offer.pricing : null
+  if (chain && chain.length && pricing) {
+    // pricePerBaseUnit reads only packChain + pricing; dimension/baseUnit are
+    // unused for the compute, so cast the whole arg to satisfy ChainItem.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return chainPpb({ packChain: chain, pricing } as any)
+  }
+  return Number(offer.pricePerBaseUnit ?? 0) // legacy fallback
+}
 
 export interface SupplierOfferStats {
   id: string
@@ -12,7 +35,10 @@ export interface SupplierOfferStats {
   supplierId: string | null
   isPrimary: boolean
   lastPrice: number
+  /** Chain-derived when the offer carries a packChain+pricing, else the legacy column. */
   pricePerBaseUnit: number
+  packChain: unknown
+  pricing: unknown
   packQty: number | null
   packSize: number | null
   packUOM: string | null
@@ -148,7 +174,10 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
       supplierId: o.supplierId,
       isPrimary: o.isPrimary,
       lastPrice: Number(o.lastPrice),
-      pricePerBaseUnit: Number(o.pricePerBaseUnit),
+      // Chain-derived when the offer carries a chain; else legacy column.
+      pricePerBaseUnit: offerPricePerBase(o),
+      packChain: o.packChain ?? null,
+      pricing: o.pricing ?? null,
       packQty: o.packQty !== null ? Number(o.packQty) : null,
       packSize: o.packSize !== null ? Number(o.packSize) : null,
       packUOM: o.packUOM,

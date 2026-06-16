@@ -24,5 +24,20 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "mobile"]
+  "exclude": [
+    "node_modules",
+    "mobile",
+    "prisma/migrate-sqlite-to-postgres.ts",
+    "prisma/seed.ts",
+    "prisma/seed-count.ts",
+    "prisma/seed-recipes.ts",
+    "scripts/migrate-sqlite-to-pg.ts",
+    "scripts/backfill-supplier-offers.ts",
+    "scripts/analyze-uom-normalization.ts",
+    "scripts/import-sysco-catalog.ts",
+    "scripts/seed-non-stocked.ts",
+    "scripts/verify-inventory-import.ts",
+    "scripts/verify-invoice-pricing.ts",
+    "scripts/repair-count-uom.ts"
+  ]
 }

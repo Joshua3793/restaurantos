@@ -14,6 +14,14 @@ enum Role {
   STAFF
 }
 
+// Item physical dimension — declared, never guessed. Implies the SI base unit
+// (MASS→g, VOLUME→ml, COUNT→each). Part of the pack-chain item model.
+enum Dimension {
+  MASS
+  VOLUME
+  COUNT
+}
+
 model User {
   id                String             @id
   email             String             @unique
@@ -81,8 +89,13 @@ model InventoryItem {
   needsReview        Boolean                  @default(false) // flagged by migration script for manual review
   priceType          String                   @default("CASE")
   countUOM           String                   @default("each")
-  conversionFactor   Decimal                  @default(1)
-  pricePerBaseUnit   Decimal                  @default(0)
+  // conversionFactor + pricePerBaseUnit REMOVED — now computed on-read from
+  // packChain/pricing via src/lib/item-model.ts (corruption is structurally impossible).
+  // ── Pack-chain item model ──────────────────────────────────────────────────
+  dimension          Dimension                @default(COUNT)
+  packChain          Json                     @default("[]")        // PackLink[] outer→inner; leaf.per in baseUnit
+  pricing            Json                     @default("{\"mode\":\"PACK\",\"purchasePrice\":0}")
+  countUnit          String                   @default("each")      // a chain level OR a same-dimension unit
   stockOnHand        Decimal                  @default(0)
   lastUpdated        DateTime                 @default(now()) @updatedAt
   location           String?
@@ -216,6 +229,9 @@ model CountLine {
   expectedQty     Decimal
   countedQty      Decimal?
   selectedUom     String
+  // Optional mixed-unit count: [{ unit, qty }] summed to base. When present it is
+  // authoritative; countedQty/selectedUom remain as the single-unit fallback + display.
+  entries         Json?
   skipped         Boolean       @default(false)
   variancePct     Decimal?
   varianceCost    Decimal?
@@ -397,6 +413,12 @@ model InventorySupplierPrice {
   packQty              Decimal? // THIS supplier's pack format (qty per case)
   packSize             Decimal?
   packUOM              String?
+  // Per-offer pack-chain model (the design's ItemOffer): each supplier offer
+  // carries its own chain + pricing so its pricePerBaseUnit derives on read and
+  // cross-supplier comparison is one numeric compare. Legacy packQty/size/UOM +
+  // pricePerBaseUnit stay as fallback/provenance.
+  packChain            Json?
+  pricing              Json?
   lastInvoiceSessionId String?  // provenance: approval that last set this offer
   inventoryItem        InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
   supplier             Supplier?     @relation(fields: [supplierId], references: [id])

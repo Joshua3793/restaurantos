@@ -9,6 +9,7 @@ import {
   needsTrustCheck,
 } from './predicates'
 import { computeNormalisedPrices } from './calculations'
+import { offerPricePerBase } from '@/lib/supplier-offers'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
 
 // A line is treated as a "charge" (Other line items — no COGS impact) when the
@@ -45,9 +46,9 @@ export function offerForSupplier(item: ScanItem, ref: SupplierRef) {
 /** Cheapest OTHER supplier's offer, for the supplier-switch note. */
 export function cheapestOtherOffer(item: ScanItem, ref: SupplierRef) {
   const offers = (item.matchedItem?.supplierPrices ?? [])
-    .filter(o => !offerMatches(o, ref) && Number(o.pricePerBaseUnit) > 0)
+    .filter(o => !offerMatches(o, ref) && offerPricePerBase(o) > 0)
   if (offers.length === 0) return null
-  return offers.reduce((min, o) => Number(o.pricePerBaseUnit) < Number(min.pricePerBaseUnit) ? o : min)
+  return offers.reduce((min, o) => offerPricePerBase(o) < offerPricePerBase(min) ? o : min)
 }
 
 // Big price jumps (>15%) on a linked item are the only price deltas promoted to
@@ -63,7 +64,7 @@ export function isBigPriceChange(item: ScanItem, ref?: SupplierRef | null): bool
     // Compare against THIS supplier's own last $/base when we know it — a
     // supplier switch with both suppliers flat must not demand an ack.
     const offer = ref ? offerForSupplier(item, ref) : null
-    const offerPPB = offer ? Number(offer.pricePerBaseUnit) : 0
+    const offerPPB = offer ? offerPricePerBase(offer) : 0
     if (offerPPB > 0) {
       return Math.abs(((norm.invoicePPB - offerPPB) / offerPPB) * 100) > 15
     }

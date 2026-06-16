@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, computeExpected } from '@/lib/count-expected'
 import { resolveCountUom } from '@/lib/count-uom'
+import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
               packUOM:            item.packUOM,
               countUOM:           item.countUOM ?? 'each',
             }) || item.baseUnit,
-            priceAtCount:    item.pricePerBaseUnit,
+            priceAtCount:    pricePerBaseUnit(asChainItem(item)),
             sortOrder:       i,
           }
         }),
@@ -170,7 +171,8 @@ export async function POST(req: NextRequest) {
   }
   const enrichedLines = session.lines.map(l => ({
     ...l,
-    inventoryItem: { ...l.inventoryItem, parLevel: parMap2.get(l.inventoryItemId) ?? null },
+    // withPpb re-populates the computed pricePerBaseUnit the count page reads.
+    inventoryItem: { ...withPpb(l.inventoryItem), parLevel: parMap2.get(l.inventoryItemId) ?? null },
   }))
 
   return NextResponse.json(

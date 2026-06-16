@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import { deriveBaseUnit } from '@/lib/utils'
+import { formToChain } from '@/lib/item-model-form'
+import {
+  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit,
+  validateChainItem, withPpb, asChainItem, type ChainItem,
+} from '@/lib/item-model'
 import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { resolveCountUom } from '@/lib/count-uom'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
@@ -10,7 +15,7 @@ import { getTheoreticalStockMap } from '@/lib/count-expected'
 function attachTheoreticalFields<T extends Record<string, any>>(
   items: T[],
   theoMap: Map<string, number>,
-): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null })[] {
+): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null; pricePerBaseUnit: number })[] {
   return items.map(item => {
     // Use a pre-set countedStock when the caller already captured the raw value (e.g. the
     // "All RCs" path pre-sets it before inflating stockOnHand with allocTotal). Otherwise
@@ -20,11 +25,16 @@ function attachTheoreticalFields<T extends Record<string, any>>(
     const lastCountDate = item.lastCountDate
       ? (item.lastCountDate instanceof Date ? item.lastCountDate.toISOString() : String(item.lastCountDate))
       : null
+    // Re-populate the `pricePerBaseUnit` response field by computing it from the
+    // chain so client readers (inventory/page, GlobalSearch, setup/categories,
+    // wastage selectedItem) survive the legacy column drop.
     return {
       ...item,
       theoreticalStock: theoretical,
       countedStock: counted,
       lastCountDate,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pricePerBaseUnit: chainPricePerBaseUnit(asChainItem(item as any)),
     }
   })
 }
@@ -143,6 +153,59 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
+
+  // ── New chain-form body ──────────────────────────────────────────────────
+  // When `packChain` is present the chain columns are authoritative; derive the
+  // legacy fields from them for dual-write consistency.
+  if (body.packChain) {
+    const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, ...rest } = body
+    delete rest.purchasePrice; delete rest.qtyPerPurchaseUnit; delete rest.packSize
+    delete rest.packUOM; delete rest.countUOM; delete rest.qtyUOM; delete rest.innerQty
+    delete rest.priceType; delete rest.conversionFactor; delete rest.pricePerBaseUnit
+    delete rest.baseUnit; delete rest.dimension; delete rest.pricing; delete rest.countUnit
+
+    const ci: ChainItem = {
+      dimension,
+      baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
+      packChain,
+      pricing,
+      countUnit,
+    }
+    const errors = validateChainItem(ci)
+    if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
+
+    // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
+    const isStocked = body.isStocked !== false
+
+    const item = await prisma.inventoryItem.create({
+      data: {
+        ...rest,
+        isStocked,
+        // chain columns (authoritative)
+        dimension,
+        packChain: packChain as any,
+        pricing: pricing as any,
+        countUnit,
+        // derived legacy fields (dual-write)
+        baseUnit: ci.baseUnit,
+        countUOM: countUnit,
+        priceType: pricing.mode === 'RATE' ? 'UOM' : 'CASE',
+        purchaseUnit: packChain[0]?.unit ?? 'each',
+        purchasePrice: pricing.mode === 'PACK' ? pricing.purchasePrice : pricing.rate,
+        // safe defaults for the remaining legacy pack columns
+        qtyUOM: 'each',
+        packSize: 1,
+        packUOM: 'each',
+        innerQty: null,
+        qtyPerPurchaseUnit: 1,
+        supplierId: supplierId || null,
+        storageAreaId: storageAreaId || null,
+      },
+      include: { supplier: true, storageArea: true },
+    })
+    return NextResponse.json(withPpb(item), { status: 201 })
+  }
+
   const { purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM, qtyUOM, innerQty, priceType, supplierId, storageAreaId, ...rest } = body
   const pp    = parseFloat(purchasePrice)
   const qty   = parseFloat(qtyPerPurchaseUnit)
@@ -176,12 +239,14 @@ export async function POST(req: NextRequest) {
     countUOM:           hasWeightPerEach ? (countUOM ?? 'each') : 'each',
   })
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
-  const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
-  // Non-stocked (recipe-only) items carry no inventory value — pin their spine price to 0.
+  // Non-stocked (recipe-only) items carry no inventory value — pricing chain reflects 0.
   const isStocked = body.isStocked !== false
-  const finalPPB  = isStocked ? pricePerBaseUnit : 0
+  const chain = formToChain({
+    purchaseUnit: purchaseUnitTok, purchasePrice: isStocked ? pp : 0,
+    qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
+    priceType: pt, countUOM: cu,
+  })
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,
@@ -194,14 +259,16 @@ export async function POST(req: NextRequest) {
       qtyUOM: qu,
       innerQty: iq,
       priceType: pt,
-      conversionFactor,
-      pricePerBaseUnit: finalPPB,
       baseUnit,
+      dimension: chain.dimension,
+      packChain: chain.packChain as any,
+      pricing: chain.pricing as any,
+      countUnit: chain.countUnit,
       isStocked,
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
     },
     include: { supplier: true, storageArea: true },
   })
-  return NextResponse.json(item, { status: 201 })
+  return NextResponse.json(withPpb(item), { status: 201 })
 }

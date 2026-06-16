@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,9 +20,7 @@ export async function GET() {
       packUOM: true,
       countUOM: true,
       purchasePrice: true,
-      baseUnit: true,
-      conversionFactor: true,
-      pricePerBaseUnit: true,
+      ...PRICING_SELECT,
       stockOnHand: true,
       barcode: true,
       isActive: true,
@@ -33,7 +32,7 @@ export async function GET() {
   })
 
   const totalValue = items.filter(i => i.isActive).reduce((sum, i) =>
-    sum + parseFloat(i.stockOnHand.toString()) * parseFloat(i.pricePerBaseUnit.toString()), 0)
+    sum + parseFloat(i.stockOnHand.toString()) * pricePerBaseUnit(asChainItem(i)), 0)
   const activeCount = items.filter(i => i.isActive).length
   const countedThisWeek = items.filter(i => {
     if (!i.lastCountDate) return false
@@ -62,7 +61,8 @@ export async function GET() {
   // Inventory sheet
   const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Purchase Unit', 'Qty/Purchase Unit', 'Qty UOM', 'Price Type', 'Pack Size', 'Pack UOM', 'Count UOM', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
   const rows = items.map(item => {
-    const stockValue = parseFloat(item.stockOnHand.toString()) * parseFloat(item.pricePerBaseUnit.toString())
+    const ppb = pricePerBaseUnit(asChainItem(item))
+    const stockValue = parseFloat(item.stockOnHand.toString()) * ppb
     return [
       item.itemName,
       item.category,
@@ -77,8 +77,8 @@ export async function GET() {
       item.countUOM,
       parseFloat(item.purchasePrice.toString()),
       item.baseUnit,
-      parseFloat(item.conversionFactor.toString()),
-      parseFloat(item.pricePerBaseUnit.toString()),
+      basePerUnit(asChainItem(item), item.countUOM),
+      ppb,
       parseFloat(item.stockOnHand.toString()),
       stockValue,
       item.barcode || '',

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
-import { calcPricePerBaseUnit } from '@/lib/utils'
 import { requireSession, AuthError } from '@/lib/auth'
+import { PRICING_SELECT, withPpb } from '@/lib/item-model'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
-        include: { matchedItem: { select: { id: true, itemName: true, purchaseUnit: true, pricePerBaseUnit: true, purchasePrice: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true, baseUnit: true, priceType: true, qtyUOM: true, innerQty: true, supplierPrices: true } } },
+        include: { matchedItem: { select: { id: true, itemName: true, purchaseUnit: true, ...PRICING_SELECT, purchasePrice: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true, priceType: true, qtyUOM: true, innerQty: true, supplierPrices: true } } },
         orderBy: { sortOrder: 'asc' },
       },
       priceAlerts: {
@@ -30,7 +30,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(session)
+  // Re-populate the computed pricePerBaseUnit on each matchedItem so the invoice
+  // review UI (computeNormalisedPrices, composites/card/issues) survives the drop.
+  const scanItems = session.scanItems.map(si =>
+    si.matchedItem ? { ...si, matchedItem: withPpb(si.matchedItem) } : si
+  )
+  return NextResponse.json({ ...session, scanItems })
 }
 
 // PATCH /api/invoices/sessions/[id] — update session header fields or scan item actions
@@ -161,11 +166,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
           matchedItem: {
             select: {
               id: true,
-              qtyPerPurchaseUnit: true,
-              qtyUOM: true,
-              innerQty: true,
-              packSize: true,
               packUOM: true,
+              baseUnit: true,
               priceType: true,
             },
           },
@@ -184,19 +186,22 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
 
       const prevPrice = Number(scanItem.previousPrice)
-      const pricePerBaseUnit = calcPricePerBaseUnit(
-        prevPrice,
-        Number(scanItem.matchedItem.qtyPerPurchaseUnit),
-        scanItem.matchedItem.qtyUOM ?? 'each',
-        scanItem.matchedItem.innerQty != null ? Number(scanItem.matchedItem.innerQty) : null,
-        Number(scanItem.matchedItem.packSize),
-        scanItem.matchedItem.packUOM ?? 'each',
-        (scanItem.matchedItem.priceType ?? 'CASE') as 'CASE' | 'UOM',
-      )
+      // Revert the spine by rolling the `pricing` chain back to the previous price
+      // (the computed pricePerBaseUnit derives from it). Mirror the process-route
+      // price-only rebuild: UOM → RATE, otherwise PACK. The pack FORMAT is untouched.
+      const mi = scanItem.matchedItem
+      const revertedPricing =
+        mi.priceType === 'UOM'
+          ? { mode: 'RATE', rate: prevPrice, rateUnit: mi.baseUnit || mi.packUOM || 'each' }
+          : { mode: 'PACK', purchasePrice: prevPrice }
 
       await prisma.inventoryItem.update({
         where: { id: scanItem.matchedItemId },
-        data: { purchasePrice: prevPrice, pricePerBaseUnit },
+        data: {
+          purchasePrice: prevPrice,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pricing: revertedPricing as any,
+        },
       })
       pricesReverted++
     }

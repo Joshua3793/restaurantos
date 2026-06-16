@@ -15,6 +15,14 @@ const STABILITY_BADGE: Record<NonNullable<SupplierOfferStats['stability']>, { la
 }
 
 function fmtPack(o: SupplierOfferStats): string {
+  // Prefer the per-offer chain's top→leaf when present (ItemOffer semantics).
+  if (Array.isArray(o.packChain) && o.packChain.length) {
+    const links = o.packChain as Array<{ unit?: string; per?: number }>
+    const parts = links
+      .map(l => (l && l.per != null && l.unit ? `${l.per}${l.unit === 'each' ? '' : ' ' + l.unit}` : null))
+      .filter(Boolean)
+    if (parts.length) return parts.join(' × ')
+  }
   if (o.packQty != null && o.packSize != null && o.packUOM) return `${o.packQty} × ${o.packSize}${o.packUOM}`
   return '—'
 }

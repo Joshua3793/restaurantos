@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
-import { convertCountQtyToBase, resolveCountUom } from '@/lib/count-uom'
+import { lineCountedBase, resolveCountUom } from '@/lib/count-uom'
+import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
 // POST /api/count/sessions/:id/sync
 // Full sync: adds new active items, removes lines for deleted/inactive items,
@@ -59,7 +60,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const item = activeItemMap.get(l.inventoryItemId)
     if (!item) return false
     if (l.countedQty === null && !l.skipped) return false  // uncounted → handled by toUpdate
-    return Number(l.priceAtCount) !== Number(item.pricePerBaseUnit)  // only when it changed
+    return Number(l.priceAtCount) !== pricePerBaseUnit(asChainItem(item))  // only when it changed
   })
 
   // ── Build theoretical expected maps ───────────────────────────────────────
@@ -134,7 +135,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         where: { id: l.id },
         data: {
           expectedQty:  getExpected(item.id, Number(item.stockOnHand)),
-          priceAtCount: item.pricePerBaseUnit,
+          priceAtCount: pricePerBaseUnit(asChainItem(item)),
         },
       })
     }),
@@ -147,7 +148,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         // skipped lines carry no variance (qty == expected); price only
         return prisma.countLine.update({
           where: { id: l.id },
-          data: { priceAtCount: item.pricePerBaseUnit },
+          data: { priceAtCount: pricePerBaseUnit(asChainItem(item)) },
         })
       }
       const itemDims = {
@@ -160,14 +161,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         packUOM:            item.packUOM,
         countUOM:           item.countUOM,
       }
-      const countedBase = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, itemDims)
+      const countedBase = lineCountedBase(l, itemDims)
       const expected    = Number(l.expectedQty)
+      const ppb         = pricePerBaseUnit(asChainItem(item))
       return prisma.countLine.update({
         where: { id: l.id },
         data: {
-          priceAtCount: item.pricePerBaseUnit,
+          priceAtCount: ppb,
           variancePct:  expected > 0 ? ((countedBase - expected) / expected) * 100 : 0,
-          varianceCost: (countedBase - expected) * Number(item.pricePerBaseUnit),
+          varianceCost: (countedBase - expected) * ppb,
         },
       })
     }),
@@ -189,7 +191,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             packUOM:            item.packUOM,
             countUOM:           item.countUOM ?? 'each',
           }) || item.baseUnit,
-          priceAtCount:    item.pricePerBaseUnit,
+          priceAtCount:    pricePerBaseUnit(asChainItem(item)),
           sortOrder:       nextSort++,
         },
       })
@@ -219,7 +221,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
   const enriched = updatedLines.map(l => ({
     ...l,
-    inventoryItem: { ...l.inventoryItem, parLevel: parMap3.get(l.inventoryItemId) ?? null },
+    // withPpb re-populates the computed pricePerBaseUnit the count page reads.
+    inventoryItem: { ...withPpb(l.inventoryItem), parLevel: parMap3.get(l.inventoryItemId) ?? null },
   }))
 
   return NextResponse.json({

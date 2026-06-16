@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // Fuzzy score: how well does `query` match `target`?
 // Returns 0–100. Handles case, partial words, abbreviations.
@@ -60,7 +61,7 @@ export async function GET(req: NextRequest) {
           ],
         } : {}),
       },
-      select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true, category: true },
+      select: { id: true, itemName: true, ...PRICING_SELECT, category: true },
       orderBy: { itemName: 'asc' },
       take: 100, // fetch more, re-rank in JS
     }),
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
         id: true,
         name: true,
         yieldUnit: true,
-        inventoryItem: { select: { pricePerBaseUnit: true } },
+        inventoryItem: { select: { ...PRICING_SELECT } },
       },
       orderBy: { name: 'asc' },
       take: 50,
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
     id: item.id,
     name: item.itemName,
     unit: item.baseUnit,
-    pricePerBaseUnit: Number(item.pricePerBaseUnit),
+    pricePerBaseUnit: pricePerBaseUnit(asChainItem(item)),
     category: item.category,
     _score: q ? fuzzyScore(q, item.itemName) : 100,
   }))
@@ -103,7 +104,7 @@ export async function GET(req: NextRequest) {
     id: recipe.id,
     name: recipe.name,
     unit: recipe.yieldUnit,
-    pricePerBaseUnit: Number(recipe.inventoryItem?.pricePerBaseUnit ?? 0),
+    pricePerBaseUnit: recipe.inventoryItem ? pricePerBaseUnit(asChainItem(recipe.inventoryItem)) : 0,
     category: 'PREPD',
     _score: q ? fuzzyScore(q, recipe.name) : 100,
   }))

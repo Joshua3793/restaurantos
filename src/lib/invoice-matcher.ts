@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 import { canonicalUom } from '@/lib/utils'
+import { PRICING_SELECT } from '@/lib/item-model'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
 const UOM_ALIASES: Record<string, string> = {
@@ -324,9 +325,8 @@ export async function matchLineItems(
       id: true,
       itemName: true,
       purchaseUnit: true,
-      pricePerBaseUnit: true,
+      ...PRICING_SELECT,
       purchasePrice: true,
-      baseUnit: true,
       qtyPerPurchaseUnit: true,
       packSize: true,
       packUOM: true,
@@ -356,9 +356,8 @@ export async function matchLineItems(
             id: true,
             itemName: true,
             purchaseUnit: true,
-            pricePerBaseUnit: true,
+            ...PRICING_SELECT,
             purchasePrice: true,
-            baseUnit: true,
             qtyPerPurchaseUnit: true,
             packSize: true,
             packUOM: true,
@@ -392,7 +391,6 @@ export async function matchLineItems(
               id: true,
               itemName: true,
               purchaseUnit: true,
-              pricePerBaseUnit: true,
               purchasePrice: true,
               baseUnit: true,
               qtyPerPurchaseUnit: true,

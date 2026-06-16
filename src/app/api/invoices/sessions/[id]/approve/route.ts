@@ -7,7 +7,9 @@ import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
-import { purchaseUnitToken } from '@/lib/uom'
+import { formToChain } from '@/lib/item-model-form'
+import { dimensionOf } from '@/lib/item-model'
+import { purchaseUnitToken, dimensionallyCostable } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -25,7 +27,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null; dimension: string; baseUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -104,6 +106,9 @@ async function doApprove(
         const packUOM  = useInvoicePack ? scanItem.invoicePackUOM!                : (item.packUOM ?? 'each')
 
         let newPricePerBase: number
+        // The RATE's resolved unit (only meaningful in UOM mode) — captured here
+        // so the chain `pricing` below can store { mode:'RATE', rate, rateUnit }.
+        let resolvedRateUnit = 'kg'
         if (rawPriceType === 'UOM') {
           // newPurchasePrice is a rate ($/kg, $/lb…). Divide by the RATE's OWN
           // unit — the scan line's rateUOM — not the physical pack unit. A
@@ -114,6 +119,7 @@ async function doApprove(
           const rateUnit = wv(scanItem.rateUOM) ? scanItem.rateUOM!
             : wv(item.packUOM) ? item.packUOM!
             : 'kg'
+          resolvedRateUnit = rateUnit
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
         } else {
@@ -133,6 +139,29 @@ async function doApprove(
             packSize,
             packUOM,
           )
+        }
+
+        // ── Dimension-conflict guard (gap #2) ───────────────────────────────
+        // In UOM/rate mode the incoming price is a $/<rateUnit> rate; its base
+        // is `resolvedRateUnit`'s dimension. If that differs from the matched
+        // item's own dimension, this rate is denominated in a unit the item
+        // can't be costed in (e.g. a $/kg line landing on an each-priced item).
+        // Writing newPricePerBase ($/g) onto an each-item would silently corrupt
+        // every recipe/count that reads the spine. Skip the price write instead.
+        // CASE mode is dimension-agnostic (a case price resolves via the item's
+        // own pack structure), so it can never conflict — only UOM/rate mode is
+        // checked here. Weight↔volume is tolerated (density≈1); the genuine
+        // catastrophe is a $/kg (or $/L) rate landing on a COUNT/each item.
+        if (rawPriceType === 'UOM' && item.baseUnit &&
+            !dimensionallyCostable(resolvedRateUnit, item.baseUnit)) {
+          console.error(
+            `[approve] Skipping price write for "${scanItem.rawDescription}" — ` +
+            `rate unit '${resolvedRateUnit}' (${dimensionOf(resolvedRateUnit)}) ` +
+            `can't be costed against item base '${item.baseUnit}' (${item.dimension}). ` +
+            `A cross-dimension rate can never overwrite this item's price.`
+          )
+          skippedLines++
+          continue
         }
 
         // If the invoice's pack format genuinely differs from the stored item
@@ -171,16 +200,52 @@ async function doApprove(
         const prevPrice = Number(scanItem.previousPrice)
         const changePct = scanItem.priceDiffPct !== null ? Number(scanItem.priceDiffPct) : 0
 
+        // ── Dual-write the chain pricing (Principle: keep legacy writes, ADD chain) ──
+        // `pricing` always follows the resolved mode: UOM → RATE{rate,rateUnit};
+        // otherwise PACK{purchasePrice}. The pack FORMAT (packChain/dimension/
+        // countUnit) only changes when the user consented to adopt the invoice's
+        // format (useInvoicePack) — otherwise the stored format is preserved.
+        const newPricing = rawPriceType === 'UOM'
+          ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: resolvedRateUnit }
+          : { mode: 'PACK', purchasePrice: newPurchasePrice }
+        // matchedItem is loaded with `include: { matchedItem: true }` (full row)
+        // but typed narrowly above — read the extra fields off an `any` view.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const itemAny = item as any
+        const formatChain = useInvoicePack
+          ? formToChain({
+              purchaseUnit:       itemAny.purchaseUnit ?? scanItem.rawUnit ?? 'case',
+              purchasePrice:      newPurchasePrice,
+              qtyPerPurchaseUnit: packQty,
+              qtyUOM:             'each', // invoice-format pack is expressed via packSize/packUOM
+              innerQty:           null,
+              packSize,
+              packUOM,
+              priceType:          rawPriceType,
+              countUOM:           itemAny.countUOM ?? 'each',
+            })
+          : null
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const itemOps: any[] = [
           prisma.inventoryItem.update({
             where: { id: scanItem.matchedItemId },
             data: {
               purchasePrice:    newPurchasePrice,
-              pricePerBaseUnit: newPricePerBase,
               priceType:        rawPriceType === 'UOM' ? 'UOM' : 'CASE', // PKG is a purchasing exception; stored as CASE
               lastUpdated:      new Date(),
               ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
+              // Chain dual-write: pricing always; format only under consent.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing: newPricing as any,
+              ...(formatChain
+                ? {
+                    dimension: formatChain.dimension,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    packChain: formatChain.packChain as any,
+                    countUnit: formatChain.countUnit,
+                  }
+                : {}),
             },
           }),
           prisma.invoiceScanItem.update({
@@ -233,6 +298,33 @@ async function doApprove(
                 packUOM:  scanItem.invoicePackUOM ?? 'each',
               }
             : { packQty: null, packSize: null, packUOM: null }
+
+          // ── Per-offer pack chain + pricing (ItemOffer semantics) ──────────
+          // This offer carries its OWN chain reflecting THIS supplier's pack
+          // format + price (exactly what this line resolved), so the offer's
+          // pricePerBaseUnit derives on read and cross-supplier comparison is a
+          // single numeric compare. UOM mode → RATE{rate,rateUnit} (the rate the
+          // line resolved); CASE mode → PACK over this offer's own pack format.
+          // The chain's dimension/baseUnit follow the parent item (the price was
+          // resolved against it). With no line pack, fall back to the item's
+          // current pack so the chain still reproduces newPricePerBase.
+          const offerChain = formToChain({
+            purchaseUnit:       itemAny.purchaseUnit ?? scanItem.rawUnit ?? 'case',
+            purchasePrice:      offerLastPrice,
+            qtyPerPurchaseUnit: hasLinePack ? Number(scanItem.invoicePackQty)  : (Number(item.qtyPerPurchaseUnit) || 1),
+            qtyUOM:             'each', // offer pack is expressed via packSize/packUOM
+            innerQty:           null,
+            packSize:           hasLinePack ? Number(scanItem.invoicePackSize) : (Number(item.packSize) || 1),
+            // UOM mode: pass the RESOLVED rate unit as packUOM so formToChain's
+            // RATE branch denominates by it (matches newPricePerBase exactly).
+            packUOM:            rawPriceType === 'UOM'
+              ? resolvedRateUnit
+              : (hasLinePack ? (scanItem.invoicePackUOM ?? 'each') : (item.packUOM ?? 'each')),
+            priceType:          rawPriceType,
+            countUOM:           itemAny.countUOM ?? 'each',
+            baseUnit:           item.baseUnit ?? undefined,
+          })
+
           await prisma.inventorySupplierPrice.upsert({
             where: {
               inventoryItemId_supplierName: {
@@ -250,6 +342,11 @@ async function doApprove(
               supplierItemCode:     scanItem.supplierItemCode ?? null,
               lastInvoiceSessionId: sessionId,
               ...offerPack,
+              // Per-offer chain (ItemOffer): offer ppb derives from this on read.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              packChain:            offerChain.packChain as any,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing:              offerChain.pricing as any,
             },
             update: {
               lastPrice:            offerLastPrice,
@@ -259,6 +356,10 @@ async function doApprove(
               ...(session.supplierId ? { supplierId: session.supplierId } : {}),
               ...(scanItem.supplierItemCode ? { supplierItemCode: scanItem.supplierItemCode } : {}),
               ...offerPack,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              packChain:            offerChain.packChain as any,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing:              offerChain.pricing as any,
             },
           }).catch((e) => console.error('[approve] offer upsert failed:', e))
         }
@@ -283,8 +384,21 @@ async function doApprove(
         const newPackSize = Number(newData.packSize) || 1
         const newPackUOM  = newData.packUOM || 'each'
         const newPriceType: 'CASE' | 'UOM' = newData.priceType === 'UOM' ? 'UOM' : 'CASE'
-        const newPricePerBase = Number(newData.pricePerBaseUnit) ||
-          calcPricePerBaseUnit(newPurchasePrice, newPackQty, 'each', null, newPackSize, newPackUOM, newPriceType)
+        const newCountUOM = newData.countUOM || 'each'
+        // Reconstruct the chain from the resolved pack fields so the new item is
+        // born with a chain that reproduces newPricePerBase via pricePerBaseUnit().
+        const newChain = formToChain({
+          purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
+          purchasePrice:      newPurchasePrice,
+          qtyPerPurchaseUnit: newPackQty,
+          qtyUOM:             'each',
+          innerQty:           null,
+          packSize:           newPackSize,
+          packUOM:            newPackUOM,
+          priceType:          newPriceType,
+          countUOM:           newCountUOM,
+          baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
+        })
         const created = await prisma.inventoryItem.create({
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
@@ -297,10 +411,15 @@ async function doApprove(
             baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
             packSize:           newPackSize,
             packUOM:            newPackUOM,
-            conversionFactor:   Number(newData.conversionFactor) || 1,
-            pricePerBaseUnit:   newPricePerBase,
             priceType:          newPriceType,
             supplierId:         session.supplierId || null,
+            // Chain dual-write alongside the legacy fields.
+            dimension:          newChain.dimension,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            packChain:          newChain.packChain as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            pricing:            newChain.pricing as any,
+            countUnit:          newChain.countUnit,
           },
         })
         updatedItemIds.push(created.id)
