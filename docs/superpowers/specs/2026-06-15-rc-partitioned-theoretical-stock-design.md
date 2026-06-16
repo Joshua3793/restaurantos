@@ -75,6 +75,17 @@ value                 = Σ_item theoretical(item) × pricePerBaseUnit
 
 ## Architecture
 
+### 0. Invoice-session RC (added 2026-06-15 during execution)
+
+Purchases are RC-scoped through `InvoiceSession.revenueCenterId`, but 20 of 38 approved
+sessions had it null — so $11,391 of purchases belonged to no RC and were dropped from ΣRC
+(ΣRC $27,072 vs old global $37,654). Fix, per user decision "backfill → Cafe + default at approve":
+- **Backfill**: set `revenueCenterId = <default RC>` on every APPROVED session where it is null.
+- **Approve route** (`sessions/[id]/approve`): when a session is approved with no `revenueCenterId`,
+  persist the default RC on the session so its purchases attribute to Cafe.
+- The column **stays nullable** (sessions are RC-less during UPLOADING/PROCESSING); RC is only
+  guaranteed from APPROVED onward.
+
 ### 1. Data model
 
 `prisma/schema.prisma`:

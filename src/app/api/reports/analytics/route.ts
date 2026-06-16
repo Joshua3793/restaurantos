@@ -56,7 +56,7 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
     prisma.wastageLog.aggregate({ where: { date: { gte: since } }, _sum: { costImpact: true } }),
     prisma.wastageLog.aggregate({ where: { date: { gte: prevSince, lt: since } }, _sum: { costImpact: true } }),
     prisma.inventoryItem.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isStocked: true },
       select: { stockOnHand: true, category: true, ...PRICING_SELECT,
         stockAllocations: { select: { quantity: true } } },
     }),
@@ -241,7 +241,7 @@ async function getInventory(since: Date) {
       orderBy: { changePct: 'desc' },
     }),
     prisma.inventoryItem.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isStocked: true },
       select: {
         id: true, itemName: true, category: true,
         stockOnHand: true, ...PRICING_SELECT,

@@ -1,6 +1,7 @@
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
 import { formToChain } from '@/lib/item-model-form'
 import type { Dimension, PackLink, Pricing } from '@/lib/item-model'
+import { assertKnownUnit } from '@/lib/uom'
 import * as XLSX from 'xlsx'
 
 // ── Allowed values ───────────────────────────────────────────────────────────
@@ -152,6 +153,9 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   const packUOM = 'each'
   const innerQty = null
   const priceType = 'CASE' as const
+  // Validate the mapped qtyUOM against the UOM backbone (throws on an unknown unit
+  // so a bad import row is rejected instead of silently defaulting to 'each').
+  assertKnownUnit(qtyUOM, 'qtyUOM')
   const countUOM = qtyUOM
 
   const pricePerBaseUnit = calcPricePerBaseUnit(

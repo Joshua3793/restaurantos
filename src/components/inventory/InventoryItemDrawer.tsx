@@ -46,6 +46,7 @@ interface InventoryItem {
   allergens?: string[]
   barcode?: string | null
   isActive: boolean
+  isStocked?: boolean
   qtyUOM?: string | null
   innerQty?: number | string | null
   needsReview?: boolean | null
@@ -70,6 +71,7 @@ interface EditForm {
   countUnit: string
   stockOnHand: string
   isActive: boolean
+  isStocked: boolean
   allergens: string[]
   barcode: string | null
 }
@@ -114,6 +116,7 @@ function buildEditForm(item: InventoryItem): EditForm {
     countUnit: c.countUnit,
     stockOnHand: String(parseFloat(stockInCountUnit.toFixed(4))),
     isActive: item.isActive,
+    isStocked: item.isStocked ?? true,
     allergens: item.allergens ?? [],
     barcode: item.barcode ?? null,
   }
@@ -381,7 +384,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     storageAreaId: '', storageAreaName: '',
     dimension: 'COUNT', chain: [...DEFAULT_CHAIN], pricing: { ...DEFAULT_PRICING },
     countUnit: 'each',
-    stockOnHand: '0', isActive: true, allergens: [], barcode: null,
+    stockOnHand: '0', isActive: true, isStocked: true, allergens: [], barcode: null,
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
@@ -451,6 +454,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
         countUnit: editForm.countUnit,
         stockOnHand: stockInBase,
         isActive: editForm.isActive,
+        isStocked: editForm.isStocked,
         allergens: editForm.allergens,
         barcode: editForm.barcode,
       }),
@@ -547,6 +551,18 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   />
                   <span className="text-sm font-medium text-ink-2">Active</span>
                   <span className="text-xs text-ink-4">&mdash; uncheck to exclude from inventory totals</span>
+                </label>
+
+                {/* Not stocked (recipe-only) */}
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!editForm.isStocked}
+                    onChange={e => setEditForm(f => ({ ...f, isStocked: !e.target.checked }))}
+                    className="w-4 h-4 rounded border-line-2 text-gold focus:ring-gold"
+                  />
+                  <span className="text-sm font-medium text-ink-2">Not stocked (recipe-only)</span>
+                  <span className="text-xs text-ink-4">&mdash; e.g. tap water; usable in recipes at $0, hidden from counts &amp; purchasing</span>
                 </label>
 
                 {/* Category */}

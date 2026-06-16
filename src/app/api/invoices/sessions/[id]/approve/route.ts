@@ -8,6 +8,7 @@ import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
+import { purchaseUnitToken } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -46,10 +47,13 @@ async function doApprove(
       select: { id: true },
     })
     const defaultRcId = defaultRc?.id ?? null
+    // Approving without an RC attributes the invoice's purchases to no revenue
+    // center (dropped from per-RC theoretical stock). Default to the default RC.
+    const effectiveSessionRcId = session.revenueCenterId ?? defaultRcId
     // The line's effective RC is its own override, else the invoice's active RC.
     // Only non-default RCs need an allocation row (default RC reads global stockOnHand).
     const registerAlloc = (itemId: string | null, lineRcId: string | null) => {
-      const rcId = lineRcId ?? session.revenueCenterId
+      const rcId = lineRcId ?? effectiveSessionRcId
       if (itemId && rcId && rcId !== defaultRcId) allocPairs.push({ itemId, rcId })
     }
 
@@ -118,22 +122,22 @@ async function doApprove(
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
         } else {
-          // CASE and PKG both go through the same path (PKG newPrice is already per-case after drawer normalization)
-          if (scanItem.totalQty !== null && scanItem.totalQty !== undefined && Number(scanItem.totalQty) > 0) {
-            const tqUOM = scanItem.totalQtyUOM ?? packUOM
-            const conv  = getUnitConv(tqUOM)
-            newPricePerBase = conv > 0 ? newPurchasePrice / (Number(scanItem.totalQty) * conv) : 0
-          } else {
-            const iqNum = item.innerQty != null ? Number(item.innerQty) : null
-            newPricePerBase = calcPricePerBaseUnit(
-              newPurchasePrice,
-              packQty,
-              useInvoicePack ? 'each' : (item.qtyUOM ?? 'each'),
-              useInvoicePack ? null : iqNum,
-              packSize,
-              packUOM,
-            )
-          }
+          // CASE and PKG: the price is PER CASE (PKG newPrice is normalized to per-case by
+          // the drawer). pricePerBaseUnit derives from the pack STRUCTURE — never from the
+          // line's totalQty. rawUnitPrice is a per-case price, so dividing it by a total
+          // quantity is dimensionally wrong (and OCR totalQty is often inconsistent with the
+          // confirmed pack — e.g. Butter 2 CS @ $172.79 carried a stray totalQty 2.86 kg,
+          // yielding $0.0604/g instead of the correct $0.0152/g). calcPricePerBaseUnit is the
+          // canonical formula and matches the DELETE-revert path, so approve/revert agree.
+          const iqNum = item.innerQty != null ? Number(item.innerQty) : null
+          newPricePerBase = calcPricePerBaseUnit(
+            newPurchasePrice,
+            packQty,
+            useInvoicePack ? 'each' : (item.qtyUOM ?? 'each'),
+            useInvoicePack ? null : iqNum,
+            packSize,
+            packUOM,
+          )
         }
 
         // If the invoice's pack format genuinely differs from the stored item
@@ -342,7 +346,7 @@ async function doApprove(
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
             category:           newData.category || 'DRY',
-            purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
+            purchaseUnit:       purchaseUnitToken(newData.purchaseUnit || scanItem.rawUnit || 'each'),
             qtyPerPurchaseUnit: newPackQty,
             purchasePrice:      newPurchasePrice,
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would
@@ -410,6 +414,7 @@ async function doApprove(
         status: 'APPROVED',
         approvedBy,
         approvedAt: new Date(),
+        revenueCenterId: effectiveSessionRcId,
         ...(skippedLines > 0
           ? {
               errorMessage: `${skippedLines} line${skippedLines === 1 ? '' : 's'} skipped — price not updated (format or price could not be resolved safely). Re-open the invoice to review.`,
@@ -419,8 +424,27 @@ async function doApprove(
     })
 
     // ── Clone session per RC ────────────────────────────────────────────
-    if (session.revenueCenterId) {
-      const sessionRcId = session.revenueCenterId
+    // Idempotency: a prior approval (before a reset → re-approve) may have created RC
+    // clone sessions and flagged parent lines with splitToSessionId. Re-approving must
+    // REPLACE those, not stack a second set — otherwise each clone's copies
+    // (splitToSessionId = null) are counted again as purchases/spend (double-count).
+    // Remove prior clones (cascade-deletes their copied scan items) and un-split the
+    // parent lines so each approval rebuilds exactly one set of clones.
+    const priorClones = await prisma.invoiceSession.findMany({
+      where: { parentSessionId: sessionId },
+      select: { id: true },
+    })
+    if (priorClones.length > 0) {
+      const cloneIds = priorClones.map(c => c.id)
+      await prisma.invoiceScanItem.updateMany({
+        where: { splitToSessionId: { in: cloneIds } },
+        data:  { splitToSessionId: null },
+      })
+      await prisma.invoiceSession.deleteMany({ where: { id: { in: cloneIds } } })
+    }
+
+    if (effectiveSessionRcId) {
+      const sessionRcId = effectiveSessionRcId
       const itemsByRc = new Map<string, typeof session.scanItems>()
       for (const item of session.scanItems) {
         const effectiveRcId = item.revenueCenterId ?? sessionRcId

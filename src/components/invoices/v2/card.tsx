@@ -17,12 +17,13 @@ import {
 import { ModeIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote } from './issues'
 import {
   derivePricingMode, isCatchweight, hasModeMismatch, hasFormatMismatch,
-  hasMathCheck, isUnlinked, needsTrustCheck,
+  hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
 import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
+import { formatPurchaseDisplay } from '@/lib/count-uom'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const unlinked       = !isSkipped && isUnlinked(item)
   const modeMismatch   = !isSkipped && hasModeMismatch(item)
   const formatMismatch = !isSkipped && hasFormatMismatch(item)
+  const uomReview      = !isSkipped && hasUnknownUom(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
   const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
   const trustCheck     = !isSkipped && needsTrustCheck(item)
@@ -165,6 +167,12 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
             matched
           </span>
         )}
+        {uomReview && (
+          <span title="A unit on this line isn't recognized — purchase qty falls back to the pack structure. Fix the unit for exactness."
+            className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-gold-soft text-gold-2 shrink-0">
+            UOM review
+          </span>
+        )}
         {variance && <VariancePill variance={variance} />}
         <div className="font-mono text-[13px] font-semibold text-ink tabular-nums shrink-0">
           {total !== null ? formatCurrency(total) : '—'}
@@ -213,6 +221,12 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           </div>
         </div>
         <div className="flex items-start gap-2.5 shrink-0">
+          {uomReview && (
+            <span title="A unit on this line isn't recognized — purchase qty falls back to the pack structure. Fix the unit for exactness."
+              className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-gold-soft text-gold-2 self-center">
+              UOM review
+            </span>
+          )}
           {resolved && (
             <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-green-soft text-green-text inline-flex items-center gap-1 self-center">
               <Check size={10} /> resolved
@@ -385,7 +399,7 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   } else {
     const prev = item.previousPrice ? Number(item.previousPrice) : null
     const next = item.rawUnitPrice  ? Number(item.rawUnitPrice)  : null
-    const bu   = item.matchedItem?.purchaseUnit ?? 'case'
+    const bu   = item.matchedItem ? formatPurchaseDisplay({ ...item.matchedItem, countUOM: 'each' }) : 'case'
     if (prev !== null) prevLabel = `${formatCurrency(prev)}/${bu}`
     if (next !== null) {
       nextLabel = `${formatCurrency(next)}/${bu}`

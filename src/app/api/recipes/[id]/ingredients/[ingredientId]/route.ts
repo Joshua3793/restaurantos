@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,11 +12,18 @@ export async function PATCH(
   const body = await req.json()
   const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId } = body
 
+  // Validate + normalize the unit when it's being changed.
+  let canonUnit: string | undefined
+  if (unit !== undefined) {
+    try { canonUnit = assertKnownUnit(unit, 'ingredient unit') }
+    catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+  }
+
   await prisma.recipeIngredient.update({
     where: { id: params.ingredientId },
     data: {
       ...(qtyBase !== undefined ? { qtyBase: parseFloat(qtyBase) } : {}),
-      ...(unit !== undefined ? { unit } : {}),
+      ...(canonUnit !== undefined ? { unit: canonUnit } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),

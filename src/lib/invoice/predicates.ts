@@ -4,11 +4,22 @@
 
 import type { ScanItem } from '@/components/invoices/types'
 import { canonicalUom, isMeasuredUnit } from '@/lib/utils'
+import { isKnownUnit } from '@/lib/uom'
 
 // A UOM that measures weight or volume (vs a count/case unit). Delegates to the
 // canonical helper so it canonicalizes and covers the full unit set.
 export const isWeightVolUOM = (uom: string | null | undefined) =>
   !!uom && isMeasuredUnit(uom)
+
+/**
+ * True when any of the line's billed/pack units is outside the UOM backbone
+ * (neither a measurement nor a container unit — e.g. a malformed OCR token like
+ * "325g"). The purchase math stays safe (buildPurchaseMap falls back to the pack
+ * structure, never a silent ×1), but the line should be flagged for a quick fix.
+ */
+export const hasUnknownUom = (item: ScanItem): boolean =>
+  [item.rawUnit, item.totalQtyUOM, item.invoicePackUOM, item.rateUOM]
+    .some(u => u != null && String(u).trim() !== '' && !isKnownUnit(u))
 
 // ── Pricing mode ─────────────────────────────────────────────────────────────
 // Priority:

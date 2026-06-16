@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   const [inventoryRaw, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases, salesWTD, purchasesWTD] = await Promise.all([
     prisma.inventoryItem.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isStocked: true },
       select: {
         id: true, itemName: true, category: true,
         stockOnHand: true, ...PRICING_SELECT, purchasePrice: true,

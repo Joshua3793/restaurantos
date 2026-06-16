@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
   const itemsRaw = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
+      // non-stocked items are valid recipe ingredients — do NOT filter isStocked
       // PREP recipe outputs are made in-house, not purchasable — never link an
       // invoice line to one.
       NOT: { recipe: { type: 'PREP' } },

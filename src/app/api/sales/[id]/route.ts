@@ -25,6 +25,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json()
   const { lineItems = [], revenueCenterId, ...rest } = body
 
+  if (!revenueCenterId) {
+    return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
+
   // Replace all line items
   await prisma.saleLineItem.deleteMany({ where: { saleId: params.id } })
 
@@ -38,7 +42,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       notes:        rest.notes || null,
       periodType:   rest.periodType ?? 'day',
       endDate:      rest.endDate ? new Date(rest.endDate) : null,
-      revenueCenterId: revenueCenterId ?? null,
+      revenueCenterId,
       lineItems: {
         create: (lineItems as { recipeId: string; qtySold: number }[])
           .filter(li => li.recipeId && li.qtySold > 0)

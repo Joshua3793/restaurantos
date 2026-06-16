@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const [areas, items] = await Promise.all([
     prisma.storageArea.findMany({ orderBy: { name: 'asc' } }),
     prisma.inventoryItem.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isStocked: true },
       select: { id: true, storageAreaId: true, stockOnHand: true, lastCountDate: true, lastCountQty: true, ...PRICING_SELECT },
     }),
   ])

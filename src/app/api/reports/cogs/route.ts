@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const [sales, wastage, inventory] = await Promise.all([
       prisma.salesEntry.findMany({ where: { date: { gte: eightWeeksAgo } }, orderBy: { date: 'asc' } }),
       prisma.wastageLog.findMany({ where: { date: { gte: eightWeeksAgo } }, include: { inventoryItem: true } }),
-      prisma.inventoryItem.findMany(),
+      prisma.inventoryItem.findMany({ where: { isStocked: true } }),
     ])
 
     const weeklyData: Record<string, { week: string; revenue: number; wastage: number; foodCostPct: number }> = {}
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
     beginByCategory = beginSession.byCategory
   } else {
     beginningFallback = true
-    const items = await prisma.inventoryItem.findMany()
+    const items = await prisma.inventoryItem.findMany({ where: { isStocked: true } })
     for (const item of items) {
       const v = Number(item.stockOnHand) * pricePerBaseUnit(asChainItem(item))
       beginningValue += v
@@ -148,13 +148,12 @@ export async function GET(req: NextRequest) {
   // Shared sales scope: date range + RC filter. Reused by both the food-sales
   // denominator and the theoretical-cost numerator so they stay comparable in
   // RC mode (a global numerator over RC-scoped sales would be inflated).
+  // revenueCenterId is NOT NULL on SalesEntry now (legacy nulls were backfilled to the
+  // default RC), so default and non-default both filter by the concrete rcId — there are
+  // no null-RC rows left to union in.
   const salesWhere = {
     date: { gte: rangeStart, lte: rangeEnd },
-    ...(rcId
-      ? (isDefault
-          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-          : { revenueCenterId: rcId })
-      : {}),
+    ...(rcId ? { revenueCenterId: rcId } : {}),
   }
   const salesEntries = await prisma.salesEntry.findMany({ where: salesWhere })
   const foodSales = salesEntries.reduce(

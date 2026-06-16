@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
 import { PRICING_SELECT } from '@/lib/item-model'
+import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -110,15 +111,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  // Validate + normalize units against the UOM backbone.
+  let canonYield: string
+  let canonPortion: string | null
+  try {
+    canonYield = assertKnownUnit(yieldUnit, 'yield unit')
+    canonPortion = portionUnit ? assertKnownUnit(portionUnit, 'portion unit') : null
+  } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+
   const recipe = await prisma.recipe.create({
     data: {
       name,
       type,
       categoryId,
       baseYieldQty: parseFloat(baseYieldQty),
-      yieldUnit,
+      yieldUnit: canonYield,
       portionSize: portionSize ? parseFloat(portionSize) : null,
-      portionUnit: portionUnit || null,
+      portionUnit: canonPortion,
       menuPrice: menuPrice ? parseFloat(menuPrice) : null,
       notes: notes || null,
       isActive: isActive !== undefined ? isActive : true,
@@ -137,19 +146,19 @@ export async function POST(req: NextRequest) {
     const invItem = existing
       ? await prisma.inventoryItem.update({
           where: { id: existing.id },
-          data: { baseUnit: yieldUnit, lastUpdated: new Date() },
+          data: { baseUnit: canonYield, lastUpdated: new Date() },
         })
       : await prisma.inventoryItem.create({
           data: {
             itemName: name,
             category: 'PREPD',
-            purchaseUnit: yieldUnit,
+            purchaseUnit: canonYield,
             qtyPerPurchaseUnit: parseFloat(baseYieldQty),
             purchasePrice: 0,
-            baseUnit: yieldUnit,
+            baseUnit: canonYield,
             packSize: 1,
-            packUOM: yieldUnit,
-            countUOM: yieldUnit,
+            packUOM: canonYield,
+            countUOM: canonYield,
             conversionFactor: 1,
             pricePerBaseUnit: 0,
             stockOnHand: 0,

@@ -14,16 +14,13 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')
   const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
   const where: Record<string, unknown> = {}
   if (startDate) where.date = { ...(where.date as object ?? {}), gte: new Date(startDate) }
   if (endDate)   where.date = { ...(where.date as object ?? {}), lte: new Date(endDate + 'T23:59:59.999Z') }
-  if (rcId) {
-    where.OR = isDefault
-      ? [{ revenueCenterId: rcId }, { revenueCenterId: null }]
-      : [{ revenueCenterId: rcId }]
-  }
+  // revenueCenterId is NOT NULL on SalesEntry (legacy nulls backfilled to the default RC),
+  // so both default and non-default filter on the concrete rcId — no null rows to union in.
+  if (rcId) where.revenueCenterId = rcId
 
   const sales = await prisma.salesEntry.findMany({
     where,
@@ -41,7 +38,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { lineItems = [], revenueCenterId, ...rest } = body
+  const { lineItems = [], revenueCenterId: bodyRcId, ...rest } = body
+
+  const revenueCenterId: string | null = bodyRcId ?? null
+  if (!revenueCenterId) {
+    return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
 
   const entry = await prisma.salesEntry.create({
     data: {
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest) {
       notes:          rest.notes || null,
       periodType:     rest.periodType ?? 'day',
       endDate:        rest.endDate ? new Date(rest.endDate) : null,
-      revenueCenterId: revenueCenterId || null,
+      revenueCenterId,
       lineItems: {
         create: (lineItems as { recipeId: string; qtySold: number }[])
           .filter(li => li.recipeId && li.qtySold > 0)

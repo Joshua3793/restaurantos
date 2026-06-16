@@ -53,12 +53,17 @@ export async function POST(req: NextRequest) {
     select: { revenueCenterId: true },
   })
 
+  const revenueCenterId: string | null = prepItem?.revenueCenterId ?? body.revenueCenterId ?? null
+  if (!revenueCenterId) {
+    return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
+
   const log = await prisma.prepLog.upsert({
     where: { prepItemId_logDate: { prepItemId, logDate: date } },
     create: {
       prepItemId,
       logDate:         date,
-      revenueCenterId: prepItem?.revenueCenterId ?? null,
+      revenueCenterId,
       status:       status      ?? 'NOT_STARTED',
       requiredQty:  requiredQty  ? parseFloat(String(requiredQty))  : null,
       actualPrepQty: actualPrepQty ? parseFloat(String(actualPrepQty)) : null,
@@ -67,6 +72,7 @@ export async function POST(req: NextRequest) {
       note:         note         ?? null,
     },
     update: {
+      revenueCenterId,
       ...(status        !== undefined && { status }),
       ...(requiredQty   !== undefined && { requiredQty:  parseFloat(String(requiredQty)) }),
       ...(actualPrepQty !== undefined && { actualPrepQty: parseFloat(String(actualPrepQty)) }),
