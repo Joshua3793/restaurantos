@@ -229,6 +229,9 @@ model CountLine {
   expectedQty     Decimal
   countedQty      Decimal?
   selectedUom     String
+  // Optional mixed-unit count: [{ unit, qty }] summed to base. When present it is
+  // authoritative; countedQty/selectedUom remain as the single-unit fallback + display.
+  entries         Json?
   skipped         Boolean       @default(false)
   variancePct     Decimal?
   varianceCost    Decimal?

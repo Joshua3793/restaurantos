@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
-import { convertCountQtyToBase, resolveCountUom } from '@/lib/count-uom'
+import { lineCountedBase, resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
 // POST /api/count/sessions/:id/sync
@@ -161,7 +161,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         packUOM:            item.packUOM,
         countUOM:           item.countUOM,
       }
-      const countedBase = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, itemDims)
+      const countedBase = lineCountedBase(l, itemDims)
       const expected    = Number(l.expectedQty)
       const ppb         = pricePerBaseUnit(asChainItem(item))
       return prisma.countLine.update({

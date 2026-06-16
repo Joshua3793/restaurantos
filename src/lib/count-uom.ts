@@ -232,6 +232,24 @@ export function convertCountQtyToBase(
   return convertQty(qty, selectedUom, item.baseUnit)
 }
 
+export type CountEntry = { unit: string; qty: number }
+
+/** Sum a mixed-unit count to base units. Each entry converts independently. */
+export function countEntriesToBase(entries: CountEntry[] | null | undefined, item: ItemDims): number {
+  if (!entries || entries.length === 0) return 0
+  return entries.reduce((sum, e) => sum + convertCountQtyToBase(Number(e.qty) || 0, e.unit, item), 0)
+}
+
+/** Resolve a line's counted base: entries if present, else the single qty/uom. */
+export function lineCountedBase(
+  line: { entries?: unknown; countedQty: number | { toString(): string } | null; selectedUom: string },
+  item: ItemDims,
+): number {
+  const entries = Array.isArray(line.entries) ? (line.entries as CountEntry[]) : null
+  if (entries && entries.length) return countEntriesToBase(entries, item)
+  return line.countedQty != null ? convertCountQtyToBase(Number(line.countedQty), line.selectedUom, item) : 0
+}
+
 /**
  * Convert a baseUnit quantity to the selectedUom — for displaying expected quantities.
  */

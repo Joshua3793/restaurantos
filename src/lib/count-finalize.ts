@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { convertCountQtyToBase } from '@/lib/count-uom'
+import { lineCountedBase } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
@@ -79,7 +79,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
       // skipped lines use expectedQty which is already in baseUnit
       const qtyBase = line.skipped
         ? rawQty
-        : convertCountQtyToBase(rawQty, line.selectedUom, itemDims)
+        : lineCountedBase(line, itemDims)
       const value   = qtyBase * price
       totalCountedValue += value
 
@@ -163,7 +163,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
           packUOM:            item.packUOM,
           countUOM:           item.countUOM,
         }
-        const qtyBase = convertCountQtyToBase(Number(line.countedQty), line.selectedUom, itemDims)
+        const qtyBase = lineCountedBase(line, itemDims)
         return prisma.stockAllocation.upsert({
           where: {
             revenueCenterId_inventoryItemId: {

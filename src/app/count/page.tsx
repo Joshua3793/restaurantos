@@ -19,7 +19,7 @@ import {
   saveCountSessionCache, loadCountSessionCache, pendingCountForSession,
 } from '@/lib/count-offline'
 import {
-  getCountableUoms, convertCountQtyToBase, convertBaseToCountUom,
+  getCountableUoms, convertCountQtyToBase, convertBaseToCountUom, countEntriesToBase,
 } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
@@ -52,6 +52,7 @@ interface Line {
   expectedQty: number
   countedQty: number | null
   selectedUom: string
+  entries?: { unit: string; qty: number }[] | null   // mixed-unit count (authoritative when present)
   skipped: boolean
   variancePct: number | null
   varianceCost: number | null
@@ -96,6 +97,57 @@ function uomOptionLabel(opt: { label: string; hint?: string }, baseUnit: string)
   if (opt.label.toLowerCase() === baseUnit.toLowerCase()) return opt.label
   if (!opt.hint) return opt.label
   return `${opt.label} — ${opt.hint}`
+}
+
+// ─── Mixed-unit entry rows (module scope so inputs keep focus) ──────────────────
+// Renders the "+ add unit" progressive-disclosure block: any number of {qty, unit}
+// rows that sum (with the primary row) to the line's counted base.
+function MixedUnitRows({
+  rows, options, baseUnit, onChange, onAdd,
+}: {
+  rows: { qty: number; unit: string }[]
+  options: { label: string; display?: string; hint?: string }[]
+  baseUnit: string
+  onChange: (rows: { qty: number; unit: string }[]) => void
+  onAdd: (unit: string) => void
+}) {
+  const optLabel = (o: { label: string; display?: string; hint?: string }) =>
+    o.display ?? uomOptionLabel(o, baseUnit)
+  return (
+    <div className="space-y-2 mb-3">
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            type="number" min={0} step={0.1} value={row.qty}
+            onChange={e => onChange(rows.map((r, j) => j === i ? { ...r, qty: parseFloat(e.target.value) || 0 } : r))}
+            className="w-20 h-10 text-center text-[15px] font-medium border border-line rounded-[9px] focus:outline-none focus:border-ink-3 text-ink bg-paper"
+          />
+          <select
+            value={row.unit}
+            onChange={e => onChange(rows.map((r, j) => j === i ? { ...r, unit: e.target.value } : r))}
+            className="flex-1 min-w-0 h-10 border border-line rounded-[9px] px-2 text-[13px] font-medium text-ink-2 bg-paper focus:outline-none focus:border-ink-3"
+          >
+            {options.map(o => <option key={o.label} value={o.label}>{optLabel(o)}</option>)}
+          </select>
+          <button
+            type="button"
+            onClick={() => onChange(rows.filter((_, j) => j !== i))}
+            className="w-9 h-9 rounded-[9px] border border-line grid place-items-center text-ink-4 hover:text-red-text hover:bg-bg-2 shrink-0"
+            title="Remove unit"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onAdd(options[0]?.label ?? baseUnit)}
+        className="font-mono text-[11px] text-ink-3 hover:text-ink-2 inline-flex items-center gap-1 px-1 py-1"
+      >
+        <Plus size={12} /> add unit
+      </button>
+    </div>
+  )
 }
 
 function varColor(pct: number | null) {
@@ -214,6 +266,9 @@ export default function CountPage() {
   const [openId,        setOpenId]        = useState<string | null>(null)
   const [inputQty,      setInputQty]      = useState(0)
   const [caseQty,       setCaseQty]       = useState(0)  // unopened full cases, added to loose count
+  // Mixed-unit counting: additional {qty, unit} rows for the open line, beyond the
+  // primary inputQty + line.selectedUom row. Empty for a normal single-unit count.
+  const [extraEntries,  setExtraEntries]  = useState<{ qty: number; unit: string }[]>([])
   const [catFilter,     setCatFilter]     = useState<string | null>(null)
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped'>('all')
@@ -360,6 +415,17 @@ export default function CountPage() {
       // rather than counting what's actually on the shelf.
       setInputQty(line.countedQty !== null ? Number(line.countedQty) : 0)
       setCaseQty(0)
+      // Rehydrate mixed-unit rows: if the line was saved with entries, treat the
+      // first entry as the primary (inputQty/selectedUom) and the rest as extras.
+      const saved = Array.isArray((line as { entries?: unknown }).entries)
+        ? ((line as { entries?: { unit: string; qty: number }[] }).entries as { unit: string; qty: number }[])
+        : null
+      if (saved && saved.length > 1) {
+        setInputQty(Number(saved[0].qty) || 0)
+        setExtraEntries(saved.slice(1).map(e => ({ qty: Number(e.qty) || 0, unit: e.unit })))
+      } else {
+        setExtraEntries([])
+      }
     }
   }, [openId, active?.lines])
 
@@ -540,15 +606,24 @@ export default function CountPage() {
     })
   }
 
-  const confirmLine = async (line: Line, qty: number) => {
-    // qty is in line.selectedUom — convert to baseUnit for variance (expectedQty is in baseUnit)
-    const qtyBase = convertCountQtyToBase(qty, line.selectedUom, line.inventoryItem)
+  const confirmLine = async (line: Line, qty: number, entries?: { unit: string; qty: number }[]) => {
+    // Mixed-unit: when entries provided (>1 row), they're authoritative. We mirror the
+    // server's storage choice — countedQty = summed base, selectedUom = baseUnit — so
+    // collapsed-card readers stay correct.
+    const mixed = entries && entries.length > 1
+    const qtyBase = mixed
+      ? countEntriesToBase(entries!, line.inventoryItem)
+      // qty is in line.selectedUom — convert to baseUnit for variance (expectedQty is in baseUnit)
+      : convertCountQtyToBase(qty, line.selectedUom, line.inventoryItem)
     const vPct  = Number(line.expectedQty) > 0 ? ((qtyBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100 : 0
     const vCost = (qtyBase - Number(line.expectedQty)) * Number(line.priceAtCount)
+    const optimistic = mixed
+      ? { countedQty: qtyBase, selectedUom: line.inventoryItem.baseUnit, entries }
+      : { countedQty: qty, selectedUom: line.selectedUom, entries: null }
     setActive(prev => ({
       ...prev!,
       lines: prev!.lines!.map(l =>
-        l.id === line.id ? { ...l, countedQty: qty, skipped: false, variancePct: vPct, varianceCost: vCost } : l
+        l.id === line.id ? { ...l, ...optimistic, skipped: false, variancePct: vPct, varianceCost: vCost } : l
       ),
     }))
     setOpenId(null)
@@ -562,19 +637,23 @@ export default function CountPage() {
       }, 120)
     }
     if (isOffline) {
-      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty })
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty, ...(mixed ? { entries } : {}) })
       setPendingCount(c => c + 1)
       // Persist the optimistic state so the count survives a reload while offline.
       if (active) saveCountSessionCache(active.id, {
         ...active,
-        lines: active.lines!.map(l => l.id === line.id ? { ...l, countedQty: qty, skipped: false, variancePct: vPct, varianceCost: vCost } : l),
+        lines: active.lines!.map(l => l.id === line.id ? { ...l, ...optimistic, skipped: false, variancePct: vPct, varianceCost: vCost } : l),
       })
       return
     }
     const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ countedQty: qty, expectedUpdatedAt: line.updatedAt }),
+      body: JSON.stringify(
+        mixed
+          ? { entries, expectedUpdatedAt: line.updatedAt }
+          : { countedQty: qty, expectedUpdatedAt: line.updatedAt },
+      ),
     })
     if (res.status === 409) {
       // Someone else edited this line — refresh the session to pick up their changes
@@ -1724,8 +1803,14 @@ export default function CountPage() {
         ? convertBaseToCountUom(Number(line.inventoryItem.lastCountQty), line.selectedUom, line.inventoryItem)
         : null
 
-      // inputQty is in line.selectedUom; expectedQty is in baseUnit — convert before comparing
-      const inputBase = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
+      // inputQty is in line.selectedUom; expectedQty is in baseUnit — convert before comparing.
+      // When the user has added extra units, the line's base is the sum of the primary
+      // row (inputQty + selectedUom) plus every extra row.
+      const dHasExtras = isOpen && extraEntries.length > 0
+      const dAllEntries = [{ qty: inputQty, unit: line.selectedUom }, ...extraEntries]
+      const inputBase = dHasExtras
+        ? countEntriesToBase(dAllEntries, line.inventoryItem)
+        : convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
       const liveVar = isOpen && Number(line.expectedQty) > 0
         ? ((inputBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
@@ -1893,9 +1978,39 @@ export default function CountPage() {
 
               <div className="text-center font-mono text-[11px] text-ink-3 mb-4">{line.selectedUom}</div>
 
+              {/* Mixed-unit: extra {qty, unit} rows that sum into the line total. */}
+              {(() => {
+                const opts = getCountableUoms(line.inventoryItem)
+                if (extraEntries.length > 0) {
+                  return (
+                    <div className="mb-3">
+                      <MixedUnitRows
+                        rows={extraEntries}
+                        options={opts}
+                        baseUnit={line.inventoryItem.baseUnit}
+                        onChange={setExtraEntries}
+                        onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
+                      />
+                      <div className="text-center font-mono text-[11px] text-ink-2 mb-1">
+                        = {inputBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {line.inventoryItem.baseUnit}
+                      </div>
+                    </div>
+                  )
+                }
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setExtraEntries([{ qty: 0, unit: opts[0]?.label ?? line.inventoryItem.baseUnit }])}
+                    className="font-mono text-[11px] text-ink-3 hover:text-ink-2 inline-flex items-center gap-1 mb-3"
+                  >
+                    <Plus size={12} /> add another unit
+                  </button>
+                )
+              })()}
+
               <div className="flex gap-2">
                 <button
-                  onClick={() => confirmLine(line, inputQty)}
+                  onClick={() => confirmLine(line, inputQty, extraEntries.length > 0 ? [{ qty: inputQty, unit: line.selectedUom }, ...extraEntries] : undefined)}
                   className="flex-1 h-11 bg-ink text-paper rounded-[9px] font-medium text-[13px] hover:bg-ink-2 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Check size={15} className="text-gold" /> Confirm count
@@ -1934,7 +2049,12 @@ export default function CountPage() {
       const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
       const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
       const effectiveQty = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
-      const effBase     = convertCountQtyToBase(effectiveQty, line.selectedUom, item)
+      // Mixed-unit: extra rows the user added sum on top of the primary count.
+      const mHasExtras  = extraEntries.length > 0
+      const mAllEntries = [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries]
+      const effBase     = mHasExtras
+        ? countEntriesToBase(mAllEntries, item)
+        : convertCountQtyToBase(effectiveQty, line.selectedUom, item)
       const liveVar = isOpen && Number(line.expectedQty) > 0
         ? ((effBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
@@ -2039,6 +2159,30 @@ export default function CountPage() {
                   </div>
                 )}
 
+                {/* Mixed-unit: add other units that sum into this count */}
+                <div className="border-t border-line mt-3 pt-3">
+                  {mHasExtras ? (
+                    <>
+                      <MixedUnitRows
+                        rows={extraEntries}
+                        options={uoms}
+                        baseUnit={item.baseUnit}
+                        onChange={setExtraEntries}
+                        onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
+                      />
+                      <div className="text-center font-mono text-[11px] text-ink-2">
+                        = {effBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {item.baseUnit}
+                      </div>
+                    </>
+                  ) : (
+                    <button type="button"
+                      onClick={() => setExtraEntries([{ qty: 0, unit: uoms[0]?.label ?? item.baseUnit }])}
+                      className="font-mono text-[11px] text-ink-3 active:text-ink-2 inline-flex items-center gap-1">
+                      <Plus size={12} /> add another unit
+                    </button>
+                  )}
+                </div>
+
                 {/* Variance vs theoretical + last count — neutral "on track" near zero, else signed unit delta */}
                 {Number(line.expectedQty) > 0 && (() => {
                   const onTrack = liveVar !== null && Math.abs(liveVar) < 2
@@ -2065,7 +2209,7 @@ export default function CountPage() {
                   </div>
                 )}
 
-                <button onClick={() => confirmLine(line, effectiveQty)}
+                <button onClick={() => confirmLine(line, effectiveQty, mHasExtras ? [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries] : undefined)}
                   className="w-full h-12 bg-ink text-paper rounded-[12px] font-semibold text-[15px] flex items-center justify-center gap-2 mt-4">
                   <Check size={17} className="text-gold" /> Save count
                 </button>
