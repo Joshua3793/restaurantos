@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     targetRC,
   ] = await Promise.all([
     prisma.inventoryItem.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isStocked: true },
       select: { id: true, stockOnHand: true, pricePerBaseUnit: true },
     }),
     prisma.salesEntry.findMany({
@@ -94,64 +94,32 @@ export async function GET(req: NextRequest) {
       select: { approvedAt: true, supplierName: true, total: true },
     }),
     rcId
-      ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { targetFoodCostPct: true, isDefault: true } })
-      : Promise.resolve<{ targetFoodCostPct: { toString: () => string } | null; isDefault: boolean } | null>(null),
+      ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { targetFoodCostPct: true } })
+      : Promise.resolve<{ targetFoodCostPct: { toString: () => string } | null } | null>(null),
   ])
 
   // ── On hand: RC-aware inventory value (mirrors the inventory page) ─────
-  //   • non-default RC → Σ theoretical(rcId) × price for that RC's items
-  //   • default RC      → Σ theoretical(rcId) × price for ALL items (Cafe pool)
-  //   • all RCs         → Σ theoretical(null) × price + non-default allocations
-  //
   // "Theoretical" = last-counted baseline + purchases − sales − wastage − prep since
   // last count, using getTheoreticalStockMap (same engine as the inventory list).
-  // The scope MUST match the selected RC: movements are attributed per-RC, so the
-  // default (Cafe) pool must use its own rcId — using the global (null) scope here
-  // wrongly subtracts every other RC's usage from the Cafe pool, understating it.
-  const rcIsDefault = !!targetRC?.isDefault
-
+  //
   // Pass the selected rcId to the engine whenever ANY RC is selected (default or
   // not) so the banner is scoped to that RC, exactly like the inventory list.
-  // null is used only for the unfiltered "all RCs" view.
+  // null is used only for the unfiltered "all RCs" view, where the map returns ΣRC.
   const theoreticalRcId: string | null = rcId || null
   const itemIds = inventory.map(it => it.id)
   const theoreticalMap = await getTheoreticalStockMap(theoreticalRcId, itemIds)
 
-  // Global theoretical value: Σ theoretical(itemId) × pricePerBaseUnit
-  const globalValue = inventory.reduce(
+  // onHand:
+  //   concrete RC → Σ theoreticalMap[item] × price   (map already scoped to rcId)
+  //   no RC (all) → Σ theoreticalMap[item] × price   (map is the ΣRC sum)
+  // No separate allocation add-back: each per-RC map already includes that RC's
+  // allocation-based stock, and getTheoreticalStockMap(rcId) returns 0 for items
+  // not allocated to a non-default RC.
+  const onHand = inventory.reduce(
     (sum, it) => sum + (theoreticalMap.get(it.id) ?? Number(it.stockOnHand)) * Number(it.pricePerBaseUnit),
     0,
   )
-
-  const sumAllocValue = (where: object) =>
-    prisma.stockAllocation
-      .findMany({
-        where: { ...where, inventoryItem: { isActive: true } },
-        select: { inventoryItemId: true, quantity: true, inventoryItem: { select: { pricePerBaseUnit: true } } },
-      })
-      .then(rows => ({
-        // Use theoretical qty from the map if available; fall back to raw allocation qty
-        value: rows.reduce(
-          (s, a) => s + (theoreticalMap.get(a.inventoryItemId) ?? Number(a.quantity)) * Number(a.inventoryItem.pricePerBaseUnit),
-          0,
-        ),
-        count: rows.length,
-      }))
-
-  let onHand: number
-  let sourceItemCount: number
-  if (rcId && !rcIsDefault) {
-    const { value, count } = await sumAllocValue({ revenueCenterId: rcId })
-    onHand = value
-    sourceItemCount = count
-  } else if (rcId && rcIsDefault) {
-    onHand = globalValue
-    sourceItemCount = inventory.length
-  } else {
-    const { value } = await sumAllocValue({ revenueCenter: { isDefault: false } })
-    onHand = globalValue + value
-    sourceItemCount = inventory.length
-  }
+  const sourceItemCount = inventory.length
 
   // ── Food cost % WTD ───────────────────────────────────────────────────
   const foodSalesWTD = salesWTD.reduce(

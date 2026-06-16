@@ -27,6 +27,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const activeItems = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
+      isStocked: true,
       ...(areaIds.length > 0 ? { storageAreaId: { in: areaIds } } : {}),
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],

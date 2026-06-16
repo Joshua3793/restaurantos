@@ -1,0 +1,1 @@
+ALTER TABLE "InventoryItem" ADD COLUMN "isStocked" BOOLEAN NOT NULL DEFAULT true;

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   const cogs = await computePeriodCogs(startMs, endMs)
 
   const items = await prisma.inventoryItem.findMany({
-    where: { isActive: true },
+    where: { isActive: true, isStocked: true },
     select: { stockOnHand: true, pricePerBaseUnit: true },
   })
   const onHandValue = items.reduce((s, it) => s + Number(it.stockOnHand) * Number(it.pricePerBaseUnit), 0)

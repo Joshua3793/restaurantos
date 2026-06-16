@@ -58,6 +58,9 @@ export async function POST(req: NextRequest) {
       onHand = theoreticalMaps.get(rc)?.get(invId) ?? 0
     }
 
+    const revenueCenterId: string | null = item.revenueCenterId ?? body.revenueCenterId ?? null
+    if (!revenueCenterId) { skipped++; continue }
+
     const parLevel    = parseFloat(String(item.parLevel))
     const targetToday = item.targetToday ? parseFloat(String(item.targetToday)) : null
     const suggested   = computeSuggestedQty(onHand, parLevel, targetToday)
@@ -68,7 +71,7 @@ export async function POST(req: NextRequest) {
         logDate:        today,
         status:         'NOT_STARTED',
         requiredQty:    suggested,
-        revenueCenterId: item.revenueCenterId ?? null,
+        revenueCenterId,
       },
     })
     created++

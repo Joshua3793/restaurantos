@@ -87,6 +87,7 @@ model InventoryItem {
   lastUpdated        DateTime                 @default(now()) @updatedAt
   location           String?
   isActive           Boolean                  @default(true)
+  isStocked          Boolean                  @default(true) // false = recipe-only utility ingredient (e.g. tap water); excluded from counts/valuation/purchasing/theoretical stock
   lastCountDate      DateTime?
   lastCountQty       Decimal?
   allergens          String[]                 @default([])
@@ -249,9 +250,9 @@ model WastageLog {
   costImpact      Decimal        @default(0)
   loggedBy        String         @default("System")
   notes           String?
-  revenueCenterId String?
+  revenueCenterId String
   inventoryItem   InventoryItem  @relation(fields: [inventoryItemId], references: [id])
-  revenueCenter   RevenueCenter? @relation("WastageRC", fields: [revenueCenterId], references: [id])
+  revenueCenter   RevenueCenter  @relation("WastageRC", fields: [revenueCenterId], references: [id])
 }
 
 model SalesEntry {
@@ -264,9 +265,9 @@ model SalesEntry {
   periodType      String         @default("day")
   endDate         DateTime?
   createdAt       DateTime       @default(now())
-  revenueCenterId String?
+  revenueCenterId String
   lineItems       SaleLineItem[]
-  revenueCenter   RevenueCenter? @relation("SalesRC", fields: [revenueCenterId], references: [id])
+  revenueCenter   RevenueCenter  @relation("SalesRC", fields: [revenueCenterId], references: [id])
 }
 
 model SaleLineItem {
@@ -475,7 +476,7 @@ model PrepItem {
 model PrepLog {
   id                String   @id @default(uuid())
   prepItemId        String
-  revenueCenterId   String?
+  revenueCenterId   String
   logDate           DateTime
   status            String   @default("NOT_STARTED")
   requiredQty       Decimal?
@@ -488,7 +489,7 @@ model PrepLog {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
-  revenueCenter     RevenueCenter? @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
+  revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 
   @@unique([prepItemId, logDate])
 }

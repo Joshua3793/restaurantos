@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
+import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { resolveCountUom } from '@/lib/count-uom'
 
@@ -53,8 +54,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const hasWeightPerEach = rawPs > 0
   const ps    = hasWeightPerEach ? rawPs : 1  // default 1 for price math (avoid ÷0)
   // When no weight-per-each was entered, normalize packUOM to 'each' so the data
-  // is unambiguous downstream (buildPurchaseDescription, getCountableUoms, etc.)
-  const pu    = hasWeightPerEach ? (packUOM ?? 'each') : 'each'
+  // is unambiguous downstream (buildPurchaseDescription, getCountableUoms, etc.).
+  // Validate packUOM against the UOM backbone (qtyUOM already validated above).
+  let pu: string
+  try { pu = assertKnownUnit(hasWeightPerEach ? (packUOM ?? 'each') : 'each', 'packUOM') }
+  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+  // Normalize + validate purchaseUnit to a canonical token so the spine always
+  // stores a known token (never a display string).
+  let purchaseUnitTok: string
+  try { purchaseUnitTok = assertKnownUnit(purchaseUnitToken(rest.purchaseUnit ?? 'each'), 'purchaseUnit') }
+  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
   const qu    = canonQtyUom ?? 'each'
   const iq    = innerQty != null ? Number(innerQty) : null
   // Count UOM derives from the purchase format: keep an explicit, still-valid
@@ -62,7 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // fall back to the derived primary so count sessions read the right unit.
   const cu    = resolveCountUom({
     baseUnit:           '',                 // unused by the derivation
-    purchaseUnit:       rest.purchaseUnit ?? 'each',
+    purchaseUnit:       purchaseUnitTok,
     qtyPerPurchaseUnit: qty,
     qtyUOM:             qu,
     innerQty:           iq,
@@ -77,11 +86,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
+  // Non-stocked (recipe-only) items carry no inventory value — pin their spine price to 0.
+  const isStocked = rest.isStocked !== false
+  const finalPPB  = isStocked ? pricePerBaseUnit : 0
 
   await prisma.inventoryItem.update({
     where: { id: params.id },
     data: {
       ...rest,
+      purchaseUnit: purchaseUnitTok,
       purchasePrice: pp,
       qtyPerPurchaseUnit: qty,
       packSize: ps,
@@ -92,8 +105,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       priceType: pt,
       needsReview: false,
       conversionFactor,
-      pricePerBaseUnit,
+      pricePerBaseUnit: finalPPB,
       baseUnit,
+      isStocked,
       lastUpdated: new Date(),
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
