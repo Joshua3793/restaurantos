@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import { formToChain } from '@/lib/item-model-form'
 import { resolveCountUom } from '@/lib/count-uom'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 
@@ -164,6 +165,11 @@ export async function POST(req: NextRequest) {
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
+  const chain = formToChain({
+    purchaseUnit: (rest as any).purchaseUnit ?? 'each', purchasePrice: pp,
+    qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
+    priceType: pt, countUOM: cu,
+  })
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,
@@ -178,6 +184,10 @@ export async function POST(req: NextRequest) {
       conversionFactor,
       pricePerBaseUnit,
       baseUnit,
+      dimension: chain.dimension,
+      packChain: chain.packChain as any,
+      pricing: chain.pricing as any,
+      countUnit: chain.countUnit,
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
     },

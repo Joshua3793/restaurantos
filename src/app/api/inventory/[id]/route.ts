@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
+import { formToChain } from '@/lib/item-model-form'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { resolveCountUom } from '@/lib/count-uom'
 
@@ -77,6 +78,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
+  const chain = formToChain({
+    purchaseUnit: (rest as any).purchaseUnit ?? 'each', purchasePrice: pp,
+    qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
+    priceType: pt, countUOM: cu,
+  })
 
   await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -94,6 +100,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       conversionFactor,
       pricePerBaseUnit,
       baseUnit,
+      dimension: chain.dimension,
+      packChain: chain.packChain as any,
+      pricing: chain.pricing as any,
+      countUnit: chain.countUnit,
       lastUpdated: new Date(),
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,

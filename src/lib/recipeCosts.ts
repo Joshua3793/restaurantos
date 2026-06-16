@@ -6,6 +6,7 @@
 import { prisma } from './prisma'
 import { convertQty } from './uom'
 import { getUnitConv } from './utils'
+import { dimensionOf } from './item-model'
 
 export interface IngredientWithCost {
   id: string
@@ -264,6 +265,15 @@ export async function syncPrepToInventory(recipeId: string) {
   if (countUOM.toLowerCase() === 'batch') conversionFactor = baseYieldQty
   // Incompatible or unknown units: getUnitConv returns 1 for both → ratio = 1 (safe fallback)
 
+  // Item-model chain (dual-write): a one-link PACK chain whose per = baseYieldQty
+  // and pricing.purchasePrice = totalCost reproduces the same ppb (totalCost /
+  // baseYieldQty) the legacy write computes above. NOTE: the legacy `baseUnit`
+  // write below stays `yieldUnit` (unchanged) — chain ppb is derived purely from
+  // packChain + pricing, so the stored baseUnit does not affect parity.
+  const prepDimension = dimensionOf(yieldUnit)
+  const prepChain = [{ unit: countUOM || 'batch', per: baseYieldQty }]
+  const prepPricing = { mode: 'PACK' as const, purchasePrice: recipe.totalCost }
+
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },
     data: {
@@ -276,6 +286,10 @@ export async function syncPrepToInventory(recipeId: string) {
       purchaseUnit:       'batch',
       conversionFactor,
       allergens:          recipe.allergens,
+      dimension:          prepDimension,
+      packChain:          prepChain as any,
+      pricing:            prepPricing as any,
+      countUnit:          countUOM,
       lastUpdated: new Date(),
     },
   })

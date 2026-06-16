@@ -55,6 +55,10 @@ export async function POST(req: NextRequest) {
           stockOnHand: r.payload!.stockOnHand,
           barcode: r.payload!.barcode,
           isActive: r.payload!.isActive,
+          dimension: r.payload!.dimension,
+          packChain: r.payload!.packChain as any,
+          pricing: r.payload!.pricing as any,
+          countUnit: r.payload!.countUnit,
         },
       })),
     )

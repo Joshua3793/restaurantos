@@ -1,4 +1,6 @@
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import { formToChain } from '@/lib/item-model-form'
+import type { Dimension, PackLink, Pricing } from '@/lib/item-model'
 import * as XLSX from 'xlsx'
 
 // ── Allowed values ───────────────────────────────────────────────────────────
@@ -45,6 +47,11 @@ export interface InventoryCreatePayload {
   stockOnHand: number              // stored in base units
   barcode: string | null
   isActive: boolean
+  // Item-model chain (dual-write alongside the legacy fields above).
+  dimension: Dimension
+  packChain: PackLink[]
+  pricing: Pricing
+  countUnit: string
 }
 
 export type RowStatus = 'valid' | 'error' | 'duplicate'
@@ -161,6 +168,11 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   }
   const stockOnHand = enteredStock * conversionFactor
 
+  const chain = formToChain({
+    purchaseUnit, purchasePrice: price, qtyPerPurchaseUnit, qtyUOM,
+    innerQty, packSize, packUOM, priceType, countUOM,
+  })
+
   return {
     itemName: row.itemName.trim(),
     category: 'UNASSIGNED',
@@ -179,6 +191,10 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
     stockOnHand,
     barcode: row.barcode.trim() || null,
     isActive: true,
+    dimension: chain.dimension,
+    packChain: chain.packChain,
+    pricing: chain.pricing,
+    countUnit: chain.countUnit,
   }
 }
 
