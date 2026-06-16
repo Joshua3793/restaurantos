@@ -14,6 +14,14 @@ enum Role {
   STAFF
 }
 
+// Item physical dimension — declared, never guessed. Implies the SI base unit
+// (MASS→g, VOLUME→ml, COUNT→each). Part of the pack-chain item model.
+enum Dimension {
+  MASS
+  VOLUME
+  COUNT
+}
+
 model User {
   id                String             @id
   email             String             @unique
@@ -83,6 +91,11 @@ model InventoryItem {
   countUOM           String                   @default("each")
   conversionFactor   Decimal                  @default(1)
   pricePerBaseUnit   Decimal                  @default(0)
+  // ── Pack-chain item model (additive; coexists with legacy fields during migration) ──
+  dimension          Dimension                @default(COUNT)
+  packChain          Json                     @default("[]")        // PackLink[] outer→inner; leaf.per in baseUnit
+  pricing            Json                     @default("{\"mode\":\"PACK\",\"purchasePrice\":0}")
+  countUnit          String                   @default("each")      // a chain level OR a same-dimension unit
   stockOnHand        Decimal                  @default(0)
   lastUpdated        DateTime                 @default(now()) @updatedAt
   location           String?
