@@ -23,6 +23,7 @@ import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
+import { formatPurchaseDisplay } from '@/lib/count-uom'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
@@ -398,7 +399,7 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   } else {
     const prev = item.previousPrice ? Number(item.previousPrice) : null
     const next = item.rawUnitPrice  ? Number(item.rawUnitPrice)  : null
-    const bu   = item.matchedItem?.purchaseUnit ?? 'case'
+    const bu   = item.matchedItem ? formatPurchaseDisplay({ ...item.matchedItem, countUOM: 'each' }) : 'case'
     if (prev !== null) prevLabel = `${formatCurrency(prev)}/${bu}`
     if (next !== null) {
       nextLabel = `${formatCurrency(next)}/${bu}`

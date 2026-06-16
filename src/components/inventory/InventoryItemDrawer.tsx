@@ -7,7 +7,7 @@ import {
   calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit,
   getUnitDimension, compatibleCountUnits, getUnitConv, isMeasuredUnit,
 } from '@/lib/utils'
-import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
+import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -784,8 +784,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage area',   item.storageArea?.name || '—'],
                       ['Pricing',        isUom ? `By weight · per ${rateUnit}` : 'By case'],
-                      ['Purchase price', isUom ? `${formatCurrency(pp)} / ${rateUnit}` : `${formatCurrency(pp)} / ${normalizePurchaseUnit(item.purchaseUnit)}`],
-                      ['Pack',           buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, item.baseUnit === 'each' ? 0 : Number(item.packSize ?? 0), item.packUOM ?? 'each')],
+                      ['Purchase price', isUom ? `${formatCurrency(pp)} / ${rateUnit}` : `${formatCurrency(pp)} / ${formatPurchaseDisplay(item)}`],
+                      ['Pack',           formatPurchaseDisplay(item)],
                       ['Count UOM',      item.countUOM ?? 'each'],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]

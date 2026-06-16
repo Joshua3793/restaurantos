@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
-import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
+import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -643,14 +643,14 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px]">
           <div className="font-mono text-[13px] whitespace-nowrap">
             <span className="text-gold-2">{formatCurrency(parseFloat(String(item.purchasePrice)))}</span>
-            <span className="text-ink-3 text-[10.5px] ml-1">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : item.purchaseUnit}</span>
+            <span className="text-ink-3 text-[10.5px] ml-1">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : formatPurchaseDisplay(item)}</span>
           </div>
           <div className="font-mono text-[10.5px] text-ink-3 mt-0.5 whitespace-nowrap">{formatUnitPrice(parseFloat(String(item.pricePerBaseUnit)))} / {item.baseUnit}</div>
         </td>
         <td className="px-3 py-[13px]">
           <div>
             <span className="font-mono text-[13px] text-ink-2 whitespace-nowrap">
-              {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUOM || item.purchaseUnit}</small>
+              {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUOM || formatPurchaseDisplay(item)}</small>
             </span>
             {item.countedStock != null && item.lastCountDate && (
               <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
@@ -753,7 +753,7 @@ function InventoryPageInner() {
           <div className="font-mono text-[13px] font-medium text-ink">
             {formatCurrency(parseFloat(String(item.purchasePrice)))}
           </div>
-          <div className="font-mono text-[10px] text-ink-4">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : item.purchaseUnit}</div>
+          <div className="font-mono text-[10px] text-ink-4">/{item.priceType === 'UOM' ? (item.packUOM || item.baseUnit) : formatPurchaseDisplay(item)}</div>
         </div>
         {activeRcId && (
           <button
@@ -1342,7 +1342,7 @@ function InventoryPageInner() {
           bySupplier.get(key)!.items.push(item)
         }
         const copyText = Array.from(bySupplier.values()).map(({ supplierName, items: grp }) =>
-          `${supplierName}:\n` + grp.map(i => `  - ${i.itemName}  ${orderQtys[i.id] ?? suggestedQty(i)}  ${i.purchaseUnit}  @${formatCurrency(parseFloat(String(i.purchasePrice)))}`).join('\n')
+          `${supplierName}:\n` + grp.map(i => `  - ${i.itemName}  ${orderQtys[i.id] ?? suggestedQty(i)}  ${formatPurchaseDisplay(i)}  @${formatCurrency(parseFloat(String(i.purchasePrice)))}`).join('\n')
         ).join('\n\n')
 
         return (
@@ -1413,7 +1413,7 @@ function InventoryPageInner() {
                                   </div>
                                 ) : (
                                   <div className="text-xs text-ink-4">
-                                    {formatCurrency(parseFloat(String(item.purchasePrice)))} / {item.purchaseUnit}
+                                    {formatCurrency(parseFloat(String(item.purchasePrice)))} / {formatPurchaseDisplay(item)}
                                   </div>
                                 )}
                               </div>
@@ -1423,7 +1423,7 @@ function InventoryPageInner() {
                                   onChange={e => setOrderQtys(q => ({ ...q, [item.id]: e.target.value }))}
                                   placeholder="qty"
                                   className="w-14 border border-line rounded-lg px-2 py-1 text-sm text-center text-ink focus:outline-none focus:ring-2 focus:ring-green" />
-                                <span className="text-xs text-ink-3">{item.purchaseUnit}</span>
+                                <span className="text-xs text-ink-3">{formatPurchaseDisplay(item)}</span>
                               </div>
                             </div>
                           )
