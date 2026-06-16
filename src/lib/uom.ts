@@ -258,3 +258,17 @@ export function getUnitGroup(unit: string): string | null {
   if (!def) return null
   return def.dim === 'weight' ? 'Weight' : def.dim === 'volume' ? 'Volume' : 'Count'
 }
+
+/**
+ * The physical dimension of a unit ('weight' | 'volume' | 'count'). Mirrors
+ * `utils.ts` getUnitDimension (unknown → 'count'); defined locally so uom.ts
+ * stays free of the utils.ts → uom.ts import cycle.
+ */
+function dimensionForUnit(unit: string): UnitDimension {
+  return UNIT_FACTORS[canonicalUom(unit)]?.dim ?? 'count'
+}
+
+/** True when both units share the same physical dimension (weight/volume/count). */
+export function sameDimension(unitA: string, unitB: string): boolean {
+  return dimensionForUnit(unitA) === dimensionForUnit(unitB)
+}

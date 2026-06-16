@@ -26,6 +26,36 @@ function renderMarkdown(text: string) {
   })
 }
 
+// ─── Dimension-conflict surfaces ───────────────────────────────────────────────
+// An ingredient whose unit is a different physical dimension than the item's base
+// unit (e.g. 'g' on an each/count item) can't be costed — convertQty would pass the
+// qty through unchanged and silently mis-cost the line, so the cost engine forces
+// that line to $0 and flags it. Surface that so the number isn't read as truth.
+
+/** Small inline pill flagging an ingredient unit ↔ item-dimension mismatch. */
+function UnitMismatchPill({ ing }: { ing: { unit: string; ingredientBaseUnit: string } }) {
+  return (
+    <span
+      className="ml-1.5 inline-flex items-center rounded px-1 py-px text-[9.5px] font-semibold uppercase tracking-wide text-red-text bg-red-soft align-middle"
+      title={`This ingredient's unit (${ing.unit}) doesn't match the item's dimension (${ing.ingredientBaseUnit}) — line costed at $0`}
+    >
+      unit mismatch
+    </span>
+  )
+}
+
+/** Recipe-level note when one or more ingredient lines have a dimension conflict. */
+function RecipeDimensionWarning({ count, className = '' }: { count: number; className?: string }) {
+  if (!count || count <= 0) return null
+  return (
+    <div className={`flex items-center gap-1.5 text-[11px] text-red-text bg-red-soft rounded-md px-2 py-1 ${className}`}>
+      <span>
+        {count} ingredient{count === 1 ? '' : 's'} {count === 1 ? 'has' : 'have'} a unit mismatch — cost may be incomplete
+      </span>
+    </div>
+  )
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface RecipeCategory {
   id: string
@@ -51,6 +81,8 @@ export interface IngredientWithCost {
   pricePerBaseUnit: number
   lineCost: number
   ingredientBaseUnit: string
+  /** Recipe unit is a different dimension than the item's base unit — line is costed at $0. */
+  dimensionConflict?: boolean
 }
 
 export interface Recipe {
@@ -76,6 +108,8 @@ export interface Recipe {
   totalCost: number
   costPerPortion: number | null
   foodCostPct: number | null
+  /** Count of ingredients whose unit dimension doesn't match the item's base unit. */
+  dimensionConflicts?: number
   usedInCount?: number
   usedInRecipes?: Array<{ id: string; name: string; type: string }>
   allergens?: string[]
@@ -530,7 +564,10 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
                     <td className="py-1.5 text-right text-ink-3">
                       {formatQtyUnit(ing.qtyBase, ing.unit)}
                     </td>
-                    <td className="py-1.5 text-right text-ink-3">{formatCurrency(ing.lineCost)}</td>
+                    <td className="py-1.5 text-right text-ink-3">
+                      {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+                      {formatCurrency(ing.lineCost)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -542,6 +579,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
                 </tr>
               </tfoot>
             </table>
+            <RecipeDimensionWarning count={recipe.dimensionConflicts ?? 0} className="mt-2" />
           </div>
 
           {/* Cost summary row */}
@@ -953,7 +991,10 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           </select>
         </div>
 
-        <div className="col-span-2 text-right font-mono text-[13px] font-medium text-ink">{formatCurrency(displayCost)}</div>
+        <div className="col-span-2 text-right font-mono text-[13px] font-medium text-ink">
+          {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+          {formatCurrency(displayCost)}
+        </div>
 
         <div className="col-span-1 flex items-center justify-end gap-1">
           <button
@@ -1577,6 +1618,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                 <span>Click <Star size={9} className="inline" /> on any ingredient to set it as the baker&apos;s 100% reference</span>
               </div>
             )}
+            <RecipeDimensionWarning count={recipe.dimensionConflicts ?? 0} className="mb-2" />
             <div className="border border-line rounded-t-xl overflow-hidden">
               <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-bg text-xs font-medium text-ink-3">
                 <div className="col-span-4">Ingredient</div>
@@ -1951,7 +1993,10 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
           ))}
         </select>
       </div>
-      <div className="col-span-2 text-right text-sm font-medium text-ink-2">{formatCurrency(ing.lineCost)}</div>
+      <div className="col-span-2 text-right text-sm font-medium text-ink-2">
+        {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+        {formatCurrency(ing.lineCost)}
+      </div>
       <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100">
         <button onClick={onDelete} className="text-ink-4 hover:text-red"><Trash2 size={13} /></button>
       </div>

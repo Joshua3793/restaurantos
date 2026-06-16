@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
       return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
     })
 
-    const { totalCost, costPerPortion, foodCostPct, ingredients } = computeRecipeCost({
+    const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
       ...recipe,
       ingredients: ingredientsWithLinked,
     })
@@ -89,6 +89,7 @@ export async function GET(req: NextRequest) {
       totalCost,
       costPerPortion,
       foodCostPct,
+      dimensionConflicts,
       usedInCount: recipe._count.usedInRecipes,
       allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => [
         ...(ing.inventoryItem?.allergens ?? []),
