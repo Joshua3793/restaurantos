@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     targetRC,
   ] = await Promise.all([
     prisma.inventoryItem.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isStocked: true },
       select: { id: true, stockOnHand: true, pricePerBaseUnit: true },
     }),
     prisma.salesEntry.findMany({

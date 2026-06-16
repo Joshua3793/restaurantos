@@ -445,7 +445,7 @@ export async function getTheoreticalStockMap(
   }
 
   const items = await prisma.inventoryItem.findMany({
-    where: { isActive: true, ...(itemIds ? { id: { in: itemIds } } : {}) },
+    where: { isActive: true, isStocked: true, ...(itemIds ? { id: { in: itemIds } } : {}) },
     select: { id: true, stockOnHand: true, lastCountDate: true },
   })
 

@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     const [sales, wastage, inventory] = await Promise.all([
       prisma.salesEntry.findMany({ where: { date: { gte: eightWeeksAgo } }, orderBy: { date: 'asc' } }),
       prisma.wastageLog.findMany({ where: { date: { gte: eightWeeksAgo } }, include: { inventoryItem: true } }),
-      prisma.inventoryItem.findMany(),
+      prisma.inventoryItem.findMany({ where: { isStocked: true } }),
     ])
 
     const weeklyData: Record<string, { week: string; revenue: number; wastage: number; foodCostPct: number }> = {}
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
     beginByCategory = beginSession.byCategory
   } else {
     beginningFallback = true
-    const items = await prisma.inventoryItem.findMany()
+    const items = await prisma.inventoryItem.findMany({ where: { isStocked: true } })
     for (const item of items) {
       const v = Number(item.stockOnHand) * Number(item.pricePerBaseUnit)
       beginningValue += v
