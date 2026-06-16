@@ -93,26 +93,44 @@ interface StorageArea { id: string; name: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function uomOptionLabel(opt: { label: string; hint?: string }, baseUnit: string): string {
-  if (opt.label.toLowerCase() === baseUnit.toLowerCase()) return opt.label
-  if (!opt.hint) return opt.label
-  return `${opt.label} — ${opt.hint}`
+// Base-content label for a unit option: shows what ONE of that unit equals in the
+// item's base unit, e.g. `case (6,000 g)`, `head (250 g)`, `kg (1,000 g)`. The
+// per-unit base content comes from the item's pack chain via convertCountQtyToBase
+// (base-per-1-unit). The base unit itself reads as just its label (`g`).
+function uomBaseContentLabel(unitName: string, item: ItemDimsForLabel): string {
+  if (unitName.toLowerCase() === item.baseUnit.toLowerCase()) return unitName
+  const perUnit = convertCountQtyToBase(1, unitName, item)
+  if (!perUnit || perUnit <= 0) return unitName
+  return `${unitName} (${perUnit.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${item.baseUnit})`
+}
+
+// The shape convertCountQtyToBase needs — a subset of InventoryItemRef.
+type ItemDimsForLabel = {
+  baseUnit: string
+  purchaseUnit: string
+  qtyPerPurchaseUnit: number
+  qtyUOM?: string | null
+  innerQty?: number | string | null
+  packSize: number
+  packUOM: string
+  countUOM: string
 }
 
 // ─── Mixed-unit entry rows (module scope so inputs keep focus) ──────────────────
 // Renders the "+ add unit" progressive-disclosure block: any number of {qty, unit}
 // rows that sum (with the primary row) to the line's counted base.
 function MixedUnitRows({
-  rows, options, baseUnit, onChange, onAdd,
+  rows, options, item, onChange, onAdd,
 }: {
   rows: { qty: number; unit: string }[]
   options: { label: string; display?: string; hint?: string }[]
-  baseUnit: string
+  item: ItemDimsForLabel
   onChange: (rows: { qty: number; unit: string }[]) => void
   onAdd: (unit: string) => void
 }) {
+  // Each option shows what one of that unit equals in the base unit, e.g. `head (250 g)`.
   const optLabel = (o: { label: string; display?: string; hint?: string }) =>
-    o.display ?? uomOptionLabel(o, baseUnit)
+    uomBaseContentLabel(o.label, item)
   return (
     <div className="space-y-2 mb-3">
       {rows.map((row, i) => (
@@ -141,10 +159,10 @@ function MixedUnitRows({
       ))}
       <button
         type="button"
-        onClick={() => onAdd(options[0]?.label ?? baseUnit)}
-        className="font-mono text-[11px] text-ink-3 hover:text-ink-2 inline-flex items-center gap-1 px-1 py-1"
+        onClick={() => onAdd(options[0]?.label ?? item.baseUnit)}
+        className="w-full h-10 rounded-[9px] border border-dashed border-line-2 grid place-items-center font-mono text-[11px] text-ink-3 hover:text-ink-2 hover:border-ink-4 hover:bg-bg-2 transition-colors"
       >
-        <Plus size={12} /> add unit
+        <span className="inline-flex items-center gap-1"><Plus size={13} /> add unit</span>
       </button>
     </div>
   )
@@ -616,7 +634,10 @@ export default function CountPage() {
       // qty is in line.selectedUom — convert to baseUnit for variance (expectedQty is in baseUnit)
       : convertCountQtyToBase(qty, line.selectedUom, line.inventoryItem)
     const vPct  = Number(line.expectedQty) > 0 ? ((qtyBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100 : 0
-    const vCost = (qtyBase - Number(line.expectedQty)) * Number(line.priceAtCount)
+    // Value the in-progress variance at the LIVE derived spine price; priceAtCount is only
+    // the fallback (and remains the authoritative snapshot for finalized/historical lines).
+    const livePpb = Number(line.inventoryItem.pricePerBaseUnit ?? line.priceAtCount)
+    const vCost = (qtyBase - Number(line.expectedQty)) * livePpb
     const optimistic = mixed
       ? { countedQty: qtyBase, selectedUom: line.inventoryItem.baseUnit, entries }
       : { countedQty: qty, selectedUom: line.selectedUom, entries: null }
@@ -1923,7 +1944,7 @@ export default function CountPage() {
                           className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] font-medium text-ink-2 bg-paper focus:outline-none focus:border-ink-3 transition-colors"
                         >
                           {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{opt.display ?? uomOptionLabel(opt, line.inventoryItem.baseUnit)}</option>
+                            <option key={opt.label} value={opt.label}>{uomBaseContentLabel(opt.label, line.inventoryItem)}</option>
                           ))}
                         </select>
                       </div>
@@ -1978,33 +1999,59 @@ export default function CountPage() {
 
               <div className="text-center font-mono text-[11px] text-ink-3 mb-4">{line.selectedUom}</div>
 
-              {/* Mixed-unit: extra {qty, unit} rows that sum into the line total. */}
+              {/* Mixed-unit entry — PRIMARY: a row per unit on the shelf. The primary
+                  qty+unit above, then any extra {qty,unit} rows, then a prominent
+                  "+ add unit" affordance. */}
               {(() => {
                 const opts = getCountableUoms(line.inventoryItem)
-                if (extraEntries.length > 0) {
-                  return (
-                    <div className="mb-3">
+                return (
+                  <div className="mb-3">
+                    {extraEntries.length > 0 && (
                       <MixedUnitRows
                         rows={extraEntries}
                         options={opts}
-                        baseUnit={line.inventoryItem.baseUnit}
+                        item={line.inventoryItem}
                         onChange={setExtraEntries}
                         onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
                       />
-                      <div className="text-center font-mono text-[11px] text-ink-2 mb-1">
-                        = {inputBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {line.inventoryItem.baseUnit}
+                    )}
+                    {extraEntries.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setExtraEntries([{ qty: 0, unit: opts[0]?.label ?? line.inventoryItem.baseUnit }])}
+                        className="w-full h-10 rounded-[9px] border border-dashed border-line-2 grid place-items-center font-mono text-[11px] text-ink-3 hover:text-ink-2 hover:border-ink-4 hover:bg-bg-2 transition-colors"
+                      >
+                        <span className="inline-flex items-center gap-1"><Plus size={13} /> add unit</span>
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Counted / Variance / Value summary — valued at the live spine price. */}
+              {(() => {
+                const livePpb = Number(line.inventoryItem.pricePerBaseUnit ?? line.priceAtCount)
+                const varCost = (inputBase - Number(line.expectedQty)) * livePpb
+                const value   = inputBase * livePpb
+                return (
+                  <div className="grid grid-cols-3 gap-2 mb-4 bg-bg-2 rounded-[9px] p-3">
+                    <div>
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Counted</div>
+                      <div className="font-mono text-[13px] font-medium text-ink mt-0.5">
+                        {inputBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {line.inventoryItem.baseUnit}
                       </div>
                     </div>
-                  )
-                }
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setExtraEntries([{ qty: 0, unit: opts[0]?.label ?? line.inventoryItem.baseUnit }])}
-                    className="font-mono text-[11px] text-ink-3 hover:text-ink-2 inline-flex items-center gap-1 mb-3"
-                  >
-                    <Plus size={12} /> add another unit
-                  </button>
+                    <div>
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Variance</div>
+                      <div className={`font-mono text-[13px] font-medium mt-0.5 ${varCost > 0 ? 'text-green-text' : varCost < 0 ? 'text-red-text' : 'text-ink-3'}`}>
+                        {varCost > 0 ? '+' : ''}{formatCurrency(varCost)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Value</div>
+                      <div className="font-mono text-[13px] font-medium text-ink mt-0.5">{formatCurrency(value)}</div>
+                    </div>
+                  </div>
                 )
               })()}
 
@@ -2045,7 +2092,7 @@ export default function CountPage() {
 
       const uoms        = getCountableUoms(item)
       const unitLabels  = Array.from(new Set([...uoms.map(u => u.label), line.selectedUom]))   // size order (case→pkg→each→units); selectedUom only appended if it's a legacy unit not in the list
-      const uomDisplay  = (lbl: string) => uoms.find(u => u.label === lbl)?.display ?? lbl   // chip text ("case (25kg)") vs stored token
+      const uomDisplay  = (lbl: string) => uomBaseContentLabel(lbl, item)   // base-content text ("case (6,000 g)") vs stored token
       const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
       const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
       const effectiveQty = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
@@ -2159,29 +2206,52 @@ export default function CountPage() {
                   </div>
                 )}
 
-                {/* Mixed-unit: add other units that sum into this count */}
+                {/* Mixed-unit entry — PRIMARY: a row per unit on the shelf. */}
                 <div className="border-t border-line mt-3 pt-3">
+                  <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] mb-2">Count — a row per unit on the shelf</div>
                   {mHasExtras ? (
-                    <>
-                      <MixedUnitRows
-                        rows={extraEntries}
-                        options={uoms}
-                        baseUnit={item.baseUnit}
-                        onChange={setExtraEntries}
-                        onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
-                      />
-                      <div className="text-center font-mono text-[11px] text-ink-2">
-                        = {effBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {item.baseUnit}
-                      </div>
-                    </>
+                    <MixedUnitRows
+                      rows={extraEntries}
+                      options={uoms}
+                      item={item}
+                      onChange={setExtraEntries}
+                      onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
+                    />
                   ) : (
                     <button type="button"
                       onClick={() => setExtraEntries([{ qty: 0, unit: uoms[0]?.label ?? item.baseUnit }])}
-                      className="font-mono text-[11px] text-ink-3 active:text-ink-2 inline-flex items-center gap-1">
-                      <Plus size={12} /> add another unit
+                      className="w-full h-10 rounded-[9px] border border-dashed border-line-2 grid place-items-center font-mono text-[11px] text-ink-3 active:text-ink-2 active:bg-bg-2">
+                      <span className="inline-flex items-center gap-1"><Plus size={13} /> add unit</span>
                     </button>
                   )}
                 </div>
+
+                {/* Counted / Variance / Value summary — valued at the live spine price. */}
+                {(() => {
+                  const livePpb = Number(item.pricePerBaseUnit ?? line.priceAtCount)
+                  const varCost = (effBase - Number(line.expectedQty)) * livePpb
+                  const value   = effBase * livePpb
+                  return (
+                    <div className="grid grid-cols-3 gap-2 mt-3 bg-bg-2 rounded-[10px] p-3">
+                      <div>
+                        <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Counted</div>
+                        <div className="font-mono text-[13px] font-medium text-ink mt-0.5">
+                          {effBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {item.baseUnit}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Variance</div>
+                        <div className={`font-mono text-[13px] font-medium mt-0.5 ${varCost > 0 ? 'text-green-text' : varCost < 0 ? 'text-red-text' : 'text-ink-3'}`}>
+                          {varCost > 0 ? '+' : ''}{formatCurrency(varCost)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Value</div>
+                        <div className="font-mono text-[13px] font-medium text-ink mt-0.5">{formatCurrency(value)}</div>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* Variance vs theoretical + last count — neutral "on track" near zero, else signed unit delta */}
                 {Number(line.expectedQty) > 0 && (() => {
