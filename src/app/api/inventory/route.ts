@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
 import { formToChain } from '@/lib/item-model-form'
+import {
+  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
+  validateChainItem, type ChainItem,
+} from '@/lib/item-model'
 import { resolveCountUom } from '@/lib/count-uom'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 
@@ -138,6 +142,57 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
+
+  // ── New chain-form body ──────────────────────────────────────────────────
+  // When `packChain` is present the chain columns are authoritative; derive the
+  // legacy fields from them for dual-write consistency.
+  if (body.packChain) {
+    const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, ...rest } = body
+    delete rest.purchasePrice; delete rest.qtyPerPurchaseUnit; delete rest.packSize
+    delete rest.packUOM; delete rest.countUOM; delete rest.qtyUOM; delete rest.innerQty
+    delete rest.priceType; delete rest.conversionFactor; delete rest.pricePerBaseUnit
+    delete rest.baseUnit; delete rest.dimension; delete rest.pricing; delete rest.countUnit
+
+    const ci: ChainItem = {
+      dimension,
+      baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
+      packChain,
+      pricing,
+      countUnit,
+    }
+    const errors = validateChainItem(ci)
+    if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
+
+    const item = await prisma.inventoryItem.create({
+      data: {
+        ...rest,
+        // chain columns (authoritative)
+        dimension,
+        packChain: packChain as any,
+        pricing: pricing as any,
+        countUnit,
+        // derived legacy fields (dual-write)
+        pricePerBaseUnit: chainPricePerBaseUnit(ci),
+        baseUnit: ci.baseUnit,
+        conversionFactor: basePerUnit(ci, countUnit),
+        countUOM: countUnit,
+        priceType: pricing.mode === 'RATE' ? 'UOM' : 'CASE',
+        purchaseUnit: packChain[0]?.unit ?? 'each',
+        purchasePrice: pricing.mode === 'PACK' ? pricing.purchasePrice : pricing.rate,
+        // safe defaults for the remaining legacy pack columns
+        qtyUOM: 'each',
+        packSize: 1,
+        packUOM: 'each',
+        innerQty: null,
+        qtyPerPurchaseUnit: 1,
+        supplierId: supplierId || null,
+        storageAreaId: storageAreaId || null,
+      },
+      include: { supplier: true, storageArea: true },
+    })
+    return NextResponse.json(item, { status: 201 })
+  }
+
   const { purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM, qtyUOM, innerQty, priceType, supplierId, storageAreaId, ...rest } = body
   const pp    = parseFloat(purchasePrice)
   const qty   = parseFloat(qtyPerPurchaseUnit)

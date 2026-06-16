@@ -2,12 +2,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { X, Pencil, Loader2, ClipboardCheck } from 'lucide-react'
 import {
-  formatCurrency, formatUnitPrice,
-  PACK_UOMS, COUNT_UOMS, PURCHASE_UNITS, QTY_UOMS,
-  calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit,
-  getUnitDimension, compatibleCountUnits, getUnitConv, isMeasuredUnit,
+  formatCurrency, formatPricePerBase,
 } from '@/lib/utils'
-import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom } from '@/lib/count-uom'
+import {
+  DIMENSION_BASE, pricePerBaseUnit, basePerUnit, levelBaseUnits,
+  type Dimension, type PackLink, type Pricing,
+} from '@/lib/item-model'
+import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
@@ -51,22 +52,71 @@ interface InventoryItem {
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
   priceType?: 'CASE' | 'UOM' | null
+  // Chain model (authoritative)
+  dimension?: Dimension | null
+  packChain?: PackLink[] | null
+  pricing?: Pricing | null
+  countUnit?: string | null
 }
 
 interface EditForm {
   itemName: string; category: string
   supplierId: string; supplierName: string
   storageAreaId: string; storageAreaName: string
-  purchaseUnit: string; qtyPerPurchaseUnit: string
-  purchasePrice: string
-  packSize: string; packUOM: string; countUOM: string
-  qtyUOM: string
-  innerQty: string
+  // Chain pricing model
+  dimension: Dimension
+  chain: PackLink[]
+  pricing: Pricing
+  countUnit: string
   stockOnHand: string
   isActive: boolean
   allergens: string[]
   barcode: string | null
-  priceType: 'CASE' | 'UOM'
+}
+
+// Default chain state for a brand-new item.
+const DEFAULT_CHAIN: PackLink[] = [{ unit: 'case', per: 1 }]
+const DEFAULT_PRICING: Pricing = { mode: 'PACK', purchasePrice: 0 }
+
+// Derive the chain-form pieces from an item, falling back to safe defaults so a
+// row missing chain columns still opens cleanly.
+function chainFromItem(item: InventoryItem): Pick<EditForm, 'dimension' | 'chain' | 'pricing' | 'countUnit'> {
+  const dimension = (item.dimension ?? 'COUNT') as Dimension
+  const chain = Array.isArray(item.packChain) && item.packChain.length
+    ? item.packChain.map(l => ({ unit: l.unit, per: Number(l.per) }))
+    : [...DEFAULT_CHAIN]
+  const pricing = item.pricing ?? DEFAULT_PRICING
+  const countUnit = item.countUnit ?? item.countUOM ?? 'each'
+  return { dimension, chain, pricing, countUnit }
+}
+
+// Count-unit options: chain level names + same-dimension units, deduped.
+function countUnitOptions(dimension: Dimension, chain: PackLink[]): string[] {
+  return [...new Set([...chain.map(l => l.unit), ...DIM_UNITS[dimension]])]
+}
+
+// Build a fresh EditForm (chain pricing + non-pricing fields) from an item.
+function buildEditForm(item: InventoryItem): EditForm {
+  const c = chainFromItem(item)
+  const ci = { dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain, pricing: c.pricing, countUnit: c.countUnit }
+  const perCount = basePerUnit(ci, c.countUnit) || 1
+  const stockInCountUnit = Number(item.stockOnHand) / perCount
+  return {
+    itemName: item.itemName,
+    category: item.category,
+    supplierId: item.supplierId || '',
+    supplierName: item.supplier?.name || '',
+    storageAreaId: item.storageAreaId || '',
+    storageAreaName: item.storageArea?.name || '',
+    dimension: c.dimension,
+    chain: c.chain,
+    pricing: c.pricing,
+    countUnit: c.countUnit,
+    stockOnHand: String(parseFloat(stockInCountUnit.toFixed(4))),
+    isActive: item.isActive,
+    allergens: item.allergens ?? [],
+    barcode: item.barcode ?? null,
+  }
 }
 
 interface Props {
@@ -75,35 +125,6 @@ interface Props {
   onUpdated?: () => void
   zClassName?: string
   initialEditMode?: boolean
-}
-
-// ─── Purchase description ─────────────────────────────────────────────────────
-
-function normalizePurchaseUnit(raw: string): string {
-  if (PURCHASE_UNITS.includes(raw as typeof PURCHASE_UNITS[number])) return raw
-  const found = (PURCHASE_UNITS as readonly string[]).find(u => raw.toLowerCase().includes(u))
-  return found ?? 'case'
-}
-
-function buildPurchaseDescription(
-  purchaseUnit: string,
-  qty: number,
-  qtyUOM: string,
-  innerQty: number | null,
-  packSize: number,
-  packUOM: string,
-): string {
-  const pu = purchaseUnit || 'unit'
-  if (isMeasuredUnit(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
-  const hasWeight = packSize > 0 && packUOM && !['each', ''].includes(packUOM)
-  if (qtyUOM === 'pack' && innerQty) {
-    return hasWeight
-      ? `${pu} of ${qty} packs × ${innerQty} × ${packSize}${packUOM}`
-      : `${pu} of ${qty} packs × ${innerQty} each`
-  }
-  return hasWeight
-    ? `${pu} of ${qty} × ${packSize}${packUOM} each`
-    : `${pu} of ${qty} each`
 }
 
 // ─── Combobox (local copy — avoids coupling to inventory page) ────────────────
@@ -155,6 +176,170 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
   )
 }
 
+// ─── Chain editor (module scope — must not be redefined per render) ───────────
+
+const DIM_UNITS: Record<Dimension, string[]> = {
+  MASS:   ['g', 'kg', 'lb', 'oz'],
+  VOLUME: ['ml', 'l', 'fl oz', 'cup'],
+  COUNT:  ['each'],
+}
+
+const inputCls =
+  'w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
+
+function DimensionToggle({ dimension, onChange }: {
+  dimension: Dimension
+  onChange: (d: Dimension) => void
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-ink-3 mb-1">Dimension</label>
+      <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
+        {(['MASS', 'VOLUME', 'COUNT'] as Dimension[]).map(d => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => onChange(d)}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+              dimension === d ? 'bg-white text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'
+            }`}
+          >
+            {d === 'MASS' ? 'Weight' : d === 'VOLUME' ? 'Volume' : 'Count'}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-ink-4 mt-1">Base unit: <span className="font-mono">{DIMENSION_BASE[dimension]}</span></p>
+    </div>
+  )
+}
+
+function PackChainEditor({ chain, baseUnit, onChange }: {
+  chain: PackLink[]
+  baseUnit: string
+  onChange: (chain: PackLink[]) => void
+}) {
+  const setLink = (i: number, patch: Partial<PackLink>) =>
+    onChange(chain.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
+  const removeLink = (i: number) => onChange(chain.filter((_, idx) => idx !== i))
+  const addLink = () => onChange([...chain, { unit: 'unit', per: 1 }])
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-medium text-ink-3">Pack chain <span className="text-ink-4 normal-case font-normal">(outer → inner)</span></label>
+      {chain.map((link, i) => {
+        const isLeaf = i === chain.length - 1
+        return (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              value={link.unit}
+              onChange={e => setLink(i, { unit: e.target.value })}
+              placeholder="unit"
+              className="flex-1 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
+            />
+            <div className="flex items-center">
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={link.per}
+                onChange={e => setLink(i, { per: parseFloat(e.target.value) || 0 })}
+                className="w-24 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
+              />
+              <span className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-3 bg-bg min-w-[2.5rem] text-center">
+                {isLeaf ? baseUnit : '×'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => removeLink(i)}
+              disabled={chain.length <= 1}
+              aria-label="Remove level"
+              className="w-8 h-8 shrink-0 grid place-items-center rounded-lg border border-line text-ink-3 hover:border-red-text hover:text-red-text disabled:opacity-30 disabled:hover:border-line disabled:hover:text-ink-3 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )
+      })}
+      <button
+        type="button"
+        onClick={addLink}
+        className="text-xs font-medium text-gold-2 hover:text-gold transition-colors"
+      >
+        + add level
+      </button>
+    </div>
+  )
+}
+
+function PricingEditor({ dimension, pricing, onChange }: {
+  dimension: Dimension
+  pricing: Pricing
+  onChange: (p: Pricing) => void
+}) {
+  const setMode = (mode: 'PACK' | 'RATE') => {
+    if (mode === pricing.mode) return
+    onChange(
+      mode === 'PACK'
+        ? { mode: 'PACK', purchasePrice: 0 }
+        : { mode: 'RATE', rate: 0, rateUnit: DIM_UNITS[dimension][0] },
+    )
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
+        {(['PACK', 'RATE'] as const).map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+              pricing.mode === m ? 'bg-white text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'
+            }`}
+          >
+            {m === 'PACK' ? 'Per pack' : 'Per unit (rate)'}
+          </button>
+        ))}
+      </div>
+      {pricing.mode === 'PACK' ? (
+        <div>
+          <label className="block text-xs font-medium text-ink-3 mb-1">Purchase price ($)</label>
+          <input
+            type="number"
+            step="any"
+            value={pricing.purchasePrice}
+            onChange={e => onChange({ mode: 'PACK', purchasePrice: parseFloat(e.target.value) || 0 })}
+            className={inputCls}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-3 mb-1">Rate ($)</label>
+            <input
+              type="number"
+              step="any"
+              value={pricing.rate}
+              onChange={e => onChange({ mode: 'RATE', rate: parseFloat(e.target.value) || 0, rateUnit: pricing.rateUnit })}
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-3 mb-1">Per</label>
+            <select
+              value={pricing.rateUnit}
+              onChange={e => onChange({ mode: 'RATE', rate: pricing.rate, rateUnit: e.target.value })}
+              className={`${inputCls} bg-white`}
+            >
+              {DIM_UNITS[dimension].map(u => <option key={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalizeItem(item: InventoryItem): InventoryItem {
@@ -193,12 +378,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState<EditForm>({
     itemName: '', category: '', supplierId: '', supplierName: '',
-    storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
-    qtyPerPurchaseUnit: '1', purchasePrice: '0',
-    packSize: '', packUOM: 'each', countUOM: 'each',
-    qtyUOM: 'each', innerQty: '',
+    storageAreaId: '', storageAreaName: '',
+    dimension: 'COUNT', chain: [...DEFAULT_CHAIN], pricing: { ...DEFAULT_PRICING },
+    countUnit: 'each',
     stockOnHand: '0', isActive: true, allergens: [], barcode: null,
-    priceType: 'CASE',
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
@@ -228,27 +411,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       setStockMovements(sm)
       setLoading(false)
       if (initialEditMode) {
-        setEditForm({
-          itemName: normalized.itemName,
-          category: normalized.category,
-          supplierId: normalized.supplierId || '',
-          supplierName: normalized.supplier?.name || '',
-          storageAreaId: normalized.storageAreaId || '',
-          storageAreaName: normalized.storageArea?.name || '',
-          purchaseUnit: normalizePurchaseUnit(normalized.purchaseUnit),
-          qtyPerPurchaseUnit: String(normalized.qtyPerPurchaseUnit),
-          purchasePrice: String(normalized.purchasePrice),
-          packSize: (Number(normalized.packSize ?? 1) === 1 && (normalized.baseUnit === 'each' || ['each', ''].includes(normalized.packUOM ?? 'each'))) ? '' : String(normalized.packSize ?? 1),
-          packUOM: normalized.packUOM ?? 'each',
-          countUOM: normalized.countUOM ?? 'each',
-          qtyUOM: normalized.qtyUOM ?? 'each',
-          innerQty: normalized.innerQty != null ? String(normalized.innerQty) : '',
-          stockOnHand: String(parseFloat(displayStock(normalized).toFixed(4))),
-          isActive: normalized.isActive,
-          allergens: normalized.allergens ?? [],
-          barcode: normalized.barcode ?? null,
-          priceType: normalized.priceType ?? 'CASE',
-        })
+        setEditForm(buildEditForm(normalized))
         setEditMode(true)
       }
     })
@@ -256,33 +419,23 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
   const openEdit = () => {
     if (!item) return
-    setEditForm({
-      itemName: item.itemName,
-      category: item.category,
-      supplierId: item.supplierId || '',
-      supplierName: item.supplier?.name || '',
-      storageAreaId: item.storageAreaId || '',
-      storageAreaName: item.storageArea?.name || '',
-      purchaseUnit: normalizePurchaseUnit(item.purchaseUnit),
-      qtyPerPurchaseUnit: String(item.qtyPerPurchaseUnit),
-      purchasePrice: String(item.purchasePrice),
-      packSize: (Number(item.packSize ?? 1) === 1 && (item.baseUnit === 'each' || ['each', ''].includes(item.packUOM ?? 'each'))) ? '' : String(item.packSize ?? 1),
-      packUOM: item.packUOM ?? 'each',
-      countUOM: item.countUOM ?? 'each',
-      qtyUOM: item.qtyUOM ?? 'each',
-      innerQty: item.innerQty != null ? String(item.innerQty) : '',
-      stockOnHand: String(parseFloat(displayStock(item).toFixed(4))),
-      isActive: item.isActive,
-      allergens: item.allergens ?? [],
-      barcode: item.barcode ?? null,
-      priceType: item.priceType ?? 'CASE',
-    })
+    setEditForm(buildEditForm(item))
     setEditMode(true)
   }
 
   const handleSave = async () => {
     if (!item) return
     setSaving(true)
+    // Chain item for the conversion: stock is entered in countUnit, stored in base.
+    const ci = {
+      dimension: editForm.dimension,
+      baseUnit: DIMENSION_BASE[editForm.dimension],
+      packChain: editForm.chain,
+      pricing: editForm.pricing,
+      countUnit: editForm.countUnit,
+    }
+    const perCount = basePerUnit(ci, editForm.countUnit) || 1
+    const stockInBase = (parseFloat(editForm.stockOnHand) || 0) * perCount
     const res = await fetch(`/api/inventory/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -291,28 +444,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
         category: editForm.category,
         supplierId: editForm.supplierId || null,
         storageAreaId: editForm.storageAreaId || null,
-        purchaseUnit: editForm.purchaseUnit,
-        qtyPerPurchaseUnit: editForm.priceType === 'UOM' ? '1' : editForm.qtyPerPurchaseUnit,
-        purchasePrice: editForm.purchasePrice,
-        packSize: editForm.priceType === 'UOM' ? '1' : editForm.packSize,
-        packUOM: editForm.packUOM,
-        countUOM: editForm.countUOM,
-        qtyUOM: editForm.priceType === 'UOM' ? 'each' : editForm.qtyUOM,
-        innerQty: editForm.priceType === 'UOM' ? null : (editForm.innerQty ? parseFloat(editForm.innerQty) : null),
-        stockOnHand: convertCountQtyToBase(parseFloat(editForm.stockOnHand) || 0, editForm.countUOM, {
-          baseUnit: item.baseUnit,
-          purchaseUnit: editForm.purchaseUnit,
-          qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
-          qtyUOM: editForm.qtyUOM,
-          innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-          packSize: parseFloat(editForm.packSize) || 1,
-          packUOM: editForm.packUOM,
-          countUOM: editForm.countUOM,
-        }),
+        // Chain shape (new body) — route derives all legacy fields.
+        dimension: editForm.dimension,
+        packChain: editForm.chain,
+        pricing: editForm.pricing,
+        countUnit: editForm.countUnit,
+        stockOnHand: stockInBase,
         isActive: editForm.isActive,
         allergens: editForm.allergens,
         barcode: editForm.barcode,
-        priceType: editForm.priceType,
       }),
     })
     if (!res.ok) {
@@ -476,197 +616,49 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   </div>
                 )}
 
-                {/* Purchase structure */}
+                {/* Pricing chain (hidden for PREP-linked items — managed by recipe sync) */}
                 {!item.recipe && (
                   <div className="space-y-3">
-                    {/* Per Case / Per UOM toggle */}
-                    <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
-                      {(['CASE', 'UOM'] as const).map(pt => (
-                        <button
-                          key={pt}
-                          type="button"
-                          onClick={() => setEditForm(f => ({
-                            ...f,
-                            priceType: pt,
-                            ...(pt === 'UOM' && !['kg','g','lb','oz','l','ml'].includes(f.packUOM) ? { packUOM: 'kg' } : {}),
-                          }))}
-                          className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
-                            editForm.priceType === pt
-                              ? 'bg-white text-ink shadow-sm'
-                              : 'text-ink-3 hover:text-ink-2'
-                          }`}
-                        >
-                          {pt === 'CASE' ? 'Per Case' : 'Per UOM'}
-                        </button>
-                      ))}
-                    </div>
+                    <DimensionToggle
+                      dimension={editForm.dimension}
+                      onChange={d => setEditForm(f => {
+                        // Switching dimension invalidates pricing rateUnit + may invalidate countUnit.
+                        const pricing: Pricing = f.pricing.mode === 'RATE'
+                          ? { mode: 'RATE', rate: f.pricing.rate, rateUnit: DIM_UNITS[d][0] }
+                          : f.pricing
+                        const opts = countUnitOptions(d, f.chain)
+                        return { ...f, dimension: d, pricing, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
+                      })}
+                    />
 
-                    {editForm.priceType === 'CASE' && (
-                      <>
-                        {/* Row 1: Purchase Unit + Qty/Unit pair */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-ink-3 mb-1">Purchase Unit</label>
-                            <select value={editForm.purchaseUnit} onChange={e => setEditForm(f => ({ ...f, purchaseUnit: e.target.value }))}
-                              className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                              {PURCHASE_UNITS.map(u => <option key={u}>{u}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-ink-3 mb-1">Qty per {editForm.purchaseUnit}</label>
-                            <div className="flex">
-                              <input type="number" step="any" value={editForm.qtyPerPurchaseUnit}
-                                onChange={e => setEditForm(f => ({ ...f, qtyPerPurchaseUnit: e.target.value }))}
-                                className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                              <select value={editForm.qtyUOM} onChange={e => setEditForm(f => {
-                                  const newQtyUOM = e.target.value
-                                  const opts = getCountableUoms({ baseUnit: deriveBaseUnit(newQtyUOM, f.packUOM, parseFloat(f.packSize) || 0), purchaseUnit: f.purchaseUnit, qtyPerPurchaseUnit: parseFloat(f.qtyPerPurchaseUnit) || 1, qtyUOM: newQtyUOM, innerQty: f.innerQty ? parseFloat(f.innerQty) : null, packSize: parseFloat(f.packSize) || 0, packUOM: f.packUOM, countUOM: f.countUOM }).map(u => u.label)
-                                  return { ...f, qtyUOM: newQtyUOM, innerQty: newQtyUOM === 'pack' ? f.innerQty : '', countUOM: opts.includes(f.countUOM) ? f.countUOM : opts[0] }
-                                })}
-                                className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold">
-                                {QTY_UOMS.map(u => <option key={u}>{u}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
+                    <PackChainEditor
+                      chain={editForm.chain}
+                      baseUnit={DIMENSION_BASE[editForm.dimension]}
+                      onChange={chain => setEditForm(f => {
+                        const opts = countUnitOptions(f.dimension, chain)
+                        return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
+                      })}
+                    />
 
-                        {/* Conditional: pack breakdown when qtyUOM = pack */}
-                        {editForm.qtyUOM === 'pack' && (
-                          <div className="ml-3 pl-3 border-l-2 border-gold-soft space-y-2">
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-xs font-medium text-ink-3 mb-1">Items per Pack</label>
-                                <div className="flex">
-                                  <input type="number" step="any" min="1" value={editForm.innerQty}
-                                    onChange={e => setEditForm(f => ({ ...f, innerQty: e.target.value }))}
-                                    className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                                  <span className="border border-line rounded-r-lg px-3 py-2 text-sm text-ink-3 bg-bg">each</span>
-                                </div>
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-ink-3 mb-1">
-                                  Weight per Item
-                                  <span className="ml-1 text-[10px] font-semibold bg-bg-2 text-ink-4 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
-                                </label>
-                                <div className="flex">
-                                  <input type="number" step="any" min="0" value={editForm.packSize}
-                                    onChange={e => setEditForm(f => ({ ...f, packSize: e.target.value }))}
-                                    placeholder="e.g. 100"
-                                    className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                                  <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                                    className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold">
-                                    {(['g', 'kg', 'ml', 'l', 'lb', 'oz']).map(u => <option key={u}>{u}</option>)}
-                                  </select>
-                                </div>
-                                <p className="text-[10px] text-gold-2 bg-gold-soft rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Conditional: weight per item when qtyUOM = each */}
-                        {editForm.qtyUOM === 'each' && (
-                          <div className="ml-3 pl-3 border-l-2 border-gold-soft">
-                            <label className="block text-xs font-medium text-ink-3 mb-1">
-                              Weight per Each
-                              <span className="ml-1 text-[10px] font-semibold bg-bg-2 text-ink-4 rounded px-1 py-0.5 normal-case tracking-normal">optional</span>
-                            </label>
-                            <div className="flex">
-                              <input type="number" step="any" min="0" value={editForm.packSize}
-                                onChange={e => {
-                                  const val = e.target.value
-                                  // When weight is cleared, reset countUOM to 'each' (weight options disappear)
-                                  const newPs = parseFloat(val) || 0
-                                  const wasWeight = parseFloat(editForm.packSize) > 0
-                                  setEditForm(f => ({
-                                    ...f,
-                                    packSize: val,
-                                    countUOM: wasWeight && newPs <= 0 ? 'each' : f.countUOM,
-                                  }))
-                                }}
-                                placeholder="e.g. 290"
-                                className="w-full border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0" />
-                              <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                                className="border border-line rounded-r-lg px-2 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold">
-                                {(['g', 'kg', 'ml', 'l', 'lb', 'oz']).map(u => <option key={u}>{u}</option>)}
-                              </select>
-                            </div>
-                            <p className="text-[10px] text-gold-2 bg-gold-soft rounded px-2 py-1 mt-1">Leave blank → price per each. Fill in → price per g, usable in recipes by weight.</p>
-                          </div>
-                        )}
-
-                        {/* Generated description label */}
-                        {(() => {
-                          const desc = buildPurchaseDescription(
-                            editForm.purchaseUnit,
-                            parseFloat(editForm.qtyPerPurchaseUnit) || 0,
-                            editForm.qtyUOM,
-                            editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-                            parseFloat(editForm.packSize) || 0,
-                            editForm.packUOM,
-                          )
-                          return (
-                            <p className="text-xs text-ink-4 italic">= {desc}</p>
-                          )
-                        })()}
-                      </>
-                    )}
-
-                    {editForm.priceType === 'UOM' && (
-                      <div>
-                        <label className="block text-xs font-medium text-ink-3 mb-1">Price Unit</label>
-                        <select value={editForm.packUOM} onChange={e => setEditForm(f => ({ ...f, packUOM: e.target.value }))}
-                          className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                          {(['kg', 'g', 'lb', 'oz', 'l', 'ml']).map(u => <option key={u}>{u}</option>)}
-                        </select>
-                        <p className="text-[10px] text-blue bg-blue-soft rounded px-2 py-1 mt-1">Price is entered as cost per {editForm.packUOM} — ideal for produce and bulk items.</p>
-                      </div>
-                    )}
-
-                    {/* Purchase Price */}
-                    <div>
-                      <label className="block text-xs font-medium text-ink-3 mb-1">
-                        {editForm.priceType === 'UOM' ? `Price / ${editForm.packUOM} ($)` : 'Purchase Price ($)'}
-                      </label>
-                      <input type="number" step="any" value={editForm.purchasePrice}
-                        onChange={e => setEditForm(f => ({ ...f, purchasePrice: e.target.value }))}
-                        className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
-                    </div>
+                    <PricingEditor
+                      dimension={editForm.dimension}
+                      pricing={editForm.pricing}
+                      onChange={pricing => setEditForm(f => ({ ...f, pricing }))}
+                    />
                   </div>
                 )}
 
                 {/* Stock + Count fields */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-ink-3 mb-1">
-                      Count UOM
-                      {item.recipe && (
-                        <span className="ml-1 text-blue font-normal">
-                          ({getUnitDimension(item.baseUnit)}-compatible)
-                        </span>
-                      )}
-                    </label>
-                    <select value={editForm.countUOM} onChange={e => setEditForm(f => ({ ...f, countUOM: e.target.value }))}
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Count unit</label>
+                    <select value={editForm.countUnit} onChange={e => setEditForm(f => ({ ...f, countUnit: e.target.value }))}
                       className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
-                      {(() => {
-                        const rawPs = parseFloat(editForm.packSize) || 0
-                        const hasWpe = rawPs > 0
-                        const effPu = hasWpe ? editForm.packUOM : 'each'
-                        return getCountableUoms({
-                          baseUnit: deriveBaseUnit(editForm.qtyUOM, effPu, rawPs),
-                          purchaseUnit: editForm.purchaseUnit,
-                          qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
-                          qtyUOM: editForm.qtyUOM,
-                          innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-                          packSize: rawPs,
-                          packUOM: effPu,
-                          countUOM: editForm.countUOM,
-                        }).map(u => <option key={u.label} value={u.label}>{u.label}{u.hint ? ` — ${u.hint}` : ''}</option>)
-                      })()}
+                      {countUnitOptions(editForm.dimension, editForm.chain).map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({editForm.countUOM})</label>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({editForm.countUnit})</label>
                     <input type="number" step="any" value={editForm.stockOnHand}
                       onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
                       className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
@@ -699,51 +691,37 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   />
                 </div>
 
-                {/* Auto-calculated preview */}
+                {/* Live preview */}
                 {(() => {
                   const isPrep = !!item.recipe
-                  const pp     = parseFloat(editForm.purchasePrice) || 0
-                  const qty    = parseFloat(editForm.qtyPerPurchaseUnit) || 1
-                  const rawPs  = parseFloat(editForm.packSize) || 0
-                  const hasWpe = rawPs > 0
-                  const ps     = hasWpe ? rawPs : 1                       // 1 for math (avoid ÷0)
-                  const pu     = hasWpe ? editForm.packUOM : 'each'       // 'each' when no weight
-                  const cu     = editForm.countUOM
-                  const qu     = editForm.qtyUOM ?? 'each'
-                  const iq     = editForm.innerQty ? parseFloat(editForm.innerQty) : null
-                  const bu     = isPrep ? (item.baseUnit ?? deriveBaseUnit(qu, pu)) : deriveBaseUnit(qu, pu, rawPs)
-                  const ppbu = isPrep
-                    ? parseFloat(String(item.pricePerBaseUnit ?? 0))
-                    : calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, editForm.priceType === 'UOM' ? 'UOM' : 'CASE')
-                  const cf = isPrep
-                    ? parseFloat(String(item.conversionFactor ?? 1))
-                    : calcConversionFactor(cu, qty, qu, iq, ps, pu)
+                  const ci = {
+                    dimension: editForm.dimension,
+                    baseUnit: DIMENSION_BASE[editForm.dimension],
+                    packChain: editForm.chain,
+                    pricing: editForm.pricing,
+                    countUnit: editForm.countUnit,
+                  }
+                  const ppbu = isPrep ? Number(item.pricePerBaseUnit ?? 0) : pricePerBaseUnit(ci)
+                  const perCount = basePerUnit(ci, editForm.countUnit)
+                  const stockQty = parseFloat(editForm.stockOnHand) || 0
+                  const stockVal = stockQty * perCount * ppbu
                   return (
-                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-blue-soft' : 'bg-gold/10'}`}>
-                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-blue-text' : 'text-gold'}`}>
-                        {isPrep ? 'Recipe-derived cost' : 'Auto-calculated'}
+                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-blue-soft' : 'bg-gold-soft'}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-blue-text' : 'text-gold-2'}`}>
+                        {isPrep ? 'Recipe-derived cost' : 'Live preview'}
                       </div>
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-blue' : 'text-gold'}`}>Price per {bu}:</span>
-                        <span className={`text-lg font-bold ${isPrep ? 'text-blue-text' : 'text-gold'}`}>{formatUnitPrice(ppbu)}</span>
+                        <span className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>Price:</span>
+                        <span className={`text-lg font-bold ${isPrep ? 'text-blue-text' : 'text-gold-2'}`}>{formatPricePerBase(ppbu, ci.baseUnit)}</span>
                       </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-blue' : 'text-gold'}`}>1 {cu} =</span>
-                        <span className={`font-semibold ${isPrep ? 'text-blue-text' : 'text-gold'}`}>{cf.toFixed(4)} {bu}</span>
+                      <div className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>
+                        1 {editForm.countUnit} = {perCount.toLocaleString()} {ci.baseUnit}
                       </div>
-                      <div className={`text-xs ${isPrep ? 'text-blue' : 'text-blue'}`}>
-                        {(() => {
-                          if (isPrep) return `Recipe total ÷ ${ps.toLocaleString()} ${bu} yield = ${formatUnitPrice(ppbu)}/${bu}`
-                          if (editForm.priceType === 'UOM') {
-                            const conv = getUnitConv(pu)
-                            const base = conv > 0 ? pp / conv : 0
-                            return `$${pp.toFixed(2)} ÷ conv(${pu}) = $${base.toFixed(4)}/base unit`
-                          }
-                          if (['kg','g','lb','oz','l','ml'].includes(qu)) return `$${pp.toFixed(2)} ÷ (${qty} ${qu}) = ${formatUnitPrice(ppbu)}/${bu}`
-                          if (qu === 'pack' && iq != null) return `$${pp.toFixed(2)} ÷ (${qty} × ${iq} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
-                          return `$${pp.toFixed(2)} ÷ (${qty} × ${ps} ${pu}) = ${formatUnitPrice(ppbu)}/${bu}`
-                        })()}
-                      </div>
+                      {stockQty > 0 && (
+                        <div className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>
+                          Stock value: <span className="font-semibold">{formatCurrency(stockVal)}</span>
+                        </div>
+                      )}
                     </div>
                   )
                 })()}
@@ -763,13 +741,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 </div>
 
                 {(() => {
-                  const isUom = item.priceType === 'UOM'
-                  const pp = parseFloat(String(item.purchasePrice))
-                  const ppb = parseFloat(String(item.pricePerBaseUnit))
-                  const rateUnit = item.packUOM || item.baseUnit
-                  // For per-weight items the conversion is rate-unit → base (g/ml),
-                  // derivable from the two prices without re-importing UOM tables.
-                  const basesPerRateUnit = ppb > 0 ? pp / ppb : 0
+                  const c = chainFromItem(item)
+                  const ci = { dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain, pricing: c.pricing, countUnit: c.countUnit }
+                  const ppb = pricePerBaseUnit(ci)
+                  const lv = levelBaseUnits(c.chain)
+                  const dimLabel = c.dimension === 'MASS' ? 'Weight' : c.dimension === 'VOLUME' ? 'Volume' : 'Count'
                   return (
                 <div className="grid grid-cols-2 gap-3 text-[13px]">
                   {(() => {
@@ -777,16 +753,14 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       ['Supplier',      item.supplier?.name || '—'],
                       ['Storage area',  item.storageArea?.name || '—'],
                       ['Linked recipe', item.recipe.name],
-                      ['Yield',         `${parseFloat(String(item.packSize ?? 1)).toLocaleString()} ${item.baseUnit}`],
-                      ['Batch cost',    formatCurrency(pp)],
-                      ['Count UOM',     item.countUOM ?? item.baseUnit],
+                      ['Dimension',     `${dimLabel} · ${ci.baseUnit}`],
+                      ['Count unit',    c.countUnit],
                     ] : [
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage area',   item.storageArea?.name || '—'],
-                      ['Pricing',        isUom ? `By weight · per ${rateUnit}` : 'By case'],
-                      ['Purchase price', isUom ? `${formatCurrency(pp)} / ${rateUnit}` : `${formatCurrency(pp)} / ${normalizePurchaseUnit(item.purchaseUnit)}`],
-                      ['Pack',           buildPurchaseDescription(normalizePurchaseUnit(item.purchaseUnit), Number(item.qtyPerPurchaseUnit), item.qtyUOM ?? 'each', item.innerQty != null ? Number(item.innerQty) : null, item.baseUnit === 'each' ? 0 : Number(item.packSize ?? 0), item.packUOM ?? 'each')],
-                      ['Count UOM',      item.countUOM ?? 'each'],
+                      ['Dimension',      `${dimLabel} · ${ci.baseUnit}`],
+                      ['Pricing',        c.pricing.mode === 'RATE' ? `Rate · per ${c.pricing.rateUnit}` : 'Per pack'],
+                      ['Count unit',     c.countUnit],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]
                     return rows.map(([label, value]) => (
@@ -797,6 +771,22 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     ))
                   })()}
 
+                  {/* Pack chain readout */}
+                  <div className="bg-paper border border-line rounded-[10px] p-3 col-span-2">
+                    <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mb-1.5">Pack chain</div>
+                    <div className="space-y-1">
+                      {c.chain.map((link, i) => (
+                        <div key={i} className="flex items-center justify-between text-[12px]">
+                          <span className="font-medium text-ink">1 {link.unit}</span>
+                          <span className="font-mono text-ink-3 tabular-nums">
+                            = {Number(link.per).toLocaleString()} {i === c.chain.length - 1 ? ci.baseUnit : c.chain[i + 1]?.unit}
+                            <span className="text-ink-4"> &nbsp;({(lv[link.unit] ?? 0).toLocaleString()} {ci.baseUnit})</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className={`rounded-[10px] p-3 col-span-2 border ${item.recipe ? 'bg-blue-soft border-blue-soft' : 'bg-gold-soft border-[#fcd34d]'}`}>
                     {item.recipe && (
                       <div className="flex items-center gap-1.5 mb-1.5">
@@ -805,17 +795,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       </div>
                     )}
                     <div className={`font-mono text-[10px] font-semibold uppercase tracking-[0.04em] ${item.recipe ? 'text-blue' : 'text-gold-2'}`}>
-                      Price per {item.baseUnit}
+                      Price
                     </div>
                     <div className={`font-mono text-[17px] font-semibold tabular-nums mt-1 tracking-[-0.01em] ${item.recipe ? 'text-blue-text' : 'text-gold-2'}`}>
-                      {formatUnitPrice(ppb)} / {item.baseUnit}
+                      {formatPricePerBase(ppb, ci.baseUnit)}
                     </div>
                     <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-blue' : 'text-[#92722f]'}`}>
-                      {item.recipe
-                        ? <>Recipe total {formatCurrency(pp)} ÷ {parseFloat(String(item.packSize ?? 1)).toLocaleString()} {item.baseUnit} yield</>
-                        : isUom
-                          ? <>{formatCurrency(pp)} / {rateUnit} · 1 {rateUnit} = {basesPerRateUnit.toFixed(2)} {item.baseUnit}</>
-                          : <>{formatCurrency(pp)} ÷ ({parseFloat(String(item.qtyPerPurchaseUnit))} × {parseFloat(String(item.packSize ?? 1))} {item.packUOM ?? 'each'}) &nbsp;|&nbsp; 1 {item.countUOM ?? 'each'} = {parseFloat(String(item.conversionFactor)).toFixed(4)} {item.baseUnit}</>
+                      {c.pricing.mode === 'RATE'
+                        ? <>{formatCurrency(c.pricing.rate)} / {c.pricing.rateUnit}</>
+                        : <>{formatCurrency(c.pricing.purchasePrice)} per {c.chain[0]?.unit ?? 'pack'} &nbsp;|&nbsp; 1 {c.countUnit} = {basePerUnit(ci, c.countUnit).toLocaleString()} {ci.baseUnit}</>
                       }
                     </div>
                   </div>
