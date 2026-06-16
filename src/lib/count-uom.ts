@@ -7,7 +7,7 @@
  * These functions handle converting back to baseUnit for persistence.
  */
 
-import { convertQty } from './uom'
+import { convertQty, canonicalUom, CONTAINER_UNITS } from './uom'
 import { deriveBaseUnit, getUnitConv, getUnitDimension, isMeasuredUnit } from './utils'
 
 export interface CountableUom {
@@ -90,6 +90,35 @@ export function resolveCountUom(item: ItemDims): string {
 }
 
 /**
+ * Human-readable pack display derived ONLY from the structured columns (never a stored
+ * string). The leading word of purchaseUnit gives the container token; the numbers come
+ * from qtyPerPurchaseUnit/innerQty/packSize/packUOM. Single source for every pack label.
+ */
+export function formatPurchaseDisplay(item: ItemDims): string {
+  const token = canonicalUom((item.purchaseUnit ?? '').trim().split(/[\s(]/)[0])
+  const isContainerTok = CONTAINER_UNITS.has(token)
+  const qtyUOM = item.qtyUOM ?? 'each'
+  const qty = Number(item.qtyPerPurchaseUnit)
+  const ps = Number(item.packSize ?? 0)
+  const pu = item.packUOM ?? 'each'
+  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
+  const fmtWV = (val: number, unit: string) => {
+    const x = (unit || '').toLowerCase()
+    const n = Number.isInteger(val) ? val.toString() : parseFloat(val.toFixed(2)).toString()
+    return `${n}${x === 'l' || x === 'lt' ? 'L' : x}`
+  }
+  let detail = ''
+  if (qtyUOM === 'pack' && innerQty && innerQty > 0) detail = `${fmtNum(qty)} pkg`
+  else if (isMeasuredUnit(qtyUOM) && qty > 1) detail = fmtWV(qty, qtyUOM)
+  else if (isMeasuredUnit(pu) && ps > 0) detail = qty > 1 ? `${fmtNum(qty)} × ${fmtWV(ps, pu)}` : fmtWV(ps, pu)
+  else if ((pu ?? 'each').toLowerCase() === 'each' && ps > 1) detail = `${fmtNum(qty > 1 ? qty * ps : ps)} each`
+
+  if (isContainerTok) return detail ? `${token} (${detail})` : token
+  if (detail) return detail
+  return token || 'each'
+}
+
+/**
  * Returns the UOM options a user can choose from when counting an item.
  * Derived from purchase structure — not a hardcoded list.
  */
@@ -105,7 +134,6 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
   const hasItemWeight = hasWeight && ps > 0
 
   // ── display helpers ────────────────────────────────────────────────────────
-  const isWV = (u: string) => isMeasuredUnit(u)
   const fmtWV = (val: number, unit: string) => {
     const x = (unit || '').toLowerCase()
     // keep up to 2 decimals (trim trailing zeros) so a 3.25kg wheel reads "3.25kg", not "3.3kg"
@@ -113,31 +141,14 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
     return `${n}${x === 'l' || x === 'lt' ? 'L' : x}`
   }
 
-  const qty = Number(item.qtyPerPurchaseUnit)
   const purchaseToBase = calcConversionFactorForItem(item)
 
-  // Describe what the purchase unit contains so we can label it "case (…)".
-  // isContainer = false → the purchase unit is a bare UOM (e.g. "kg") — keep its raw name.
-  let isContainer = false
-  let caseFmt = ''
-  if (qtyUOM === 'pack' && hasInnerQty) {
-    isContainer = true; caseFmt = `${fmtNum(qty)} pkg`
-  } else if (isWV(qtyUOM)) {
-    if (qty > 1) { isContainer = true; caseFmt = fmtWV(qty, qtyUOM) }   // e.g. 25kg bag, 2L carton
-  } else { // qtyUOM === 'each'
-    if (isWV(pu) && ps > 0) {                                          // each = a weight chunk (Millet 25kg, Havarti 3.25kg)
-      isContainer = true; caseFmt = qty > 1 ? `${fmtNum(qty)} × ${fmtWV(ps, pu)}` : fmtWV(ps, pu)
-    } else if ((pu ?? 'each').toLowerCase() === 'each' && ps > 1) {    // case of N pieces (60 each)
-      isContainer = true; caseFmt = `${fmtNum(qty > 1 ? qty * ps : ps)} each`
-    }
-  }
-
-  // Purchase unit (case / bag / etc.) — label stays the conversion token; display adds the container word.
+  // Purchase unit (case / bag / etc.) — label is the canonical container token; display derives from structured cols.
   uoms.push({
-    label: item.purchaseUnit,
+    label: canonicalUom((item.purchaseUnit ?? 'each').trim().split(/[\s(]/)[0]) || 'each',
     toBase: purchaseToBase,
     hint: buildCaseHint(item),
-    display: isContainer ? `case (${caseFmt})` : item.purchaseUnit,
+    display: formatPurchaseDisplay(item),
   })
 
   // Pack level (only when qtyUOM = "pack")
