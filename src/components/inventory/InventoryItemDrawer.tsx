@@ -46,6 +46,7 @@ interface InventoryItem {
   allergens?: string[]
   barcode?: string | null
   isActive: boolean
+  isStocked?: boolean
   qtyUOM?: string | null
   innerQty?: number | string | null
   needsReview?: boolean | null
@@ -65,6 +66,7 @@ interface EditForm {
   innerQty: string
   stockOnHand: string
   isActive: boolean
+  isStocked: boolean
   allergens: string[]
   barcode: string | null
   priceType: 'CASE' | 'UOM'
@@ -196,7 +198,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     qtyPerPurchaseUnit: '1', purchasePrice: '0',
     packSize: '', packUOM: 'each', countUOM: 'each',
     qtyUOM: 'each', innerQty: '',
-    stockOnHand: '0', isActive: true, allergens: [], barcode: null,
+    stockOnHand: '0', isActive: true, isStocked: true, allergens: [], barcode: null,
     priceType: 'CASE',
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
@@ -244,6 +246,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
           innerQty: normalized.innerQty != null ? String(normalized.innerQty) : '',
           stockOnHand: String(parseFloat(displayStock(normalized).toFixed(4))),
           isActive: normalized.isActive,
+          isStocked: normalized.isStocked ?? true,
           allergens: normalized.allergens ?? [],
           barcode: normalized.barcode ?? null,
           priceType: normalized.priceType ?? 'CASE',
@@ -272,6 +275,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       innerQty: item.innerQty != null ? String(item.innerQty) : '',
       stockOnHand: String(parseFloat(displayStock(item).toFixed(4))),
       isActive: item.isActive,
+      isStocked: item.isStocked ?? true,
       allergens: item.allergens ?? [],
       barcode: item.barcode ?? null,
       priceType: item.priceType ?? 'CASE',
@@ -309,6 +313,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
           countUOM: editForm.countUOM,
         }),
         isActive: editForm.isActive,
+        isStocked: editForm.isStocked,
         allergens: editForm.allergens,
         barcode: editForm.barcode,
         priceType: editForm.priceType,
@@ -406,6 +411,18 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   />
                   <span className="text-sm font-medium text-ink-2">Active</span>
                   <span className="text-xs text-ink-4">&mdash; uncheck to exclude from inventory totals</span>
+                </label>
+
+                {/* Not stocked (recipe-only) */}
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!editForm.isStocked}
+                    onChange={e => setEditForm(f => ({ ...f, isStocked: !e.target.checked }))}
+                    className="w-4 h-4 rounded border-line-2 text-gold focus:ring-gold"
+                  />
+                  <span className="text-sm font-medium text-ink-2">Not stocked (recipe-only)</span>
+                  <span className="text-xs text-ink-4">&mdash; e.g. tap water; usable in recipes at $0, hidden from counts &amp; purchasing</span>
                 </label>
 
                 {/* Category */}

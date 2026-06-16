@@ -86,6 +86,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
   const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
+  // Non-stocked (recipe-only) items carry no inventory value — pin their spine price to 0.
+  const isStocked = rest.isStocked !== false
+  const finalPPB  = isStocked ? pricePerBaseUnit : 0
 
   await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -102,8 +105,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       priceType: pt,
       needsReview: false,
       conversionFactor,
-      pricePerBaseUnit,
+      pricePerBaseUnit: finalPPB,
       baseUnit,
+      isStocked,
       lastUpdated: new Date(),
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,

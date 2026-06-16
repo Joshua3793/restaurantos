@@ -39,6 +39,7 @@ interface InventoryItem {
   barcode?:    string | null
   allergens?: string[]
   isActive: boolean
+  isStocked?: boolean
   qtyUOM?: string | null
   innerQty?: number | string | null
   priceType?: 'CASE' | 'UOM' | null
@@ -223,6 +224,7 @@ function InventoryPageInner() {
   const [sortBy,       setSortBy]       = useState<SortMode>('category')
   const [colSort,      setColSort]      = useState<{ col: ColKey; dir: ColDir } | null>(null)
   const [activePill,   setActivePill]   = useState<FilterPill>('all')
+  const [showNonStocked, setShowNonStocked] = useState(false)
   const [selected,     setSelected]     = useState<InventoryItem | null>(null)
   const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
@@ -273,8 +275,9 @@ function InventoryPageInner() {
     if (supplierFilter) p.set('supplierId', supplierFilter)
     if (areaFilter)     p.set('storageAreaId', areaFilter)
     if (activeRcId)     { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
+    if (showNonStocked) p.set('includeNonStocked', 'true')
     fetch(`/api/inventory?${p}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
-  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc])
+  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, showNonStocked])
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
@@ -625,7 +628,10 @@ function InventoryPageInner() {
         </td>
         <td className="px-3 py-[13px]">
           <div className="flex flex-col gap-1">
-            <div className="font-medium text-ink text-[13.5px] tracking-[-0.01em]">{item.itemName}</div>
+            <div className="font-medium text-ink text-[13.5px] tracking-[-0.01em] flex items-center gap-1.5">
+              {item.itemName}
+              {item.isStocked === false && <span className="font-mono text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-bg-2 text-ink-3 border border-line">Not stocked</span>}
+            </div>
             <AllergenBadges allergens={item.allergens ?? []} size="xs" />
           </div>
         </td>
@@ -724,7 +730,10 @@ function InventoryPageInner() {
         {/* Category accent stripe — unified gold accent */}
         <div className={`w-1 h-10 rounded-full shrink-0 ${inStock ? 'bg-line-2' : 'bg-gold'}`} />
         <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-medium text-ink tracking-[-0.01em] truncate">{item.itemName}</div>
+          <div className="text-[14px] font-medium text-ink tracking-[-0.01em] truncate flex items-center gap-1.5">
+            <span className="truncate">{item.itemName}</span>
+            {item.isStocked === false && <span className="shrink-0 font-mono text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-bg-2 text-ink-3 border border-line">Not stocked</span>}
+          </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className={`font-mono text-[10.5px] ${inStock ? 'text-ink-3' : 'text-gold-2 font-semibold'}`}>
               {displayStock(item).toFixed(1)} {item.countUOM || item.baseUnit}
@@ -1051,6 +1060,17 @@ function InventoryPageInner() {
             </button>
           )
         })}
+        <button
+          onClick={() => setShowNonStocked(v => !v)}
+          title="Recipe-only utility items (e.g. tap water), hidden from counts & valuation"
+          className={`font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
+            showNonStocked
+              ? 'bg-ink text-paper border border-ink'
+              : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
+          }`}
+        >
+          {showNonStocked ? 'Hide non-stocked' : 'Show non-stocked'}
+        </button>
       </div>
 
       {/* Search + Filters */}
