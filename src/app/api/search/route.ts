@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
+import { PRICING_SELECT } from '@/lib/item-model'
 
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get('q')?.trim() ?? ''
@@ -21,12 +22,12 @@ export async function GET(req: NextRequest) {
         category: { select: { name: true } },
         ingredients: {
           include: {
-            inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true } },
+            inventoryItem: { select: { itemName: true, ...PRICING_SELECT } },
             linkedRecipe: {
               select: {
                 name: true,
                 yieldUnit: true,
-                inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true } },
+                inventoryItem: { select: { ...PRICING_SELECT } },
               },
             },
           },

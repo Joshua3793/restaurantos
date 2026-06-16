@@ -6,7 +6,7 @@
 import { prisma } from './prisma'
 import { convertQty } from './uom'
 import { getUnitConv } from './utils'
-import { dimensionOf } from './item-model'
+import { dimensionOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
   id: string
@@ -70,7 +70,7 @@ export function computeRecipeCost(
       recipePercent?: Numeric | null
       inventoryItemId: string | null
       linkedRecipeId: string | null
-      inventoryItem: { itemName: string; baseUnit: string; pricePerBaseUnit: Numeric } | null
+      inventoryItem: ({ itemName: string; baseUnit: string } & Parameters<typeof asChainItem>[0]) | null
       linkedRecipe: { name: string } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
@@ -87,7 +87,7 @@ export function computeRecipeCost(
     let ingredientBaseUnit = ing.unit  // fallback: use current unit as base
 
     if (ing.inventoryItem) {
-      pricePerBaseUnit   = Number(ing.inventoryItem.pricePerBaseUnit)
+      pricePerBaseUnit   = chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
@@ -156,11 +156,11 @@ export function computeRecipeCost(
  */
 export function linkedRecipeUnitCost(linked: {
   yieldUnit: string
-  inventoryItem: { pricePerBaseUnit: Numeric; baseUnit: string } | null
+  inventoryItem: ({ baseUnit: string } & Parameters<typeof asChainItem>[0]) | null
 }): { costPerUnit: number; yieldUnit: string } {
   const item = linked.inventoryItem
   return {
-    costPerUnit: item ? Number(item.pricePerBaseUnit) : 0,
+    costPerUnit: item ? chainPricePerBaseUnit(asChainItem(item)) : 0,
     yieldUnit:   item?.baseUnit ?? linked.yieldUnit,
   }
 }
@@ -173,12 +173,12 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
       category: true,
       ingredients: {
         include: {
-          inventoryItem: { select: { itemName: true, baseUnit: true, pricePerBaseUnit: true, allergens: true } },
+          inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
           linkedRecipe: {
             select: {
               name: true,
               yieldUnit: true,
-              inventoryItem: { select: { baseUnit: true, pricePerBaseUnit: true, allergens: true } },
+              inventoryItem: { select: { allergens: true, ...PRICING_SELECT } },
             },
           },
         },

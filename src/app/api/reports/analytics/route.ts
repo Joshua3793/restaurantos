@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { volatilityOf, stabilityOf, scanLinePricePerBase } from '@/lib/supplier-offers'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 function startOf(daysAgo: number): Date {
   const d = new Date()
@@ -56,7 +57,7 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
     prisma.wastageLog.aggregate({ where: { date: { gte: prevSince, lt: since } }, _sum: { costImpact: true } }),
     prisma.inventoryItem.findMany({
       where: { isActive: true },
-      select: { stockOnHand: true, pricePerBaseUnit: true, category: true,
+      select: { stockOnHand: true, category: true, ...PRICING_SELECT,
         stockAllocations: { select: { quantity: true } } },
     }),
     prisma.priceAlert.findMany({
@@ -94,7 +95,7 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
 
   const inventoryValue = inventoryItems.reduce((s, i) => {
     const totalStock = Number(i.stockOnHand) + i.stockAllocations.reduce((a, r) => a + Number(r.quantity), 0)
-    return s + totalStock * Number(i.pricePerBaseUnit)
+    return s + totalStock * pricePerBaseUnit(asChainItem(i))
   }, 0)
 
   // Average food cost % from sales entries in period
@@ -123,7 +124,7 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
   // Inventory by category
   const byCategory: Record<string, number> = {}
   for (const i of inventoryItems) {
-    const val = Number(i.stockOnHand) * Number(i.pricePerBaseUnit)
+    const val = Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i))
     byCategory[i.category] = (byCategory[i.category] ?? 0) + val
   }
 
@@ -243,7 +244,7 @@ async function getInventory(since: Date) {
       where: { isActive: true },
       select: {
         id: true, itemName: true, category: true,
-        stockOnHand: true, pricePerBaseUnit: true,
+        stockOnHand: true, ...PRICING_SELECT,
         purchasePrice: true, lastCountDate: true,
         supplier: { select: { name: true } },
       },
@@ -302,7 +303,7 @@ async function getInventory(since: Date) {
   // Inventory value by category
   const byCategory: Record<string, { value: number; count: number }> = {}
   for (const i of items) {
-    const val = Number(i.stockOnHand) * Number(i.pricePerBaseUnit)
+    const val = Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i))
     if (!byCategory[i.category]) byCategory[i.category] = { value: 0, count: 0 }
     byCategory[i.category].value += val
     byCategory[i.category].count++
@@ -310,7 +311,7 @@ async function getInventory(since: Date) {
 
   // Top value items
   const topValueItems = items
-    .map(i => ({ ...i, invValue: Number(i.stockOnHand) * Number(i.pricePerBaseUnit) }))
+    .map(i => ({ ...i, invValue: Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i)) }))
     .sort((a, b) => b.invValue - a.invValue)
     .slice(0, 10)
     .map(i => ({ name: i.itemName, category: i.category, supplier: i.supplier?.name ?? '—', value: i.invValue, stock: Number(i.stockOnHand) }))
@@ -322,7 +323,7 @@ async function getInventory(since: Date) {
     value: Number(s.totalCountedValue),
   })).reverse()
 
-  const totalValue = items.reduce((s, i) => s + Number(i.stockOnHand) * Number(i.pricePerBaseUnit), 0)
+  const totalValue = items.reduce((s, i) => s + Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i)), 0)
 
   return {
     summary: { totalValue, totalItems: items.length, notCounted30, priceChanges: priceAlerts.length, priceIncreases: priceIncreases.length, priceDecreases: priceDecreases.length },

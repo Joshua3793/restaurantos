@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
+import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export interface FinalizeSummary {
   itemsUpdated:      number
@@ -70,7 +71,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
     // Always use the current price from the inventory item — ensures that any
     // invoice approvals that happened after the count was created are reflected
     // in the snapshot value and the session's totalCountedValue.
-    const price = Number(item.pricePerBaseUnit)
+    const price = pricePerBaseUnit(asChainItem(item))
 
     if (line.skipped || line.countedQty !== null) {
       // rawQty is in line.selectedUom; convert to baseUnit for stockOnHand
@@ -97,9 +98,9 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
         prisma.countLine.update({
           where: { id: line.id },
           data: line.skipped
-            ? { priceAtCount: item.pricePerBaseUnit }
+            ? { priceAtCount: price }
             : {
-                priceAtCount: item.pricePerBaseUnit,
+                priceAtCount: price,
                 variancePct:  expected > 0 ? ((qtyBase - expected) / expected) * 100 : 0,
                 varianceCost: lineVarCost,
               },

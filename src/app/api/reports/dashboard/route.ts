@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export async function GET(req: NextRequest) {
   try { await requireSession('MANAGER') }
@@ -27,8 +28,8 @@ export async function GET(req: NextRequest) {
     prisma.inventoryItem.findMany({
       where: { isActive: true },
       select: {
-        id: true, itemName: true, category: true, baseUnit: true,
-        stockOnHand: true, pricePerBaseUnit: true, purchasePrice: true,
+        id: true, itemName: true, category: true,
+        stockOnHand: true, ...PRICING_SELECT, purchasePrice: true,
         lastCountDate: true,
         supplier: { select: { name: true } },
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },
@@ -90,7 +91,7 @@ export async function GET(req: NextRequest) {
 
   // Inventory value: stockOnHand (baseUnit) × pricePerBaseUnit
   const totalInventoryValue = inventory.reduce((sum, item) =>
-    sum + item.stockOnHand * Number(item.pricePerBaseUnit), 0)
+    sum + item.stockOnHand * pricePerBaseUnit(asChainItem(item)), 0)
 
   const weeklyWastageCost  = parseFloat(String(weekWastage._sum.costImpact  ?? 0))
   const monthlyWastageCost = parseFloat(String(monthWastage._sum.costImpact ?? 0))
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
   const topByValue = [...inventory]
     .map(item => ({
       ...item,
-      inventoryValue: item.stockOnHand * Number(item.pricePerBaseUnit),
+      inventoryValue: item.stockOnHand * pricePerBaseUnit(asChainItem(item)),
     }))
     .sort((a, b) => b.inventoryValue - a.inventoryValue)
     .slice(0, 10)
@@ -121,7 +122,7 @@ export async function GET(req: NextRequest) {
     .filter(item => item.stockOnHand <= 0 && item.lastCountDate !== null)
     .map(item => ({
       id: item.id, itemName: item.itemName, category: item.category,
-      lastValue: Number(item.pricePerBaseUnit),
+      lastValue: pricePerBaseUnit(asChainItem(item)),
     }))
     .sort((a, b) => b.lastValue - a.lastValue)
     .slice(0, 5)

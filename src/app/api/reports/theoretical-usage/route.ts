@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { convertCountQtyToBase } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export async function GET(req: NextRequest) {
   try { await requireSession('MANAGER') }
@@ -34,11 +35,11 @@ export async function GET(req: NextRequest) {
           ingredients: {
             select: {
               qtyBase: true, unit: true, inventoryItemId: true, linkedRecipeId: true,
-              inventoryItem: { select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true } },
+              inventoryItem: { select: { id: true, itemName: true, ...PRICING_SELECT } },
               // A linked PREP is its OWN tracked stock item (PREPD). Selling depletes
               // that prep stock — NOT its raw ingredients, which were already consumed
               // (and the prep credited) at prep time. See prep/logs/[id]/route.ts.
-              linkedRecipe: { select: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, pricePerBaseUnit: true } } } },
+              linkedRecipe: { select: { inventoryItem: { select: { id: true, itemName: true, ...PRICING_SELECT } } } },
             },
           },
         },
@@ -79,11 +80,11 @@ export async function GET(req: NextRequest) {
       if (ing.inventoryItemId && ing.inventoryItem) {
         // Direct inventory item
         const it = ing.inventoryItem
-        addUsage(it.id, it.itemName, it.baseUnit, Number(it.pricePerBaseUnit), convertQty(qty, ing.unit, it.baseUnit))
+        addUsage(it.id, it.itemName, it.baseUnit, pricePerBaseUnit(asChainItem(it)), convertQty(qty, ing.unit, it.baseUnit))
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         // Linked PREP → charge the prep item's own stock and stop (no recursion)
         const prep = ing.linkedRecipe.inventoryItem
-        addUsage(prep.id, prep.itemName, prep.baseUnit, Number(prep.pricePerBaseUnit), convertQty(qty, ing.unit, prep.baseUnit))
+        addUsage(prep.id, prep.itemName, prep.baseUnit, pricePerBaseUnit(asChainItem(prep)), convertQty(qty, ing.unit, prep.baseUnit))
       }
     }
   }

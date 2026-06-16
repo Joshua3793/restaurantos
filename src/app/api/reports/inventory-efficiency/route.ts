@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { computePeriodCogs } from '@/lib/cogs'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,9 +24,9 @@ export async function GET(req: NextRequest) {
 
   const items = await prisma.inventoryItem.findMany({
     where: { isActive: true },
-    select: { stockOnHand: true, pricePerBaseUnit: true },
+    select: { stockOnHand: true, ...PRICING_SELECT },
   })
-  const onHandValue = items.reduce((s, it) => s + Number(it.stockOnHand) * Number(it.pricePerBaseUnit), 0)
+  const onHandValue = items.reduce((s, it) => s + Number(it.stockOnHand) * pricePerBaseUnit(asChainItem(it)), 0)
 
   const avgInventory = (cogs.openingValue + cogs.closingValue) / 2
   const periodCogs = cogs.cogs

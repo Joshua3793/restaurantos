@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   ] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true },
-      select: { id: true, stockOnHand: true, pricePerBaseUnit: true },
+      select: { id: true, stockOnHand: true, ...PRICING_SELECT },
     }),
     prisma.salesEntry.findMany({
       where: { date: { gte: weekStart }, ...salesFilter },
@@ -119,7 +120,7 @@ export async function GET(req: NextRequest) {
 
   // Global theoretical value: Σ theoretical(itemId) × pricePerBaseUnit
   const globalValue = inventory.reduce(
-    (sum, it) => sum + (theoreticalMap.get(it.id) ?? Number(it.stockOnHand)) * Number(it.pricePerBaseUnit),
+    (sum, it) => sum + (theoreticalMap.get(it.id) ?? Number(it.stockOnHand)) * pricePerBaseUnit(asChainItem(it)),
     0,
   )
 
@@ -127,12 +128,12 @@ export async function GET(req: NextRequest) {
     prisma.stockAllocation
       .findMany({
         where: { ...where, inventoryItem: { isActive: true } },
-        select: { inventoryItemId: true, quantity: true, inventoryItem: { select: { pricePerBaseUnit: true } } },
+        select: { inventoryItemId: true, quantity: true, inventoryItem: { select: { ...PRICING_SELECT } } },
       })
       .then(rows => ({
         // Use theoretical qty from the map if available; fall back to raw allocation qty
         value: rows.reduce(
-          (s, a) => s + (theoreticalMap.get(a.inventoryItemId) ?? Number(a.quantity)) * Number(a.inventoryItem.pricePerBaseUnit),
+          (s, a) => s + (theoreticalMap.get(a.inventoryItemId) ?? Number(a.quantity)) * pricePerBaseUnit(asChainItem(a.inventoryItem)),
           0,
         ),
         count: rows.length,
