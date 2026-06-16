@@ -173,6 +173,7 @@ model Recipe {
   usedInRecipes   RecipeIngredient[] @relation("RecipeAsIngredient")
   ingredients     RecipeIngredient[] @relation("RecipeToIngredients")
   saleLineItems   SaleLineItem[]
+  toastItemMaps   ToastItemMap[]     @relation("ToastItemRecipe") // schema-only (Toast feature paused)
 }
 
 model RecipeIngredient {
@@ -266,8 +267,11 @@ model SalesEntry {
   endDate         DateTime?
   createdAt       DateTime       @default(now())
   revenueCenterId String
+  source          String         @default("manual") // 'manual' | 'toast' — schema-only (Toast feature paused; tables exist in DB)
   lineItems       SaleLineItem[]
   revenueCenter   RevenueCenter  @relation("SalesRC", fields: [revenueCenterId], references: [id])
+
+  @@unique([date, revenueCenterId, source, periodType])
 }
 
 model SaleLineItem {
@@ -516,6 +520,7 @@ model RevenueCenter {
   schedulingMode    String            @default("FIXED")
   prepLeadMinutes   Int?
   serviceSchedule   Json?
+  toastGuid         String?           @unique // schema-only (Toast feature paused; column exists in DB)
   countSessions     CountSession[]    @relation("CountRC")
   scanItems         InvoiceScanItem[] @relation("ScanItemRC")
   invoiceSessions   InvoiceSession[]  @relation("SessionRC")
@@ -659,4 +664,39 @@ model TempReading {
   unit       TempUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
 
   @@index([unitId, logDate])
+}
+
+// ── Toast POS integration (schema-only) ──────────────────────────────────────
+// The Toast feature is PAUSED (REST API Canada-blocked; pivoted to SFTP nightly
+// export — see feat/toast-integration). These models are kept here ONLY so the
+// schema matches the live DB (the migrations were applied out-of-band). No app
+// code on main references them. Full feature lives on feat/toast-integration.
+model ToastConnection {
+  id            String    @id @default("singleton")
+  status        String    @default("disconnected") // 'disconnected' | 'ok' | 'error'
+  lastSyncedAt  DateTime?
+  lastError     String?
+  lastSyncLogId String?
+  updatedAt     DateTime  @updatedAt
+}
+
+model ToastItemMap {
+  id            String   @id @default(cuid())
+  toastItemGuid String   @unique
+  toastName     String
+  recipeId      String?
+  lastSeenAt    DateTime @default(now())
+  recipe        Recipe?  @relation("ToastItemRecipe", fields: [recipeId], references: [id], onDelete: SetNull)
+}
+
+model ToastSyncLog {
+  id               String   @id @default(cuid())
+  windowStart      DateTime
+  windowEnd        DateTime
+  ordersPulled     Int      @default(0)
+  lineItemsWritten Int      @default(0)
+  unmatchedCount   Int      @default(0)
+  status           String   @default("ok") // 'ok' | 'error'
+  error            String?
+  createdAt        DateTime @default(now())
 }
