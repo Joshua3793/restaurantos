@@ -51,7 +51,7 @@ async function main() {
   results.push(await audit('InventoryItem.countUOM',    inv.map(i => i.countUOM),    true))
   results.push(await audit('InventoryItem.packUOM',     inv.map(i => i.packUOM),     true))
   results.push(await audit('InventoryItem.qtyUOM',      inv.map(i => i.qtyUOM),      true))
-  results.push(await audit('InventoryItem.purchaseUnit',inv.map(i => i.purchaseUnit),false))
+  results.push(await audit('InventoryItem.purchaseUnit',inv.map(i => i.purchaseUnit),true))
   results.push(await audit('RecipeIngredient.unit',     ing.map(i => i.unit),        true))
   results.push(await audit('Recipe.yieldUnit',          rec.map(r => r.yieldUnit),   true))
   results.push(await audit('Recipe.portionUnit',        rec.map(r => r.portionUnit), true))
