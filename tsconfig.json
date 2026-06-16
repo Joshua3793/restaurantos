@@ -36,7 +36,6 @@
     "scripts/analyze-uom-normalization.ts",
     "scripts/import-sysco-catalog.ts",
     "scripts/seed-non-stocked.ts",
-    "scripts/verify-rc-theoretical.ts",
     "scripts/verify-inventory-import.ts",
     "scripts/verify-invoice-pricing.ts",
     "scripts/repair-count-uom.ts"

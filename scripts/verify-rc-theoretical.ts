@@ -4,6 +4,7 @@
  */
 import { prisma } from '../src/lib/prisma'
 import { buildPurchaseMap } from '../src/lib/count-expected'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '../src/lib/item-model'
 
 let failures = 0
 function check(name: string, cond: boolean, detail = '') {
@@ -13,7 +14,7 @@ function check(name: string, cond: boolean, detail = '') {
 
 async function main() {
   // ── Albacore catch-weight: 20 lb billed $370, NOT 200 lb / $3,700 ──
-  const alb = await prisma.inventoryItem.findFirst({ where: { itemName: 'Albacore tuna' }, select: { id: true, pricePerBaseUnit: true } })
+  const alb = await prisma.inventoryItem.findFirst({ where: { itemName: 'Albacore tuna' }, select: { id: true, ...PRICING_SELECT } })
   if (!alb) {
     check('Albacore tuna fixture present (cannot verify per-weight fix without it)', false)
   } else {
@@ -24,7 +25,7 @@ async function main() {
       const m = await buildPurchaseMap(since, rc.id)
       total += (m.get(alb.id) ?? 0)
     }
-    const value = total * Number(alb.pricePerBaseUnit)
+    const value = total * pricePerBaseUnit(asChainItem(alb))
     check('Albacore purchase value ≈ $370 (was $3,700)', Math.abs(value - 370) < 5, `got $${value.toFixed(2)}, ${total.toFixed(0)} g across all RCs`)
     check('Albacore counted once (≈9,072 g, not 90,718)', total > 8000 && total < 10000, `${total.toFixed(0)} g`)
   }
@@ -32,9 +33,9 @@ async function main() {
   // ── ALL = sum of every RC, per item and in total ──
   {
     const { getTheoreticalStockMap } = await import('../src/lib/count-expected')
-    const items = await prisma.inventoryItem.findMany({ where: { isActive: true }, select: { id: true, pricePerBaseUnit: true } })
+    const items = await prisma.inventoryItem.findMany({ where: { isActive: true }, select: { id: true, ...PRICING_SELECT } })
     const ids = items.map(i => i.id)
-    const price = new Map(items.map(i => [i.id, Number(i.pricePerBaseUnit)]))
+    const price = new Map(items.map(i => [i.id, pricePerBaseUnit(asChainItem(i))]))
     const rcs = await prisma.revenueCenter.findMany({ select: { id: true } })
 
     const all = await getTheoreticalStockMap(null, ids)
