@@ -87,6 +87,7 @@ model InventoryItem {
   lastUpdated        DateTime                 @default(now()) @updatedAt
   location           String?
   isActive           Boolean                  @default(true)
+  isStocked          Boolean                  @default(true) // false = recipe-only utility ingredient (e.g. tap water); excluded from counts/valuation/purchasing/theoretical stock
   lastCountDate      DateTime?
   lastCountQty       Decimal?
   allergens          String[]                 @default([])
