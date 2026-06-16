@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params
@@ -47,7 +48,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       prisma.inventoryItem.findMany({
         where: { supplierId: id },
         orderBy: { itemName: 'asc' },
-        select: { id: true, itemName: true, pricePerBaseUnit: true, baseUnit: true },
+        select: { id: true, itemName: true, ...PRICING_SELECT },
       }),
     ])
 
@@ -72,7 +73,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     items: items.map(i => ({
       id: i.id,
       itemName: i.itemName,
-      pricePerBaseUnit: Number(i.pricePerBaseUnit),
+      pricePerBaseUnit: pricePerBaseUnit(asChainItem(i)),
       baseUnit: i.baseUnit,
     })),
   })

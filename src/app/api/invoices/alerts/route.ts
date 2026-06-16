@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // GET /api/invoices/alerts — get all unacknowledged alerts
 export async function GET() {
-  const [priceAlerts, recipeAlerts] = await Promise.all([
+  const [priceAlertsRaw, recipeAlerts] = await Promise.all([
     prisma.priceAlert.findMany({
       where: { acknowledged: false },
       include: {
-        inventoryItem: { select: { id: true, itemName: true, purchaseUnit: true, baseUnit: true, pricePerBaseUnit: true } },
+        inventoryItem: { select: { id: true, itemName: true, purchaseUnit: true, ...PRICING_SELECT } },
         session: { select: { id: true, supplierName: true, invoiceDate: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -21,6 +22,14 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     }),
   ])
+
+  // Keep the response's inventoryItem.pricePerBaseUnit field populated for the
+  // alert UI by computing it from the chain (survives the legacy column drop).
+  const priceAlerts = priceAlertsRaw.map(a =>
+    a.inventoryItem
+      ? { ...a, inventoryItem: { ...a.inventoryItem, pricePerBaseUnit: pricePerBaseUnit(asChainItem(a.inventoryItem)) } }
+      : a
+  )
 
   return NextResponse.json({
     priceAlerts,

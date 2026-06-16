@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, computeExpected } from '@/lib/count-expected'
 import { resolveCountUom } from '@/lib/count-uom'
+import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
               packUOM:            item.packUOM,
               countUOM:           item.countUOM ?? 'each',
             }) || item.baseUnit,
-            priceAtCount:    item.pricePerBaseUnit,
+            priceAtCount:    pricePerBaseUnit(asChainItem(item)),
             sortOrder:       i,
           }
         }),

@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { computeExpectedForItem } from '@/lib/count-expected'
 import { finalizeCountSession } from '@/lib/count-finalize'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           expectedQty:     expected.expectedBase,
           countedQty,
           selectedUom,
-          priceAtCount:    item.pricePerBaseUnit,
+          priceAtCount:    pricePerBaseUnit(asChainItem(item)),
           sortOrder:       0,
         }],
       },
