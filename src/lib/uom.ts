@@ -160,6 +160,24 @@ export function assertKnownUnit(uom: string | null | undefined, field?: string):
   return c
 }
 
+/**
+ * The canonical UNIT TOKEN for an item's purchase unit, tolerant of legacy display
+ * strings. If the value is already a known token (measurement or container — e.g.
+ * 'kg', 'batch', 'each', 'case', 'CS'), keep it. Otherwise it's a display string:
+ * return the first CONTAINER word found anywhere ("25kg bag" → 'bag', "case (6×2.84 l)"
+ * → 'case'), else 'each' (bare-weight packs like "5 kg" / "454 g").
+ */
+export function purchaseUnitToken(raw: string | null | undefined): string {
+  const v = (raw ?? '').trim()
+  if (!v) return 'each'
+  if (isKnownUnit(v)) return canonicalUom(v)
+  for (const w of v.toLowerCase().split(/[\s(),×x]+/).filter(Boolean)) {
+    const c = canonicalUom(w)
+    if (CONTAINER_UNITS.has(c)) return c
+  }
+  return 'each'
+}
+
 export interface UomGroup {
   label: string
   base: string

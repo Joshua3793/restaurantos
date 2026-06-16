@@ -7,7 +7,7 @@
  * These functions handle converting back to baseUnit for persistence.
  */
 
-import { convertQty, canonicalUom, CONTAINER_UNITS } from './uom'
+import { convertQty, canonicalUom, CONTAINER_UNITS, purchaseUnitToken } from './uom'
 import { deriveBaseUnit, getUnitConv, getUnitDimension, isMeasuredUnit } from './utils'
 
 export interface CountableUom {
@@ -91,11 +91,12 @@ export function resolveCountUom(item: ItemDims): string {
 
 /**
  * Human-readable pack display derived ONLY from the structured columns (never a stored
- * string). The leading word of purchaseUnit gives the container token; the numbers come
- * from qtyPerPurchaseUnit/innerQty/packSize/packUOM. Single source for every pack label.
+ * string). The container token comes from purchaseUnit via purchaseUnitToken (tolerant of
+ * legacy display strings); the numbers come from qtyPerPurchaseUnit/innerQty/packSize/packUOM.
+ * Single source for every pack label.
  */
 export function formatPurchaseDisplay(item: ItemDims): string {
-  const token = canonicalUom((item.purchaseUnit ?? '').trim().split(/[\s(]/)[0])
+  const token = purchaseUnitToken(item.purchaseUnit)
   const isContainerTok = CONTAINER_UNITS.has(token)
   const qtyUOM = item.qtyUOM ?? 'each'
   const qty = Number(item.qtyPerPurchaseUnit)
@@ -145,7 +146,7 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
 
   // Purchase unit (case / bag / etc.) — label is the canonical container token; display derives from structured cols.
   uoms.push({
-    label: canonicalUom((item.purchaseUnit ?? 'each').trim().split(/[\s(]/)[0]) || 'each',
+    label: purchaseUnitToken(item.purchaseUnit),
     toBase: purchaseToBase,
     hint: buildCaseHint(item),
     display: formatPurchaseDisplay(item),
