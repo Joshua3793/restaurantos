@@ -36,8 +36,6 @@ export async function POST() {
         packSize: 1,
         packUOM: yieldUnit,
         countUOM: yieldUnit,
-        conversionFactor: 1,
-        pricePerBaseUnit: 0,
         stockOnHand: 0,
       },
     })

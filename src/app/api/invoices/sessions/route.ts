@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcPricePerBaseUnit } from '@/lib/utils'
 
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
@@ -52,7 +51,7 @@ export async function DELETE(req: NextRequest) {
           where: { action: 'UPDATE_PRICE', approved: true },
           select: {
             matchedItemId: true, previousPrice: true,
-            matchedItem: { select: { id: true, qtyPerPurchaseUnit: true, qtyUOM: true, innerQty: true, packSize: true, packUOM: true, priceType: true } },
+            matchedItem: { select: { id: true, packUOM: true, baseUnit: true, priceType: true } },
           },
         },
       },
@@ -63,19 +62,21 @@ export async function DELETE(req: NextRequest) {
       for (const scanItem of session.scanItems) {
         if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
         const prevPrice = Number(scanItem.previousPrice)
+        // Revert the spine by rolling the `pricing` chain back to the previous
+        // price (the computed pricePerBaseUnit is derived from it). Mirror the
+        // process-route price-only rebuild: UOM → RATE, otherwise PACK. The pack
+        // FORMAT (packChain/dimension/countUnit) is untouched — only price changed.
+        const mi = scanItem.matchedItem
+        const revertedPricing =
+          mi.priceType === 'UOM'
+            ? { mode: 'RATE', rate: prevPrice, rateUnit: mi.baseUnit || mi.packUOM || 'each' }
+            : { mode: 'PACK', purchasePrice: prevPrice }
         await prisma.inventoryItem.update({
           where: { id: scanItem.matchedItemId },
           data: {
             purchasePrice: prevPrice,
-            pricePerBaseUnit: calcPricePerBaseUnit(
-              prevPrice,
-              Number(scanItem.matchedItem.qtyPerPurchaseUnit),
-              scanItem.matchedItem.qtyUOM ?? 'each',
-              scanItem.matchedItem.innerQty != null ? Number(scanItem.matchedItem.innerQty) : null,
-              Number(scanItem.matchedItem.packSize),
-              scanItem.matchedItem.packUOM ?? 'each',
-              (scanItem.matchedItem.priceType ?? 'CASE') as 'CASE' | 'UOM',
-            ),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            pricing: revertedPricing as any,
           },
         })
         pricesReverted++

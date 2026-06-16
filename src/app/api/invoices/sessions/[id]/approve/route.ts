@@ -208,7 +208,6 @@ async function doApprove(
             where: { id: scanItem.matchedItemId },
             data: {
               purchasePrice:    newPurchasePrice,
-              pricePerBaseUnit: newPricePerBase,
               priceType:        rawPriceType === 'UOM' ? 'UOM' : 'CASE', // PKG is a purchasing exception; stored as CASE
               lastUpdated:      new Date(),
               ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
@@ -325,8 +324,6 @@ async function doApprove(
         const newPackSize = Number(newData.packSize) || 1
         const newPackUOM  = newData.packUOM || 'each'
         const newPriceType: 'CASE' | 'UOM' = newData.priceType === 'UOM' ? 'UOM' : 'CASE'
-        const newPricePerBase = Number(newData.pricePerBaseUnit) ||
-          calcPricePerBaseUnit(newPurchasePrice, newPackQty, 'each', null, newPackSize, newPackUOM, newPriceType)
         const newCountUOM = newData.countUOM || 'each'
         // Reconstruct the chain from the resolved pack fields so the new item is
         // born with a chain that reproduces newPricePerBase via pricePerBaseUnit().
@@ -354,8 +351,6 @@ async function doApprove(
             baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
             packSize:           newPackSize,
             packUOM:            newPackUOM,
-            conversionFactor:   Number(newData.conversionFactor) || 1,
-            pricePerBaseUnit:   newPricePerBase,
             priceType:          newPriceType,
             supplierId:         session.supplierId || null,
             // Chain dual-write alongside the legacy fields.

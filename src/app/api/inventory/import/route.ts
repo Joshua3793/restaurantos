@@ -49,8 +49,6 @@ export async function POST(req: NextRequest) {
           priceType: r.payload!.priceType,
           countUOM: r.payload!.countUOM,
           purchasePrice: r.payload!.purchasePrice,
-          pricePerBaseUnit: r.payload!.pricePerBaseUnit,
-          conversionFactor: r.payload!.conversionFactor,
           baseUnit: r.payload!.baseUnit,
           stockOnHand: r.payload!.stockOnHand,
           barcode: r.payload!.barcode,

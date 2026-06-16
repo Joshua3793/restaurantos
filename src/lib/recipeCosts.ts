@@ -5,7 +5,6 @@
  */
 import { prisma } from './prisma'
 import { convertQty } from './uom'
-import { getUnitConv } from './utils'
 import { dimensionOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
@@ -249,23 +248,15 @@ export async function syncPrepToInventory(recipeId: string) {
 
   const baseYieldQty     = recipe.baseYieldQty > 0 ? recipe.baseYieldQty : 1
   const yieldUnit        = recipe.yieldUnit
-  const pricePerBaseUnit = recipe.totalCost / baseYieldQty
 
-  // Preserve the user-chosen countUOM; only recompute conversionFactor from it
+  // Preserve the user-chosen countUOM (drives the chain's countUnit below).
   const current = await prisma.inventoryItem.findUnique({
     where:  { id: recipe.inventoryItemId },
     select: { countUOM: true },
   })
   const countUOM = current?.countUOM ?? yieldUnit
 
-  // conversionFactor = how many baseUnits per 1 countUnit
-  // Uses getUnitConv (same constants as pricing) so recipe costs stay consistent with inventory
-  let conversionFactor = getUnitConv(countUOM) / getUnitConv(yieldUnit)
-  // 'batch' is a special pseudo-unit: 1 batch = full recipe yield
-  if (countUOM.toLowerCase() === 'batch') conversionFactor = baseYieldQty
-  // Incompatible or unknown units: getUnitConv returns 1 for both → ratio = 1 (safe fallback)
-
-  // Item-model chain (dual-write): a one-link PACK chain whose per = baseYieldQty
+  // Item-model chain (authoritative): a one-link PACK chain whose per = baseYieldQty
   // and pricing.purchasePrice = totalCost reproduces the same ppb (totalCost /
   // baseYieldQty) the legacy write computes above. NOTE: the legacy `baseUnit`
   // write below stays `yieldUnit` (unchanged) — chain ppb is derived purely from
@@ -278,13 +269,11 @@ export async function syncPrepToInventory(recipeId: string) {
     where: { id: recipe.inventoryItemId },
     data: {
       purchasePrice:      recipe.totalCost,
-      pricePerBaseUnit,
       baseUnit:           yieldUnit,
       packUOM:            yieldUnit,
       packSize:           baseYieldQty,
       qtyPerPurchaseUnit: 1,
       purchaseUnit:       'batch',
-      conversionFactor,
       allergens:          recipe.allergens,
       dimension:          prepDimension,
       packChain:          prepChain as any,

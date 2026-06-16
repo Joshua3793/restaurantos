@@ -159,8 +159,6 @@ export async function POST(req: NextRequest) {
             packSize: 1,
             packUOM: canonYield,
             countUOM: canonYield,
-            conversionFactor: 1,
-            pricePerBaseUnit: 0,
             stockOnHand: 0,
           },
         })

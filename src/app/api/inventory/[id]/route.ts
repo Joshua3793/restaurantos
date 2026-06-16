@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
+import { deriveBaseUnit, QTY_UOMS, canonicalUom } from '@/lib/utils'
 import { formToChain } from '@/lib/item-model-form'
 import {
-  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
-  validateChainItem, withPpb, type ChainItem,
+  DIMENSION_BASE, validateChainItem, withPpb, type ChainItem,
 } from '@/lib/item-model'
 import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
@@ -70,10 +69,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         packChain: packChain as any,
         pricing: pricing as any,
         countUnit,
-        // non-stocked (recipe-only) items carry no inventory value — spine stays 0
-        pricePerBaseUnit: (rest as any).isStocked !== false ? chainPricePerBaseUnit(ci) : 0,
         baseUnit: ci.baseUnit,
-        conversionFactor: basePerUnit(ci, countUnit),
         countUOM: countUnit,
         priceType: pricing.mode === 'RATE' ? 'UOM' : 'CASE',
         purchaseUnit: packChain[0]?.unit ?? 'each',
@@ -148,13 +144,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const existingPriceType = (before?.priceType === 'UOM' ? 'UOM' : 'CASE') as 'CASE' | 'UOM'
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : priceType === 'CASE' ? 'CASE' : existingPriceType
 
-  // Save using standard purchase formula first
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
-  const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
+  // Derive the canonical base unit for the legacy column (chain carries pricing).
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
-  // Non-stocked (recipe-only) items carry no inventory value — pin their spine price to 0.
+  // Non-stocked (recipe-only) items carry no inventory value — pricing chain reflects 0.
   const isStocked = rest.isStocked !== false
-  const finalPPB  = isStocked ? pricePerBaseUnit : 0
   const chain = formToChain({
     purchaseUnit: purchaseUnitTok, purchasePrice: isStocked ? pp : 0,
     qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
@@ -175,8 +168,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       innerQty: iq,
       priceType: pt,
       needsReview: false,
-      conversionFactor,
-      pricePerBaseUnit: finalPPB,
       baseUnit,
       dimension: chain.dimension,
       packChain: chain.packChain as any,

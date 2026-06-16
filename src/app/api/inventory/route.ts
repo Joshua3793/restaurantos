@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
+import { deriveBaseUnit } from '@/lib/utils'
 import { formToChain } from '@/lib/item-model-form'
 import {
-  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit,
+  DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit,
   validateChainItem, withPpb, asChainItem, type ChainItem,
 } from '@/lib/item-model'
 import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
@@ -187,9 +187,7 @@ export async function POST(req: NextRequest) {
         pricing: pricing as any,
         countUnit,
         // derived legacy fields (dual-write)
-        pricePerBaseUnit: isStocked ? chainPricePerBaseUnit(ci) : 0,
         baseUnit: ci.baseUnit,
-        conversionFactor: basePerUnit(ci, countUnit),
         countUOM: countUnit,
         priceType: pricing.mode === 'RATE' ? 'UOM' : 'CASE',
         purchaseUnit: packChain[0]?.unit ?? 'each',
@@ -241,12 +239,9 @@ export async function POST(req: NextRequest) {
     countUOM:           hasWeightPerEach ? (countUOM ?? 'each') : 'each',
   })
   const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
-  const pricePerBaseUnit = calcPricePerBaseUnit(pp, qty, qu, iq, ps, pu, pt)
-  const conversionFactor = calcConversionFactor(cu, qty, qu, iq, ps, pu)
   const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
-  // Non-stocked (recipe-only) items carry no inventory value — pin their spine price to 0.
+  // Non-stocked (recipe-only) items carry no inventory value — pricing chain reflects 0.
   const isStocked = body.isStocked !== false
-  const finalPPB  = isStocked ? pricePerBaseUnit : 0
   const chain = formToChain({
     purchaseUnit: purchaseUnitTok, purchasePrice: isStocked ? pp : 0,
     qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
@@ -264,8 +259,6 @@ export async function POST(req: NextRequest) {
       qtyUOM: qu,
       innerQty: iq,
       priceType: pt,
-      conversionFactor,
-      pricePerBaseUnit: finalPPB,
       baseUnit,
       dimension: chain.dimension,
       packChain: chain.packChain as any,
