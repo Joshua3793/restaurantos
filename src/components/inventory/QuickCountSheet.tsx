@@ -13,7 +13,6 @@ export interface QuickCountItem {
   baseUnit: string
   packChain?: unknown
   countUnit?: string | null
-  countUOM?: string
   lastCountQty?: number | string | null
 }
 
@@ -34,7 +33,7 @@ export function QuickCountSheet({ item, onClose, onDone }: Props) {
     dimension: item.dimension ?? 'COUNT',
     baseUnit:  item.baseUnit,
     packChain: item.packChain ?? [],
-    countUnit: item.countUnit ?? item.countUOM ?? null,
+    countUnit: item.countUnit ?? null,
   }), [item])
 
   const uoms       = useMemo(() => getCountableUoms(dims), [dims])

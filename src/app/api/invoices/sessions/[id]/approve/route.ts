@@ -9,7 +9,7 @@ import { calcPricePerBaseUnit, getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, type PackLink } from '@/lib/item-model'
-import { purchaseUnitToken, dimensionallyCostable } from '@/lib/uom'
+import { dimensionallyCostable } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -27,7 +27,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; qtyPerPurchaseUnit: any; qtyUOM: string | null; innerQty: any; packSize: any; packUOM: string | null; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; rawPriceType: 'CASE' | 'PKG' | 'UOM' | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null; applyInvoiceFormat: boolean }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -231,13 +231,15 @@ async function doApprove(
         const newPricing = rawPriceType === 'UOM'
           ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: resolvedRateUnit }
           : { mode: 'PACK', purchasePrice: newPurchasePrice }
-        // matchedItem is loaded with `include: { matchedItem: true }` (full row)
-        // but typed narrowly above — read the extra fields off an `any` view.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const itemAny = item as any
+        // The chain is authoritative. The pack FORMAT (packChain/dimension/
+        // countUnit) only changes when the user consented to adopt the invoice's
+        // format (useInvoicePack) — otherwise the stored chain is preserved.
+        // The top container name comes from the item's own stored chain; the
+        // count unit from its stored countUnit (no legacy-column reads).
+        const itemTopUnit = (item.packChain as PackLink[] | null)?.[0]?.unit
         const formatChain = useInvoicePack
           ? formToChain({
-              purchaseUnit:       itemAny.purchaseUnit ?? scanItem.rawUnit ?? 'case',
+              purchaseUnit:       itemTopUnit ?? scanItem.rawUnit ?? 'case',
               purchasePrice:      newPurchasePrice,
               qtyPerPurchaseUnit: packQty,
               qtyUOM:             'each', // invoice-format pack is expressed via packSize/packUOM
@@ -245,7 +247,7 @@ async function doApprove(
               packSize,
               packUOM,
               priceType:          rawPriceType,
-              countUOM:           itemAny.countUOM ?? 'each',
+              countUOM:           item.countUnit ?? 'each',
             })
           : null
 
@@ -255,10 +257,8 @@ async function doApprove(
             where: { id: scanItem.matchedItemId },
             data: {
               purchasePrice:    newPurchasePrice,
-              priceType:        rawPriceType === 'UOM' ? 'UOM' : 'CASE', // PKG is a purchasing exception; stored as CASE
               lastUpdated:      new Date(),
-              ...(useInvoicePack ? { qtyPerPurchaseUnit: packQty, packSize, packUOM } : {}),
-              // Chain dual-write: pricing always; format only under consent.
+              // Chain write: pricing always; format only under consent.
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               pricing: newPricing as any,
               ...(formatChain
@@ -336,7 +336,7 @@ async function doApprove(
           const itemChain = (item.packChain as PackLink[]) ?? []
           const offerChain = hasLinePack
             ? formToChain({
-                purchaseUnit:       itemAny.purchaseUnit ?? scanItem.rawUnit ?? 'case',
+                purchaseUnit:       itemTopUnit ?? scanItem.rawUnit ?? 'case',
                 purchasePrice:      offerLastPrice,
                 qtyPerPurchaseUnit: Number(scanItem.invoicePackQty),
                 qtyUOM:             'each', // offer pack is expressed via packSize/packUOM
@@ -348,7 +348,7 @@ async function doApprove(
                   ? resolvedRateUnit
                   : (scanItem.invoicePackUOM ?? 'each'),
                 priceType:          rawPriceType,
-                countUOM:           itemAny.countUOM ?? 'each',
+                countUOM:           item.countUnit ?? 'each',
                 baseUnit:           item.baseUnit ?? undefined,
               })
             : {
@@ -440,17 +440,12 @@ async function doApprove(
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
             category:           newData.category || 'DRY',
-            purchaseUnit:       purchaseUnitToken(newData.purchaseUnit || scanItem.rawUnit || 'each'),
-            qtyPerPurchaseUnit: newPackQty,
             purchasePrice:      newPurchasePrice,
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would
             // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
-            baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
-            packSize:           newPackSize,
-            packUOM:            newPackUOM,
-            priceType:          newPriceType,
+            baseUnit:           newChain.baseUnit,
             supplierId:         session.supplierId || null,
-            // Chain dual-write alongside the legacy fields.
+            // Chain columns (authoritative).
             dimension:          newChain.dimension,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             packChain:          newChain.packChain as any,

@@ -200,25 +200,20 @@ interface InventoryItem {
   id: string; itemName: string; category: string
   supplier?: Supplier | null;    supplierId?: string | null
   storageArea?: StorageArea | null; storageAreaId?: string | null
-  purchaseUnit: string; qtyPerPurchaseUnit: number
   purchasePrice: number; baseUnit: string
-  packSize: number; packUOM: string; countUOM: string
   dimension: Dimension; packChain: PackLink[]; countUnit: string
   pricing?: Pricing
-  conversionFactor: number; pricePerBaseUnit: number
+  pricePerBaseUnit: number
   stockOnHand: number
   theoreticalStock?: number   // theoretical on-hand from engine (baseUnit); headline display
   countedStock?: number       // real counted value (stockOnHand at time of API response)
   rcStock?: number        // set when viewing a non-default RC (from StockAllocation)
-  parLevel?:   number | null  // in countUOM; null = no par set
-  reorderQty?: number | null  // in purchaseUnit; null = auto-calculate
+  parLevel?:   number | null  // in count units; null = no par set
+  reorderQty?: number | null  // in purchase units; null = auto-calculate
   barcode?:    string | null
   allergens?: string[]
   isActive: boolean
   isStocked?: boolean
-  qtyUOM?: string | null
-  innerQty?: number | string | null
-  priceType?: 'CASE' | 'UOM' | null
   needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
@@ -228,21 +223,6 @@ type SortMode  = 'category' | 'all'
 type ColKey    = 'item' | 'category' | 'supplier' | 'price' | 'stock' | 'value'
 type ColDir    = 'asc' | 'desc'
 type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'lowStock' | 'active' | 'inactive'
-
-interface EditForm {
-  itemName: string; category: string
-  supplierId: string; supplierName: string
-  storageAreaId: string; storageAreaName: string
-  purchaseUnit: string; qtyPerPurchaseUnit: string
-  purchasePrice: string
-  packSize: string; packUOM: string; countUOM: string
-  qtyUOM: string
-  innerQty: string
-  stockOnHand: string
-  isActive: boolean
-  allergens: string[]
-  barcode: string | null
-}
 
 // First-click direction per column: text cols go A→Z, numeric cols go high→low
 const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
@@ -314,27 +294,6 @@ function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
   )
 }
 
-function buildPurchaseDescription(
-  purchaseUnit: string,
-  qty: number,
-  qtyUOM: string,
-  innerQty: number | null,
-  packSize: number,
-  packUOM: string,
-): string {
-  const pu = purchaseUnit || 'unit'
-  if (isMeasuredUnit(qtyUOM)) return `${pu} of ${qty} ${qtyUOM}`
-  const hasWeight = packSize > 0 && packUOM && !['each',''].includes(packUOM)
-  if (qtyUOM === 'pack' && innerQty) {
-    return hasWeight
-      ? `${pu} of ${qty} packs × ${innerQty} × ${packSize}${packUOM}`
-      : `${pu} of ${qty} packs × ${innerQty} each`
-  }
-  return hasWeight
-    ? `${pu} of ${qty} × ${packSize}${packUOM} each`
-    : `${pu} of ${qty} each`
-}
-
 function normalizePurchaseUnit(raw: string): string {
   if ((PURCHASE_UNITS as readonly string[]).includes(raw)) return raw
   const found = (PURCHASE_UNITS as readonly string[]).find(u => raw.toLowerCase().includes(u))
@@ -343,7 +302,7 @@ function normalizePurchaseUnit(raw: string): string {
 
 function normalizeItem(item: InventoryItem): InventoryItem {
   const dims = { dimension: item.dimension, baseUnit: item.baseUnit, packChain: item.packChain, countUnit: item.countUnit }
-  return { ...item, countUOM: resolveCountUom(dims) }
+  return { ...item, countUnit: resolveCountUom(dims) }
 }
 
 function isCountedThisWeek(item: InventoryItem) {
@@ -439,15 +398,6 @@ function InventoryPageInner() {
     movements: StockMovement[]
   }
   const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
-  const [editMode,     setEditMode]     = useState(false)
-  const [editForm,     setEditForm]     = useState<EditForm>({
-    itemName: '', category: '', supplierId: '', supplierName: '',
-    storageAreaId: '', storageAreaName: '', purchaseUnit: 'case',
-    qtyPerPurchaseUnit: '1', purchasePrice: '0',
-    packSize: '', packUOM: 'each', countUOM: 'each',
-    qtyUOM: 'each', innerQty: '',
-    stockOnHand: '0', isActive: true, allergens: [], barcode: null,
-  })
   const [filterNeedsReview, setFilterNeedsReview] = useState(false)
 
   const fetchItems = useCallback(() => {
@@ -529,8 +479,8 @@ function InventoryPageInner() {
   const effStock = (i: InventoryItem) =>
     i.theoreticalStock ?? i.rcStock ?? parseFloat(String(i.stockOnHand))
 
-  // Stock converted from baseUnit to countUOM for human display
-  const displayStock = (i: InventoryItem) => convertBaseToCountUom(effStock(i), i.countUOM || i.baseUnit, {
+  // Stock converted from baseUnit to count unit for human display
+  const displayStock = (i: InventoryItem) => convertBaseToCountUom(effStock(i), i.countUnit || i.baseUnit, {
     dimension: i.dimension,
     baseUnit: i.baseUnit,
     packChain: i.packChain,
@@ -754,57 +704,6 @@ function InventoryPageInner() {
     setShowAdd(false); setForm(defaultForm); fetchItems()
   }
 
-  const handleSave = async () => {
-    if (!selected) return
-    const res = await fetch(`/api/inventory/${selected.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemName: editForm.itemName,
-        category: editForm.category,
-        supplierId: editForm.supplierId || null,
-        storageAreaId: editForm.storageAreaId || null,
-        purchaseUnit: editForm.purchaseUnit,
-        qtyPerPurchaseUnit: editForm.qtyPerPurchaseUnit,
-        purchasePrice: editForm.purchasePrice,
-        packSize: editForm.packSize,
-        packUOM: editForm.packUOM,
-        countUOM: editForm.countUOM,
-        qtyUOM: editForm.qtyUOM,
-        innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-        stockOnHand: convertCountQtyToBase(
-          parseFloat(editForm.stockOnHand) || 0,
-          editForm.countUOM,
-          // Build a chain from the (possibly edited) legacy form fields so the
-          // count→base conversion reflects the structure being saved. Phase B
-          // replaces this legacy edit form with the chain editor.
-          formToChain({
-            purchaseUnit: editForm.purchaseUnit,
-            purchasePrice: parseFloat(editForm.purchasePrice) || 0,
-            qtyPerPurchaseUnit: parseFloat(editForm.qtyPerPurchaseUnit) || 1,
-            qtyUOM: editForm.qtyUOM || 'each',
-            innerQty: editForm.innerQty ? parseFloat(editForm.innerQty) : null,
-            packSize: parseFloat(editForm.packSize) || 1,
-            packUOM: editForm.packUOM,
-            priceType: (selected.pricing?.mode === 'RATE' ? 'UOM' : 'CASE'),
-            countUOM: editForm.countUOM,
-          }),
-        ),
-        isActive: editForm.isActive,
-        allergens: editForm.allergens,
-        barcode: editForm.barcode,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      alert(err?.error ?? `Save failed (${res.status}). Please try again.`)
-      return
-    }
-    const updated = await res.json()
-    setSelected({ ...selected, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
-    setEditMode(false)
-    fetchItems()
-  }
 
   const addChainItem = {
     dimension: form.dimension,
@@ -863,11 +762,11 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px]">
           <div>
             <span className="font-mono text-[13px] text-ink-2 whitespace-nowrap">
-              {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUOM || formatPurchaseDisplay(item)}</small>
+              {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUnit || formatPurchaseDisplay(item)}</small>
             </span>
             {item.countedStock != null && item.lastCountDate && (
               <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
-                counted {convertBaseToCountUom(item.countedStock, item.countUOM || item.baseUnit, {
+                counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
                   dimension: item.dimension, baseUnit: item.baseUnit,
                   packChain: item.packChain, countUnit: item.countUnit,
                 }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
@@ -940,14 +839,14 @@ function InventoryPageInner() {
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className={`font-mono text-[10.5px] ${inStock ? 'text-ink-3' : 'text-gold-2 font-semibold'}`}>
-              {displayStock(item).toFixed(1)} {item.countUOM || item.baseUnit}
+              {displayStock(item).toFixed(1)} {item.countUnit || item.baseUnit}
               {!inStock && ' · OUT'}
             </span>
             {item.supplier && <span className="font-mono text-[10px] text-ink-4">· {item.supplier.name}</span>}
           </div>
           {item.countedStock != null && item.lastCountDate && (
             <div className="font-mono text-[9.5px] text-ink-4 mt-0.5">
-              counted {convertBaseToCountUom(item.countedStock, item.countUOM || item.baseUnit, {
+              counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
                 dimension: item.dimension, baseUnit: item.baseUnit,
                 packChain: item.packChain, countUnit: item.countUnit,
               }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
@@ -1642,7 +1541,7 @@ function InventoryPageInner() {
                                 </div>
                                 {item.parLevel != null ? (
                                   <div className="text-xs text-ink-4">
-                                    Par {item.parLevel} {item.countUOM} · Have {displayStock(item).toFixed(1)}
+                                    Par {item.parLevel} {item.countUnit} · Have {displayStock(item).toFixed(1)}
                                   </div>
                                 ) : (
                                   <div className="text-xs text-ink-4">

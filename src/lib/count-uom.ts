@@ -29,15 +29,12 @@ export interface CountableUom {
 
 /**
  * Item facts the count converters + display helper need — all chain-derived.
- * (`countUOM` is tolerated only as a legacy fallback key in `resolveCountUom`,
- * never as a pack-structure source.)
  */
 interface ItemDims {
   dimension: string
   baseUnit: string
   packChain: unknown
   countUnit?: string | null
-  countUOM?: string | null
 }
 
 function fmtNum(n: number): string {
@@ -89,7 +86,7 @@ function resolveUnitBase(selectedUom: string, item: ItemDims): number {
  */
 export function resolveCountUom(item: ItemDims): string {
   const ci = asChainItem(item as Parameters<typeof asChainItem>[0])
-  const stored = item.countUnit ?? item.countUOM ?? ci.countUnit
+  const stored = item.countUnit ?? ci.countUnit
   if (stored) {
     const lv = levelBaseUnits(ci.packChain)
     const inChain = Object.keys(lv).some(k => k.toLowerCase() === stored.toLowerCase())

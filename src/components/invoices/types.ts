@@ -13,18 +13,11 @@ export interface ScanFile {
 export interface InventoryMatch {
   id: string
   itemName: string
-  purchaseUnit: string
   pricePerBaseUnit: string
   purchasePrice: string
-  qtyPerPurchaseUnit: string
-  packSize: string
-  packUOM: string
   baseUnit: string
-  priceType: string
-  qtyUOM: string
-  innerQty: string | null
   // Chain pricing facts (PRICING_SELECT). The card derives pack display + the
-  // "use invoice format" prefill from these, not the legacy columns above.
+  // "use invoice format" prefill + pricing mode from these.
   dimension?: string
   packChain?: unknown
   pricing?: unknown

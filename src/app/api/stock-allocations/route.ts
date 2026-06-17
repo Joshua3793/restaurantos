@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   // stored in baseUnit (e.g. g). Convert before decrementing / comparing —
   // otherwise pulling 2.28 kg decremented stockOnHand by 2.28 g, leaving the
   // main pool ~unchanged while the RC allocation showed the full amount.
-  const countUOM = item.countUnit || item.countUOM || item.baseUnit
+  const countUOM = item.countUnit || item.baseUnit
   const dims = {
     dimension: item.dimension,
     baseUnit:  item.baseUnit,

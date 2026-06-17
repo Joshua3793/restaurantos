@@ -32,13 +32,9 @@ export async function GET(req: NextRequest) {
       select: {
         id: true,
         itemName: true,
-        purchaseUnit: true,
         purchasePrice: true,
         ...PRICING_SELECT,
         category: true,
-        qtyPerPurchaseUnit: true,
-        packSize: true,
-        packUOM: true,
         barcode: true,
       },
     })
@@ -65,13 +61,9 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       itemName: true,
-      purchaseUnit: true,
       purchasePrice: true,
       ...PRICING_SELECT,
       category: true,
-      qtyPerPurchaseUnit: true,
-      packSize: true,
-      packUOM: true,
     },
     orderBy: { itemName: 'asc' },
     take: Math.min(limit * 5, 100),

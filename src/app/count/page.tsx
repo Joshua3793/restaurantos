@@ -34,13 +34,6 @@ interface InventoryItemRef {
   dimension: string
   packChain: unknown
   countUnit?: string | null
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  qtyUOM?: string | null
-  innerQty?: number | string | null
-  packSize: number
-  packUOM: string
-  countUOM: string
   pricePerBaseUnit?: number | string   // live spine price — used for in-progress value/variance
   location: string | null
   storageArea: { id: string; name: string } | null
@@ -797,10 +790,34 @@ export default function CountPage() {
     e.preventDefault()
     if (!active) return
     setAddItemSaving(true)
+    // Build a chain body from the quick-add fields. The form is already chain-
+    // shaped: baseUnit → dimension; the purchase unit holds (qtyPerPurchaseUnit ×
+    // conversionFactor) base units. Two-link chain: top container → 'each' leaf
+    // carrying `conversionFactor` base units. Pricing is PACK at the purchase price.
+    const bu = addItemForm.baseUnit
+    const dimension = bu === 'g' ? 'MASS' : bu === 'ml' ? 'VOLUME' : 'COUNT'
+    const top = addItemForm.purchaseUnit || 'case'
+    const qtyPer = parseFloat(addItemForm.qtyPerPurchaseUnit) || 1
+    const conv = parseFloat(addItemForm.conversionFactor) || 1
+    const packChain = top.toLowerCase() === 'each' && qtyPer === 1
+      ? [{ unit: 'each', per: conv }]
+      : [{ unit: top, per: qtyPer }, { unit: 'each', per: conv }]
+    const chainBody = {
+      itemName: addItemForm.itemName,
+      category: addItemForm.category,
+      supplierId: addItemForm.supplierId || null,
+      storageAreaId: addItemForm.storageAreaId || null,
+      location: addItemForm.location || null,
+      stockOnHand: parseFloat(addItemForm.stockOnHand) || 0,
+      dimension,
+      packChain,
+      pricing: { mode: 'PACK', purchasePrice: parseFloat(addItemForm.purchasePrice) || 0 },
+      countUnit: top,
+    }
     const res = await fetch('/api/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(addItemForm),
+      body: JSON.stringify(chainBody),
     })
     const newItem = await res.json()
     // Add the new item as a count line in the active session

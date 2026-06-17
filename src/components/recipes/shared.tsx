@@ -2,7 +2,7 @@
 // ─── Shared types, helpers and components used by both Recipe Book and Menu pages ───
 import { useEffect, useState, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { formatCurrency, formatUnitPrice, formatQtyUnit, calcPricePerBaseUnit, deriveBaseUnit, PACK_UOMS, compatibleCountUnits, getUnitDimension } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, formatQtyUnit } from '@/lib/utils'
 import { UOM_GROUPS, getUnitGroup, convertQty, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
@@ -183,17 +183,6 @@ export function catDot(color: string | null) {
   )
 }
 
-// ─── InventoryItemDetail (minimal shape from GET /api/inventory/:id) ──────────
-interface InventoryItemDetail {
-  id: string; itemName: string; category: string
-  supplierId: string | null; storageAreaId: string | null
-  purchaseUnit: string; qtyPerPurchaseUnit: number
-  purchasePrice: number; baseUnit: string
-  packSize: number; packUOM: string; countUOM: string
-  conversionFactor: number; pricePerBaseUnit: number
-  stockOnHand: number; abbreviation: string | null; isActive: boolean
-  recipe: { id: string; name: string } | null
-}
 
 // ─── InlineEdit ───────────────────────────────────────────────────────────────
 export function InlineEdit({ value, onSave, className = '' }: { value: string; onSave: (v: string) => void; className?: string }) {
@@ -632,180 +621,6 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
   )
 }
 
-// ─── InventoryQuickEdit ───────────────────────────────────────────────────────
-function InventoryQuickEdit({ inventoryItemId, onClose, onSaved }: {
-  inventoryItemId: string
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [item, setItem]   = useState<InventoryItemDetail | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm]   = useState({
-    purchasePrice: '0', qtyPerPurchaseUnit: '1',
-    packSize: '1', packUOM: 'each', countUOM: 'each', stockOnHand: '0',
-  })
-
-  useEffect(() => {
-    fetch(`/api/inventory/${inventoryItemId}`).then(r => r.json()).then((data: InventoryItemDetail) => {
-      setItem(data)
-      setForm({
-        purchasePrice:      String(data.purchasePrice),
-        qtyPerPurchaseUnit: String(data.qtyPerPurchaseUnit),
-        packSize:           String(data.packSize ?? 1),
-        packUOM:            data.packUOM ?? 'each',
-        countUOM:           data.countUOM ?? 'each',
-        stockOnHand:        String(data.stockOnHand),
-      })
-    })
-  }, [inventoryItemId])
-
-  const field = (key: string, label: string, node: React.ReactNode) => (
-    <div>
-      <label className="block text-[11px] font-medium text-ink-3 mb-1">{label}</label>
-      {node}
-    </div>
-  )
-  const numInput = (key: keyof typeof form, placeholder?: string) => (
-    <input type="number" step="any" value={form[key]} placeholder={placeholder}
-      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-      className="w-full border border-line rounded-lg px-2.5 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
-  )
-
-  const handleSave = async () => {
-    if (!item) return
-    setSaving(true)
-    await fetch(`/api/inventory/${inventoryItemId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemName:           item.itemName,
-        category:           item.category,
-        supplierId:         item.supplierId,
-        storageAreaId:      item.storageAreaId,
-        purchaseUnit:       item.purchaseUnit,
-        abbreviation:       item.abbreviation,
-        isActive:           item.isActive,
-        purchasePrice:      form.purchasePrice,
-        qtyPerPurchaseUnit: form.qtyPerPurchaseUnit,
-        packSize:           form.packSize,
-        packUOM:            form.packUOM,
-        countUOM:           form.countUOM,
-        stockOnHand:        form.stockOnHand,
-      }),
-    })
-    setSaving(false)
-    onSaved()
-  }
-
-  // Live preview of pricePerBaseUnit
-  const pp   = parseFloat(form.purchasePrice)  || 0
-  const qty  = parseFloat(form.qtyPerPurchaseUnit) || 1
-  const ps   = parseFloat(form.packSize)        || 1
-  const pu   = form.packUOM
-  const isPrep  = !!item?.recipe
-  const ppbu = isPrep
-    ? (item ? item.pricePerBaseUnit : 0)
-    : calcPricePerBaseUnit(pp, qty, 'each', null, ps, pu)
-  const bu   = isPrep ? (item?.baseUnit ?? 'each') : deriveBaseUnit('each', pu)
-
-  const inputCls = 'w-full border border-line rounded-lg px-2.5 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
-  const selectCls = inputCls + ' bg-white'
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40" />
-      <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b border-line">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="font-semibold text-ink truncate">{item?.itemName ?? '…'}</h3>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[11px] text-ink-4">{item?.category}</span>
-                {isPrep && (
-                  <span className="text-[10px] bg-blue-soft text-blue-text px-1.5 py-0.5 rounded-full font-medium">
-                    Recipe-managed
-                  </span>
-                )}
-              </div>
-            </div>
-            <button onClick={onClose} className="text-ink-4 hover:text-ink-3 shrink-0 mt-0.5">
-              <X size={16} />
-            </button>
-          </div>
-          {isPrep && item?.recipe && (
-            <p className="mt-2 text-xs text-blue bg-blue-soft rounded-lg px-3 py-2">
-              Price is set by recipe <strong>{item.recipe.name}</strong>. Only stock and count unit are editable here.
-            </p>
-          )}
-        </div>
-
-        {/* Body */}
-        <div className="px-5 py-4 space-y-3">
-          {!isPrep && (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                {field('purchasePrice', 'Purchase Price ($)', numInput('purchasePrice'))}
-                {field('qtyPerPurchaseUnit', 'Qty per Case', numInput('qtyPerPurchaseUnit'))}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {field('packSize', 'Pack Size', numInput('packSize', 'e.g. 480'))}
-                {field('packUOM', 'Pack UOM',
-                  <select value={form.packUOM} onChange={e => setForm(f => ({ ...f, packUOM: e.target.value }))} className={selectCls}>
-                    {PACK_UOMS.map(u => <option key={u}>{u}</option>)}
-                  </select>
-                )}
-              </div>
-            </>
-          )}
-
-          <div className="grid grid-cols-2 gap-2">
-            {field('countUOM', isPrep
-              ? `Count UOM (${getUnitDimension(item?.baseUnit ?? 'each')}-compatible)`
-              : 'Count UOM',
-              <select value={form.countUOM} onChange={e => setForm(f => ({ ...f, countUOM: e.target.value }))} className={selectCls}>
-                {(isPrep && item
-                  ? compatibleCountUnits(item.baseUnit)
-                  : ['each','pkg','case','kg','lb','g','l','ml','oz']
-                ).map(u => <option key={u}>{u}</option>)}
-              </select>
-            )}
-            {field('stockOnHand', `Stock On Hand (${form.countUOM})`, numInput('stockOnHand'))}
-          </div>
-
-          {/* Cost preview */}
-          <div className={`rounded-xl p-3 ${isPrep ? 'bg-blue-soft' : 'bg-gold/10'}`}>
-            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${isPrep ? 'text-blue' : 'text-gold'}`}>
-              {isPrep ? 'Recipe-derived cost' : 'Cost preview'}
-            </div>
-            <div className={`text-xl font-bold ${isPrep ? 'text-blue-text' : 'text-gold'}`}>
-              {formatUnitPrice(ppbu)}<span className="text-sm font-normal ml-1">/ {bu}</span>
-            </div>
-            {!isPrep && (
-              <div className="text-[11px] text-blue mt-0.5">
-                ${pp.toFixed(2)} ÷ ({qty} × {ps} {pu})
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 pb-5 flex gap-2">
-          <button onClick={onClose} className="flex-1 border border-line rounded-xl py-2 text-sm text-ink-2 hover:bg-bg">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={saving || !item}
-            className="flex-1 bg-ink text-paper [&_svg]:text-gold rounded-xl py-2 text-sm font-medium hover:bg-ink-2 disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save Changes'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
 const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase }: {

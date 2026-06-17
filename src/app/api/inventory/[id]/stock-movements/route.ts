@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const item = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
     select: {
-      id: true, baseUnit: true, countUOM: true,
+      id: true, baseUnit: true,
       stockOnHand: true, lastCountDate: true, lastCountQty: true,
       dimension: true, packChain: true, countUnit: true, pricing: true,
     },
@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     baseUnit:  nonNullItem.baseUnit,
     packChain: nonNullItem.packChain,
   }
-  const displayUnit = resolveCountUom({ ...dimsBase, countUnit: nonNullItem.countUnit ?? nonNullItem.countUOM ?? nonNullItem.baseUnit })
+  const displayUnit = resolveCountUom({ ...dimsBase, countUnit: nonNullItem.countUnit ?? nonNullItem.baseUnit })
 
   function toDisplay(qtyInBase: number): number {
     return convertBaseToCountUom(qtyInBase, displayUnit, dimsBase)

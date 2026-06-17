@@ -66,16 +66,34 @@ const numEq = (a: string | number | null | undefined, b: string | number | null 
 const uomEq = (a: string | null | undefined, b: string | null | undefined): boolean =>
   canonicalUom(a) === canonicalUom(b)
 
+/**
+ * Derive the linked item's stored pack FORMAT from its chain (not legacy columns):
+ *   packQty  = top container's inner count = packChain[0].per
+ *   packSize = base content of the leaf (innermost) pack = leaf.per
+ *   packUOM  = the item's base unit
+ * For a single-link chain, packQty is treated as 1 (the leaf IS the container).
+ */
+function itemPackFormat(inv: { packChain?: unknown; baseUnit?: string }): {
+  packQty: number; packSize: number; packUOM: string
+} | null {
+  const chain = Array.isArray(inv.packChain) ? (inv.packChain as { unit: string; per: number }[]) : null
+  if (!chain || chain.length === 0) return null
+  const leaf = chain[chain.length - 1]
+  const packQty = chain.length >= 2 ? Number(chain[0].per) : 1
+  return { packQty, packSize: Number(leaf.per), packUOM: inv.baseUnit ?? 'each' }
+}
+
 export function hasFormatMismatch(item: ScanItem): boolean {
   if (item.formatMismatch !== true) return false
   const inv = item.matchedItem
   if (!inv) return false
   const { invoicePackQty, invoicePackSize, invoicePackUOM } = item
-  if (invoicePackQty != null && invoicePackSize != null && invoicePackUOM != null) {
+  const fmt = itemPackFormat(inv)
+  if (fmt && invoicePackQty != null && invoicePackSize != null && invoicePackUOM != null) {
     const sameFormat =
-      numEq(inv.qtyPerPurchaseUnit, invoicePackQty) &&
-      numEq(inv.packSize, invoicePackSize) &&
-      uomEq(inv.packUOM, invoicePackUOM)
+      numEq(fmt.packQty, invoicePackQty) &&
+      numEq(fmt.packSize, invoicePackSize) &&
+      uomEq(fmt.packUOM, invoicePackUOM)
     if (sameFormat) return false // false positive — formats actually match
   }
   return true
@@ -84,11 +102,12 @@ export function hasFormatMismatch(item: ScanItem): boolean {
 // ── Mode mismatch ─────────────────────────────────────────────────────────────
 // True when the line is linked AND the detected pricing mode disagrees with
 // the linked inventory item's expected mode.
-// InventoryItem.priceType: 'UOM' → per_weight, 'CASE'/'PKG' → per_case.
+// Pricing mode RATE → per_weight, PACK → per_case.
 export function hasModeMismatch(item: ScanItem): boolean {
   if (!item.matchedItem) return false
   const detected      = derivePricingMode(item)
-  const inventoryMode = item.matchedItem.priceType === 'UOM' ? 'per_weight' : 'per_case'
+  const mode          = (item.matchedItem.pricing as { mode?: string } | undefined)?.mode
+  const inventoryMode = mode === 'RATE' ? 'per_weight' : 'per_case'
   return detected !== inventoryMode
 }
 

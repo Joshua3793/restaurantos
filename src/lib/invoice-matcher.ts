@@ -60,16 +60,41 @@ export interface MatchResult {
 interface InventoryItem {
   id: string
   itemName: string
-  purchaseUnit: string
   pricePerBaseUnit: number
   purchasePrice: number
+  // Chain pricing facts (PRICING_SELECT). The item's stored pack FORMAT is
+  // derived from the chain, never from legacy pack columns.
+  dimension: string
   baseUnit: string
-  qtyPerPurchaseUnit: number
-  packSize: number
-  packUOM: string
+  packChain: unknown
+  pricing: unknown
+  countUnit?: string | null
   // Pre-computed at load time for efficiency
   _normName?: string[]
   _keyName?: string[]
+}
+
+/**
+ * Derive the item's stored pack FORMAT from its chain (replaces the dropped
+ * qtyPerPurchaseUnit/packSize/packUOM columns):
+ *   packQty  = top container's inner count = packChain[0].per (1 for a single link)
+ *   packSize = base content of the leaf (innermost) pack = leaf.per
+ *   packUOM  = the item's base unit
+ *   complex  = a multi-link chain (i.e. a real container × content structure)
+ */
+function chainPackFormat(item: InventoryItem): {
+  packQty: number; packSize: number; packUOM: string; complex: boolean
+} {
+  const chain = Array.isArray(item.packChain) ? (item.packChain as { unit: string; per: number }[]) : []
+  if (chain.length === 0) return { packQty: 1, packSize: 1, packUOM: item.baseUnit, complex: false }
+  const leaf = chain[chain.length - 1]
+  const packQty = chain.length >= 2 ? Number(chain[0].per) : 1
+  const packSize = Number(leaf.per)
+  // "Complex" format = a multi-link chain, or a single link carrying >1 base
+  // units per its unit (i.e. a container of measured content), mirroring the old
+  // "packUOM !== each && packSize > 1" heuristic via the chain.
+  const complex = chain.length >= 2 || packSize > 1
+  return { packQty, packSize, packUOM: item.baseUnit, complex }
 }
 
 // Generic food descriptors that appear in many products and should not drive matching
@@ -209,10 +234,11 @@ function buildMatchResult(
       // Recomputed from raw fields so we never rely on the stored
       // pricePerBaseUnit (which can be stale / mis-scaled).
       const offerHasFormat = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
+      const itemFmt       = chainPackFormat(bestItem)
       const invSidePrice  = offerLastPrice ?? Number(bestItem.purchasePrice)
-      const invSideQty    = offerHasFormat ? Number(offer.packQty)  : Number(bestItem.qtyPerPurchaseUnit)
-      const invSideSize   = offerHasFormat ? Number(offer.packSize) : Number(bestItem.packSize)
-      const invSideUOM    = offerHasFormat ? (offer.packUOM as string) : bestItem.packUOM
+      const invSideQty    = offerHasFormat ? Number(offer.packQty)  : itemFmt.packQty
+      const invSideSize   = offerHasFormat ? Number(offer.packSize) : itemFmt.packSize
+      const invSideUOM    = offerHasFormat ? (offer.packUOM as string) : itemFmt.packUOM
       const invPackTotal = invSideQty * invSideSize
       const invPricePerPackUOM = isPerWeight
         ? invSidePrice
@@ -246,8 +272,7 @@ function buildMatchResult(
     } else if (!formatConfirmed) {
       // Delta normalised cleanly, but a complex pack format is still unconfirmed —
       // surface the confirm prompt without distorting the price delta.
-      const hasComplexFormat = !!bestItem.packUOM && bestItem.packUOM.toLowerCase() !== 'each'
-        && Number(bestItem.packSize) > 1
+      const hasComplexFormat = chainPackFormat(bestItem).complex
       needsFormatConfirm = !!(hasComplexFormat && rawUnitPrice !== null)
     }
   } else {
@@ -256,8 +281,7 @@ function buildMatchResult(
       priceDiffPct = Math.round(((rawUnitPrice - previousPrice) / previousPrice) * 10000) / 100
     }
     newPrice = rawUnitPrice ?? null
-    const hasComplexFormat = bestItem.packUOM && bestItem.packUOM.toLowerCase() !== 'each'
-      && Number(bestItem.packSize) > 1
+    const hasComplexFormat = chainPackFormat(bestItem).complex
     needsFormatConfirm = !!(hasComplexFormat && rawUnitPrice !== null)
   }
 
@@ -276,9 +300,10 @@ function buildMatchResult(
   // offer row mixed per-field with item fields would compare against a chimera
   // format no supplier actually ships.
   const offerFmtComplete = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
-  const fmQty  = offerFmtComplete ? Number(offer.packQty)  : Number(bestItem.qtyPerPurchaseUnit)
-  const fmSize = offerFmtComplete ? Number(offer.packSize) : Number(bestItem.packSize)
-  const fmUOM  = offerFmtComplete ? (offer.packUOM as string) : bestItem.packUOM
+  const itemFmtForMismatch = chainPackFormat(bestItem)
+  const fmQty  = offerFmtComplete ? Number(offer.packQty)  : itemFmtForMismatch.packQty
+  const fmSize = offerFmtComplete ? Number(offer.packSize) : itemFmtForMismatch.packSize
+  const fmUOM  = offerFmtComplete ? (offer.packUOM as string) : itemFmtForMismatch.packUOM
   const formatMismatch = !!(
     format &&
     (
@@ -324,12 +349,8 @@ export async function matchLineItems(
     select: {
       id: true,
       itemName: true,
-      purchaseUnit: true,
       ...PRICING_SELECT,
       purchasePrice: true,
-      qtyPerPurchaseUnit: true,
-      packSize: true,
-      packUOM: true,
     },
   })
 
@@ -355,12 +376,8 @@ export async function matchLineItems(
           select: {
             id: true,
             itemName: true,
-            purchaseUnit: true,
             ...PRICING_SELECT,
             purchasePrice: true,
-            qtyPerPurchaseUnit: true,
-            packSize: true,
-            packUOM: true,
           },
         },
       },
@@ -390,12 +407,8 @@ export async function matchLineItems(
             select: {
               id: true,
               itemName: true,
-              purchaseUnit: true,
+              ...PRICING_SELECT,
               purchasePrice: true,
-              baseUnit: true,
-              qtyPerPurchaseUnit: true,
-              packSize: true,
-              packUOM: true,
             },
           },
         },

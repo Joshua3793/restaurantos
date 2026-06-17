@@ -8,7 +8,7 @@ export async function GET() {
     prisma.priceAlert.findMany({
       where: { acknowledged: false },
       include: {
-        inventoryItem: { select: { id: true, itemName: true, purchaseUnit: true, ...PRICING_SELECT } },
+        inventoryItem: { select: { id: true, itemName: true, ...PRICING_SELECT } },
         session: { select: { id: true, supplierName: true, invoiceDate: true } },
       },
       orderBy: { createdAt: 'desc' },

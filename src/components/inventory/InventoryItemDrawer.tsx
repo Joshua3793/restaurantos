@@ -38,21 +38,16 @@ interface InventoryItem {
   supplierId?: string | null
   storageArea?: { id: string; name: string } | null
   storageAreaId?: string | null
-  purchaseUnit: string; qtyPerPurchaseUnit: number
   purchasePrice: number; baseUnit: string
-  packSize: number; packUOM: string; countUOM: string
-  conversionFactor: number; pricePerBaseUnit: number
+  pricePerBaseUnit: number
   stockOnHand: number
   allergens?: string[]
   barcode?: string | null
   isActive: boolean
   isStocked?: boolean
-  qtyUOM?: string | null
-  innerQty?: number | string | null
   needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
-  priceType?: 'CASE' | 'UOM' | null
   // Chain model (authoritative)
   dimension?: Dimension | null
   packChain?: PackLink[] | null
@@ -88,7 +83,7 @@ function chainFromItem(item: InventoryItem): Pick<EditForm, 'dimension' | 'chain
     ? item.packChain.map(l => ({ unit: l.unit, per: Number(l.per) }))
     : [...DEFAULT_CHAIN]
   const pricing = item.pricing ?? DEFAULT_PRICING
-  const countUnit = item.countUnit ?? item.countUOM ?? 'each'
+  const countUnit = item.countUnit ?? 'each'
   return { dimension, chain, pricing, countUnit }
 }
 
@@ -350,17 +345,17 @@ function itemChainDims(item: InventoryItem) {
     dimension: (item.dimension ?? 'COUNT') as string,
     baseUnit:  item.baseUnit,
     packChain: (Array.isArray(item.packChain) ? item.packChain : []) as unknown,
-    countUnit: item.countUnit ?? item.countUOM ?? null,
+    countUnit: item.countUnit ?? null,
   }
 }
 
 function normalizeItem(item: InventoryItem): InventoryItem {
-  return { ...item, countUOM: resolveCountUom(itemChainDims(item)) }
+  return { ...item, countUnit: resolveCountUom(itemChainDims(item)) }
 }
 
-// Convert any baseUnit quantity to the item's countUOM for display.
+// Convert any baseUnit quantity to the item's count unit for display.
 function baseToDisplay(item: InventoryItem, base: number): number {
-  return convertBaseToCountUom(base, item.countUOM ?? 'each', itemChainDims(item))
+  return convertBaseToCountUom(base, resolveCountUom(itemChainDims(item)), itemChainDims(item))
 }
 
 function displayStock(item: InventoryItem): number {
@@ -896,7 +891,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <RcAllocationPanel
                     itemId={item.id}
                     stockOnHand={displayStock(item)}
-                    countUOM={item.countUOM || item.baseUnit}
+                    countUOM={resolveCountUom(itemChainDims(item)) || item.baseUnit}
                     defaultRcId={defaultRcId}
                     toDisplay={(base) => baseToDisplay(item, base)}
                     onPulled={() => {

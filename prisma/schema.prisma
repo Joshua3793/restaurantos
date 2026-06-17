@@ -78,7 +78,7 @@ model InventoryItem {
   category           String                   @default("DRY")
   supplierId         String?
   storageAreaId      String?
-  purchaseUnit       String
+  purchaseUnit       String                   @default("each") // LEGACY: unreferenced — droppable. Default added so creates can omit it.
   qtyPerPurchaseUnit Decimal                  @default(1)
   purchasePrice      Decimal                  @default(0)
   baseUnit           String                   @default("each")

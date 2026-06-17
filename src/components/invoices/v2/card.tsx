@@ -77,17 +77,10 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       matchedItem: {
         id: result.id,
         itemName: result.itemName,
-        purchaseUnit: result.purchaseUnit,
         purchasePrice: String(result.purchasePrice),
         pricePerBaseUnit: String(result.pricePerBaseUnit),
         baseUnit: result.baseUnit,
-        qtyPerPurchaseUnit: String(result.qtyPerPurchaseUnit),
-        packSize: String(result.packSize),
-        packUOM: result.packUOM,
-        priceType: 'CASE',
-        qtyUOM: result.packUOM,
-        innerQty: null,
-        // Carry the chain so pack display + format prefill derive from it.
+        // Carry the chain so pack display + format prefill + pricing mode derive from it.
         dimension: result.dimension,
         packChain: result.packChain,
         pricing: result.pricing,
@@ -405,7 +398,7 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   } else {
     const prev = item.previousPrice ? Number(item.previousPrice) : null
     const next = item.rawUnitPrice  ? Number(item.rawUnitPrice)  : null
-    const bu   = item.matchedItem ? formatPurchaseDisplay({ ...item.matchedItem, countUOM: 'each' }) : 'case'
+    const bu   = item.matchedItem ? formatPurchaseDisplay(item.matchedItem) : 'case'
     if (prev !== null) prevLabel = `${formatCurrency(prev)}/${bu}`
     if (next !== null) {
       nextLabel = `${formatCurrency(next)}/${bu}`
