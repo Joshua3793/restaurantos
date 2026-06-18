@@ -1,6 +1,5 @@
-import { calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit } from '@/lib/utils'
 import { formToChain } from '@/lib/item-model-form'
-import type { Dimension, PackLink, Pricing } from '@/lib/item-model'
+import { type Dimension, type PackLink, type Pricing, pricePerBaseUnit, basePerUnit, asChainItem } from '@/lib/item-model'
 import { assertKnownUnit } from '@/lib/uom'
 import * as XLSX from 'xlsx'
 
@@ -33,22 +32,14 @@ export interface RawRow {
 export interface InventoryCreatePayload {
   itemName: string
   category: string                 // always 'UNASSIGNED'
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  qtyUOM: string
-  packSize: number
-  packUOM: string
-  innerQty: number | null
-  priceType: 'CASE' | 'UOM'
-  countUOM: string
   purchasePrice: number
+  /** Derived from the chain — surfaced for the import preview only, NOT a column. */
   pricePerBaseUnit: number
-  conversionFactor: number
   baseUnit: string
   stockOnHand: number              // stored in base units
   barcode: string | null
   isActive: boolean
-  // Item-model chain (dual-write alongside the legacy fields above).
+  // Item-model chain (authoritative).
   dimension: Dimension
   packChain: PackLink[]
   pricing: Pricing
@@ -158,13 +149,16 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   assertKnownUnit(qtyUOM, 'qtyUOM')
   const countUOM = qtyUOM
 
-  const pricePerBaseUnit = calcPricePerBaseUnit(
-    price, qtyPerPurchaseUnit, qtyUOM, innerQty, packSize, packUOM, priceType,
-  )
-  const conversionFactor = calcConversionFactor(
-    countUOM, qtyPerPurchaseUnit, qtyUOM, innerQty, packSize, packUOM,
-  )
-  const baseUnit = deriveBaseUnit(qtyUOM, packUOM)
+  // The chain is authoritative — derive price-per-base + the count-unit conversion
+  // factor (base units per count unit) from it instead of legacy formulas.
+  const chain = formToChain({
+    purchaseUnit, purchasePrice: price, qtyPerPurchaseUnit, qtyUOM,
+    innerQty, packSize, packUOM, priceType, countUOM,
+  })
+  const chainItem = asChainItem({ ...chain })
+  const ppb = pricePerBaseUnit(chainItem)
+  const conversionFactor = basePerUnit(chainItem, countUOM)
+  const baseUnit = chain.baseUnit
 
   const enteredStock = row.stockOnHand.trim() === '' ? 0 : Number(row.stockOnHand)
   if (!Number.isFinite(enteredStock) || enteredStock < 0) {
@@ -172,25 +166,11 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   }
   const stockOnHand = enteredStock * conversionFactor
 
-  const chain = formToChain({
-    purchaseUnit, purchasePrice: price, qtyPerPurchaseUnit, qtyUOM,
-    innerQty, packSize, packUOM, priceType, countUOM,
-  })
-
   return {
     itemName: row.itemName.trim(),
     category: 'UNASSIGNED',
-    purchaseUnit,
-    qtyPerPurchaseUnit,
-    qtyUOM,
-    packSize,
-    packUOM,
-    innerQty,
-    priceType,
-    countUOM,
     purchasePrice: price,
-    pricePerBaseUnit,
-    conversionFactor,
+    pricePerBaseUnit: ppb,
     baseUnit,
     stockOnHand,
     barcode: row.barcode.trim() || null,

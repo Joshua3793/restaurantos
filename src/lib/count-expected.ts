@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { convertQty, UNIT_FACTORS, canonicalUom } from '@/lib/uom'
-import { getUnitConv } from '@/lib/utils'
 import { computeScale } from '@/lib/prep-utils'
+import { asChainItem, basePerUnit, PRICING_SELECT } from '@/lib/item-model'
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
@@ -152,11 +152,7 @@ export async function buildPurchaseMap(
       matchedItem: {
         select: {
           id: true,
-          baseUnit: true,
-          priceType: true,
-          qtyPerPurchaseUnit: true,
-          packSize: true,
-          packUOM: true,
+          ...PRICING_SELECT,
         },
       },
     },
@@ -168,17 +164,18 @@ export async function buildPurchaseMap(
     const qty = Number(si.rawQty ?? 0)
     if (qty <= 0) continue
 
-    const baseUnit = si.matchedItem.baseUnit
+    const chainItem = asChainItem(si.matchedItem)
+    const baseUnit = chainItem.baseUnit
     let baseUnits: number
 
-    // For UOM (per-weight / catch-weight) pricing, the invoice bills a weight/volume
+    // For RATE (per-weight / catch-weight) pricing, the invoice bills a weight/volume
     // directly. Use the invoice's stated total when present, else rawQty — each paired
     // with ITS OWN unit (never cross totalQty with rawUnit). Multiplying a per-weight
     // qty by case size was a 10× inflation (bug #4).
-    const isUom = si.matchedItem.priceType === 'UOM'
+    const isRate = chainItem.pricing.mode === 'RATE'
     let billedQty = qty
     let billedUOM: string | null = null
-    if (isUom) {
+    if (isRate) {
       if (si.totalQty != null && Number(si.totalQty) > 0) {
         billedQty = Number(si.totalQty); billedUOM = si.totalQtyUOM ?? baseUnit
       } else {
@@ -186,25 +183,26 @@ export async function buildPurchaseMap(
       }
     }
 
-    if (isUom && billedUOM && UNIT_FACTORS[canonicalUom(billedUOM)]) {
+    if (isRate && billedUOM && UNIT_FACTORS[canonicalUom(billedUOM)]) {
       // Billed unit is a real measurement unit → convert the weight/volume directly.
       baseUnits = convertQty(billedQty, billedUOM, baseUnit)
     } else {
-      // CASE pricing, OR a UOM line billed in a CONTAINER unit the backbone can't
+      // CASE pricing, OR a RATE line billed in a CONTAINER unit the backbone can't
       // convert (CS, PK, case, tray…): expand the raw line qty (purchase units) via the
-      // pack structure. Without this, a UOM line billed in cases passed straight through
+      // pack structure. Without this, a RATE line billed in cases passed straight through
       // convertQty unscaled, under-counting purchases (e.g. "Beef Digital" billed in CS).
       const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
       const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
       const packUOM  = si.invoicePackUOM ?? null
       if (packQty > 0 && packSize > 0 && packUOM) {
+        // Invoice supplied its own pack format (one-off) → compute base from it.
         baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
       } else {
-        const unitsPerCase =
-          Number(si.matchedItem.qtyPerPurchaseUnit) *
-          Number(si.matchedItem.packSize) *
-          getUnitConv(si.matchedItem.packUOM)
-        baseUnits = qty * unitsPerCase
+        // DEFAULT case path: base units received = qtyShipped × the chain's
+        // top-level base content (levelBaseUnits[top]). No legacy pack fields.
+        const top = chainItem.packChain[0]?.unit
+        const perCase = top ? basePerUnit(chainItem, top) : 1
+        baseUnits = qty * perCase
       }
     }
 

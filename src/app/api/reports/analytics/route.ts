@@ -416,7 +416,7 @@ async function getPurchasing(since: Date, days: number) {
 async function buildMultiSupplierBlock(days: number) {
   // Items with offers from 2+ suppliers
   const offers = await prisma.inventorySupplierPrice.findMany({
-    include: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, qtyPerPurchaseUnit: true, packSize: true, packUOM: true } } },
+    include: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, packChain: true } } },
   })
   const byItem = new Map<string, typeof offers>()
   for (const o of offers) {
@@ -489,7 +489,7 @@ async function buildMultiSupplierBlock(days: number) {
   // Most volatile (item, supplier) pairs over the window, from line history.
   const histKey = (id: string, s: string) => `${id}|${s}`
   const hist = new Map<string, number[]>()
-  const itemMeta = new Map<string, { name: string; inv: { qtyPerPurchaseUnit: unknown; packSize: unknown; packUOM: string | null } }>()
+  const itemMeta = new Map<string, { name: string; inv: { packChain: unknown; baseUnit: string | null } }>()
   for (const o of offers) itemMeta.set(o.inventoryItemId, { name: o.inventoryItem.itemName, inv: o.inventoryItem })
   for (const l of reliableLines) {
     // Key by supplier identity (id when the session resolved one) so raw OCR

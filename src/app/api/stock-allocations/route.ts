@@ -41,16 +41,12 @@ export async function POST(req: NextRequest) {
   // stored in baseUnit (e.g. g). Convert before decrementing / comparing —
   // otherwise pulling 2.28 kg decremented stockOnHand by 2.28 g, leaving the
   // main pool ~unchanged while the RC allocation showed the full amount.
-  const countUOM = item.countUOM || item.baseUnit
+  const countUOM = item.countUnit || item.baseUnit
   const dims = {
-    baseUnit:           item.baseUnit,
-    purchaseUnit:       item.purchaseUnit,
-    qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-    qtyUOM:             item.qtyUOM ?? 'each',
-    innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-    packSize:           Number(item.packSize ?? 1),
-    packUOM:            item.packUOM ?? 'each',
-    countUOM,
+    dimension: item.dimension,
+    baseUnit:  item.baseUnit,
+    packChain: item.packChain,
+    countUnit: item.countUnit,
   }
   const qtyBase     = convertCountQtyToBase(qty, countUOM, dims)
   const availBase   = Number(item.stockOnHand)

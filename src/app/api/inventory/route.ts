@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { deriveBaseUnit } from '@/lib/utils'
-import { formToChain } from '@/lib/item-model-form'
 import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit,
   validateChainItem, withPpb, asChainItem, type ChainItem,
 } from '@/lib/item-model'
-import { assertKnownUnit, UnitError, purchaseUnitToken } from '@/lib/uom'
-import { resolveCountUom } from '@/lib/count-uom'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 
 /** Attach theoreticalStock, countedStock, lastCountDate to each item row. */
@@ -154,117 +150,40 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const body = await req.json()
 
-  // ── New chain-form body ──────────────────────────────────────────────────
-  // When `packChain` is present the chain columns are authoritative; derive the
-  // legacy fields from them for dual-write consistency.
-  if (body.packChain) {
-    const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, ...rest } = body
-    delete rest.purchasePrice; delete rest.qtyPerPurchaseUnit; delete rest.packSize
-    delete rest.packUOM; delete rest.countUOM; delete rest.qtyUOM; delete rest.innerQty
-    delete rest.priceType; delete rest.conversionFactor; delete rest.pricePerBaseUnit
-    delete rest.baseUnit; delete rest.dimension; delete rest.pricing; delete rest.countUnit
-
-    const ci: ChainItem = {
-      dimension,
-      baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
-      packChain,
-      pricing,
-      countUnit,
-    }
-    const errors = validateChainItem(ci)
-    if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
-
-    // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
-    const isStocked = body.isStocked !== false
-
-    const item = await prisma.inventoryItem.create({
-      data: {
-        ...rest,
-        isStocked,
-        // chain columns (authoritative)
-        dimension,
-        packChain: packChain as any,
-        pricing: pricing as any,
-        countUnit,
-        // derived legacy fields (dual-write)
-        baseUnit: ci.baseUnit,
-        countUOM: countUnit,
-        priceType: pricing.mode === 'RATE' ? 'UOM' : 'CASE',
-        purchaseUnit: packChain[0]?.unit ?? 'each',
-        purchasePrice: pricing.mode === 'PACK' ? pricing.purchasePrice : pricing.rate,
-        // safe defaults for the remaining legacy pack columns
-        qtyUOM: 'each',
-        packSize: 1,
-        packUOM: 'each',
-        innerQty: null,
-        qtyPerPurchaseUnit: 1,
-        supplierId: supplierId || null,
-        storageAreaId: storageAreaId || null,
-      },
-      include: { supplier: true, storageArea: true },
-    })
-    return NextResponse.json(withPpb(item), { status: 201 })
+  // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
+  // single source of truth. Every create path (inventory add, count quick-add,
+  // CSV import) sends a chain body — there is no legacy-field create path.
+  const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, ...rest } = body
+  if (!packChain) {
+    return NextResponse.json({ error: 'packChain is required' }, { status: 400 })
   }
+  // Strip any stray non-column keys the client may have sent.
+  delete rest.pricePerBaseUnit; delete rest.baseUnit
+  delete rest.dimension; delete rest.pricing; delete rest.countUnit
 
-  const { purchasePrice, qtyPerPurchaseUnit, packSize, packUOM, countUOM, qtyUOM, innerQty, priceType, supplierId, storageAreaId, ...rest } = body
-  const pp    = parseFloat(purchasePrice)
-  const qty   = parseFloat(qtyPerPurchaseUnit)
-  const rawPs = parseFloat(packSize ?? '')
-  const hasWeightPerEach = rawPs > 0
-  const ps    = hasWeightPerEach ? rawPs : 1
-  // Force packUOM to 'each' when no weight-per-each entered. Validate + normalize
-  // packUOM/qtyUOM against the UOM backbone — they feed the pricing math directly.
-  let pu: string, qu: string
-  try {
-    pu = assertKnownUnit(hasWeightPerEach ? (packUOM ?? 'each') : 'each', 'packUOM')
-    qu = assertKnownUnit(qtyUOM ?? 'each', 'qtyUOM')
-  } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
-  // Normalize + validate purchaseUnit to a canonical token so the spine always
-  // stores a known token (never a display string).
-  let purchaseUnitTok: string
-  try { purchaseUnitTok = assertKnownUnit(purchaseUnitToken(rest.purchaseUnit ?? 'each'), 'purchaseUnit') }
-  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
-  const iq    = innerQty != null ? Number(innerQty) : null
-  // Count UOM derives from the purchase format: keep an explicit, still-valid
-  // choice (switchable per item) but never let it sit at a stale/invalid value —
-  // fall back to the derived primary so count sessions read the right unit.
-  const cu    = resolveCountUom({
-    baseUnit:           '',                 // unused by the derivation
-    purchaseUnit:       purchaseUnitTok,
-    qtyPerPurchaseUnit: qty,
-    qtyUOM:             qu,
-    innerQty:           iq,
-    packSize:           ps,
-    packUOM:            pu,
-    countUOM:           hasWeightPerEach ? (countUOM ?? 'each') : 'each',
-  })
-  const pt: 'CASE' | 'UOM' = priceType === 'UOM' ? 'UOM' : 'CASE'
-  const baseUnit         = deriveBaseUnit(qu, pu, hasWeightPerEach ? rawPs : 0)
-  // Non-stocked (recipe-only) items carry no inventory value — pricing chain reflects 0.
+  const ci: ChainItem = {
+    dimension,
+    baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
+    packChain,
+    pricing,
+    countUnit,
+  }
+  const errors = validateChainItem(ci)
+  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
+
+  // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
   const isStocked = body.isStocked !== false
-  const chain = formToChain({
-    purchaseUnit: purchaseUnitTok, purchasePrice: isStocked ? pp : 0,
-    qtyPerPurchaseUnit: qty, qtyUOM: qu, innerQty: iq, packSize: ps, packUOM: pu,
-    priceType: pt, countUOM: cu,
-  })
+
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,
-      purchaseUnit: purchaseUnitTok,
-      purchasePrice: pp,
-      qtyPerPurchaseUnit: qty,
-      packSize: ps,
-      packUOM: pu,
-      countUOM: cu,
-      qtyUOM: qu,
-      innerQty: iq,
-      priceType: pt,
-      baseUnit,
-      dimension: chain.dimension,
-      packChain: chain.packChain as any,
-      pricing: chain.pricing as any,
-      countUnit: chain.countUnit,
       isStocked,
+      // chain columns (authoritative)
+      dimension,
+      packChain: packChain as any,
+      pricing: pricing as any,
+      countUnit,
+      baseUnit: ci.baseUnit,
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
     },

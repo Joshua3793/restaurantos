@@ -21,6 +21,7 @@ import {
 import {
   getCountableUoms, convertCountQtyToBase, convertBaseToCountUom, countEntriesToBase,
 } from '@/lib/count-uom'
+import { asChainItem, levelBaseUnits } from '@/lib/item-model'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,13 +31,9 @@ interface InventoryItemRef {
   itemName: string
   category: string
   baseUnit: string
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  qtyUOM?: string | null
-  innerQty?: number | string | null
-  packSize: number
-  packUOM: string
-  countUOM: string
+  dimension: string
+  packChain: unknown
+  countUnit?: string | null
   pricePerBaseUnit?: number | string   // live spine price — used for in-progress value/variance
   location: string | null
   storageArea: { id: string; name: string } | null
@@ -107,13 +104,9 @@ function uomBaseContentLabel(unitName: string, item: ItemDimsForLabel): string {
 // The shape convertCountQtyToBase needs — a subset of InventoryItemRef.
 type ItemDimsForLabel = {
   baseUnit: string
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number
-  qtyUOM?: string | null
-  innerQty?: number | string | null
-  packSize: number
-  packUOM: string
-  countUOM: string
+  dimension: string
+  packChain: unknown
+  countUnit?: string | null
 }
 
 // ─── Mixed-unit entry rows (module scope so inputs keep focus) ──────────────────
@@ -797,10 +790,34 @@ export default function CountPage() {
     e.preventDefault()
     if (!active) return
     setAddItemSaving(true)
+    // Build a chain body from the quick-add fields. The form is already chain-
+    // shaped: baseUnit → dimension; the purchase unit holds (qtyPerPurchaseUnit ×
+    // conversionFactor) base units. Two-link chain: top container → 'each' leaf
+    // carrying `conversionFactor` base units. Pricing is PACK at the purchase price.
+    const bu = addItemForm.baseUnit
+    const dimension = bu === 'g' ? 'MASS' : bu === 'ml' ? 'VOLUME' : 'COUNT'
+    const top = addItemForm.purchaseUnit || 'case'
+    const qtyPer = parseFloat(addItemForm.qtyPerPurchaseUnit) || 1
+    const conv = parseFloat(addItemForm.conversionFactor) || 1
+    const packChain = top.toLowerCase() === 'each' && qtyPer === 1
+      ? [{ unit: 'each', per: conv }]
+      : [{ unit: top, per: qtyPer }, { unit: 'each', per: conv }]
+    const chainBody = {
+      itemName: addItemForm.itemName,
+      category: addItemForm.category,
+      supplierId: addItemForm.supplierId || null,
+      storageAreaId: addItemForm.storageAreaId || null,
+      location: addItemForm.location || null,
+      stockOnHand: parseFloat(addItemForm.stockOnHand) || 0,
+      dimension,
+      packChain,
+      pricing: { mode: 'PACK', purchasePrice: parseFloat(addItemForm.purchasePrice) || 0 },
+      countUnit: top,
+    }
     const res = await fetch('/api/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(addItemForm),
+      body: JSON.stringify(chainBody),
     })
     const newItem = await res.json()
     // Add the new item as a count line in the active session
@@ -2094,8 +2111,25 @@ export default function CountPage() {
       const unitLabels  = Array.from(new Set([...uoms.map(u => u.label), line.selectedUom]))   // size order (case→pkg→each→units); selectedUom only appended if it's a legacy unit not in the list
       const uomDisplay  = (lbl: string) => uomBaseContentLabel(lbl, item)   // base-content text ("case (6,000 g)") vs stored token
       const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
-      const showCases   = Number(item.packSize) > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(item.packUOM || '')
-      const effectiveQty = inputQty + (showCases ? caseQty * Number(item.packSize) : 0)
+      // "+ unopened cases" — one full top-level container, derived from the pack
+      // chain. The top container is packChain[0]; one case = the base units it
+      // holds (levelBaseUnits[top.unit]). Shown when the top is a real container
+      // (per > 1) so single-each items don't get a meaningless "+ cases" row.
+      const _ci         = asChainItem({
+        dimension: item.dimension, baseUnit: item.baseUnit,
+        packChain: item.packChain, pricing: undefined,
+        countUnit: item.countUnit ?? undefined,
+      })
+      const _chain      = _ci.packChain
+      const _top        = _chain[0]
+      const _caseBase   = _top ? (levelBaseUnits(_chain)[_top.unit] ?? 0) : 0
+      const showCases   = _chain.length > 0 && _caseBase > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(_top?.unit || '')
+      // Selected-unit content (base units per 1 selected unit) — convert the
+      // case's base content back into the unit the stepper is counting in so the
+      // two add coherently.
+      const _selPer     = convertCountQtyToBase(1, line.selectedUom, item) || 1
+      const _caseInSel  = _caseBase / _selPer
+      const effectiveQty = inputQty + (showCases ? caseQty * _caseInSel : 0)
       // Mixed-unit: extra rows the user added sum on top of the primary count.
       const mHasExtras  = extraEntries.length > 0
       const mAllEntries = [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries]
@@ -2197,7 +2231,7 @@ export default function CountPage() {
                 {/* Unopened cases */}
                 {showCases && (
                   <div className="flex items-center justify-between gap-3 border-t border-line mt-3 pt-3">
-                    <span className="font-mono text-[11px] text-ink-2 uppercase tracking-[0.03em]">+ unopened cases <span className="text-ink-4">({f(Number(item.packSize))}/{item.packUOM || 'CS'})</span></span>
+                    <span className="font-mono text-[11px] text-ink-2 uppercase tracking-[0.03em]">+ unopened cases <span className="text-ink-4">({f(_caseBase)} {item.baseUnit}/{_top?.unit || 'CS'})</span></span>
                     <div className="flex items-center gap-2 shrink-0">
                       <button onClick={() => setCaseQty(v => Math.max(0, v - 1))} className="w-9 h-9 rounded-[9px] bg-bg-2 border border-line grid place-items-center active:bg-line"><Minus size={16} className="text-ink-2" /></button>
                       <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{caseQty}</span>

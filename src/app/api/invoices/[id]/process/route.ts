@@ -13,15 +13,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const li of invoice.lineItems) {
     const item = li.inventoryItem
     const newPurchasePrice = parseFloat(String(li.priceOverride ?? li.unitPrice))
-    const packUOM  = item.packUOM
     // Price-only update: rebuild `pricing` to match the new price (do NOT touch
-    // packChain — the pack format is unchanged here). For a UOM/rate item, the
-    // price is a rate; for a CASE item it's the pack purchase price.
+    // packChain — the pack format is unchanged here). The pricing MODE + rate
+    // unit come from the item's existing chain pricing: a rate-priced item keeps
+    // its rate (and its rate's own unit); everything else is a PACK purchase price.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const itemAny = item as any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingPricing = itemAny.pricing as any
     const newPricing =
-      itemAny.priceType === 'UOM'
-        ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: itemAny.baseUnit || packUOM || 'each' }
+      existingPricing?.mode === 'RATE'
+        ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: existingPricing.rateUnit || itemAny.baseUnit || 'each' }
         : { mode: 'PACK', purchasePrice: newPurchasePrice }
     await prisma.inventoryItem.update({
       where: { id: item.id },

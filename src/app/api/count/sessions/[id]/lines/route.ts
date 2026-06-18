@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       sessionId: params.id,
       inventoryItemId,
       expectedQty: Number(item.stockOnHand),
-      selectedUom: item.countUOM || item.baseUnit,
+      selectedUom: item.countUnit ?? item.baseUnit,
       priceAtCount: pricePerBaseUnit(asChainItem(item)),
       sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
     },

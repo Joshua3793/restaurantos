@@ -33,14 +33,10 @@ export async function PATCH(
 
   const item = line.inventoryItem
   const itemDims = {
-    baseUnit:           item.baseUnit,
-    purchaseUnit:       item.purchaseUnit,
-    qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-    qtyUOM:             item.qtyUOM ?? 'each',
-    innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-    packSize:           Number(item.packSize),
-    packUOM:            item.packUOM,
-    countUOM:           item.countUOM,
+    dimension: item.dimension,
+    baseUnit:  item.baseUnit,
+    packChain: item.packChain,
+    countUnit: item.countUnit,
   }
 
   let data: Parameters<typeof prisma.countLine.update>[0]['data'] = {}

@@ -20,15 +20,17 @@ import { PACK_UOMS } from '@/lib/utils'
 export interface InventorySearchResult {
   id: string
   itemName: string
-  abbreviation: string | null
-  purchaseUnit: string
+  abbreviation?: string | null
   purchasePrice: number
   pricePerBaseUnit: number
   baseUnit: string
   category: string
-  qtyPerPurchaseUnit: number
-  packSize: number
-  packUOM: string
+  // Chain pricing facts (PRICING_SELECT) — flow through to matchedItem so pack
+  // display + format prefill + pricing mode derive from the chain.
+  dimension?: string
+  packChain?: unknown
+  pricing?: unknown
+  countUnit?: string | null
 }
 
 export type ReconcileResult = {

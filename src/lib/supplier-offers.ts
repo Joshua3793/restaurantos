@@ -85,7 +85,10 @@ export function scanLinePricePerBase(
     invoicePackSize: unknown
     invoicePackUOM: string | null
   },
-  itemFallback: { qtyPerPurchaseUnit: unknown; packSize: unknown; packUOM: string | null },
+  // Item fallback is the item's stored CHAIN (its pack format lives there now,
+  // not in legacy columns). packQty = top container inner count (1 for a single
+  // link); packSize = leaf base content; packUOM = the item's base unit.
+  itemFallback: { packChain: unknown; baseUnit: string | null },
 ): number | null {
   const num = (v: unknown) => {
     const n = Number(v)
@@ -97,9 +100,14 @@ export function scanLinePricePerBase(
   }
   const price = num(line.newPrice)
   if (!price) return null
-  const pq = num(line.invoicePackQty) ?? num(itemFallback.qtyPerPurchaseUnit) ?? 1
-  const ps = num(line.invoicePackSize) ?? num(itemFallback.packSize) ?? 1
-  const pu = line.invoicePackUOM ?? itemFallback.packUOM ?? 'each'
+  const chain = Array.isArray(itemFallback.packChain)
+    ? (itemFallback.packChain as { unit: string; per: number }[]) : []
+  const leaf = chain[chain.length - 1]
+  const fbPackQty  = chain.length >= 2 ? num(chain[0].per) : 1
+  const fbPackSize = leaf ? num(leaf.per) : null
+  const pq = num(line.invoicePackQty) ?? fbPackQty ?? 1
+  const ps = num(line.invoicePackSize) ?? fbPackSize ?? 1
+  const pu = line.invoicePackUOM ?? itemFallback.baseUnit ?? 'each'
   const conv = getUnitConv(pu)
   const divisor = pq * ps * conv
   return divisor > 0 ? price / divisor : null
@@ -130,7 +138,7 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
     }),
     prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
-      select: { qtyPerPurchaseUnit: true, packSize: true, packUOM: true },
+      select: { packChain: true, baseUnit: true },
     }),
   ])
   if (!item || offers.length === 0) return []

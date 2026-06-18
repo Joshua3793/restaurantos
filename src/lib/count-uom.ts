@@ -3,12 +3,19 @@
  *
  * Every inventory item stores stockOnHand in its baseUnit.
  * During a count, the user may enter quantities in a different UOM
- * (e.g. purchaseUnit = "bag" containing 20 kg, or "kg" when baseUnit = "g").
+ * (e.g. a chain level "case" containing 6000 g, or "kg" when baseUnit = "g").
  * These functions handle converting back to baseUnit for persistence.
+ *
+ * EVERYTHING here — converters AND the display helper `formatPurchaseDisplay` —
+ * resolves units through the item's pack CHAIN (`packChain` + `dimension` +
+ * `baseUnit`) via the item-model engine. The legacy pack columns
+ * (qtyUOM/packSize/packUOM/innerQty/qtyPerPurchaseUnit/priceType/countUOM) are
+ * never read.
  */
 
-import { convertQty, canonicalUom, CONTAINER_UNITS, purchaseUnitToken } from './uom'
-import { deriveBaseUnit, getUnitConv, getUnitDimension, isMeasuredUnit } from './utils'
+import { CONTAINER_UNITS, purchaseUnitToken } from './uom'
+import { getUnitConv, isMeasuredUnit } from './utils'
+import { asChainItem, levelBaseUnits, dimensionOf } from './item-model'
 
 export interface CountableUom {
   label: string
@@ -20,15 +27,14 @@ export interface CountableUom {
   display?: string
 }
 
+/**
+ * Item facts the count converters + display helper need — all chain-derived.
+ */
 interface ItemDims {
+  dimension: string
   baseUnit: string
-  purchaseUnit: string
-  qtyPerPurchaseUnit: number | { toString(): string }
-  qtyUOM?: string | null
-  innerQty?: { toString(): string } | number | null
-  packSize: number | { toString(): string }
-  packUOM: string
-  countUOM: string
+  packChain: unknown
+  countUnit?: string | null
 }
 
 function fmtNum(n: number): string {
@@ -37,199 +43,196 @@ function fmtNum(n: number): string {
   return n.toFixed(1)
 }
 
-function buildCaseHint(item: ItemDims): string {
-  const qty = Number(item.qtyPerPurchaseUnit)
-  const qtyUOM = item.qtyUOM ?? 'each'
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-  const ps = Number(item.packSize ?? 0)
-  const pu = item.packUOM ?? 'each'
+/**
+ * BACKWARD-COMPAT shim: resolve a (possibly generic) selectedUom to base units
+ * per 1 of that unit, via the item's pack chain.
+ *
+ * Stored selectedUom values from existing count sessions use generic labels
+ * (case/pack/each/kg/g/baseUnit) as well as real chain-level names — both must
+ * resolve identically to the legacy formula.
+ */
+function resolveUnitBase(selectedUom: string, item: ItemDims): number {
+  const ci = asChainItem(item as Parameters<typeof asChainItem>[0])
+  const sel = (selectedUom || '').toLowerCase()
+  const levels = levelBaseUnits(ci.packChain)          // keys are the chain unit names
 
-  if (isMeasuredUnit(qtyUOM)) {
-    const total = qty * getUnitConv(qtyUOM)
-    return total >= 1000 && getUnitDimension(qtyUOM) === 'weight'
-      ? `${total / 1000} kg`
-      : `${qty} ${qtyUOM}`
-  }
-  if (qtyUOM === 'pack' && innerQty != null) {
-    if (ps > 0 && pu !== 'each') {
-      return `${qty} packs × ${innerQty} × ${ps}${pu}`
-    }
-    return `${qty} packs × ${innerQty} each`
-  }
-  if (ps > 0 && pu !== 'each') {
-    return `${qty} × ${ps}${pu}`
-  }
-  return `${qty} each`
-}
-
-/** Helper: total base units per 1 purchase unit */
-function calcConversionFactorForItem(item: ItemDims): number {
-  const qtyUOM = item.qtyUOM ?? 'each'
-  const qty = Number(item.qtyPerPurchaseUnit)
-  const ps  = Number(item.packSize ?? 0)
-  const pu  = item.packUOM ?? 'each'
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-
-  if (isMeasuredUnit(qtyUOM)) {
-    return qty * getUnitConv(qtyUOM)
-  }
-  if (qtyUOM === 'pack' && innerQty != null) {
-    return qty * innerQty * ps * getUnitConv(pu)
-  }
-  return qty * ps * getUnitConv(pu)
+  // 0. The item's own baseUnit always converts 1:1 (g→g, ml→ml, each→each). This
+  //    MUST win over a chain level that happens to share the base unit's name —
+  //    a COUNT item's leaf is named "each" with per>1 (its case content), but
+  //    counting in base "each" means single base units (1), not a leaf-pack.
+  if (sel === ci.baseUnit.toLowerCase()) return getUnitConv(ci.baseUnit)
+  // 1. exact chain-level name (case/head/bottle/can/sleeve…)
+  for (const k of Object.keys(levels)) if (k.toLowerCase() === sel) return levels[k]
+  // 2. same-dimension MEASURED unit (kg/g/ml/l/lb). Restricted to weight/volume
+  //    so COUNT container/purchase names (case/pack/batch) don't collapse to 1 —
+  //    they resolve through the chain in step 3.
+  if (isMeasuredUnit(selectedUom) && dimensionOf(selectedUom) === ci.dimension) return getUnitConv(selectedUom)
+  // 3. legacy generic labels → map onto chain levels
+  const top = ci.packChain[0]?.unit
+  const leaf = ci.packChain[ci.packChain.length - 1]?.unit
+  if (sel === 'case' && top) return levels[top]
+  if (sel === 'each' && leaf) return levels[leaf]
+  if (sel === 'pack') { const mid = ci.packChain[1]?.unit ?? leaf; return mid ? levels[mid] : 1 }
+  // 4. cross-dimension or unknown unit the chain can't resolve: 1:1 passthrough,
+  //    matching the legacy convertQty no-op (e.g. a 'kg' label on a COUNT item).
+  if (dimensionOf(selectedUom) !== ci.dimension) return 1
+  // 5. fallback: leaf level (smallest), else 1
+  return leaf ? levels[leaf] : 1
 }
 
 /**
- * Returns the stored countUOM if it's still valid for this item's purchase
- * structure, otherwise falls back to the first valid option.
+ * Returns the stored countUnit if it resolves (is a chain level or same-dim
+ * unit), else the leaf level name, else baseUnit.
  */
 export function resolveCountUom(item: ItemDims): string {
-  const stored = item.countUOM ?? 'each'
-  const valid = getCountableUoms(item).map(u => u.label)
-  return valid.includes(stored) ? stored : (valid[0] ?? stored)
+  const ci = asChainItem(item as Parameters<typeof asChainItem>[0])
+  const stored = item.countUnit ?? ci.countUnit
+  if (stored) {
+    const lv = levelBaseUnits(ci.packChain)
+    const inChain = Object.keys(lv).some(k => k.toLowerCase() === stored.toLowerCase())
+    if (inChain || dimensionOf(stored) === ci.dimension) return stored
+  }
+  const leaf = ci.packChain[ci.packChain.length - 1]?.unit
+  return leaf ?? ci.baseUnit
+}
+
+/** Pack-display shape — only the CHAIN fields are read. Extra keys on a full
+ *  item row are tolerated. */
+interface PurchaseDisplayDims {
+  dimension?: string
+  baseUnit?: string
+  packChain?: unknown
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [k: string]: any
 }
 
 /**
- * Human-readable pack display derived ONLY from the structured columns (never a stored
- * string). The container token comes from purchaseUnit via purchaseUnitToken (tolerant of
- * legacy display strings); the numbers come from qtyPerPurchaseUnit/innerQty/packSize/packUOM.
- * Single source for every pack label.
+ * Human-readable pack display derived from the pack CHAIN. DISPLAY-ONLY.
+ *
+ *   single link, measured leaf  →  "case (6,000 g)"
+ *   single link, count leaf     →  "case (12 each)"
+ *   multi link                  →  "case (12 × 1L)"      (top.per × leaf-base baseUnit)
+ *   no chain / leaf-only base    →  the unit token itself ("each", "kg")
+ *
+ * The top container name comes from `packChain[0].unit`; the base content comes
+ * from `levelBaseUnits`. Equivalent to the old legacy-column rendering because
+ * the chain was backfilled base-unit-equivalent to those columns.
  */
-export function formatPurchaseDisplay(item: ItemDims): string {
-  const token = purchaseUnitToken(item.purchaseUnit)
-  const isContainerTok = CONTAINER_UNITS.has(token)
-  const qtyUOM = item.qtyUOM ?? 'each'
-  const qty = Number(item.qtyPerPurchaseUnit)
-  const ps = Number(item.packSize ?? 0)
-  const pu = item.packUOM ?? 'each'
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-  const fmtWV = (val: number, unit: string) => {
+export function formatPurchaseDisplay(item: PurchaseDisplayDims): string {
+  const ci = asChainItem(item as Parameters<typeof asChainItem>[0])
+  const chain = ci.packChain
+  const baseUnit = ci.baseUnit || 'each'
+
+  // No chain → just the base unit token.
+  if (!chain || chain.length === 0) return purchaseUnitToken(baseUnit) || 'each'
+
+  const levels = levelBaseUnits(chain)
+  const top = chain[0]
+  const topToken = purchaseUnitToken(top.unit)
+  const isContainerTok = CONTAINER_UNITS.has(topToken)
+  const topBase = levels[top.unit] ?? 0   // base units in one top container
+
+  // A single-link chain whose top IS the count leaf (top.unit === baseUnit and
+  // per resolves to base) is just a bare unit — no "(detail)" wrapper.
+  if (chain.length === 1 && top.unit.toLowerCase() === baseUnit.toLowerCase()) {
+    return topToken || 'each'
+  }
+
+  const fmtMeasured = (val: number, unit: string) => {
     const x = (unit || '').toLowerCase()
     const n = Number.isInteger(val) ? val.toString() : parseFloat(val.toFixed(2)).toString()
     return `${n}${x === 'l' || x === 'lt' ? 'L' : x}`
   }
-  let detail = ''
-  if (qtyUOM === 'pack' && innerQty && innerQty > 0) detail = `${fmtNum(qty)} pkg`
-  else if (isMeasuredUnit(qtyUOM) && qty > 1) detail = fmtWV(qty, qtyUOM)
-  else if (isMeasuredUnit(pu) && ps > 0) detail = qty > 1 ? `${fmtNum(qty)} × ${fmtWV(ps, pu)}` : fmtWV(ps, pu)
-  else if ((pu ?? 'each').toLowerCase() === 'each' && ps > 1) detail = `${fmtNum(qty > 1 ? qty * ps : ps)} each`
 
-  if (isContainerTok) return detail ? `${token} (${detail})` : token
-  if (detail) return detail
-  return token || 'each'
+  // Build the "what's inside one top container" detail.
+  let detail: string
+  if (chain.length >= 2) {
+    // Show structure: top.per inner units × the inner unit's own base content.
+    const inner = chain[1]
+    const innerBase = levels[inner.unit] ?? 0
+    if (ci.dimension !== 'COUNT' && isMeasuredUnit(baseUnit) && innerBase > 1) {
+      detail = `${fmtNum(Number(top.per))} × ${fmtMeasured(innerBase, baseUnit)}`
+    } else {
+      // COUNT or unit inner — show total base content.
+      detail = ci.dimension === 'COUNT'
+        ? `${fmtNum(topBase)} ${baseUnit}`
+        : fmtMeasured(topBase, baseUnit)
+    }
+  } else {
+    // Single link with non-trivial content: total base content of the container.
+    detail = ci.dimension === 'COUNT'
+      ? `${fmtNum(topBase)} ${baseUnit}`
+      : fmtMeasured(topBase, baseUnit)
+  }
+
+  if (isContainerTok) return `${topToken} (${detail})`
+  // Non-container top (e.g. a bare measured purchase unit): show the detail.
+  return detail || topToken || 'each'
 }
 
 /**
  * Returns the UOM options a user can choose from when counting an item.
- * Derived from purchase structure — not a hardcoded list.
+ * Sourced from the pack CHAIN — every chain level (outer→inner) plus the
+ * dimensional count units for the item's dimension that aren't already a level.
  */
 export function getCountableUoms(item: ItemDims): CountableUom[] {
+  const ci = asChainItem(item as Parameters<typeof asChainItem>[0])
+  const chain = ci.packChain
+  const levels = levelBaseUnits(chain)
+  const baseUnit = ci.baseUnit
+
   const uoms: CountableUom[] = []
-  const qtyUOM = item.qtyUOM ?? 'each'
-  const base = deriveBaseUnit(qtyUOM, item.packUOM ?? 'each')
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-  const hasInnerQty = innerQty != null && innerQty > 0
-  const ps = Number(item.packSize ?? 0)
-  const pu = item.packUOM ?? 'each'
-  const hasWeight = base === 'g' || base === 'ml'
-  const hasItemWeight = hasWeight && ps > 0
-
-  // ── display helpers ────────────────────────────────────────────────────────
-  const fmtWV = (val: number, unit: string) => {
-    const x = (unit || '').toLowerCase()
-    // keep up to 2 decimals (trim trailing zeros) so a 3.25kg wheel reads "3.25kg", not "3.3kg"
-    const n = Number.isInteger(val) ? val.toString() : parseFloat(val.toFixed(2)).toString()
-    return `${n}${x === 'l' || x === 'lt' ? 'L' : x}`
+  const seen = new Set<string>()
+  const push = (u: CountableUom) => {
+    const key = u.label.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    uoms.push(u)
   }
 
-  const purchaseToBase = calcConversionFactorForItem(item)
+  const fmtBase = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-  // Purchase unit (case / bag / etc.) — label is the canonical container token; display derives from structured cols.
-  uoms.push({
-    label: purchaseUnitToken(item.purchaseUnit),
-    toBase: purchaseToBase,
-    hint: buildCaseHint(item),
-    display: formatPurchaseDisplay(item),
-  })
-
-  // Pack level (only when qtyUOM = "pack")
-  if (qtyUOM === 'pack' && hasInnerQty) {
-    const packBaseUnits = innerQty! * ps * getUnitConv(pu)
-    const hint = packBaseUnits > 0 ? `${fmtNum(packBaseUnits)} ${base}` : `${innerQty} each`
-    uoms.push({ label: 'pack', toBase: packBaseUnits > 0 ? packBaseUnits : innerQty!, hint, display: `pkg (${fmtNum(innerQty!)} × ${fmtWV(ps, pu)})` })
+  // Chain levels, outer → inner.
+  for (const link of chain) {
+    const toBase = levels[link.unit] ?? 0
+    if (!(toBase > 0)) continue
+    push({
+      label: link.unit,
+      toBase,
+      display: `${link.unit} (${fmtBase(toBase)} ${baseUnit})`,
+    })
   }
 
-  // Each (individual item) — omitted when redundant: 1 case/pkg = 1 each, or there is no real per-each weight
-  if (hasItemWeight) {
-    const eachToBase = ps * getUnitConv(pu)
-    const redundant = eachToBase >= purchaseToBase || eachToBase <= 1
-    if (!redundant) uoms.push({ label: 'each', toBase: eachToBase, hint: `${ps} ${pu}`, display: `each (${fmtWV(ps, pu)})` })
-  } else if (qtyUOM === 'each' || qtyUOM === 'pack') {
-    // count-based each (e.g. individual shells) — drop only when the purchase unit is itself a single each
-    if (!(qtyUOM === 'each' && purchaseToBase <= 1)) uoms.push({ label: 'each', toBase: 1, display: 'each' })
-  }
+  // Whether the chain has a "measured leaf" — a real per-each weight/volume,
+  // i.e. the leaf carries a non-1 base content for a MASS/VOLUME item.
+  const leaf = chain[chain.length - 1]
+  const leafBase = leaf ? (levels[leaf.unit] ?? 0) : 0
+  const hasMeasuredLeaf = ci.dimension !== 'COUNT' && leafBase > 0
 
-  // Weight/volume options — only when item actually has a weight/volume per each
-  if (base === 'g' && hasItemWeight) {
-    uoms.push(
-      { label: 'kg', toBase: 1000, hint: '1,000 g', display: 'kg' },
-      { label: 'lb', toBase: 453.592, hint: '454 g', display: 'lb' },
-      { label: 'g',  toBase: 1, display: 'g' },
-    )
+  // Dimensional count units for the item's dimension not already a level.
+  if (ci.dimension === 'MASS' && hasMeasuredLeaf) {
+    push({ label: 'kg', toBase: 1000, hint: '1,000 g', display: 'kg' })
+    push({ label: 'g', toBase: 1, display: 'g' })
+    push({ label: 'lb', toBase: 453.592, hint: '454 g', display: 'lb' })
+  } else if (ci.dimension === 'VOLUME') {
+    push({ label: 'l', toBase: 1000, hint: '1,000 ml', display: 'l' })
+    push({ label: 'ml', toBase: 1, display: 'ml' })
   }
-  if (base === 'ml' && hasItemWeight) {
-    uoms.push(
-      { label: 'l',  toBase: 1000, hint: '1,000 ml', display: 'l' },
-      { label: 'ml', toBase: 1, display: 'ml' },
-    )
-  }
+  // COUNT: no extra dimensional units.
 
   return uoms
 }
 
 /**
  * Convert a quantity entered by the user (in selectedUom) to the item's baseUnit.
- * This is what gets written to stockOnHand.
+ * This is what gets written to stockOnHand. Resolved entirely via the chain.
  */
 export function convertCountQtyToBase(
   qty: number,
   selectedUom: string,
   item: ItemDims,
 ): number {
-  const sel = selectedUom.toLowerCase()
-  const base = item.baseUnit.toLowerCase()
-  if (sel === base) return qty
-
-  const qtyUOM = (item.qtyUOM ?? 'each').toLowerCase()
-  const ps = Number(item.packSize ?? 0)
-  const pu = item.packUOM ?? 'each'
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-
-  const isWeightQty = isMeasuredUnit(qtyUOM)
-
-  const itemBaseUnits = ps * getUnitConv(pu)
-  const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
-
-  // Purchase unit
-  if (sel === item.purchaseUnit.toLowerCase()) {
-    const qtyNum = Number(item.qtyPerPurchaseUnit)
-    if (isWeightQty) return qty * qtyNum * getUnitConv(qtyUOM)
-    if (qtyUOM === 'pack' && innerQty != null) return qty * qtyNum * packBaseUnits
-    return qty * qtyNum * (itemBaseUnits > 0 ? itemBaseUnits : 1)
-  }
-
-  // Pack level
-  if (sel === 'pack' && qtyUOM === 'pack' && innerQty != null) {
-    return qty * packBaseUnits
-  }
-
-  // Each
-  if (sel === 'each') {
-    return itemBaseUnits > 0 ? qty * itemBaseUnits : qty
-  }
-
-  // Standard weight/volume conversion (kg, g, lb, ml, l, etc.)
-  return convertQty(qty, selectedUom, item.baseUnit)
+  return qty * resolveUnitBase(selectedUom, item)
 }
 
 export type CountEntry = { unit: string; qty: number }
@@ -258,45 +261,6 @@ export function convertBaseToCountUom(
   selectedUom: string,
   item: ItemDims,
 ): number {
-  const sel = selectedUom.toLowerCase()
-  const base = item.baseUnit.toLowerCase()
-  if (sel === base) return baseQty
-
-  const qtyUOM = (item.qtyUOM ?? 'each').toLowerCase()
-  const ps = Number(item.packSize ?? 0)
-  const pu = item.packUOM ?? 'each'
-  const innerQty = item.innerQty != null ? Number(item.innerQty) : null
-
-  const isWeightQty = isMeasuredUnit(qtyUOM)
-
-  const itemBaseUnits = ps * getUnitConv(pu)
-  const packBaseUnits = (innerQty ?? 1) * itemBaseUnits
-
-  // Purchase unit
-  if (sel === item.purchaseUnit.toLowerCase()) {
-    const qtyNum = Number(item.qtyPerPurchaseUnit)
-    if (isWeightQty) {
-      const purchaseBaseUnits = qtyNum * getUnitConv(qtyUOM)
-      return purchaseBaseUnits > 0 ? baseQty / purchaseBaseUnits : 0
-    }
-    if (qtyUOM === 'pack' && innerQty != null) {
-      const purchaseBaseUnits = qtyNum * packBaseUnits
-      return purchaseBaseUnits > 0 ? baseQty / purchaseBaseUnits : 0
-    }
-    const purchaseBaseUnits = qtyNum * (itemBaseUnits > 0 ? itemBaseUnits : 1)
-    return purchaseBaseUnits > 0 ? baseQty / purchaseBaseUnits : 0
-  }
-
-  // Pack level
-  if (sel === 'pack' && qtyUOM === 'pack' && innerQty != null) {
-    return packBaseUnits > 0 ? baseQty / packBaseUnits : 0
-  }
-
-  // Each
-  if (sel === 'each') {
-    return itemBaseUnits > 0 ? baseQty / itemBaseUnits : baseQty
-  }
-
-  // Standard weight/volume
-  return convertQty(baseQty, item.baseUnit, selectedUom)
+  const per = resolveUnitBase(selectedUom, item)
+  return per > 0 ? baseQty / per : baseQty
 }

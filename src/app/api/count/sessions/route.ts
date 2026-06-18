@@ -135,14 +135,10 @@ export async function POST(req: NextRequest) {
             // Derive from the purchase format (self-heals legacy items whose
             // stored countUOM no longer matches their structure).
             selectedUom:     resolveCountUom({
-              baseUnit:           item.baseUnit,
-              purchaseUnit:       item.purchaseUnit,
-              qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-              qtyUOM:             item.qtyUOM ?? 'each',
-              innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-              packSize:           Number(item.packSize),
-              packUOM:            item.packUOM,
-              countUOM:           item.countUOM ?? 'each',
+              dimension: item.dimension,
+              baseUnit:  item.baseUnit,
+              packChain: item.packChain,
+              countUnit: item.countUnit,
             }) || item.baseUnit,
             priceAtCount:    pricePerBaseUnit(asChainItem(item)),
             sortOrder:       i,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { dimensionOf } from '@/lib/item-model'
 
 /**
  * POST /api/inventory/sync-prepd
@@ -29,14 +30,16 @@ export async function POST() {
       data: {
         itemName: r.name,
         category: 'PREPD',
-        purchaseUnit: yieldUnit,
-        qtyPerPurchaseUnit: Number(r.baseYieldQty) > 0 ? Number(r.baseYieldQty) : 1,
         purchasePrice: 0,
         baseUnit: yieldUnit,
-        packSize: 1,
-        packUOM: yieldUnit,
-        countUOM: yieldUnit,
         stockOnHand: 0,
+        // Chain placeholder — syncPrepToInventory fills in the real cost/yield.
+        dimension: dimensionOf(yieldUnit),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        packChain: [{ unit: yieldUnit, per: Number(r.baseYieldQty) > 0 ? Number(r.baseYieldQty) : 1 }] as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pricing: { mode: 'PACK', purchasePrice: 0 } as any,
+        countUnit: yieldUnit,
       },
     })
     await prisma.recipe.update({ where: { id: r.id }, data: { inventoryItemId: invItem.id } })

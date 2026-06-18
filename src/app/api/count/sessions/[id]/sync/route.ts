@@ -152,14 +152,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         })
       }
       const itemDims = {
-        baseUnit:           item.baseUnit,
-        purchaseUnit:       item.purchaseUnit,
-        qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-        qtyUOM:             item.qtyUOM ?? 'each',
-        innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-        packSize:           Number(item.packSize),
-        packUOM:            item.packUOM,
-        countUOM:           item.countUOM,
+        dimension: item.dimension,
+        baseUnit:  item.baseUnit,
+        packChain: item.packChain,
+        countUnit: item.countUnit,
       }
       const countedBase = lineCountedBase(l, itemDims)
       const expected    = Number(l.expectedQty)
@@ -182,14 +178,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           inventoryItemId: item.id,
           expectedQty:     getExpected(item.id, Number(item.stockOnHand)),
           selectedUom:     resolveCountUom({
-            baseUnit:           item.baseUnit,
-            purchaseUnit:       item.purchaseUnit,
-            qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-            qtyUOM:             item.qtyUOM ?? 'each',
-            innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-            packSize:           Number(item.packSize),
-            packUOM:            item.packUOM,
-            countUOM:           item.countUOM ?? 'each',
+            dimension: item.dimension,
+            baseUnit:  item.baseUnit,
+            packChain: item.packChain,
+            countUnit: item.countUnit,
           }) || item.baseUnit,
           priceAtCount:    pricePerBaseUnit(asChainItem(item)),
           sortOrder:       nextSort++,

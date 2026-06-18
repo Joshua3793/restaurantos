@@ -270,18 +270,15 @@ export async function syncPrepToInventory(recipeId: string) {
   const baseYieldQty     = recipe.baseYieldQty > 0 ? recipe.baseYieldQty : 1
   const yieldUnit        = recipe.yieldUnit
 
-  // Preserve the user-chosen countUOM (drives the chain's countUnit below).
+  // Preserve the user-chosen count unit (drives the chain's countUnit below).
   const current = await prisma.inventoryItem.findUnique({
     where:  { id: recipe.inventoryItemId },
-    select: { countUOM: true },
+    select: { countUnit: true },
   })
-  const countUOM = current?.countUOM ?? yieldUnit
+  const countUOM = current?.countUnit ?? yieldUnit
 
   // Item-model chain (authoritative): a one-link PACK chain whose per = baseYieldQty
-  // and pricing.purchasePrice = totalCost reproduces the same ppb (totalCost /
-  // baseYieldQty) the legacy write computes above. NOTE: the legacy `baseUnit`
-  // write below stays `yieldUnit` (unchanged) — chain ppb is derived purely from
-  // packChain + pricing, so the stored baseUnit does not affect parity.
+  // and pricing.purchasePrice = totalCost yields ppb = totalCost / baseYieldQty.
   const prepDimension = dimensionOf(yieldUnit)
   const prepChain = [{ unit: countUOM || 'batch', per: baseYieldQty }]
   const prepPricing = { mode: 'PACK' as const, purchasePrice: recipe.totalCost }
@@ -291,13 +288,11 @@ export async function syncPrepToInventory(recipeId: string) {
     data: {
       purchasePrice:      recipe.totalCost,
       baseUnit:           yieldUnit,
-      packUOM:            yieldUnit,
-      packSize:           baseYieldQty,
-      qtyPerPurchaseUnit: 1,
-      purchaseUnit:       'batch',
       allergens:          recipe.allergens,
       dimension:          prepDimension,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       packChain:          prepChain as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pricing:            prepPricing as any,
       countUnit:          countUOM,
       lastUpdated: new Date(),

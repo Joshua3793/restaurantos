@@ -14,7 +14,7 @@ interface PriceAlert {
   changePct: string | number | null
   createdAt: string
   acknowledged: boolean
-  inventoryItem: { id: string; itemName: string; purchaseUnit: string | null; baseUnit: string | null; pricePerBaseUnit: string | number | null }
+  inventoryItem: { id: string; itemName: string; packChain?: Array<{ unit: string; per: number }> | null; baseUnit: string | null; pricePerBaseUnit: string | number | null }
   session: { id: string; supplierName: string | null; invoiceDate: string | null }
 }
 
@@ -112,7 +112,7 @@ export default function PriceAlertsPage() {
                     // the numbers; fall back to the stored changePct only if we can't.
                     const stored = a.changePct != null && Number.isFinite(Number(a.changePct)) ? Number(a.changePct) : null
                     const pct = old !== null && cur !== null ? ((cur - old) / old) * 100 : stored
-                    const unit = a.inventoryItem.purchaseUnit || 'unit'
+                    const unit = a.inventoryItem.packChain?.[0]?.unit || 'unit'
                     return (
                       <div key={a.id} className="grid grid-cols-[36px_1.4fr_1.2fr_1fr_auto] items-center gap-3 px-[18px] py-3.5 border-b border-line last:border-0">
                         <div className="w-9 h-9 rounded-[9px] bg-red-soft text-red-text grid place-items-center shrink-0">

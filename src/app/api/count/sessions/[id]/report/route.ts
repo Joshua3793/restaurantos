@@ -23,12 +23,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const totalValue = lines.reduce((s, l) => {
     const item = l.inventoryItem
     const itemDims = {
-      baseUnit: item.baseUnit, purchaseUnit: item.purchaseUnit,
-      qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-      qtyUOM: item.qtyUOM ?? 'each',
-      innerQty: item.innerQty != null ? Number(item.innerQty) : null,
-      packSize: Number(item.packSize),
-      packUOM: item.packUOM, countUOM: item.countUOM,
+      dimension: item.dimension, baseUnit: item.baseUnit,
+      packChain: item.packChain, countUnit: item.countUnit,
     }
     const qtyBase = lineCountedBase(l, itemDims)
     return s + qtyBase * Number(l.priceAtCount)

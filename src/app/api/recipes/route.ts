@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
-import { PRICING_SELECT } from '@/lib/item-model'
+import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export async function GET(req: NextRequest) {
@@ -153,14 +153,16 @@ export async function POST(req: NextRequest) {
           data: {
             itemName: name,
             category: 'PREPD',
-            purchaseUnit: canonYield,
-            qtyPerPurchaseUnit: parseFloat(baseYieldQty),
             purchasePrice: 0,
             baseUnit: canonYield,
-            packSize: 1,
-            packUOM: canonYield,
-            countUOM: canonYield,
             stockOnHand: 0,
+            // Chain placeholder — syncPrepToInventory fills in the real cost/yield.
+            dimension: dimensionOf(canonYield),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            packChain: [{ unit: canonYield, per: parseFloat(baseYieldQty) || 1 }] as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            pricing: { mode: 'PACK', purchasePrice: 0 } as any,
+            countUnit: canonYield,
           },
         })
 

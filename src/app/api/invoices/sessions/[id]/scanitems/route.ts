@@ -38,10 +38,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     include: {
       matchedItem: {
         select: {
-          id: true, itemName: true, purchaseUnit: true,
+          id: true, itemName: true,
           ...PRICING_SELECT, purchasePrice: true,
-          qtyPerPurchaseUnit: true, packSize: true, packUOM: true,
-          priceType: true, qtyUOM: true, innerQty: true,
         },
       },
     },

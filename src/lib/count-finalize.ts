@@ -58,14 +58,10 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   for (const line of session.lines) {
     const item = line.inventoryItem
     const itemDims = {
-      baseUnit:           item.baseUnit,
-      purchaseUnit:       item.purchaseUnit,
-      qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-      qtyUOM:             item.qtyUOM ?? 'each',
-      innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-      packSize:           Number(item.packSize),
-      packUOM:            item.packUOM,
-      countUOM:           item.countUOM,
+      dimension: item.dimension,
+      baseUnit:  item.baseUnit,
+      packChain: item.packChain,
+      countUnit: item.countUnit,
     }
 
     // Always use the current price from the inventory item — ensures that any
@@ -154,14 +150,10 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
       .map(line => {
         const item = line.inventoryItem
         const itemDims = {
-          baseUnit:           item.baseUnit,
-          purchaseUnit:       item.purchaseUnit,
-          qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-          qtyUOM:             item.qtyUOM ?? 'each',
-          innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-          packSize:           Number(item.packSize),
-          packUOM:            item.packUOM,
-          countUOM:           item.countUOM,
+          dimension: item.dimension,
+          baseUnit:  item.baseUnit,
+          packChain: item.packChain,
+          countUnit: item.countUnit,
         }
         const qtyBase = lineCountedBase(line, itemDims)
         return prisma.stockAllocation.upsert({

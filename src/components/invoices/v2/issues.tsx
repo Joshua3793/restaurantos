@@ -57,7 +57,7 @@ export function ModeIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
   const ctx = useDrawerContext()
   const detected = derivePricingMode(item)
   const detectedLbl = detected === 'per_weight' ? 'per-weight' : 'per-case'
-  const productMode = item.matchedItem?.priceType === 'UOM' ? 'per-weight' : 'per-case'
+  const productMode = (item.matchedItem?.pricing as { mode?: string } | undefined)?.mode === 'RATE' ? 'per-weight' : 'per-case'
   const writeback = ctx.modeWritebackItems.has(lineId)
 
   return (

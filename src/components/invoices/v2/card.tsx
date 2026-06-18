@@ -24,6 +24,7 @@ import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoic
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
+import { asChainItem } from '@/lib/item-model'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
@@ -76,16 +77,14 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       matchedItem: {
         id: result.id,
         itemName: result.itemName,
-        purchaseUnit: result.purchaseUnit,
         purchasePrice: String(result.purchasePrice),
         pricePerBaseUnit: String(result.pricePerBaseUnit),
         baseUnit: result.baseUnit,
-        qtyPerPurchaseUnit: String(result.qtyPerPurchaseUnit),
-        packSize: String(result.packSize),
-        packUOM: result.packUOM,
-        priceType: 'CASE',
-        qtyUOM: result.packUOM,
-        innerQty: null,
+        // Carry the chain so pack display + format prefill + pricing mode derive from it.
+        dimension: result.dimension,
+        packChain: result.packChain,
+        pricing: result.pricing,
+        countUnit: result.countUnit,
       },
       action: 'UPDATE_PRICE',
       // A hand-picked link is no longer a fuzzy match — clear the MEDIUM-match
@@ -399,7 +398,7 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   } else {
     const prev = item.previousPrice ? Number(item.previousPrice) : null
     const next = item.rawUnitPrice  ? Number(item.rawUnitPrice)  : null
-    const bu   = item.matchedItem ? formatPurchaseDisplay({ ...item.matchedItem, countUOM: 'each' }) : 'case'
+    const bu   = item.matchedItem ? formatPurchaseDisplay(item.matchedItem) : 'case'
     if (prev !== null) prevLabel = `${formatCurrency(prev)}/${bu}`
     if (next !== null) {
       nextLabel = `${formatCurrency(next)}/${bu}`
@@ -452,7 +451,17 @@ function FormatMismatchNotice({ item, lineId }: { item: ScanItem; lineId: string
   const { updateLine } = useDrawerContext()
 
   const inv = item.matchedItem
-  const invFmt = inv ? `${inv.qtyPerPurchaseUnit} × ${inv.packSize}${inv.packUOM}` : null
+  // Stored pack format, derived from the CHAIN (not the legacy columns).
+  const invFmt = inv ? formatPurchaseDisplay(inv) : null
+  // The chain for prefilling "revert to inventory format".
+  const invChain = inv ? asChainItem(inv as Parameters<typeof asChainItem>[0]).packChain : []
+  const invTop  = invChain[0]
+  const invLeaf = invChain[invChain.length - 1]
+  // packQty = top container's inner count; packSize = base content of the leaf
+  // (smallest) pack; packUOM = the item's base unit.
+  const invPackQty  = invTop ? Number(invTop.per) : 1
+  const invPackSize = invLeaf ? Number(invLeaf.per) : 0
+  const invPackUOM  = inv?.baseUnit ?? 'each'
   const invoiceFmt = item.invoicePackQty && item.invoicePackSize && item.invoicePackUOM
     ? `${item.invoicePackQty} × ${item.invoicePackSize}${item.invoicePackUOM}`
     : null
@@ -481,9 +490,9 @@ function FormatMismatchNotice({ item, lineId }: { item: ScanItem; lineId: string
             updateLine(lineId, {
               formatMismatch: false,
               applyInvoiceFormat: false,
-              invoicePackQty:  String(inv.qtyPerPurchaseUnit),
-              invoicePackSize: String(inv.packSize),
-              invoicePackUOM:  inv.packUOM ?? undefined,
+              invoicePackQty:  String(invPackQty),
+              invoicePackSize: String(invPackSize),
+              invoicePackUOM:  invPackUOM,
             })
           }}
           className="inline-flex items-center gap-1.5 px-3 py-[7px] text-[12px] font-medium rounded-[7px] bg-paper text-ink-2 border border-line hover:border-ink-4 transition-colors"

@@ -9,19 +9,13 @@ import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 export const dynamic = 'force-dynamic'
 
 function itemDims(item: {
-  baseUnit: string; purchaseUnit: string; qtyPerPurchaseUnit: unknown
-  qtyUOM: string | null; innerQty: unknown; packSize: unknown
-  packUOM: string; countUOM: string
+  dimension: string; baseUnit: string; packChain: unknown; countUnit: string | null
 }) {
   return {
-    baseUnit:           item.baseUnit,
-    purchaseUnit:       item.purchaseUnit,
-    qtyPerPurchaseUnit: Number(item.qtyPerPurchaseUnit),
-    qtyUOM:             item.qtyUOM ?? 'each',
-    innerQty:           item.innerQty != null ? Number(item.innerQty) : null,
-    packSize:           Number(item.packSize),
-    packUOM:            item.packUOM,
-    countUOM:           item.countUOM ?? 'each',
+    dimension: item.dimension,
+    baseUnit:  item.baseUnit,
+    packChain: item.packChain,
+    countUnit: item.countUnit,
   }
 }
 
