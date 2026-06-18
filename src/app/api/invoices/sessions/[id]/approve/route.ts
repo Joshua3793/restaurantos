@@ -334,6 +334,9 @@ async function doApprove(
           // chain (no legacy-column reads) so the offer still reproduces
           // newPricePerBase exactly.
           const itemChain = (item.packChain as PackLink[]) ?? []
+          // formToChain is the SANCTIONED legacy-form → pack-chain adapter; the
+            // object below is a transient input DTO (qtyUOM/innerQty are vestigial
+            // adapter params, never persisted), NOT legacy columns. Do not inline.
           const offerChain = hasLinePack
             ? formToChain({
                 purchaseUnit:       itemTopUnit ?? scanItem.rawUnit ?? 'case',
@@ -374,7 +377,6 @@ async function doApprove(
               supplierName:         offerSupplierName,
               supplierId:           session.supplierId || null,
               lastPrice:            offerLastPrice,
-              pricePerBaseUnit:     newPricePerBase,
               isPrimary:            false,
               supplierItemCode:     scanItem.supplierItemCode ?? null,
               lastInvoiceSessionId: sessionId,
@@ -387,7 +389,6 @@ async function doApprove(
             },
             update: {
               lastPrice:            offerLastPrice,
-              pricePerBaseUnit:     newPricePerBase,
               lastUpdated:          new Date(),
               lastInvoiceSessionId: sessionId,
               ...(session.supplierId ? { supplierId: session.supplierId } : {}),
