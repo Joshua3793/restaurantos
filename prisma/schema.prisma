@@ -396,7 +396,7 @@ model InventorySupplierPrice {
   supplierName         String
   supplierId           String?
   lastPrice            Decimal
-  pricePerBaseUnit     Decimal?  // legacy cached value — derive from packChain/pricing on read; no longer written on upsert
+  // pricePerBaseUnit removed — offer ppb derives from packChain/pricing via offerPricePerBase()
   lastUpdated          DateTime      @default(now())
   isPrimary            Boolean       @default(false)
   supplierItemCode     String?  // this supplier's SKU for the item
