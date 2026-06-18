@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, withPpb } from '@/lib/item-model'
+import { offerPricePerBase } from '@/lib/supplier-offers'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -30,11 +31,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  // Re-populate the computed pricePerBaseUnit on each matchedItem so the invoice
-  // review UI (computeNormalisedPrices, composites/card/issues) survives the drop.
-  const scanItems = session.scanItems.map(si =>
-    si.matchedItem ? { ...si, matchedItem: withPpb(si.matchedItem) } : si
-  )
+  // Re-populate the computed pricePerBaseUnit on each matchedItem and on every
+  // supplierPrices entry so the invoice review UI survives the stored-column drop.
+  // offerPricePerBase derives from the offer's own packChain+pricing (chain-only).
+  const scanItems = session.scanItems.map(si => {
+    if (!si.matchedItem) return si
+    const supplierPrices = si.matchedItem.supplierPrices.map(o => ({
+      ...o,
+      pricePerBaseUnit: offerPricePerBase(o),
+    }))
+    return { ...si, matchedItem: { ...withPpb(si.matchedItem), supplierPrices } }
+  })
   return NextResponse.json({ ...session, scanItems })
 }
 

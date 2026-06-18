@@ -8,25 +8,23 @@ import { getUnitConv } from '@/lib/utils'
 import { pricePerBaseUnit as chainPpb } from '@/lib/item-model'
 
 /**
- * An offer's price-per-base-unit, PREFERRING the per-offer pack chain when
- * present (the design's ItemOffer semantics) so cross-supplier comparison is a
- * single numeric compare derived on read. Falls back to the stored
- * `pricePerBaseUnit` column for legacy offers that have no chain yet.
+ * An offer's price-per-base-unit, derived from its per-offer pack chain
+ * (the design's ItemOffer semantics) so cross-supplier comparison is a single
+ * numeric compare. Returns 0 for an offer with no chain (should not occur
+ * post-backfill — every offer row carries a packChain+pricing).
  */
 export function offerPricePerBase(offer: {
   packChain?: unknown
   pricing?: unknown
-  pricePerBaseUnit?: unknown
 }): number {
   const chain = Array.isArray(offer.packChain) ? offer.packChain : null
   const pricing = offer.pricing && typeof offer.pricing === 'object' ? offer.pricing : null
   if (chain && chain.length && pricing) {
-    // pricePerBaseUnit reads only packChain + pricing; dimension/baseUnit are
-    // unused for the compute, so cast the whole arg to satisfy ChainItem.
+    // pricePerBaseUnit reads only packChain + pricing; dimension/baseUnit unused.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return chainPpb({ packChain: chain, pricing } as any)
   }
-  return Number(offer.pricePerBaseUnit ?? 0) // legacy fallback
+  return 0 // no chain ⇒ unpriced offer
 }
 
 export interface SupplierOfferStats {
@@ -35,7 +33,7 @@ export interface SupplierOfferStats {
   supplierId: string | null
   isPrimary: boolean
   lastPrice: number
-  /** Chain-derived when the offer carries a packChain+pricing, else the legacy column. */
+  /** Chain-derived from the offer's packChain+pricing (0 if it carries no chain). */
   pricePerBaseUnit: number
   packChain: unknown
   pricing: unknown
@@ -182,7 +180,7 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
       supplierId: o.supplierId,
       isPrimary: o.isPrimary,
       lastPrice: Number(o.lastPrice),
-      // Chain-derived when the offer carries a chain; else legacy column.
+      // Chain-derived from the offer's packChain+pricing (0 if no chain).
       pricePerBaseUnit: offerPricePerBase(o),
       packChain: o.packChain ?? null,
       pricing: o.pricing ?? null,

@@ -22,6 +22,7 @@ import {
   getCountableUoms, convertCountQtyToBase, convertBaseToCountUom, countEntriesToBase,
 } from '@/lib/count-uom'
 import { asChainItem, levelBaseUnits } from '@/lib/item-model'
+import { formToChain } from '@/lib/item-model-form'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -790,18 +791,22 @@ export default function CountPage() {
     e.preventDefault()
     if (!active) return
     setAddItemSaving(true)
-    // Build a chain body from the quick-add fields. The form is already chain-
-    // shaped: baseUnit → dimension; the purchase unit holds (qtyPerPurchaseUnit ×
-    // conversionFactor) base units. Two-link chain: top container → 'each' leaf
-    // carrying `conversionFactor` base units. Pricing is PACK at the purchase price.
-    const bu = addItemForm.baseUnit
-    const dimension = bu === 'g' ? 'MASS' : bu === 'ml' ? 'VOLUME' : 'COUNT'
+    // Build the chain via the canonical adapter (one converter for all create paths).
+    // baseUnit (g|ml|each) is the leaf UOM, so packSize = conversionFactor reproduces
+    // the same base-units-per-purchase (qtyPer × conv) the inline build produced.
     const top = addItemForm.purchaseUnit || 'case'
-    const qtyPer = parseFloat(addItemForm.qtyPerPurchaseUnit) || 1
-    const conv = parseFloat(addItemForm.conversionFactor) || 1
-    const packChain = top.toLowerCase() === 'each' && qtyPer === 1
-      ? [{ unit: 'each', per: conv }]
-      : [{ unit: top, per: qtyPer }, { unit: 'each', per: conv }]
+    const chain = formToChain({
+      purchaseUnit:       top,
+      purchasePrice:      parseFloat(addItemForm.purchasePrice) || 0,
+      qtyPerPurchaseUnit: parseFloat(addItemForm.qtyPerPurchaseUnit) || 1,
+      qtyUOM:             'each',
+      innerQty:           null,
+      packSize:           parseFloat(addItemForm.conversionFactor) || 1,
+      packUOM:            addItemForm.baseUnit,
+      priceType:          'CASE',
+      countUOM:           top,
+      baseUnit:           addItemForm.baseUnit,
+    })
     const chainBody = {
       itemName: addItemForm.itemName,
       category: addItemForm.category,
@@ -809,10 +814,10 @@ export default function CountPage() {
       storageAreaId: addItemForm.storageAreaId || null,
       location: addItemForm.location || null,
       stockOnHand: parseFloat(addItemForm.stockOnHand) || 0,
-      dimension,
-      packChain,
-      pricing: { mode: 'PACK', purchasePrice: parseFloat(addItemForm.purchasePrice) || 0 },
-      countUnit: top,
+      dimension: chain.dimension,
+      packChain: chain.packChain,
+      pricing: chain.pricing,
+      countUnit: chain.countUnit,
     }
     const res = await fetch('/api/inventory', {
       method: 'POST',

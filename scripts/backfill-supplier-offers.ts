@@ -6,6 +6,7 @@
 
 import { prisma } from '../src/lib/prisma'
 import { scanLinePricePerBase } from '../src/lib/supplier-offers'
+import { formToChain } from '../src/lib/item-model-form'
 
 async function main() {
   // Wipe first: the table is fully derivable from approved invoice history,
@@ -23,7 +24,7 @@ async function main() {
         where: { approved: true, matchedItemId: { not: null }, action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] } },
         select: {
           matchedItemId: true, newPrice: true, rawUnitPrice: true, rate: true, rateUOM: true, pricingMode: true,
-          invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true, supplierItemCode: true,
+          invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true, supplierItemCode: true, rawUnit: true,
         },
       },
     },
@@ -53,7 +54,7 @@ async function main() {
       if (li.pricingMode !== 'per_weight' && (li.invoicePackQty == null || li.invoicePackSize == null)) continue
       const item = await prisma.inventoryItem.findUnique({
         where: { id: li.matchedItemId },
-        select: { qtyPerPurchaseUnit: true, packSize: true, packUOM: true },
+        select: { packChain: true, baseUnit: true },
       })
       if (!item) continue
       const ppb = scanLinePricePerBase(li, item)
@@ -67,6 +68,34 @@ async function main() {
       const pack = li.invoicePackQty !== null && li.invoicePackSize !== null
         ? { packQty: Number(li.invoicePackQty), packSize: Number(li.invoicePackSize), packUOM: li.invoicePackUOM ?? 'each' }
         : {}
+      // Per-offer chain: mirrors the approve route's offerChain logic.
+      // With a line pack, build a fresh chain from invoice fields (formToChain).
+      // Without a line pack, reuse the item's stored chain with the resolved pricing.
+      const hasLinePack = li.invoicePackQty !== null && li.invoicePackSize !== null
+      const isUomMode = li.pricingMode === 'per_weight'
+      const itemChain = Array.isArray(item.packChain) ? item.packChain : []
+      const itemTopUnit = (itemChain as { unit: string; per: number }[])[0]?.unit
+      const offerChain = hasLinePack
+        ? formToChain({
+            purchaseUnit:       itemTopUnit ?? li.rawUnit ?? 'case',
+            purchasePrice:      lastPrice,
+            qtyPerPurchaseUnit: Number(li.invoicePackQty),
+            qtyUOM:             'each',
+            innerQty:           null,
+            packSize:           Number(li.invoicePackSize),
+            packUOM:            isUomMode
+              ? (li.rateUOM ?? item.baseUnit ?? 'kg')
+              : (li.invoicePackUOM ?? 'each'),
+            priceType:          isUomMode ? 'UOM' : 'CASE',
+            countUOM:           'each',
+            baseUnit:           item.baseUnit ?? undefined,
+          })
+        : {
+            packChain: itemChain,
+            pricing: isUomMode
+              ? { mode: 'RATE', rate: lastPrice, rateUnit: li.rateUOM ?? item.baseUnit ?? 'kg' }
+              : { mode: 'PACK', purchasePrice: lastPrice },
+          }
       await prisma.inventorySupplierPrice.upsert({
         where: { inventoryItemId_supplierName: { inventoryItemId: li.matchedItemId, supplierName: offerSupplierName } },
         create: {
@@ -74,20 +103,26 @@ async function main() {
           supplierName: offerSupplierName,
           supplierId: s.supplierId,
           lastPrice,
-          pricePerBaseUnit: ppb,
           isPrimary: false,
           supplierItemCode: li.supplierItemCode,
           lastInvoiceSessionId: s.id,
           ...pack,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          packChain: offerChain.packChain as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pricing: offerChain.pricing as any,
         },
         update: {
           lastPrice,
-          pricePerBaseUnit: ppb,
           lastUpdated: new Date(),
           lastInvoiceSessionId: s.id,
           ...(s.supplierId ? { supplierId: s.supplierId } : {}),
           ...(li.supplierItemCode ? { supplierItemCode: li.supplierItemCode } : {}),
           ...pack,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          packChain: offerChain.packChain as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pricing: offerChain.pricing as any,
         },
       })
       upserts++

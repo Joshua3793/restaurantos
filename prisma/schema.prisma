@@ -396,10 +396,13 @@ model InventorySupplierPrice {
   supplierName         String
   supplierId           String?
   lastPrice            Decimal
-  pricePerBaseUnit     Decimal
+  pricePerBaseUnit     Decimal?  // legacy cached value — derive from packChain/pricing on read; no longer written on upsert
   lastUpdated          DateTime      @default(now())
   isPrimary            Boolean       @default(false)
   supplierItemCode     String?  // this supplier's SKU for the item
+  // RETAINED human pack format ("4 × 3 L") — provenance/display only. The chain
+  // (packChain/pricing) is the costing source of truth; these are NOT a divergence
+  // risk and are NOT fully derivable from the normalized chain for single-link offers.
   packQty              Decimal? // THIS supplier's pack format (qty per case)
   packSize             Decimal?
   packUOM              String?
@@ -438,6 +441,9 @@ model InvoiceMatchRule {
   useCount        Int           @default(1)
   lastUsed        DateTime      @default(now())
   createdAt       DateTime      @default(now())
+  // RETAINED learned pack-format cache. The matcher re-applies this {qty,size,UOM}
+  // triple to new scan lines (buildMatchResult consumes the triple, not a chain).
+  // Intentionally NOT migrated to packChain — the triple is the human format, not a cost.
   invoicePackQty  Decimal?
   invoicePackSize Decimal?
   invoicePackUOM  String?

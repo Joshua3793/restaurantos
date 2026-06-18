@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { volatilityOf, stabilityOf, scanLinePricePerBase } from '@/lib/supplier-offers'
+import { volatilityOf, stabilityOf, scanLinePricePerBase, offerPricePerBase } from '@/lib/supplier-offers'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 function startOf(daysAgo: number): Date {
@@ -464,7 +464,7 @@ async function buildMultiSupplierBlock(days: number) {
     if (itemOffers.length < 2) continue
     const inv = itemOffers[0].inventoryItem
     const offerList = itemOffers
-      .map(o => ({ supplier: o.supplierName, ppb: Number(o.pricePerBaseUnit), isPrimary: o.isPrimary }))
+      .map(o => ({ supplier: o.supplierName, ppb: offerPricePerBase(o), isPrimary: o.isPrimary }))
       .filter(o => o.ppb > 0)
       .sort((a, b) => a.ppb - b.ppb)
     if (offerList.length < 2) continue
