@@ -21,14 +21,9 @@ export function computeLineMath(item: ScanItem): {
     computed = Number(item.rate) * Number(item.totalQty)
   } else {
     if (!item.rawUnitPrice || !item.rawQty) return null
-    const pq    = Number(item.invoicePackQty)  || 1
-    const ps    = Number(item.invoicePackSize) || 1
-    const pt    = item.rawPriceType ?? 'CASE'
     const price = Number(item.rawUnitPrice)
     const qty   = Number(item.rawQty)
-    if (pt === 'PKG')      computed = qty * pq * price
-    else if (pt === 'UOM') computed = qty * pq * ps * price
-    else                   computed = qty * price
+    computed = qty * price
   }
 
   if (!item.rawLineTotal) return null

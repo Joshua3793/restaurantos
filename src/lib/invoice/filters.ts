@@ -3,8 +3,7 @@
 import type { ScanItem } from '@/components/invoices/types'
 import {
   isCatchweight,
-  hasModeMismatch,
-  hasFormatMismatch,
+  hasDimensionConflict,
   hasPriceChange,
   isUnlinked,
   hasMathCheck,
@@ -14,20 +13,18 @@ export type FilterKey =
   | 'priceDelta'
   | 'catchweight'
   | 'needsLink'
-  | 'modeMismatch'
-  | 'formatMismatch'
+  | 'dimensionConflict'
   | 'mathCheck'
 
 export type SortMode = 'invoice' | 'priceDelta' | 'unlinked'
 
 export function matchesFilter(item: ScanItem, filter: FilterKey): boolean {
   switch (filter) {
-    case 'priceDelta':     return hasPriceChange(item)
-    case 'catchweight':    return isCatchweight(item)
-    case 'needsLink':      return isUnlinked(item)
-    case 'modeMismatch':   return hasModeMismatch(item)
-    case 'formatMismatch': return hasFormatMismatch(item)
-    case 'mathCheck':      return hasMathCheck(item)
+    case 'priceDelta':        return hasPriceChange(item)
+    case 'catchweight':       return isCatchweight(item)
+    case 'needsLink':         return isUnlinked(item)
+    case 'dimensionConflict': return hasDimensionConflict(item)
+    case 'mathCheck':         return hasMathCheck(item)
   }
 }
 
@@ -50,12 +47,11 @@ export function sortComparator(mode: SortMode): (a: ScanItem, b: ScanItem) => nu
 // Returns counts for each filter key — drives chip badge numbers.
 export function getFilterCounts(items: ScanItem[]): Record<FilterKey, number> {
   return {
-    priceDelta:    items.filter(i => matchesFilter(i, 'priceDelta')).length,
-    catchweight:   items.filter(i => matchesFilter(i, 'catchweight')).length,
-    needsLink:     items.filter(i => matchesFilter(i, 'needsLink')).length,
-    modeMismatch:  items.filter(i => matchesFilter(i, 'modeMismatch')).length,
-    formatMismatch: items.filter(i => matchesFilter(i, 'formatMismatch')).length,
-    mathCheck:     items.filter(i => matchesFilter(i, 'mathCheck')).length,
+    priceDelta:        items.filter(i => matchesFilter(i, 'priceDelta')).length,
+    catchweight:       items.filter(i => matchesFilter(i, 'catchweight')).length,
+    needsLink:         items.filter(i => matchesFilter(i, 'needsLink')).length,
+    dimensionConflict: items.filter(i => matchesFilter(i, 'dimensionConflict')).length,
+    mathCheck:         items.filter(i => matchesFilter(i, 'mathCheck')).length,
   }
 }
 
@@ -63,16 +59,15 @@ export function getFilterCounts(items: ScanItem[]): Record<FilterKey, number> {
 // sorted by severity (danger first, then warn, then info).
 export function getActiveFilters(items: ScanItem[]): FilterKey[] {
   const counts = getFilterCounts(items)
-  const order: FilterKey[] = ['needsLink', 'mathCheck', 'formatMismatch', 'modeMismatch', 'priceDelta', 'catchweight']
+  const order: FilterKey[] = ['needsLink', 'dimensionConflict', 'mathCheck', 'priceDelta', 'catchweight']
   return order.filter(k => counts[k] > 0)
 }
 
 // Human-readable label for each filter chip.
 export const FILTER_LABELS: Record<FilterKey, string> = {
-  needsLink:     'Needs link',
-  mathCheck:     'Math check',
-  formatMismatch:'Format mismatch',
-  modeMismatch:  'Mode mismatch',
-  priceDelta:    'Price changed',
-  catchweight:   'Catchweight',
+  needsLink:         'Needs link',
+  mathCheck:         'Math check',
+  dimensionConflict: 'Dimension conflict',
+  priceDelta:        'Price changed',
+  catchweight:       'Catchweight',
 }

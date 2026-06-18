@@ -3,8 +3,10 @@
 // and footer task counts.
 
 import type { ScanItem } from '@/components/invoices/types'
-import { canonicalUom, isMeasuredUnit } from '@/lib/utils'
+import { isMeasuredUnit } from '@/lib/utils'
 import { isKnownUnit } from '@/lib/uom'
+import { buildOffer, scanItemToOfferInput } from './offer'
+import { dimensionOf } from '@/lib/item-model'
 
 // A UOM that measures weight or volume (vs a count/case unit). Delegates to the
 // canonical helper so it canonicalizes and covers the full unit set.
@@ -47,68 +49,15 @@ export function isCatchweight(item: ScanItem): boolean {
   return Math.abs(actual - nominal) > 0.01
 }
 
-// ── Format mismatch ───────────────────────────────────────────────────────────
-// Kept as a distinct state from mode mismatch (per-brief decision).
-//
-// The stored `formatMismatch` flag is the *resolution* switch — "Use invoice
-// format" / "Revert to inventory format" clear it. But upstream matching can set
-// it as a false positive (e.g. invoice 4×4L vs inventory 4×4L). So we only treat
-// it as a real issue when the flag is set AND the invoice pack format genuinely
-// differs from the linked item's stored format. If we don't have full invoice
-// pack data to compare, we trust the flag.
-const numEq = (a: string | number | null | undefined, b: string | number | null | undefined): boolean => {
-  const na = Number(a), nb = Number(b)
-  if (Number.isNaN(na) || Number.isNaN(nb)) return String(a ?? '').trim() === String(b ?? '').trim()
-  return Math.abs(na - nb) < 1e-9
-}
-// Canonical-UOM equality so case/abbreviation differences (250GR vs 250g,
-// 5LTR vs 5l) are not treated as format mismatches.
-const uomEq = (a: string | null | undefined, b: string | null | undefined): boolean =>
-  canonicalUom(a) === canonicalUom(b)
-
-/**
- * Derive the linked item's stored pack FORMAT from its chain (not legacy columns):
- *   packQty  = top container's inner count = packChain[0].per
- *   packSize = base content of the leaf (innermost) pack = leaf.per
- *   packUOM  = the item's base unit
- * For a single-link chain, packQty is treated as 1 (the leaf IS the container).
- */
-function itemPackFormat(inv: { packChain?: unknown; baseUnit?: string }): {
-  packQty: number; packSize: number; packUOM: string
-} | null {
-  const chain = Array.isArray(inv.packChain) ? (inv.packChain as { unit: string; per: number }[]) : null
-  if (!chain || chain.length === 0) return null
-  const leaf = chain[chain.length - 1]
-  const packQty = chain.length >= 2 ? Number(chain[0].per) : 1
-  return { packQty, packSize: Number(leaf.per), packUOM: inv.baseUnit ?? 'each' }
-}
-
-export function hasFormatMismatch(item: ScanItem): boolean {
-  if (item.formatMismatch !== true) return false
-  const inv = item.matchedItem
-  if (!inv) return false
-  const { invoicePackQty, invoicePackSize, invoicePackUOM } = item
-  const fmt = itemPackFormat(inv)
-  if (fmt && invoicePackQty != null && invoicePackSize != null && invoicePackUOM != null) {
-    const sameFormat =
-      numEq(fmt.packQty, invoicePackQty) &&
-      numEq(fmt.packSize, invoicePackSize) &&
-      uomEq(fmt.packUOM, invoicePackUOM)
-    if (sameFormat) return false // false positive — formats actually match
-  }
-  return true
-}
-
-// ── Mode mismatch ─────────────────────────────────────────────────────────────
-// True when the line is linked AND the detected pricing mode disagrees with
-// the linked inventory item's expected mode.
-// Pricing mode RATE → per_weight, PACK → per_case.
-export function hasModeMismatch(item: ScanItem): boolean {
+// ── Dimension conflict ────────────────────────────────────────────────────────
+/** True when the invoice line's dimension differs from the linked item's — the
+ *  only hard blocker under the pack-chain model (e.g. a $/kg rate on an each item). */
+export function hasDimensionConflict(item: ScanItem): boolean {
   if (!item.matchedItem) return false
-  const detected      = derivePricingMode(item)
-  const mode          = (item.matchedItem.pricing as { mode?: string } | undefined)?.mode
-  const inventoryMode = mode === 'RATE' ? 'per_weight' : 'per_case'
-  return detected !== inventoryMode
+  const offer = buildOffer(scanItemToOfferInput(item))
+  const md = item.matchedItem as { dimension?: string; baseUnit?: string }
+  const itemDim = (md.dimension as 'MASS' | 'VOLUME' | 'COUNT' | undefined) ?? dimensionOf(md.baseUnit ?? 'each')
+  return offer.dimension !== itemDim
 }
 
 // ── Price change ──────────────────────────────────────────────────────────────
@@ -177,8 +126,9 @@ export type Accent = 'danger' | 'warn' | 'info' | 'success' | null
 
 export function pickAccent(item: ScanItem): Accent {
   if (item.action === 'SKIP') return null
-  if (isUnlinked(item))       return 'danger'
-  if (hasFormatMismatch(item) || hasModeMismatch(item) || hasMathCheck(item)) return 'warn'
+  if (isUnlinked(item))         return 'danger'
+  if (hasDimensionConflict(item)) return 'danger' // hard, unresolvable blocker
+  if (hasMathCheck(item))       return 'warn'
   if (hasPriceChange(item, 15)) return 'warn'
   if (hasPriceChange(item, 3))  return 'info'
   if (item.matchedItemId)       return 'success'
