@@ -33,7 +33,7 @@ export interface SupplierOfferStats {
   supplierId: string | null
   isPrimary: boolean
   lastPrice: number
-  /** Chain-derived when the offer carries a packChain+pricing, else the legacy column. */
+  /** Chain-derived from the offer's packChain+pricing (0 if it carries no chain). */
   pricePerBaseUnit: number
   packChain: unknown
   pricing: unknown
@@ -180,7 +180,7 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
       supplierId: o.supplierId,
       isPrimary: o.isPrimary,
       lastPrice: Number(o.lastPrice),
-      // Chain-derived when the offer carries a chain; else legacy column.
+      // Chain-derived from the offer's packChain+pricing (0 if no chain).
       pricePerBaseUnit: offerPricePerBase(o),
       packChain: o.packChain ?? null,
       pricing: o.pricing ?? null,
