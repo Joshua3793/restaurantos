@@ -242,65 +242,39 @@ git commit -m "feat(invoice): add OfferDraft/reconcile core (pack-chain OCR mapp
 
 ---
 
-## Task 2: Matcher → reconcile via OfferDraft, drop format-mismatch computation
+## Task 2: Matcher — strip format/mode machinery (keep the tuned price-delta logic)
+
+**SCOPE CHANGE (read first):** The original draft of this task replaced the matcher's `comparePricesNormalized` price-delta block wholesale with `reconcileOffer`. **Do NOT do that.** That block is battle-tested — it encodes several documented bug fixes (per-weight rate handling so a catch-weight rate isn't double-divided by pack total; the supplier-offer baseline that stops supplier alternation from reading as a price change on every invoice; the per-base-unit alert basis). Replacing it risks regressing all three. The matcher does **not** need to emit a dimension-conflict field — that is computed in the UI predicate (Task 6, via `buildOffer(scanItemToOfferInput(item))`) and already guarded server-side in approve (Task 4). So Task 2 is a **surgical removal of the format/mode machinery only**, keeping the price-delta computation intact.
 
 **Files:**
-- Modify: `src/lib/invoice-matcher.ts` (`MatchResult` lines 43-58; `buildMatchResult` 179-335)
-- Reference: `src/lib/invoice/offer.ts` (Task 1)
+- Modify: `src/lib/invoice-matcher.ts` (`MatchResult` lines 43-58; `buildMatchResult` 179-335; no-match early-return 548-564; `saveMatchRule` is untouched)
 
-- [ ] **Step 1: Trim `MatchResult`** — remove `formatMismatch`, `needsFormatConfirm` from the interface (lines 51, 55). KEEP `invoicePackQty/Size/UOM` (they carry the OCR hierarchy downstream). Add nothing else.
+- [ ] **Step 1: Trim `MatchResult`** — remove only `formatMismatch` (line 51) and `needsFormatConfirm` (line 55) from the interface. KEEP `invoicePackQty/Size/UOM`, `priceDiffPct`, `previousPrice`, `newPrice`, `totalQty/UOM`.
 
-- [ ] **Step 2: Replace the price/format block in `buildMatchResult`** — delete the `comparePricesNormalized` block (lines 209-286) and the `formatMismatch` computation (lines 293-316). Replace with reconcile:
+- [ ] **Step 2: Remove `formatMismatch` computation** — delete the `formatMismatch` block (lines 293-316: the `offerFmtComplete`/`itemFmtForMismatch`/`fmQty`/`fmSize`/`fmUOM` derivation and the `formatMismatch = !!(...)` expression).
 
-```typescript
-// ── Reconcile at the base unit via the offer draft ────────────────────────
-import { buildOffer, reconcileOffer, ocrLineToOfferInput } from '@/lib/invoice/offer'
-import { asChainItem } from '@/lib/item-model'
-// ... inside buildMatchResult, after previousPrice/newPrice are set:
-const offerDraft = buildOffer(ocrLineToOfferInput(ocrItem))
-const matchedChain = asChainItem({
-  dimension: bestItem.dimension, baseUnit: bestItem.baseUnit,
-  packChain: bestItem.packChain, pricing: bestItem.pricing, countUnit: bestItem.countUnit ?? undefined,
-})
-const rec = reconcileOffer(offerDraft, matchedChain)
-const priceDiffPct = rec.deltaPct != null ? Math.round(rec.deltaPct * 100) / 100 : null
-```
+- [ ] **Step 3: Remove `needsFormatConfirm`** — delete every `needsFormatConfirm` assignment (the `let needsFormatConfirm = false` at line 207, and the sets at lines 271, 276, 285). The branching that set it (the `if (!normalisedOk)` / `else if (!formatConfirmed)` / no-format `else`) must STILL compute `priceDiffPct` — keep the `priceDiffPct` assignments inside those branches; only drop the `needsFormatConfirm = ...` lines and the now-dead `hasComplexFormat`/`chainPackFormat(...).complex` reads that existed solely to set it. If `chainPackFormat` becomes unused after this, delete the helper (lines 85-98); if it is still used by the price-delta comparison (lines 237-245 `itemFmt`), KEEP it.
 
-- [ ] **Step 3: Update the return object** (lines 318-334) — drop `formatMismatch`/`needsFormatConfirm`; keep `invoicePackQty/Size/UOM` sourced from the OCR fields directly:
+- [ ] **Step 4: Update both return objects** — in the main `return { ...ocrItem, ... }` (lines 318-334) and the no-match early-return (lines 548-564), delete the `formatMismatch:` and `needsFormatConfirm:` keys. Leave everything else (including `invoicePackQty/Size/UOM`) exactly as-is.
 
-```typescript
-return {
-  ...ocrItem,
-  matchedItemId: bestItem.id,
-  matchConfidence: confidence,
-  matchScore: bestScore,
-  action,
-  previousPrice,
-  newPrice,
-  priceDiffPct,
-  invoicePackQty:  ocrItem.packQty  ?? null,
-  invoicePackSize: ocrItem.packSize ?? null,
-  invoicePackUOM:  ocrItem.packUOM  ?? null,
-  totalQty:    ocrItem.totalQty    ?? null,
-  totalQtyUOM: ocrItem.totalQtyUOM ?? ocrItem.packUOM ?? null,
-}
-```
+- [ ] **Step 5: Build**
 
-Apply the same field removal to the no-match early-return (lines 548-564) and remove the now-unused `chainPackFormat`, `comparePricesNormalized`, `format`/`formatConfirmed` params if no longer referenced. (`parseFormatFromDescription` is still used to populate `invoicePack*` — keep it.)
+Run: `export PATH="/Users/joshua/Desktop/node-install/node-v20.19.0-darwin-x64/bin:$PATH" && npm run build` (Bash with `dangerouslyDisableSandbox: true`; do NOT start a dev server).
+Expected: the only type errors should be **downstream consumers** of the two removed `MatchResult` fields — specifically `process/route.ts` writing `formatMismatch`/`needsFormatConfirm` to the scan item (Task 3 handles it). If the compiler points there, leave it for Task 3; this task's build is "green except those two expected consumer references." If it points anywhere unexpected, STOP and report (NEEDS_CONTEXT).
 
-- [ ] **Step 4: Build**
+- [ ] **Step 6: Run the price verify scripts**
 
-Run the build command. Expected: PASS. Fix any callers of the removed `MatchResult` fields flagged by the compiler (the next tasks handle the persistence/UI sides — if the build points at `process/route.ts`, do Task 3's edit now).
+Run (Bash, `dangerouslyDisableSandbox: true`):
+`export PATH="/Users/joshua/Desktop/node-install/node-v20.19.0-darwin-x64/bin:$PATH" && TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/verify-invoice-pricing.ts`
+Expected: PASS — the price-delta logic must be unchanged. (If this script imports a removed `MatchResult` field it would fail to compile — it shouldn't, but if so report it.)
 
-- [ ] **Step 5: Run the matcher-adjacent verify scripts**
-
-Run `scripts/verify-invoice-pricing.ts` and `scripts/verify-rc-theoretical.ts` (both via the `TS_NODE_PROJECT=tsconfig.scripts.json` command). Expected: still PASS — reconcile must not change ppb for clean matches.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/lib/invoice-matcher.ts
-git commit -m "refactor(invoice): matcher reconciles via OfferDraft at base unit; drop formatMismatch/needsFormatConfirm computation"
+git commit -m "refactor(invoice): drop formatMismatch/needsFormatConfirm from matcher; price-delta logic unchanged
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
