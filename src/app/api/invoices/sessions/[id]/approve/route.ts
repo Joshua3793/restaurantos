@@ -430,7 +430,7 @@ async function doApprove(
         revenueCenterId: effectiveSessionRcId,
         ...(skippedLines > 0
           ? {
-              errorMessage: `${skippedLines} line${skippedLines === 1 ? '' : 's'} skipped — price not updated (format or price could not be resolved safely). Re-open the invoice to review.`,
+              errorMessage: `${skippedLines} line${skippedLines === 1 ? '' : 's'} skipped — price not updated (a dimension conflict or unresolvable price blocked the write). Re-open the invoice to review.`,
             }
           : {}),
       },
