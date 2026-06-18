@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
-import { canonicalUom } from '@/lib/utils'
 import { PRICING_SELECT } from '@/lib/item-model'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
@@ -48,11 +47,9 @@ export interface MatchResult {
   previousPrice: number | null
   newPrice: number | null
   priceDiffPct: number | null
-  formatMismatch: boolean
   invoicePackQty: number | null
   invoicePackSize: number | null
   invoicePackUOM: string | null
-  needsFormatConfirm: boolean
   totalQty: number | null
   totalQtyUOM: string | null
 }
@@ -204,7 +201,6 @@ function buildMatchResult(
   let invoicePackQty: number | null = null
   let invoicePackSize: number | null = null
   let invoicePackUOM: string | null = null
-  let needsFormatConfirm = false
 
   if (format) {
     // Always store the parsed format for display
@@ -263,17 +259,10 @@ function buildMatchResult(
     }
 
     if (!normalisedOk) {
-      // Truly incompatible units (e.g. kg vs mL) — fall back to direct comparison
-      // and ask the user to confirm the format.
+      // Truly incompatible units (e.g. kg vs mL) — fall back to direct comparison.
       if (previousPrice > 0 && rawUnitPrice !== null) {
         priceDiffPct = Math.round(((rawUnitPrice - previousPrice) / previousPrice) * 10000) / 100
       }
-      needsFormatConfirm = true
-    } else if (!formatConfirmed) {
-      // Delta normalised cleanly, but a complex pack format is still unconfirmed —
-      // surface the confirm prompt without distorting the price delta.
-      const hasComplexFormat = chainPackFormat(bestItem).complex
-      needsFormatConfirm = !!(hasComplexFormat && rawUnitPrice !== null)
     }
   } else {
     // No format info — direct purchase price comparison
@@ -281,39 +270,12 @@ function buildMatchResult(
       priceDiffPct = Math.round(((rawUnitPrice - previousPrice) / previousPrice) * 10000) / 100
     }
     newPrice = rawUnitPrice ?? null
-    const hasComplexFormat = chainPackFormat(bestItem).complex
-    needsFormatConfirm = !!(hasComplexFormat && rawUnitPrice !== null)
   }
 
   let action: LineItemAction = 'PENDING'
   if (confidence === 'HIGH' || confidence === 'MEDIUM') {
     action = (priceDiffPct !== null && Math.abs(priceDiffPct) > 0.1) ? 'UPDATE_PRICE' : 'ADD_SUPPLIER'
   }
-
-  // A real format mismatch means the invoice's pack STRUCTURE (qty × size + uom)
-  // differs from what THIS supplier is known to ship (their offer), falling back
-  // to the item's stored format when no offer format exists yet — not merely that
-  // the shipped-UOM label differs from the purchase-unit label (e.g. "cs" vs
-  // "case"), which is legitimate and produced false positives (4×4L flagged
-  // against 4×4L). Only flag when a format was parsed and it genuinely differs.
-  // All-or-nothing: only use the offer's format when it's complete — a partial
-  // offer row mixed per-field with item fields would compare against a chimera
-  // format no supplier actually ships.
-  const offerFmtComplete = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
-  const itemFmtForMismatch = chainPackFormat(bestItem)
-  const fmQty  = offerFmtComplete ? Number(offer.packQty)  : itemFmtForMismatch.packQty
-  const fmSize = offerFmtComplete ? Number(offer.packSize) : itemFmtForMismatch.packSize
-  const fmUOM  = offerFmtComplete ? (offer.packUOM as string) : itemFmtForMismatch.packUOM
-  const formatMismatch = !!(
-    format &&
-    (
-      Number(format.packQty)  !== fmQty ||
-      Number(format.packSize) !== fmSize ||
-      // Canonical UOM so "250GR" matches "250g", "5LTR" matches "5l", etc. —
-      // case/abbreviation differences are not real format mismatches.
-      canonicalUom(format.packUOM) !== canonicalUom(fmUOM)
-    )
-  )
 
   return {
     ...ocrItem,
@@ -324,11 +286,9 @@ function buildMatchResult(
     previousPrice,
     newPrice,
     priceDiffPct: priceDiffPct ?? null,
-    formatMismatch,
     invoicePackQty,
     invoicePackSize,
     invoicePackUOM,
-    needsFormatConfirm,
     totalQty:    ocrItem.totalQty    ?? null,
     totalQtyUOM: ocrItem.totalQtyUOM ?? ocrItem.packUOM ?? null,
   }
@@ -554,11 +514,9 @@ export async function matchLineItems(
         previousPrice: null,
         newPrice: ocrItem.unitPrice,
         priceDiffPct: null,
-        formatMismatch: false,
         invoicePackQty:  ocrItem.packQty  ?? null,
         invoicePackSize: ocrItem.packSize ?? null,
         invoicePackUOM:  ocrItem.packUOM  ?? null,
-        needsFormatConfirm: false,
         totalQty:    ocrItem.totalQty    ?? null,
         totalQtyUOM: ocrItem.totalQtyUOM ?? ocrItem.packUOM ?? null,
       }
