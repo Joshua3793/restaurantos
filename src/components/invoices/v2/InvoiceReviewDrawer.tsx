@@ -21,7 +21,7 @@ import {
   type FilterKey, type SortMode,
 } from '@/lib/invoice/filters'
 import {
-  isUnlinked, hasMathCheck, hasModeMismatch, hasFormatMismatch, needsTrustCheck,
+  isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
 import { lineUnresolved, isCharge, isBigPriceChange } from '@/lib/invoice/resolution'
 import { formatCurrency } from '@/lib/invoice/formatters'
@@ -361,7 +361,6 @@ export function InvoiceReviewDrawer({
   const [activeFilters,     setActiveFilters]     = useState<Set<FilterKey>>(new Set())
   const [sortMode,          setSortMode]          = useState<SortMode>('invoice')
   const [pickingLinkForId,  setPickingLinkForId]  = useState<string | null>(null)
-  const [modeWritebackItems, setModeWritebackItems] = useState<Set<string>>(new Set())
   const [acknowledgedPriceLines, setAcknowledgedPriceLines] = useState<Set<string>>(new Set())
   const [acknowledgedConfLines, setAcknowledgedConfLines] = useState<Set<string>>(new Set())
   const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
@@ -392,7 +391,7 @@ export function InvoiceReviewDrawer({
     initializedSessionRef.current = session.id
     const toExpand = new Set(
       session.scanItems
-        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i)))
+        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i)))
         .map(i => i.id),
     )
     setExpandedLineIds(toExpand)
@@ -400,7 +399,6 @@ export function InvoiceReviewDrawer({
     setActiveFilters(new Set())
     setSortMode('invoice')
     setPickingLinkForId(null)
-    setModeWritebackItems(new Set())
     setAcknowledgedPriceLines(new Set())
     setAcknowledgedConfLines(new Set())
     setActiveBboxItemId(null)
@@ -413,7 +411,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasModeMismatch(i) || hasFormatMismatch(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
+          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
         ))
         .map(i => i.id),
     )
@@ -439,15 +437,15 @@ export function InvoiceReviewDrawer({
   // Per-line resolution options (mode writeback / price acknowledgement).
   const optsFor = useCallback(
     (id: string) => ({
-      modeWriteback: modeWritebackItems.has(id),
+      modeWriteback: false,
       priceAck: acknowledgedPriceLines.has(id),
       confAck: acknowledgedConfLines.has(id),
     }),
-    [modeWritebackItems, acknowledgedPriceLines, acknowledgedConfLines],
+    [acknowledgedPriceLines, acknowledgedConfLines],
   )
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasModeMismatch(i) || hasFormatMismatch(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i),
+    isUnlinked(i) || hasDimensionConflict(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i),
   [session?.supplierId, session?.supplierName])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
@@ -650,16 +648,6 @@ export function InvoiceReviewDrawer({
     })
   }, [])
 
-  // ── Mode writeback ──────────────────────────────────────────────────────────
-  const toggleModeWriteback = useCallback((id: string) => {
-    setModeWritebackItems(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
   // ── Price-change acknowledgement ─────────────────────────────────────────────
   const acknowledgePrice = useCallback((id: string) => {
     setAcknowledgedPriceLines(prev => new Set(prev).add(id))
@@ -808,7 +796,6 @@ export function InvoiceReviewDrawer({
     activeFilters,
     sortMode,
     pickingLinkForId,
-    modeWritebackItems,
     acknowledgedPriceLines,
     acknowledgedConfLines,
     reconciliation,
@@ -822,7 +809,6 @@ export function InvoiceReviewDrawer({
     closeLinkPicker: ()   => setPickingLinkForId(null),
     openCreateNew:        (item) => setCreatingNewForItem(item),
     openInventoryEdit:    (id)   => setEditingInventoryItemId(id),
-    toggleModeWriteback,
     acknowledgePrice,
     acknowledgeConf,
     activeBboxItemId,
@@ -831,9 +817,9 @@ export function InvoiceReviewDrawer({
     setSortMode,
   }), [
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
-    activeFilters, sortMode, pickingLinkForId, modeWritebackItems, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
+    activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, toggleModeWriteback, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
+    setLineRc, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────

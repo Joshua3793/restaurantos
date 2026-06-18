@@ -9,7 +9,6 @@ import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
-import { derivePricingMode } from '@/lib/invoice/predicates'
 import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
 import type { ScanItem } from '@/components/invoices/types'
 
@@ -48,56 +47,26 @@ function IssueShell({
   )
 }
 
-// ─── ModeIssue ───────────────────────────────────────────────────────────────
-// Invoice prices per-weight but the product defaults per-case (or vice versa).
-// Two explicit choices: write the mode back to the product, or treat this line
-// in the product's mode just for this invoice.
+// ─── DimensionConflictIssue ──────────────────────────────────────────────────
+// The invoice line is priced by a unit whose dimension (mass / volume / count)
+// doesn't match the linked item's. This is the sole hard blocker under the
+// pack-chain model — it has NO resolve buttons; the only fix is to re-link the
+// line to a compatible item, which clears the conflict.
 
-export function ModeIssue({ item, lineId }: { item: ScanItem; lineId: string }) {
-  const ctx = useDrawerContext()
-  const detected = derivePricingMode(item)
-  const detectedLbl = detected === 'per_weight' ? 'per-weight' : 'per-case'
-  const productMode = (item.matchedItem?.pricing as { mode?: string } | undefined)?.mode === 'RATE' ? 'per-weight' : 'per-case'
-  const writeback = ctx.modeWritebackItems.has(lineId)
-
+export function DimensionConflictIssue({ item }: { item: ScanItem }) {
+  const itemName = item.matchedItem?.itemName ?? 'this item'
   return (
-    <IssueShell
-      kind="mode"
-      label="Mode mismatch"
-      resolved={writeback}
-      actions={
-        <>
-          <ActButton
-            variant={writeback ? 'primary' : 'default'}
-            onClick={() => {
-              if (!writeback) {
-                ctx.toggleModeWriteback(lineId)
-                // Persist the resolved mode so approve writes the invoice's mode
-                // (and its per-weight price) back to the inventory item.
-                ctx.updateLine(lineId, { pricingMode: detected })
-              }
-            }}
-          >
-            Switch product to {detectedLbl}
-          </ActButton>
-          <ActButton
-            variant={!writeback ? 'primary' : 'default'}
-            onClick={() => {
-              if (writeback) ctx.toggleModeWriteback(lineId)
-              // Treat this line in the product's mode for this invoice only.
-              ctx.updateLine(lineId, { pricingMode: detected === 'per_weight' ? 'per_case' : 'per_weight' })
-            }}
-          >
-            Treat as {productMode} this time
-          </ActButton>
-        </>
-      }
-    >
-      Invoice is <b className="font-semibold text-ink">{detectedLbl}</b> but{' '}
-      <b className="font-semibold text-ink">{item.matchedItem?.itemName}</b> defaults to{' '}
-      <b className="font-semibold text-ink">{productMode}</b>. The two unit systems give
-      different costs downstream.
-    </IssueShell>
+    <div className="px-4 py-2.5 border-b border-dashed border-line">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold uppercase bg-red-soft text-red-text shrink-0">
+          Dimension conflict
+        </span>
+        <p className="text-[12.5px] text-ink-2 leading-snug">
+          This line is priced by a unit that doesn’t match <span className="font-medium">{itemName}</span>’s
+          measurement type. Re-link it to a compatible item to approve.
+        </p>
+      </div>
+    </div>
   )
 }
 

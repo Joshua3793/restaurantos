@@ -28,7 +28,6 @@ export interface DrawerContextValue {
   activeFilters: Set<FilterKey>
   sortMode: SortMode
   pickingLinkForId: string | null     // which line's link picker is open
-  modeWritebackItems: Set<string>     // lines where user wants to update product default mode
   acknowledgedPriceLines: Set<string> // lines where the user accepted the price change
   acknowledgedConfLines: Set<string>  // lines where the user confirmed a low-trust line
 
@@ -60,9 +59,6 @@ export interface DrawerContextValue {
 
   // ── Edit linked inventory item ─────────────────────────────────────────────
   openInventoryEdit: (inventoryItemId: string) => void
-
-  // ── Mode writeback checkbox ────────────────────────────────────────────────
-  toggleModeWriteback: (id: string) => void
 
   // ── Price-change acknowledgement (resolves the price .issue) ───────────────
   acknowledgePrice: (id: string) => void

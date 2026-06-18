@@ -14,9 +14,9 @@ import {
   InvoiceMathFields,
   type InventorySearchResult,
 } from './composites'
-import { ModeIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote } from './issues'
+import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote } from './issues'
 import {
-  derivePricingMode, isCatchweight, hasModeMismatch, hasFormatMismatch,
+  derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
 import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
@@ -24,7 +24,6 @@ import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoic
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
-import { asChainItem } from '@/lib/item-model'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
@@ -44,19 +43,18 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const isCreateNew = item.action === 'CREATE_NEW' && !!item.newItemData
 
   const unlinked       = !isSkipped && isUnlinked(item)
-  const modeMismatch   = !isSkipped && hasModeMismatch(item)
-  const formatMismatch = !isSkipped && hasFormatMismatch(item)
+  const dimConflict    = !isSkipped && hasDimensionConflict(item)
   const uomReview      = !isSkipped && hasUnknownUom(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
   const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
   const trustCheck     = !isSkipped && needsTrustCheck(item)
-  const isAttention    = unlinked || modeMismatch || formatMismatch || mathCheck || bigPrice || trustCheck
+  const isAttention    = unlinked || dimConflict || mathCheck || bigPrice || trustCheck
   const isCatch        = isCatchweight(item)
 
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
   const resolved = isAttention && !lineUnresolved(item, {
-    modeWriteback: ctx.modeWritebackItems.has(lineId),
+    modeWriteback: false,
     priceAck:      ctx.acknowledgedPriceLines.has(lineId),
     confAck:       ctx.acknowledgedConfLines.has(lineId),
   }, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
@@ -65,7 +63,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const dataTask = isSkipped ? undefined
     : unlinked       ? 'link'
     : mathCheck      ? 'math'
-    : (modeMismatch || formatMismatch) ? 'mismatch'
+    : dimConflict    ? 'conflict'
     : undefined
 
   const handleToggle = () => ctx.toggleExpand(lineId)
@@ -294,15 +292,10 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       {!isPicking && (
         <>
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
-          {modeMismatch && <ModeIssue item={item} lineId={lineId} />}
+          {dimConflict && <DimensionConflictIssue item={item} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={{ supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }} />}
           {trustCheck && <ConfIssue item={item} lineId={lineId} />}
-          {formatMismatch && !modeMismatch && (
-            <div className="px-4 py-2.5 border-b border-dashed border-line">
-              <FormatMismatchNotice item={item} lineId={lineId} />
-            </div>
-          )}
         </>
       )}
 
@@ -444,62 +437,3 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   )
 }
 
-// ─── FormatMismatchNotice ──────────────────────────────────────────────────────
-// Shows invoice vs inventory pack format with two resolution actions.
-
-function FormatMismatchNotice({ item, lineId }: { item: ScanItem; lineId: string }) {
-  const { updateLine } = useDrawerContext()
-
-  const inv = item.matchedItem
-  // Stored pack format, derived from the CHAIN (not the legacy columns).
-  const invFmt = inv ? formatPurchaseDisplay(inv) : null
-  // The chain for prefilling "revert to inventory format".
-  const invChain = inv ? asChainItem(inv as Parameters<typeof asChainItem>[0]).packChain : []
-  const invTop  = invChain[0]
-  const invLeaf = invChain[invChain.length - 1]
-  // packQty = top container's inner count; packSize = base content of the leaf
-  // (smallest) pack; packUOM = the item's base unit.
-  const invPackQty  = invTop ? Number(invTop.per) : 1
-  const invPackSize = invLeaf ? Number(invLeaf.per) : 0
-  const invPackUOM  = inv?.baseUnit ?? 'each'
-  const invoiceFmt = item.invoicePackQty && item.invoicePackSize && item.invoicePackUOM
-    ? `${item.invoicePackQty} × ${item.invoicePackSize}${item.invoicePackUOM}`
-    : null
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-start gap-2.5">
-        <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-blue-soft text-blue-text shrink-0">Format mismatch</span>
-        <span className="text-[12.5px] text-ink-2 leading-[1.45]">
-          Pack structure on this invoice (<b className="font-semibold text-ink">{invoiceFmt ?? '—'}</b>) doesn&rsquo;t match{' '}
-          <b className="font-semibold text-ink">{inv?.itemName ?? 'the stored item'}</b> (<b className="font-semibold text-ink">{invFmt ?? '—'}</b>).
-        </span>
-      </div>
-      <div className="flex gap-1.5 flex-wrap">
-        <button
-          type="button"
-          onClick={() => updateLine(lineId, { formatMismatch: false, applyInvoiceFormat: true })}
-          className="inline-flex items-center gap-1.5 px-3 py-[7px] text-[12px] font-medium rounded-[7px] bg-ink text-paper hover:bg-ink-2 transition-colors"
-        >
-          Use invoice format
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (!inv) return
-            updateLine(lineId, {
-              formatMismatch: false,
-              applyInvoiceFormat: false,
-              invoicePackQty:  String(invPackQty),
-              invoicePackSize: String(invPackSize),
-              invoicePackUOM:  invPackUOM,
-            })
-          }}
-          className="inline-flex items-center gap-1.5 px-3 py-[7px] text-[12px] font-medium rounded-[7px] bg-paper text-ink-2 border border-line hover:border-ink-4 transition-colors"
-        >
-          Revert to inventory format
-        </button>
-      </div>
-    </div>
-  )
-}
