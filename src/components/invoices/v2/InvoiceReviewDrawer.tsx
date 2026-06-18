@@ -66,7 +66,7 @@ function InvoiceHeader({
 
   return (
     <div
-      className="grid grid-cols-[32px_1fr_auto_auto] items-center gap-4 px-[22px] py-[16px] bg-paper border-b border-line"
+      className="grid grid-cols-[32px_1fr_auto_auto] items-center gap-2.5 sm:gap-4 px-4 sm:px-[22px] py-[16px] bg-paper border-b border-line"
       style={{ paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))' }}
     >
       {/* Close */}
@@ -85,16 +85,11 @@ function InvoiceHeader({
           {supplierInitials(session.supplierName)}
         </div>
         <div className="min-w-0">
-          <h2 className="font-medium text-[23px] leading-[1.1] tracking-[-0.02em] text-ink truncate">
+          <h2 className="font-medium text-[18px] sm:text-[23px] leading-[1.1] tracking-[-0.02em] text-ink truncate">
             {session.supplierName ?? 'Unknown supplier'}
           </h2>
-          <div className="font-mono text-[11px] text-ink-4 mt-[3px] flex items-center gap-2 flex-wrap">
-            {metaParts.map((p, i) => (
-              <span key={p} className="flex items-center gap-2">
-                {i > 0 && <span className="text-line-2">·</span>}
-                {p}
-              </span>
-            ))}
+          <div className="font-mono text-[11px] text-ink-4 mt-[3px] truncate" title={metaParts.join('  ·  ')}>
+            {metaParts.join('  ·  ')}
           </div>
           <div className="mt-2">
             <select
@@ -113,7 +108,7 @@ function InvoiceHeader({
 
       {/* Total */}
       <div className="text-right pr-1.5">
-        <div className="font-mono text-[28px] font-semibold tracking-[-0.02em] text-ink tabular-nums leading-none">
+        <div className="font-mono text-[20px] sm:text-[28px] font-semibold tracking-[-0.02em] text-ink tabular-nums leading-none">
           {total !== null ? formatCurrency(total) : '—'}
         </div>
         {(subtotal !== null || tax !== null) && (
@@ -181,7 +176,7 @@ function DrawerFooter({
 
   return (
     <div
-      className="grid grid-cols-[1fr_auto] gap-4 items-center px-[22px] py-3 bg-paper border-t border-line shrink-0"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto] sm:gap-4 sm:items-center px-[22px] py-3 bg-paper border-t border-line shrink-0"
       style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))' }}
     >
       <div className="min-w-0">
@@ -194,11 +189,11 @@ function DrawerFooter({
           {saveStatus === 'error'  && <span className="inline-flex items-center gap-1 text-red"><AlertTriangle size={11} /> save failed</span>}
         </div>
       </div>
-      <div className="flex gap-2 shrink-0">
+      <div className="flex gap-2 w-full sm:w-auto sm:shrink-0">
         <button
           type="button"
           onClick={onReject}
-          className="px-4 py-2.5 text-[13.5px] font-medium text-ink-3 bg-paper border border-line rounded-[9px] hover:border-ink-4 hover:text-ink transition-colors"
+          className="flex-1 sm:flex-none justify-center px-4 py-2.5 text-[13.5px] font-medium text-ink-3 bg-paper border border-line rounded-[9px] hover:border-ink-4 hover:text-ink transition-colors"
         >
           Reject invoice
         </button>
@@ -207,7 +202,7 @@ function DrawerFooter({
           onClick={onApprove}
           disabled={!canApprove}
           title={disabledReason}
-          className={`inline-flex items-center gap-2 px-[18px] py-2.5 text-[13.5px] font-medium rounded-[9px] transition-colors ${
+          className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-[18px] py-2.5 text-[13.5px] font-medium rounded-[9px] transition-colors ${
             canApprove
               ? 'bg-ink text-paper hover:bg-ink-2'
               : 'bg-line text-ink-4 cursor-not-allowed'
@@ -215,7 +210,7 @@ function DrawerFooter({
         >
           <Check size={14} className={canApprove ? 'text-gold' : ''} />
           Approve &amp; post
-          <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded bg-paper/15 text-bg">⌘ ⏎</span>
+          <span className="hidden sm:inline font-mono text-[9.5px] px-1.5 py-0.5 rounded bg-paper/15 text-bg">⌘ ⏎</span>
         </button>
       </div>
     </div>
