@@ -82,6 +82,13 @@ purchasePrice / (qtyPerPurchaseUnit × packSize × getUnitConv(packUOM))
 
 **Rule of thumb when adding a cost number anywhere**: don't compute or store a parallel price — read `pricePerBaseUnit` at query time. If you find yourself wanting to cache a cost on a recipe/menu/sales row, you're probably building a divergence bug.
 
+**Retained format fields (not legacy debt):** `InventorySupplierPrice.{packQty,packSize,packUOM}`
+and `InvoiceMatchRule.invoicePack{Qty,Size,UOM}` are kept deliberately — they store the human
+purchase format the normalized `packChain` collapses into base units. Costing always derives
+from the chain; these are display/provenance/learned-format only. Do not "migrate" them to a chain.
+Note: `InventorySupplierPrice.pricePerBaseUnit` was a cached divergence copy and is being retired
+(derive via `offerPricePerBase()` instead).
+
 ### Shared components
 
 `src/components/recipes/shared.tsx` — single large file containing `RecipeCard`, `RecipePanel`, `CategoryManager`, `IngredientRow`, and related types. Both the Recipe Book page and Menu page import from here.
