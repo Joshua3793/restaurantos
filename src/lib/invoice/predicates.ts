@@ -93,14 +93,12 @@ export function hasMathCheck(item: ScanItem): boolean {
     computed = Number(item.rate) * Number(item.totalQty)
   } else {
     if (!item.rawUnitPrice || !item.rawQty) return false
-    const pq = Number(item.invoicePackQty) || 1
-    const ps = Number(item.invoicePackSize) || 1
-    const pt = item.rawPriceType ?? 'CASE'
+    // per_case: the printed unit price is the CASE price, so the line total is
+    // simply cases × case-price (qty × price). The old per-PKG/per-UOM split was
+    // a rawPriceType concept, abolished with the mode-first OCR model.
     const price = Number(item.rawUnitPrice)
     const qty   = Number(item.rawQty)
-    if (pt === 'PKG')      computed = qty * pq * price
-    else if (pt === 'UOM') computed = qty * pq * ps * price
-    else                   computed = qty * price  // CASE
+    computed = qty * price
   }
 
   if (!item.rawLineTotal) return false

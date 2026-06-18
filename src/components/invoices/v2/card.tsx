@@ -54,7 +54,6 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
   const resolved = isAttention && !lineUnresolved(item, {
-    modeWriteback: false,
     priceAck:      ctx.acknowledgedPriceLines.has(lineId),
     confAck:       ctx.acknowledgedConfLines.has(lineId),
   }, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })

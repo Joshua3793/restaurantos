@@ -434,10 +434,9 @@ export function InvoiceReviewDrawer({
     return r
   }, [session, effectiveLines])
 
-  // Per-line resolution options (mode writeback / price acknowledgement).
+  // Per-line resolution options (price / low-trust acknowledgement).
   const optsFor = useCallback(
     (id: string) => ({
-      modeWriteback: false,
       priceAck: acknowledgedPriceLines.has(id),
       confAck: acknowledgedConfLines.has(id),
     }),

@@ -41,7 +41,6 @@ export async function GET(
     supplierName:   s.session.supplierName,
     unitPrice:      Number(s.rawUnitPrice),
     qty:            s.rawQty != null ? Number(s.rawQty) : null,
-    rawPriceType:   s.rawPriceType,
     invoicePackUOM: s.invoicePackUOM,
   }))
 

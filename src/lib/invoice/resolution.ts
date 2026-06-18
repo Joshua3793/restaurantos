@@ -19,8 +19,6 @@ export function isCharge(item: ScanItem): boolean {
 }
 
 export interface ResolveOpts {
-  /** line ids the user chose to write the detected mode back to the product */
-  modeWriteback: boolean
   /** line ids where the user accepted/acknowledged the price change */
   priceAck: boolean
   /** line ids where the user confirmed a low-trust line (low OCR conf / fuzzy match) */
