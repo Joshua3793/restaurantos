@@ -77,21 +77,16 @@ interface InventoryItem {
  *   packQty  = top container's inner count = packChain[0].per (1 for a single link)
  *   packSize = base content of the leaf (innermost) pack = leaf.per
  *   packUOM  = the item's base unit
- *   complex  = a multi-link chain (i.e. a real container × content structure)
  */
 function chainPackFormat(item: InventoryItem): {
-  packQty: number; packSize: number; packUOM: string; complex: boolean
+  packQty: number; packSize: number; packUOM: string
 } {
   const chain = Array.isArray(item.packChain) ? (item.packChain as { unit: string; per: number }[]) : []
-  if (chain.length === 0) return { packQty: 1, packSize: 1, packUOM: item.baseUnit, complex: false }
+  if (chain.length === 0) return { packQty: 1, packSize: 1, packUOM: item.baseUnit }
   const leaf = chain[chain.length - 1]
   const packQty = chain.length >= 2 ? Number(chain[0].per) : 1
   const packSize = Number(leaf.per)
-  // "Complex" format = a multi-link chain, or a single link carrying >1 base
-  // units per its unit (i.e. a container of measured content), mirroring the old
-  // "packUOM !== each && packSize > 1" heuristic via the chain.
-  const complex = chain.length >= 2 || packSize > 1
-  return { packQty, packSize, packUOM: item.baseUnit, complex }
+  return { packQty, packSize, packUOM: item.baseUnit }
 }
 
 // Generic food descriptors that appear in many products and should not drive matching
@@ -179,7 +174,6 @@ function buildMatchResult(
   confidence: MatchConfidence,
   bestScore: number,
   format?: { packQty: number; packSize: number; packUOM: string } | null,
-  formatConfirmed = false,   // true only when format came from a saved learned rule
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   offer?: any | null   // InventorySupplierPrice row for (bestItem, session supplier)
 ): OcrLineItem & MatchResult {
@@ -253,8 +247,8 @@ function buildMatchResult(
         // the user corrected the format in review without it recomputing) the
         // price inflated by the format ratio (e.g. $34.32 → $1716). The approve
         // route's spine derives pricePerBaseUnit from rawUnitPrice over the
-        // RESOLVED format, and its format-mismatch guard skips unconsented
-        // mismatches — so the round-trip is both redundant and the bug source.
+        // RESOLVED format, and the approve route's consent check (useInvoicePack /
+        // invoiceFormatDiffers) gates writes — so the round-trip is both redundant and the bug source.
       }
     }
 
@@ -448,7 +442,6 @@ export async function matchLineItems(
         'HIGH',
         100,
         ruleFormat,
-        hasRuleFormat,
         offerByItemId.get(codeRule.inventoryItem.id) ?? null
       )
     }
@@ -478,7 +471,6 @@ export async function matchLineItems(
         supplierSpecific ? 'HIGH' : 'MEDIUM',
         supplierSpecific ? 100 : 60,
         learnedFormat,
-        hasLearnedFormat,
         offerByItemId.get(learned.inventoryItem.id) ?? null
       )
     }
@@ -529,7 +521,7 @@ export async function matchLineItems(
       packUOM:  ocrItem.packUOM  ?? 'each',
     } : null
     const format = ocrFormat ?? parseFormatFromDescription(ocrItem.description)
-    return buildMatchResult(ocrItem, bestItem, confidence, bestScore, format, ocrHasPack, offerByItemId.get(bestItem.id) ?? null)
+    return buildMatchResult(ocrItem, bestItem, confidence, bestScore, format, offerByItemId.get(bestItem.id) ?? null)
   })
 }
 
