@@ -2,7 +2,7 @@
 // Walks approved sessions oldest → newest so the final upsert per
 // (item, supplier) is the most recent purchase. Idempotent.
 // Run: set -a && . ./.env; set +a && \
-//   npx ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/backfill-supplier-offers.ts
+//   TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/backfill-supplier-offers.ts
 
 import { prisma } from '../src/lib/prisma'
 import { scanLinePricePerBase } from '../src/lib/supplier-offers'

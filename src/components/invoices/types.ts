@@ -64,13 +64,9 @@ export interface ScanItem {
   previousPrice: string | null
   newPrice: string | null
   priceDiffPct: string | null
-  formatMismatch: boolean
-  applyInvoiceFormat?: boolean
   invoicePackQty: string | null
   invoicePackSize: string | null
   invoicePackUOM: string | null
-  needsFormatConfirm: boolean
-  rawPriceType: 'CASE' | 'PKG' | 'UOM' | null
   totalQty: string | null
   totalQtyUOM: string | null
   revenueCenterId?: string | null

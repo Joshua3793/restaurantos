@@ -725,7 +725,7 @@ export function ReconcileBanner({
 // ─── ChipRow ──────────────────────────────────────────────────────────────────
 // Filter chips + sort toggle. Shows up to 4 chips; overflow becomes "+N more".
 
-const CHIP_ORDER: FilterKey[] = ['needsLink', 'mathCheck', 'formatMismatch', 'modeMismatch', 'priceDelta', 'catchweight']
+const CHIP_ORDER: FilterKey[] = ['needsLink', 'dimensionConflict', 'mathCheck', 'priceDelta', 'catchweight']
 const MAX_VISIBLE_CHIPS = 4
 
 export function ChipRow({
@@ -767,8 +767,9 @@ export function ChipRow({
       {/* Filter chips */}
       {visible.map(k => {
         const active = activeFilters.has(k)
-        const isWarn   = ['needsLink', 'mathCheck', 'formatMismatch', 'modeMismatch'].includes(k)
-        const ringCls  = k === 'needsLink' ? 'bg-red' : isWarn ? 'bg-gold' : 'bg-blue'
+        const isDanger = k === 'needsLink' || k === 'dimensionConflict'
+        const isWarn   = k === 'mathCheck'
+        const ringCls  = isDanger ? 'bg-red' : isWarn ? 'bg-gold' : 'bg-blue'
         return (
           <button
             key={k}

@@ -7,7 +7,7 @@
  *
  * Dry-run by default. Pass --apply to write.
  *
- * Run: ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/backfill-split-clones.ts [--apply]
+ * Run: TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/backfill-split-clones.ts [--apply]
  */
 import { prisma } from '../src/lib/prisma'
 

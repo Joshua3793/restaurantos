@@ -9,7 +9,7 @@
 // baseUnit were unaffected and net to a 0 correction.
 //
 // Dry by default. Run:
-//   ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/repair-pull-soh.ts
+//   TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/repair-pull-soh.ts
 //   APPLY=1 ts-node ... scripts/repair-pull-soh.ts   # to write
 import { prisma } from '../src/lib/prisma'
 import { convertCountQtyToBase } from '../src/lib/count-uom'

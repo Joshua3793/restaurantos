@@ -1,5 +1,5 @@
 // Pure-engine regression test for the pack-chain item model. No DB.
-// Run: npx ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/test-item-model.ts
+// Run: TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/test-item-model.ts
 import {
   pricePerBaseUnit, basePerUnit, levelBaseUnits, stockValue, validateChainItem,
   type Dimension, type PackLink, type Pricing,

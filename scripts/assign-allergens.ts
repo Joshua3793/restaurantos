@@ -12,7 +12,7 @@
  *   - Sulphites flagged at "moderate" breadth (well-established sources only).
  *   - Celery is NOT a Canadian priority allergen -> left unmarked.
  *
- * Run: ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/assign-allergens.ts
+ * Run: TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/assign-allergens.ts
  */
 import { prisma } from '../src/lib/prisma'
 import { syncPrepToInventory } from '../src/lib/recipeCosts'

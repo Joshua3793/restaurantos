@@ -5,7 +5,7 @@
 
 import type { ScanItem } from '@/components/invoices/types'
 import {
-  isUnlinked, hasModeMismatch, hasFormatMismatch, hasMathCheck, hasPriceChange,
+  isUnlinked, hasDimensionConflict, hasMathCheck, hasPriceChange,
   needsTrustCheck,
 } from './predicates'
 import { computeNormalisedPrices } from './calculations'
@@ -19,8 +19,6 @@ export function isCharge(item: ScanItem): boolean {
 }
 
 export interface ResolveOpts {
-  /** line ids the user chose to write the detected mode back to the product */
-  modeWriteback: boolean
   /** line ids where the user accepted/acknowledged the price change */
   priceAck: boolean
   /** line ids where the user confirmed a low-trust line (low OCR conf / fuzzy match) */
@@ -84,13 +82,10 @@ export function lineIssues(item: ScanItem, opts: ResolveOpts, sessionSupplier?: 
   // (all of which make isUnlinked() false), so while present it is unresolved.
   if (isUnlinked(item)) out.push({ kind: 'sku', resolved: false })
 
-  // Mode mismatch — resolved by writing the mode back to the product. The
-  // "treat as per-case once" path flips the line's pricingMode, which clears
-  // hasModeMismatch() entirely, so it drops out of this list when chosen.
-  if (hasModeMismatch(item)) out.push({ kind: 'mode', resolved: opts.modeWriteback })
-
-  // Format mismatch — resolved by editing pack structure (clears the flag).
-  if (hasFormatMismatch(item) && !hasModeMismatch(item)) out.push({ kind: 'mode', resolved: false })
+  // Dimension conflict — the invoice line's dimension differs from the linked
+  // item's (e.g. $/kg priced onto an each item). Terminal/unresolvable: it can
+  // only be cleared by re-linking, so it always blocks approve.
+  if (hasDimensionConflict(item)) out.push({ kind: 'conflict', resolved: false })
 
   // Big price change — resolved once acknowledged.
   if (isBigPriceChange(item, sessionSupplier)) out.push({ kind: 'price', resolved: opts.priceAck })

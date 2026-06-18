@@ -7,8 +7,8 @@
 // Idempotent: only touches PREP rows that are still null. Re-running is a no-op.
 //
 // Dry by default. Run:
-//   ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/assign-prep-rc.ts
-//   APPLY=1 ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/assign-prep-rc.ts
+//   TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/assign-prep-rc.ts
+//   APPLY=1 TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/assign-prep-rc.ts
 import { prisma } from '../src/lib/prisma'
 
 const APPLY = process.env.APPLY === '1'
