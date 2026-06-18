@@ -9,7 +9,7 @@
 // Rows where countUOM === baseUnit need no conversion (factor 1) and are no-ops.
 //
 // Dry by default. Run:
-//   ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/migrate-allocations-to-base.ts
+//   TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/migrate-allocations-to-base.ts
 //   APPLY=1 ts-node ... scripts/migrate-allocations-to-base.ts
 import { prisma } from '../src/lib/prisma'
 import { convertCountQtyToBase } from '../src/lib/count-uom'

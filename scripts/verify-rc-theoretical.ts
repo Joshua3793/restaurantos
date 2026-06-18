@@ -1,6 +1,8 @@
 /**
  * Regression checks for RC-partitioned theoretical stock.
- * Run via the tsconfig-paths command in the plan Conventions section.
+ * Run: TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/verify-rc-theoretical.ts
+ *   (tsconfig.scripts.json supplies the baseUrl that tsconfig-paths needs to resolve the @/* alias;
+ *    the root tsconfig.json omits baseUrl, so the bare `--compiler-options` form fails with "Cannot find module '@/...'".)
  */
 import { prisma } from '../src/lib/prisma'
 import { buildPurchaseMap } from '../src/lib/count-expected'

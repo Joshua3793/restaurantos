@@ -10,7 +10,9 @@
 // it can be normalized to the SI base ($/g) the chain computes in. Entries with
 // no matching live item id are skipped.
 //
-// Run: npx ts-node --compiler-options '{"module":"CommonJS"}' -r tsconfig-paths/register scripts/verify-item-model-parity.ts
+// Run: TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/verify-item-model-parity.ts
+//   (tsconfig.scripts.json supplies the baseUrl that tsconfig-paths needs to resolve the @/* alias;
+//    the root tsconfig.json omits baseUrl, so the bare `--compiler-options` form fails with "Cannot find module '@/...'".)
 import fs from 'fs'
 import path from 'path'
 import { prisma } from '../src/lib/prisma'
