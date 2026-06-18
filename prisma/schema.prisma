@@ -78,20 +78,14 @@ model InventoryItem {
   category           String                   @default("DRY")
   supplierId         String?
   storageAreaId      String?
-  purchaseUnit       String                   @default("each") // LEGACY: unreferenced — droppable. Default added so creates can omit it.
-  qtyPerPurchaseUnit Decimal                  @default(1)
   purchasePrice      Decimal                  @default(0)
   baseUnit           String                   @default("each")
-  packSize           Decimal                  @default(1)
-  packUOM            String                   @default("each")
-  qtyUOM             String                   @default("each") // unit of qtyPerPurchaseUnit: kg/g/ml/l/each/pack
-  innerQty           Decimal?                               // items per pack — only when qtyUOM = "pack"
   needsReview        Boolean                  @default(false) // flagged by migration script for manual review
-  priceType          String                   @default("CASE")
-  countUOM           String                   @default("each")
-  // conversionFactor + pricePerBaseUnit REMOVED — now computed on-read from
-  // packChain/pricing via src/lib/item-model.ts (corruption is structurally impossible).
-  // ── Pack-chain item model ──────────────────────────────────────────────────
+  // REMOVED (computed on-read / replaced by the pack chain):
+  //   pricePerBaseUnit, conversionFactor — derived from packChain/pricing
+  //   purchaseUnit, qtyPerPurchaseUnit, packSize, packUOM, qtyUOM, innerQty,
+  //   priceType, countUOM — replaced by dimension/packChain/pricing/countUnit
+  // ── Pack-chain item model (the single source of truth) ──────────────────────
   dimension          Dimension                @default(COUNT)
   packChain          Json                     @default("[]")        // PackLink[] outer→inner; leaf.per in baseUnit
   pricing            Json                     @default("{\"mode\":\"PACK\",\"purchasePrice\":0}")
