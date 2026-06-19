@@ -30,7 +30,7 @@ function fmtPack(o: SupplierOfferStats): string {
 // $/base shown per kg/L for weight/volume bases so the numbers are readable.
 const fmtPpb = formatPricePerBase
 
-export function SupplierOffersSection({ itemId, baseUnit }: { itemId: string; baseUnit: string | null }) {
+export function SupplierOffersSection({ itemId, baseUnit, onRepriced }: { itemId: string; baseUnit: string | null; onRepriced?: () => void }) {
   const [offers, setOffers] = useState<SupplierOfferStats[] | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -45,17 +45,21 @@ export function SupplierOffersSection({ itemId, baseUnit }: { itemId: string; ba
 
   const setPrimary = async (offerId: string) => {
     setSaving(true)
-    await fetch(`/api/inventory/${itemId}/suppliers`, {
+    const res = await fetch(`/api/inventory/${itemId}/suppliers`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ offerId }),
-    }).catch(() => {})
+    }).then(r => (r.ok ? r.json() : null)).catch(() => null)
     setSaving(false)
     load()
+    if (res?.repriced) onRepriced?.()
   }
 
   if (!offers || offers.length === 0) return null
   const cheapest = Math.min(...offers.map(o => o.pricePerBaseUnit).filter(p => p > 0))
+  const primaryOffer = offers.find(o => o.isPrimary)
+  const cheaperThanPrimary =
+    !!primaryOffer && Number.isFinite(cheapest) && primaryOffer.pricePerBaseUnit > cheapest
 
   return (
     <div className="space-y-2">
@@ -98,6 +102,11 @@ export function SupplierOffersSection({ itemId, baseUnit }: { itemId: string; ba
           )
         })}
       </div>
+      {cheaperThanPrimary && (
+        <div className="font-mono text-[10.5px] text-gold-2">
+          Cheaper supplier available — {fmtPpb(cheapest, baseUnit)} vs primary {fmtPpb(primaryOffer!.pricePerBaseUnit, baseUnit)}.
+        </div>
+      )}
     </div>
   )
 }

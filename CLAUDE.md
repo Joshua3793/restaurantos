@@ -75,6 +75,7 @@ purchasePrice / (qtyPerPurchaseUnit × packSize × getUnitConv(packUOM))
 - [src/app/api/inventory/[id]/route.ts](src/app/api/inventory/[id]/route.ts) — manual override via inventory edit
 - [src/app/api/inventory/repair-prices/route.ts](src/app/api/inventory/repair-prices/route.ts) — admin repair tool
 - [src/lib/recipeCosts.ts](src/lib/recipeCosts.ts) `syncPrepToInventory` — writes a PREP recipe's computed cost back to its linked `InventoryItem` so the recipe can be used as an ingredient
+- [src/lib/primary-offer.ts](src/lib/primary-offer.ts) `syncPrimaryOfferToItem` / `setPrimaryOffer` — for items WITH supplier offers, the spine (`pricing`/`packChain`) is the **primary offer's** value. Invoice approve only re-prices when the line's supplier is the primary (sticky, manually chosen); switching the primary (inventory drawer) re-prices + re-costs. Items with no offers keep authoring their own pricing (these helpers no-op). Invariant enforced by a partial unique index `(inventoryItemId) WHERE isPrimary`.
 
 **Readers**: ~46 sites. Recipes/menu/prep/wastage/count/cost/variance/sales/cost-chrome all read it for display or compute `lineCost = convertQty(qty, unit, baseUnit) × pricePerBaseUnit`.
 
