@@ -60,6 +60,9 @@ export interface DrawerContextValue {
   // ── Edit linked inventory item ─────────────────────────────────────────────
   openInventoryEdit: (inventoryItemId: string) => void
 
+  // ── Resolve a dimension conflict by changing the item to match the invoice ──
+  adoptInvoiceFormat: (item: ScanItem) => void
+
   // ── Price-change acknowledgement (resolves the price .issue) ───────────────
   acknowledgePrice: (id: string) => void
 

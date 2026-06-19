@@ -14,6 +14,7 @@ import { ImpactStrip, AlertBanner, ReviewProgress, SectionDivider, type ImpactMe
 import { ImageViewerV2, type BBox } from './ImageViewer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
+import { AdoptFormatModal } from './AdoptFormatModal'
 import type { Session, ScanItem, SessionSummary } from '@/components/invoices/types'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { reconcileInvoiceTotals } from '@/lib/invoice/calculations'
@@ -360,6 +361,7 @@ export function InvoiceReviewDrawer({
   const [acknowledgedConfLines, setAcknowledgedConfLines] = useState<Set<string>>(new Set())
   const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
   const [editingInventoryItemId,  setEditingInventoryItemId]  = useState<string | null>(null)
+  const [adoptingForItem,         setAdoptingForItem]         = useState<ScanItem | null>(null)
   const [activeBboxItemId,   setActiveBboxItemId]    = useState<string | null>(null)
   const [mobileTab,          setMobileTab]          = useState<'review' | 'image'>('review')
   const [reviewSegment,      setReviewSegment]      = useState<ReviewSegment>('all')
@@ -803,6 +805,7 @@ export function InvoiceReviewDrawer({
     closeLinkPicker: ()   => setPickingLinkForId(null),
     openCreateNew:        (item) => setCreatingNewForItem(item),
     openInventoryEdit:    (id)   => setEditingInventoryItemId(id),
+    adoptInvoiceFormat:   (item) => setAdoptingForItem(item),
     acknowledgePrice,
     acknowledgeConf,
     activeBboxItemId,
@@ -1043,6 +1046,15 @@ export function InvoiceReviewDrawer({
           itemId={editingInventoryItemId}
           onClose={() => setEditingInventoryItemId(null)}
           onUpdated={() => { if (session) refreshSession(session.id) }}
+        />
+      )}
+
+      {/* Dimension-conflict resolver — change the item to match the invoice line */}
+      {adoptingForItem && (
+        <AdoptFormatModal
+          scanItem={adoptingForItem}
+          onClose={() => setAdoptingForItem(null)}
+          onSaved={() => { setAdoptingForItem(null); if (session) refreshSession(session.id) }}
         />
       )}
 

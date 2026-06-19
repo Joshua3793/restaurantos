@@ -291,7 +291,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       {!isPicking && (
         <>
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
-          {dimConflict && <DimensionConflictIssue item={item} />}
+          {dimConflict && <DimensionConflictIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={{ supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }} />}
           {trustCheck && <ConfIssue item={item} lineId={lineId} />}

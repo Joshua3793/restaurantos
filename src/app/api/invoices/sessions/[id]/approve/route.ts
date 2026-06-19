@@ -9,7 +9,7 @@ import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
-import { dimensionOf, pricePerBaseUnit, type PackLink } from '@/lib/item-model'
+import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, type PackLink } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
@@ -39,6 +39,10 @@ async function doApprove(
     )
 
     const updatedItemIds: string[] = []
+
+    // Pre-approval ppb per item we reprice — captured BEFORE the spine write so
+    // recipe-cost alerts can compute the real cost change (old → new) on the fly.
+    const priorPpbByItem = new Map<string, number>()
 
     // (itemId, rcId) pairs to register as RC stock allocations. A line assigned to a
     // non-default RC must make its inventory item appear in that RC's inventory list —
@@ -170,8 +174,24 @@ async function doApprove(
 
         // Wrap all writes for this item in a transaction so a mid-item failure
         // doesn't leave inventory updated but the scan item un-approved.
-        const prevPrice = Number(scanItem.previousPrice)
-        const changePct = scanItem.priceDiffPct !== null ? Number(scanItem.priceDiffPct) : 0
+        //
+        // The PriceAlert is recorded on the SPINE ($/base-unit) basis — the value
+        // every recipe cost reads — using the item's OLD ppb (before this write)
+        // and the NEW ppb (newPricePerBase). The stored previousPrice/newPrice/
+        // changePct are therefore internally consistent and agree across every
+        // inbox renderer (some re-derive % from the two prices, some show the
+        // stored %). The old path stored a per-base previousPrice next to a
+        // per-CASE newPrice and a separately-computed scanItem.priceDiffPct, so
+        // the three disagreed and the displayed percentages were nonsense.
+        const oldPpb = pricePerBaseUnit({
+          dimension: item.dimension as 'MASS' | 'VOLUME' | 'COUNT',
+          baseUnit: item.baseUnit ?? 'each',
+          packChain: (item.packChain as PackLink[]) ?? [],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pricing: item.pricing as any,
+        })
+        const changePct = oldPpb > 0 ? ((newPricePerBase - oldPpb) / oldPpb) * 100 : 0
+        if (scanItem.matchedItemId) priorPpbByItem.set(scanItem.matchedItemId, oldPpb)
 
         // ── Write the item's pricing (the spine) ────────────────────────────
         // `pricing` follows the line's mode: per_weight → RATE{rate,rateUnit};
@@ -326,14 +346,17 @@ async function doApprove(
               },
             }),
           )
-          if (prevPrice > 0 && Math.abs(changePct) >= 15) {
+          // PriceAlert on the SPINE ($/base) basis — old ppb → new ppb — so the
+          // stored previousPrice/newPrice/changePct stay consistent and every inbox
+          // renderer agrees (see the oldPpb/changePct computation above).
+          if (oldPpb > 0 && Math.abs(changePct) >= 15) {
             itemOps.push(
               prisma.priceAlert.create({
                 data: {
                   sessionId,
                   inventoryItemId: scanItem.matchedItemId,
-                  previousPrice:   prevPrice,
-                  newPrice:        newPurchasePrice,
+                  previousPrice:   oldPpb,
+                  newPrice:        newPricePerBase,
                   changePct,
                   direction:       changePct > 0 ? 'UP' : 'DOWN',
                 },
@@ -569,12 +592,26 @@ async function doApprove(
       // OR transitively (prep-in-prep) — so its spine price (the value every other
       // recipe/report/count reads) reflects the new ingredient price NOW, not only
       // on the next manual recipe edit. Returns the prep output items that moved.
+      // Snapshot every PREP output item's ppb BEFORE the cascade recomputes it —
+      // that's its pre-approval (old) cost, needed for an accurate recipe-cost
+      // change. Raw items repriced in the loop are already in priorPpbByItem.
+      const prepOutputs = await prisma.recipe.findMany({
+        where: { type: 'PREP', inventoryItemId: { not: null } },
+        select: { inventoryItem: { select: { id: true, ...PRICING_SELECT } } },
+      })
+      for (const p of prepOutputs) {
+        if (p.inventoryItem && !priorPpbByItem.has(p.inventoryItem.id)) {
+          priorPpbByItem.set(p.inventoryItem.id, pricePerBaseUnit(asChainItem(p.inventoryItem)))
+        }
+      }
+
       const movedPrepItemIds = await propagatePrepCostChanges(updatedItemIds)
       // Alerts should cover recipes using a changed raw item OR a prep whose cost
       // moved, so feed both sets into the recipe-cost recalc.
       const alerts = await recalculateRecipeCosts(
         [...new Set([...updatedItemIds, ...movedPrepItemIds])],
         sessionId,
+        priorPpbByItem,
       )
       recipeAlertsCreated = alerts.length
     }
