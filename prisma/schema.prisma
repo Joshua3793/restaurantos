@@ -370,6 +370,10 @@ model InvoiceScanItem {
   totalQtyUOM        String?
   revenueCenterId    String?
   splitToSessionId   String?        // set on a PARENT line moved into an RC clone; null = live/countable
+  // Per-RC quantity split (count UOM): [{ rcId, qty }]. When set, the line's
+  // received quantity + cost fan out proportionally across these RCs on approve
+  // (overrides revenueCenterId). Sum of qty must equal the line's received qty.
+  rcSplit            Json?
   ocrConfidence      String?        // 'low' | 'medium' | 'high' — Claude's self-rated confidence in this line
   ocrNotes           String?        // Optional reason Claude flagged a line as low-confidence
   // ── Mode-aware OCR fields (from the mode-first OCR schema) ─────────────────

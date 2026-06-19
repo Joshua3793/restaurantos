@@ -24,7 +24,7 @@ import {
 import {
   isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
-import { lineUnresolved, isCharge, isBigPriceChange } from '@/lib/invoice/resolution'
+import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit } from '@/lib/invoice/resolution'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { formatPricePerBase } from '@/lib/utils'
 import {
@@ -450,7 +450,7 @@ export function InvoiceReviewDrawer({
   )
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasDimensionConflict(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i),
+    isUnlinked(i) || hasDimensionConflict(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i),
   [session?.supplierId, session?.supplierName])
 
   // Group lines into the mock's three sections + per-line invoice numbering.

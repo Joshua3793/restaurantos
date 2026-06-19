@@ -10,7 +10,27 @@ import {
 } from './predicates'
 import { computeNormalisedPrices } from './calculations'
 import { offerPricePerBase } from '@/lib/supplier-offers'
+import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
+
+/** An RC split that doesn't sum to the line's received quantity blocks approval. */
+export function hasInvalidRcSplit(item: ScanItem): boolean {
+  const split = item.rcSplit
+  if (!Array.isArray(split) || split.length === 0) return false
+  if (!item.matchedItem) return true
+  const entries = split.filter(e => e && e.rcId && Number(e.qty) > 0)
+  if (entries.length === 0) return true
+  const { qty: total } = lineReceivedCountQty(item as unknown as Parameters<typeof lineReceivedCountQty>[0], {
+    dimension: item.matchedItem.dimension ?? 'COUNT',
+    baseUnit:  item.matchedItem.baseUnit ?? 'each',
+    packChain: item.matchedItem.packChain,
+    pricing:   item.matchedItem.pricing,
+    countUnit: item.matchedItem.countUnit ?? null,
+  })
+  if (!(total > 0)) return true
+  const sum = entries.reduce((s, e) => s + Number(e.qty), 0)
+  return Math.abs(sum - total) > Math.max(0.001, total * 0.005)
+}
 
 // A line is treated as a "charge" (Other line items — no COGS impact) when the
 // user has skipped it. Skipped lines never need a decision.
@@ -105,5 +125,7 @@ export function lineIssues(item: ScanItem, opts: ResolveOpts, sessionSupplier?: 
 export function lineUnresolved(item: ScanItem, opts: ResolveOpts, sessionSupplier?: SupplierRef | null): boolean {
   // A math check is a hard blocker even though it has no badge of its own.
   if (!isCharge(item) && hasMathCheck(item)) return true
+  // An unbalanced RC split blocks approval until the quantities reconcile.
+  if (!isCharge(item) && hasInvalidRcSplit(item)) return true
   return lineIssues(item, opts, sessionSupplier).some(i => !i.resolved)
 }

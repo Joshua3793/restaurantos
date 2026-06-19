@@ -11,6 +11,7 @@ import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
+import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -28,7 +29,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -61,6 +62,31 @@ async function doApprove(
     const registerAlloc = (itemId: string | null, lineRcId: string | null) => {
       const rcId = lineRcId ?? effectiveSessionRcId
       if (itemId && rcId && rcId !== defaultRcId) allocPairs.push({ itemId, rcId })
+    }
+
+    // A line's RC split [{rcId, qty}] (count UOM), validated to sum to the line's
+    // received quantity. Returns null when absent/invalid (caller falls back to the
+    // single revenueCenterId). The review UI blocks approving an invalid split, so
+    // this is defensive — an invalid split is ignored rather than mis-allocated.
+    const parseValidSplit = (scanItem: typeof session.scanItems[number]): Array<{ rcId: string; qty: number }> | null => {
+      const raw = scanItem.rcSplit
+      if (!Array.isArray(raw) || raw.length === 0 || !scanItem.matchedItem) return null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entries = (raw as any[]).map(e => ({ rcId: String(e?.rcId ?? ''), qty: Number(e?.qty) })).filter(e => e.rcId && e.qty > 0)
+      if (entries.length === 0) return null
+      const { qty: total } = lineReceivedCountQty(scanItem as any, scanItem.matchedItem as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (!(total > 0)) return null
+      const sum = entries.reduce((s, e) => s + e.qty, 0)
+      if (Math.abs(sum - total) > Math.max(0.001, total * 0.005)) return null
+      return entries
+    }
+
+    // Register the StockAllocation marker(s) for a line — every RC it touches
+    // (each split RC, or the single line RC), so the item shows in each RC.
+    const registerLineAllocs = (itemId: string | null, scanItem: typeof session.scanItems[number]) => {
+      const split = parseValidSplit(scanItem)
+      if (split) split.forEach(e => registerAlloc(itemId, e.rcId))
+      else registerAlloc(itemId, scanItem.revenueCenterId)
     }
 
     // Offers are keyed by canonical supplier name so OCR name variants
@@ -374,7 +400,7 @@ async function doApprove(
         if (shouldReprice && offerSupplierName) {
           await mirrorItemToPrimaryOffer(scanItem.matchedItemId)
         }
-        registerAlloc(scanItem.matchedItemId, scanItem.revenueCenterId)
+        registerLineAllocs(scanItem.matchedItemId, scanItem)
       }
 
       // ── CREATE_NEW ──────────────────────────────────────────────────────
@@ -444,7 +470,7 @@ async function doApprove(
         })
         updatedItemIds.push(created.id)
         newItemsCreated++
-        registerAlloc(created.id, scanItem.revenueCenterId)
+        registerLineAllocs(created.id, scanItem)
         await prisma.invoiceScanItem.update({
           where: { id: scanItem.id },
           data: { matchedItemId: created.id, approved: true },
@@ -520,15 +546,69 @@ async function doApprove(
 
     if (effectiveSessionRcId) {
       const sessionRcId = effectiveSessionRcId
-      const itemsByRc = new Map<string, typeof session.scanItems>()
+
+      // Build per-RC copy specs. A whole non-default line moves entirely into its
+      // RC clone (factor 1). A SPLIT line fans out across several RC clones, each
+      // copy scaled by its share — receiving qty + cost both follow the split, so
+      // per-RC theoretical stock and COGS reconcile to the invoiced totals.
+      type Spec = { item: typeof session.scanItems[number]; factor: number; whole: boolean }
+      const specsByRc = new Map<string, Spec[]>()
+      const splitOriginalIds: string[] = []
       for (const item of session.scanItems) {
-        const effectiveRcId = item.revenueCenterId ?? sessionRcId
-        if (effectiveRcId === sessionRcId) continue
-        if (!itemsByRc.has(effectiveRcId)) itemsByRc.set(effectiveRcId, [])
-        itemsByRc.get(effectiveRcId)!.push(item)
+        const split = parseValidSplit(item)
+        if (split) {
+          const sum = split.reduce((s, e) => s + e.qty, 0)
+          for (const e of split) {
+            const factor = e.qty / sum   // sum ≈ received qty (validated)
+            if (factor <= 0) continue
+            if (!specsByRc.has(e.rcId)) specsByRc.set(e.rcId, [])
+            specsByRc.get(e.rcId)!.push({ item, factor, whole: false })
+          }
+          splitOriginalIds.push(item.id)
+        } else {
+          const rc = item.revenueCenterId ?? sessionRcId
+          if (rc === sessionRcId) continue   // default share stays in the parent
+          if (!specsByRc.has(rc)) specsByRc.set(rc, [])
+          specsByRc.get(rc)!.push({ item, factor: 1, whole: true })
+        }
       }
 
-      for (const [rcId, rcItems] of itemsByRc) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const scaledCopy = (item: typeof session.scanItems[number], rcId: string, cloneId: string, factor: number): any => {
+        const scale = (v: unknown) => (v != null ? Number(v) * factor : null)
+        return {
+          sessionId:       cloneId,
+          rawDescription:  item.rawDescription,
+          rawQty:          item.rawQty != null ? Number(item.rawQty) * factor : (factor < 1 ? factor : null),
+          rawUnit:         item.rawUnit,
+          rawUnitPrice:    item.rawUnitPrice,       // per-unit price unchanged
+          rawLineTotal:    scale(item.rawLineTotal), // money share
+          matchedItemId:   item.matchedItemId,
+          matchConfidence: item.matchConfidence,
+          matchScore:      item.matchScore,
+          action:          item.action,
+          approved:        true,
+          newPrice:        item.newPrice,
+          previousPrice:   item.previousPrice,
+          priceDiffPct:    item.priceDiffPct,
+          revenueCenterId: rcId,
+          sortOrder:       item.sortOrder,
+          // qty-driving fields so per-RC theoretical receiving = this share
+          totalQty:        scale(item.totalQty),
+          totalQtyUOM:     item.totalQtyUOM,
+          rate:            item.rate,               // $/uom unchanged
+          rateUOM:         item.rateUOM,
+          invoicePackQty:  item.invoicePackQty,     // unscaled — rawQty carries the scale
+          invoicePackSize: item.invoicePackSize,
+          invoicePackUOM:  item.invoicePackUOM,
+        }
+      }
+
+      // originalId → cloneId to flag (excludes the parent original from aggregation).
+      const flagToClone = new Map<string, string>()
+      let firstSplitCloneId: string | null = null
+
+      for (const [rcId, specs] of specsByRc) {
         const clone = await prisma.invoiceSession.create({
           data: {
             status:          'APPROVED',
@@ -542,38 +622,26 @@ async function doApprove(
             approvedAt:      new Date(),
           },
         })
+        if (!firstSplitCloneId) firstSplitCloneId = clone.id
+        await prisma.invoiceScanItem.createMany({
+          data: specs.map(s => scaledCopy(s.item, rcId, clone.id, s.factor)),
+        })
+        // Whole moves: the original belongs to this one clone.
+        for (const s of specs) if (s.whole) flagToClone.set(s.item.id, clone.id)
+      }
 
-        // Copy the lines into the clone and flag the parent originals atomically,
-        // so a failure can never leave both sets of lines live (double-count).
-        await prisma.$transaction([
-          prisma.invoiceScanItem.createMany({
-            data: rcItems.map(item => ({
-              sessionId:       clone.id,
-              rawDescription:  item.rawDescription,
-              rawQty:          item.rawQty,
-              rawUnit:         item.rawUnit,
-              rawUnitPrice:    item.rawUnitPrice,
-              rawLineTotal:    item.rawLineTotal,
-              matchedItemId:   item.matchedItemId,
-              matchConfidence: item.matchConfidence,
-              matchScore:      item.matchScore,
-              action:          item.action,
-              approved:        true,
-              newPrice:        item.newPrice,
-              previousPrice:   item.previousPrice,
-              priceDiffPct:    item.priceDiffPct,
-              revenueCenterId: rcId,
-              sortOrder:       item.sortOrder,
-            })),
-          }),
-          // Move-not-copy: flag the parent's originals so they are excluded from
-          // spend aggregation. The clone's copies (splitToSessionId = null) are the
-          // canonical home for these lines. Parent keeps the lines for fidelity.
-          prisma.invoiceScanItem.updateMany({
-            where: { id: { in: rcItems.map(i => i.id) } },
-            data:  { splitToSessionId: clone.id },
-          }),
-        ])
+      // Split originals: excluded (represented by their fan-out copies). Any clone
+      // id works as the flag — re-approve deletes all clones and un-flags these.
+      if (firstSplitCloneId) for (const id of splitOriginalIds) flagToClone.set(id, firstSplitCloneId)
+
+      // Flag the parent originals (grouped by target clone).
+      const byClone = new Map<string, string[]>()
+      for (const [origId, cloneId] of flagToClone) {
+        if (!byClone.has(cloneId)) byClone.set(cloneId, [])
+        byClone.get(cloneId)!.push(origId)
+      }
+      for (const [cloneId, ids] of byClone) {
+        await prisma.invoiceScanItem.updateMany({ where: { id: { in: ids } }, data: { splitToSessionId: cloneId } })
       }
     }
 

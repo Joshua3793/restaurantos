@@ -72,6 +72,8 @@ export interface ScanItem {
   totalQty: string | null
   totalQtyUOM: string | null
   revenueCenterId?: string | null
+  /** Per-RC quantity split (count UOM). null/empty = single-RC via revenueCenterId. */
+  rcSplit?: Array<{ rcId: string; qty: number }> | null
   sortOrder: number
   ocrConfidence?: 'low' | 'medium' | 'high' | null
   ocrNotes?: string | null

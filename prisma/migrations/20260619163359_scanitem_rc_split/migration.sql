@@ -1,0 +1,1 @@
+ALTER TABLE "InvoiceScanItem" ADD COLUMN IF NOT EXISTS "rcSplit" JSONB;

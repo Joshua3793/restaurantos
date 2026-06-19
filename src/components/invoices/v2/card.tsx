@@ -4,9 +4,11 @@
 // link-row, stacked `.issue` blocks, the invoice-math block, and an optional
 // inventory-cost comparison. Reads shared state from DrawerContext.
 
-import { useRef } from 'react'
-import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, type LucideIcon } from 'lucide-react'
+import { useRef, useState, useEffect } from 'react'
+import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, Split, Plus, X, type LucideIcon } from 'lucide-react'
 import { rcHex } from '@/lib/rc-colors'
+import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { useDrawerContext } from './context'
 import { LineNumberChip } from './atoms'
 import {
@@ -20,7 +22,7 @@ import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit } from '@/lib/invoice/resolution'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
@@ -80,8 +82,24 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const mathCheck      = !isSkipped && hasMathCheck(item)
   const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
   const trustCheck     = !isSkipped && needsTrustCheck(item)
-  const isAttention    = unlinked || dimConflict || mathCheck || bigPrice || trustCheck
+  const badSplit       = !isSkipped && hasInvalidRcSplit(item)
+  const isAttention    = unlinked || dimConflict || mathCheck || bigPrice || trustCheck || badSplit
   const isCatch        = isCatchweight(item)
+
+  // RC split: the line's received quantity (count UOM) is the target the split
+  // must sum to; the line total is what the money shares must reconcile to.
+  const received = item.matchedItem
+    ? lineReceivedCountQty(item as unknown as Parameters<typeof lineReceivedCountQty>[0], {
+        dimension: item.matchedItem.dimension ?? 'COUNT',
+        baseUnit:  item.matchedItem.baseUnit ?? 'each',
+        packChain: item.matchedItem.packChain,
+        pricing:   item.matchedItem.pricing,
+        countUnit: item.matchedItem.countUnit ?? null,
+      })
+    : null
+  const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
+  const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
+  const canSplit     = !!item.matchedItem && !!received && received.qty > 0 && ctx.revenueCenters.length > 1
 
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
@@ -359,39 +377,165 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
             <div className="flex items-center justify-between gap-2 mb-2.5">
               <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.06em] font-semibold text-gold-2">
                 <Building2 size={12} className="text-gold-2" />
-                Revenue center
+                Revenue center{splitActive ? ' · split' : ''}
               </div>
-              <button
-                type="button"
-                onClick={() => ctx.updateLine(lineId, { action: 'SKIP' })}
-                title="Skip this line — won't affect COGS"
-                className="inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-4 hover:text-ink-2 hover:bg-white/60 px-2 py-[3px] rounded transition-colors"
-              >
-                <Ban size={11} /> Skip
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {ctx.revenueCenters.map(r => {
-                const sel = (item.revenueCenterId ?? defaultRcId) === r.id
-                return (
+              <div className="flex items-center gap-1">
+                {canSplit && (
                   <button
-                    key={r.id}
                     type="button"
-                    onClick={() => ctx.setLineRc(lineId, r)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[12px] font-medium border transition-colors ${
-                      sel ? 'bg-white border-[#fcd34d] text-ink shadow-sm' : 'bg-white/40 border-transparent text-ink-3 hover:bg-white/70'
+                    onClick={() => ctx.updateLine(lineId, {
+                      rcSplit: splitActive
+                        ? null
+                        : [{ rcId: item.revenueCenterId ?? defaultRcId, qty: received!.qty }],
+                    })}
+                    title={splitActive ? 'Use a single revenue center' : 'Split this quantity across revenue centers'}
+                    className={`inline-flex items-center gap-1 font-mono text-[10.5px] px-2 py-[3px] rounded transition-colors ${
+                      splitActive ? 'bg-white text-gold-2 border border-[#fcd34d]' : 'text-gold-2 hover:bg-white/60'
                     }`}
                   >
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(r.color) }} />
-                    {r.name}{r.isDefault && <span className="text-ink-4 font-normal ml-0.5">· default</span>}
+                    <Split size={11} /> {splitActive ? 'Single' : 'Split'}
                   </button>
-                )
-              })}
+                )}
+                <button
+                  type="button"
+                  onClick={() => ctx.updateLine(lineId, { action: 'SKIP' })}
+                  title="Skip this line — won't affect COGS"
+                  className="inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-4 hover:text-ink-2 hover:bg-white/60 px-2 py-[3px] rounded transition-colors"
+                >
+                  <Ban size={11} /> Skip
+                </button>
+              </div>
             </div>
+
+            {splitActive && received ? (
+              <RcSplitEditor
+                rcSplit={item.rcSplit as Array<{ rcId: string; qty: number }>}
+                received={received}
+                lineTotal={lineTotalNum}
+                revenueCenters={ctx.revenueCenters}
+                onChange={split => ctx.updateLine(lineId, { rcSplit: split })}
+              />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {ctx.revenueCenters.map(r => {
+                  const sel = (item.revenueCenterId ?? defaultRcId) === r.id
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => ctx.setLineRc(lineId, r)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[12px] font-medium border transition-colors ${
+                        sel ? 'bg-white border-[#fcd34d] text-ink shadow-sm' : 'bg-white/40 border-transparent text-ink-3 hover:bg-white/70'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(r.color) }} />
+                      {r.name}{r.isDefault && <span className="text-ink-4 font-normal ml-0.5">· default</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </>
       )}
     </article>
+  )
+}
+
+// ─── RcSplitEditor ───────────────────────────────────────────────────────────
+// Allocate a line's received quantity across multiple revenue centers, in the
+// item's count UOM. Money per RC is derived proportionally from the line total;
+// the footer enforces that the quantities sum to exactly what was received.
+
+const SPLIT_TOL = (total: number) => Math.max(0.001, total * 0.005)
+
+function RcSplitEditor({ rcSplit, received, lineTotal, revenueCenters, onChange }: {
+  rcSplit: Array<{ rcId: string; qty: number }>
+  received: { qty: number; countUom: string }
+  lineTotal: number
+  revenueCenters: RevenueCenter[]
+  onChange: (split: Array<{ rcId: string; qty: number }>) => void
+}) {
+  // Local qty strings so decimals type cleanly; base values live in rcSplit.
+  const [qtyStr, setQtyStr] = useState<Record<string, string>>(
+    () => Object.fromEntries(rcSplit.map(e => [e.rcId, String(e.qty)])),
+  )
+  useEffect(() => {
+    setQtyStr(prev => {
+      const next: Record<string, string> = {}
+      for (const e of rcSplit) next[e.rcId] = e.rcId in prev ? prev[e.rcId] : String(e.qty)
+      return next
+    })
+  }, [rcSplit])
+
+  const total   = received.qty
+  const sum     = rcSplit.reduce((s, e) => s + (Number(e.qty) || 0), 0)
+  const valid   = Math.abs(sum - total) <= SPLIT_TOL(total)
+  const moneyOf = (q: number) => (total > 0 ? lineTotal * (q / total) : 0)
+  const moneySum = moneyOf(sum)
+  const rcOf = (id: string) => revenueCenters.find(r => r.id === id)
+  const unused = revenueCenters.filter(r => !rcSplit.some(e => e.rcId === r.id))
+
+  const setQty = (rcId: string, s: string) => {
+    setQtyStr(p => ({ ...p, [rcId]: s }))
+    onChange(rcSplit.map(e => (e.rcId === rcId ? { ...e, qty: parseFloat(s) || 0 } : e)))
+  }
+  const addRc    = () => { if (unused[0]) onChange([...rcSplit, { rcId: unused[0].id, qty: 0 }]) }
+  const removeRc = (rcId: string) => onChange(rcSplit.filter(e => e.rcId !== rcId))
+
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1.5">
+        {rcSplit.map(e => {
+          const rc = rcOf(e.rcId)
+          return (
+            <div key={e.rcId} className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 min-w-0 flex-1 text-[12px] font-medium text-ink">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc?.color ?? 'gray') }} />
+                <span className="truncate">{rc?.name ?? 'RC'}</span>
+              </span>
+              <div className="flex items-center">
+                <input
+                  type="number" step="any" min="0"
+                  value={qtyStr[e.rcId] ?? ''}
+                  onChange={ev => setQty(e.rcId, ev.target.value)}
+                  className="w-20 text-right border border-line rounded-l-md px-2 py-1 text-[12px] tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-gold/40"
+                />
+                <span className="border border-line border-l-0 rounded-r-md px-1.5 py-1 text-[11px] text-ink-4 bg-bg">{received.countUom}</span>
+              </div>
+              <span className="font-mono text-[11.5px] text-ink-3 tabular-nums w-16 text-right">{formatCurrency(moneyOf(Number(e.qty) || 0))}</span>
+              <button
+                type="button"
+                onClick={() => removeRc(e.rcId)}
+                disabled={rcSplit.length <= 1}
+                aria-label="Remove revenue center"
+                className="w-6 h-6 grid place-items-center rounded text-ink-4 hover:text-red-text disabled:opacity-30"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {unused.length > 0 && (
+        <button type="button" onClick={addRc} className="inline-flex items-center gap-1 text-[11px] font-medium text-gold-2 hover:text-gold">
+          <Plus size={11} /> add revenue center
+        </button>
+      )}
+
+      {/* reconciliation footer */}
+      <div className={`flex items-center justify-between gap-2 mt-1 pt-2 border-t border-dashed text-[11.5px] font-mono tabular-nums ${valid ? 'border-line text-ink-3' : 'border-[#fecaca] text-red-text'}`}>
+        <span className="inline-flex items-center gap-1.5">
+          {valid ? <Check size={12} className="text-green-text" /> : <span className="text-red-text font-bold">!</span>}
+          {sum.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {total.toLocaleString(undefined, { maximumFractionDigits: 2 })} {received.countUom}
+          {!valid && <span className="text-red-text">— must equal {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+        </span>
+        <span className={valid ? 'text-ink-2' : 'text-red-text'}>
+          {formatCurrency(moneySum)} / {formatCurrency(lineTotal)}
+        </span>
+      </div>
+    </div>
   )
 }
 
