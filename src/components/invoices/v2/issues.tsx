@@ -7,6 +7,8 @@ import { ArrowRight, Check } from 'lucide-react'
 import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
+import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
+import { dimensionOf } from '@/lib/item-model'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
 import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
@@ -50,23 +52,48 @@ function IssueShell({
 // ─── DimensionConflictIssue ──────────────────────────────────────────────────
 // The invoice line is priced by a unit whose dimension (mass / volume / count)
 // doesn't match the linked item's. This is the sole hard blocker under the
-// pack-chain model — it has NO resolve buttons; the only fix is to re-link the
-// line to a compatible item, which clears the conflict.
+// pack-chain model. It names BOTH sides of the mismatch and offers the three
+// ways to resolve it: fix the line (OCR misread the units), re-link to a
+// different item, or change the item itself to match the invoice.
 
-export function DimensionConflictIssue({ item }: { item: ScanItem }) {
-  const itemName = item.matchedItem?.itemName ?? 'this item'
+const DIM_LABEL: Record<string, string> = { MASS: 'weight', VOLUME: 'volume', COUNT: 'count' }
+
+export function DimensionConflictIssue({
+  item,
+  lineId,
+  onFixUom,
+}: {
+  item: ScanItem
+  lineId: string
+  onFixUom: () => void
+}) {
+  const ctx = useDrawerContext()
+  const md = item.matchedItem
+  const itemName = md?.itemName ?? 'this item'
+  // Invoice side: the SAME offer the conflict detector builds.
+  const offer = buildOffer(scanItemToOfferInput(item))
+  const invUnit = offer.pricing.mode === 'RATE' ? offer.pricing.rateUnit : offer.baseUnit
+  // Item side.
+  const itemDim = (md?.dimension as string | undefined) ?? dimensionOf(md?.baseUnit ?? 'each')
+  const itemUnit = md?.countUnit || md?.baseUnit || 'each'
   return (
-    <div className="px-4 py-2.5 border-b border-dashed border-line">
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold uppercase bg-red-soft text-red-text shrink-0">
-          Dimension conflict
-        </span>
-        <p className="text-[12.5px] text-ink-2 leading-snug">
-          This line is priced by a unit that doesn’t match <span className="font-medium">{itemName}</span>’s
-          measurement type. Re-link it to a compatible item to approve.
-        </p>
-      </div>
-    </div>
+    <IssueShell
+      kind="conflict"
+      label="Dimension conflict"
+      actions={
+        <>
+          <ActButton onClick={onFixUom}>Scan error → fix the line</ActButton>
+          <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link a different item</ActButton>
+          <ActButton variant="primary" onClick={() => ctx.adoptInvoiceFormat(item)}>
+            Change {itemName} to {DIM_LABEL[offer.dimension] ?? offer.dimension}
+          </ActButton>
+        </>
+      }
+    >
+      This line is priced by <b className="font-semibold text-ink">{DIM_LABEL[offer.dimension] ?? offer.dimension}</b> ({invUnit}),
+      but <span className="font-medium">{itemName}</span> is set up by{' '}
+      <b className="font-semibold text-ink">{DIM_LABEL[itemDim] ?? itemDim}</b> ({itemUnit}). Pick the side that’s wrong.
+    </IssueShell>
   )
 }
 
