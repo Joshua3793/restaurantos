@@ -1439,11 +1439,12 @@ function AddNewItemModal({
 }) {
   const [saving,     setSaving]     = useState(false)
   const [categories, setCategories] = useState<string[]>([])
-  const [suppliers,  setSuppliers]  = useState<{ id: string; name: string }[]>([])
-  const [itemName,   setItemName]   = useState(item.rawDescription ?? '')
-  const [category,   setCategory]   = useState('DRY')
-  const [supplierId, setSupplierId] = useState<string>(sessionSupplierId ?? '')
-  const [location,   setLocation]   = useState('')
+  const [suppliers,    setSuppliers]    = useState<{ id: string; name: string }[]>([])
+  const [storageAreas, setStorageAreas] = useState<{ id: string; name: string }[]>([])
+  const [itemName,     setItemName]     = useState(item.rawDescription ?? '')
+  const [category,     setCategory]     = useState('DRY')
+  const [supplierId,   setSupplierId]   = useState<string>(sessionSupplierId ?? '')
+  const [storageAreaId, setStorageAreaId] = useState<string>('')
 
   // Seed the chain from the invoice's OCR'd pack fields via the same formToChain
   // helper the approve route uses — so the form opens pre-filled to what the
@@ -1476,6 +1477,9 @@ function AddNewItemModal({
       // If the invoice's supplier isn't in the directory yet, surface its name as a
       // pre-selected option so it still shows as chosen.
     }).catch(() => {})
+    fetch('/api/storage-areas').then(r => r.json()).then((data: { id: string; name: string }[]) => {
+      setStorageAreas(data)
+    }).catch(() => {})
   }, [])
 
   const baseUnit = DIMENSION_BASE[dimension]
@@ -1494,7 +1498,7 @@ function AddNewItemModal({
       itemName: itemName.trim() || item.rawDescription,
       category,
       supplierId: supplierId || null,
-      location: location.trim() || null,
+      storageAreaId: storageAreaId || null,
       dimension,
       packChain: chain,
       pricing,
@@ -1570,16 +1574,13 @@ function AddNewItemModal({
               </select>
             </div>
 
-            {/* Location */}
+            {/* Location — a storage area already established in the app */}
             <div>
               <label className={labelCls}>Location</label>
-              <input
-                type="text"
-                value={location}
-                onChange={e => setLocation(e.target.value)}
-                placeholder="e.g. Walk-in, Dry storage"
-                className={inputCls}
-              />
+              <select value={storageAreaId} onChange={e => setStorageAreaId(e.target.value)} className={`${inputCls} bg-white`}>
+                <option value="">— None —</option>
+                {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
             </div>
 
             {/* Pricing mode first — the top-level structural choice — then how the

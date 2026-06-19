@@ -429,9 +429,10 @@ async function doApprove(
             // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
             baseUnit:           newChain.baseUnit,
             // Supplier/location chosen in the modal; supplier falls back to the
-            // invoice's supplier when left as the pre-selected default.
+            // invoice's supplier when left as the pre-selected default. Location
+            // is a storage area established in the app (storageAreaId).
             supplierId:         newData.supplierId || session.supplierId || null,
-            location:           newData.location || null,
+            storageAreaId:      newData.storageAreaId || null,
             // Chain columns (authoritative).
             dimension:          newChain.dimension,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
