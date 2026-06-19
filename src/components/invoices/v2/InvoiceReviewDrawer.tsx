@@ -32,6 +32,7 @@ import {
   type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { formToChain } from '@/lib/item-model-form'
+import { canonicalUom } from '@/lib/uom'
 import {
   DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
 } from '@/components/inventory/ItemChainEditor'
@@ -1438,7 +1439,9 @@ function AddNewItemModal({
   // helper the approve route uses — so the form opens pre-filled to what the
   // scan saw, and the manager only confirms or tweaks.
   const seed = useMemo(() => formToChain({
-    purchaseUnit:       item.rawUnit ?? 'case',
+    // canonicalize the OCR'd unit (e.g. 'CS' → 'case') so the seeded chain lands
+    // on a clean, selectable level unit rather than a raw invoice token.
+    purchaseUnit:       canonicalUom(item.rawUnit) || 'case',
     purchasePrice:      Number(item.rate ?? item.rawUnitPrice ?? item.newPrice ?? 0),
     qtyPerPurchaseUnit: Number(item.invoicePackQty) || 1,
     qtyUOM:             'each',
@@ -1552,6 +1555,7 @@ function AddNewItemModal({
             <PackChainEditor
               chain={chain}
               baseUnit={baseUnit}
+              dimension={dimension}
               onChange={c => {
                 setChain(c)
                 const opts = countUnitOptions(dimension, c)

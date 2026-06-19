@@ -17,12 +17,30 @@ export const DIM_UNITS: Record<Dimension, string[]> = {
   COUNT:  ['each'],
 }
 
+// Packaging / container labels selectable for a pack-chain level. A level name is
+// really just a label that resolves to base units via the chain's `per`, but
+// offering a curated dropdown (instead of free text) keeps entries consistent and
+// typo-free — and mirrors the app's container-unit taxonomy (uom.ts CONTAINER_UNITS).
+export const LEVEL_UNITS: string[] = [
+  'case', 'box', 'carton', 'flat', 'crate', 'pallet',
+  'pack', 'bag', 'tray', 'clamshell', 'sleeve', 'bundle', 'dozen',
+  'jug', 'bottle', 'can', 'jar', 'tub', 'tin',
+  'each',
+]
+
 const inputCls =
   'w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
 
 /** Count-unit options: chain level names + same-dimension units, deduped. */
 export function countUnitOptions(dimension: Dimension, chain: PackLink[]): string[] {
   return [...new Set([...chain.map(l => l.unit), ...DIM_UNITS[dimension]])]
+}
+
+/** Eligible units for a pack-chain level: packaging labels + same-dimension
+ *  measured units, plus the current value so editing an existing chain never
+ *  silently drops a label that isn't in the curated list. */
+export function levelUnitOptions(dimension: Dimension, current?: string): string[] {
+  return [...new Set([...LEVEL_UNITS, ...DIM_UNITS[dimension], ...(current ? [current] : [])])]
 }
 
 export function DimensionToggle({ dimension, onChange }: {
@@ -51,15 +69,16 @@ export function DimensionToggle({ dimension, onChange }: {
   )
 }
 
-export function PackChainEditor({ chain, baseUnit, onChange }: {
+export function PackChainEditor({ chain, baseUnit, dimension, onChange }: {
   chain: PackLink[]
   baseUnit: string
+  dimension: Dimension
   onChange: (chain: PackLink[]) => void
 }) {
   const setLink = (i: number, patch: Partial<PackLink>) =>
     onChange(chain.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
   const removeLink = (i: number) => onChange(chain.filter((_, idx) => idx !== i))
-  const addLink = () => onChange([...chain, { unit: 'unit', per: 1 }])
+  const addLink = () => onChange([...chain, { unit: 'each', per: 1 }])
 
   return (
     <div className="space-y-2">
@@ -68,12 +87,13 @@ export function PackChainEditor({ chain, baseUnit, onChange }: {
         const isLeaf = i === chain.length - 1
         return (
           <div key={i} className="flex items-center gap-2">
-            <input
+            <select
               value={link.unit}
               onChange={e => setLink(i, { unit: e.target.value })}
-              placeholder="unit"
-              className="flex-1 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
-            />
+              className="flex-1 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white"
+            >
+              {levelUnitOptions(dimension, link.unit).map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
             <div className="flex items-center">
               <input
                 type="number"

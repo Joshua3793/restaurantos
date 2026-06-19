@@ -478,6 +478,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     <PackChainEditor
                       chain={editForm.chain}
                       baseUnit={DIMENSION_BASE[editForm.dimension]}
+                      dimension={editForm.dimension}
                       onChange={chain => setEditForm(f => {
                         const opts = countUnitOptions(f.dimension, chain)
                         return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }

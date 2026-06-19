@@ -1636,6 +1636,7 @@ function InventoryPageInner() {
                 <PackChainEditor
                   chain={form.chain}
                   baseUnit={DIMENSION_BASE[form.dimension]}
+                  dimension={form.dimension}
                   onChange={chain => setForm(f => {
                     const opts = countUnitOptions(f.dimension, chain)
                     return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
