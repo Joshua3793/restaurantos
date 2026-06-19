@@ -428,7 +428,10 @@ async function doApprove(
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would
             // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
             baseUnit:           newChain.baseUnit,
-            supplierId:         session.supplierId || null,
+            // Supplier/location chosen in the modal; supplier falls back to the
+            // invoice's supplier when left as the pre-selected default.
+            supplierId:         newData.supplierId || session.supplierId || null,
+            location:           newData.location || null,
             // Chain columns (authoritative).
             dimension:          newChain.dimension,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

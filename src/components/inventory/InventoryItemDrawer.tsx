@@ -460,9 +460,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   </div>
                 )}
 
-                {/* Pricing chain (hidden for PREP-linked items — managed by recipe sync) */}
+                {/* Pricing chain (hidden for PREP-linked items — managed by recipe sync).
+                    Pricing mode first (top-level choice), then dimension, then chain. */}
                 {!item.recipe && (
                   <div className="space-y-3">
+                    <PricingEditor
+                      dimension={editForm.dimension}
+                      pricing={editForm.pricing}
+                      onChange={pricing => setEditForm(f => ({ ...f, pricing }))}
+                    />
+
                     <DimensionToggle
                       dimension={editForm.dimension}
                       onChange={d => setEditForm(f => {
@@ -483,12 +490,6 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         const opts = countUnitOptions(f.dimension, chain)
                         return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
                       })}
-                    />
-
-                    <PricingEditor
-                      dimension={editForm.dimension}
-                      pricing={editForm.pricing}
-                      onChange={pricing => setEditForm(f => ({ ...f, pricing }))}
                     />
                   </div>
                 )}

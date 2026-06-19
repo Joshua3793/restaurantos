@@ -1619,8 +1619,15 @@ function InventoryPageInner() {
                 </div>
               </div>
 
-              {/* Pricing chain */}
+              {/* Pricing chain — pricing mode first (top-level choice), then how
+                  it's measured, then the pack chain. */}
               <div className="space-y-3 pt-1">
+                <PricingEditor
+                  dimension={form.dimension}
+                  pricing={form.pricing}
+                  onChange={pricing => setForm(f => ({ ...f, pricing }))}
+                />
+
                 <DimensionToggle
                   dimension={form.dimension}
                   onChange={d => setForm(f => {
@@ -1641,12 +1648,6 @@ function InventoryPageInner() {
                     const opts = countUnitOptions(f.dimension, chain)
                     return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
                   })}
-                />
-
-                <PricingEditor
-                  dimension={form.dimension}
-                  pricing={form.pricing}
-                  onChange={pricing => setForm(f => ({ ...f, pricing }))}
                 />
 
                 <div className="grid grid-cols-2 gap-3">

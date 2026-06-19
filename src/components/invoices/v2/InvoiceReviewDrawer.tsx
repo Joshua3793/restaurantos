@@ -1072,6 +1072,8 @@ export function InvoiceReviewDrawer({
         <AddNewItemModal
           item={creatingNewForItem}
           sessionId={session?.id ?? ''}
+          sessionSupplierId={session?.supplierId ?? null}
+          sessionSupplierName={session?.supplierName ?? null}
           onSaved={(newItemDataJson) => {
             if (creatingNewForItem) {
               updateLine(creatingNewForItem.id, {
@@ -1421,19 +1423,27 @@ function ApprovedView({
 function AddNewItemModal({
   item,
   sessionId,
+  sessionSupplierId,
+  sessionSupplierName,
   onSaved,
   onClose,
 }: {
   item: ScanItem
   sessionId: string
+  /** The invoice's supplier — pre-selected so a new product inherits it. */
+  sessionSupplierId: string | null
+  sessionSupplierName: string | null
   /** Receives the configured newItemData as the stored JSON string. */
   onSaved: (newItemDataJson: string) => void
   onClose: () => void
 }) {
   const [saving,     setSaving]     = useState(false)
   const [categories, setCategories] = useState<string[]>([])
+  const [suppliers,  setSuppliers]  = useState<{ id: string; name: string }[]>([])
   const [itemName,   setItemName]   = useState(item.rawDescription ?? '')
   const [category,   setCategory]   = useState('DRY')
+  const [supplierId, setSupplierId] = useState<string>(sessionSupplierId ?? '')
+  const [location,   setLocation]   = useState('')
 
   // Seed the chain from the invoice's OCR'd pack fields via the same formToChain
   // helper the approve route uses — so the form opens pre-filled to what the
@@ -1461,6 +1471,11 @@ function AddNewItemModal({
     fetch('/api/categories').then(r => r.json()).then((data: { name: string }[]) => {
       setCategories(data.map(c => c.name))
     }).catch(() => {})
+    fetch('/api/suppliers').then(r => r.json()).then((data: { id: string; name: string }[]) => {
+      setSuppliers(data)
+      // If the invoice's supplier isn't in the directory yet, surface its name as a
+      // pre-selected option so it still shows as chosen.
+    }).catch(() => {})
   }, [])
 
   const baseUnit = DIMENSION_BASE[dimension]
@@ -1478,6 +1493,8 @@ function AddNewItemModal({
     const newItemData = {
       itemName: itemName.trim() || item.rawDescription,
       category,
+      supplierId: supplierId || null,
+      location: location.trim() || null,
       dimension,
       packChain: chain,
       pricing,
@@ -1541,7 +1558,34 @@ function AddNewItemModal({
               </select>
             </div>
 
-            {/* Dimension · pack chain · pricing — the shared backbone editor */}
+            {/* Supplier — pre-selected from the invoice */}
+            <div>
+              <label className={labelCls}>Supplier</label>
+              <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className={`${inputCls} bg-white`}>
+                <option value="">— None —</option>
+                {sessionSupplierId && sessionSupplierName && !suppliers.some(s => s.id === sessionSupplierId) && (
+                  <option value={sessionSupplierId}>{sessionSupplierName}</option>
+                )}
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+
+            {/* Location */}
+            <div>
+              <label className={labelCls}>Location</label>
+              <input
+                type="text"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                placeholder="e.g. Walk-in, Dry storage"
+                className={inputCls}
+              />
+            </div>
+
+            {/* Pricing mode first — the top-level structural choice — then how the
+                item is measured, then its pack chain. */}
+            <PricingEditor dimension={dimension} pricing={pricing} onChange={setPricing} />
+
             <DimensionToggle
               dimension={dimension}
               onChange={d => {
@@ -1562,8 +1606,6 @@ function AddNewItemModal({
                 setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
               }}
             />
-
-            <PricingEditor dimension={dimension} pricing={pricing} onChange={setPricing} />
 
             {/* Count unit */}
             <div>
