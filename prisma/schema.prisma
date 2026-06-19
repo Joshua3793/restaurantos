@@ -336,6 +336,10 @@ model InvoiceFile {
   fileUrl    String
   ocrStatus  String         @default("PENDING")
   ocrRawJson String?
+  // Degrees (0/90/180/270) to rotate the stored image CLOCKWISE so its text is
+  // upright — the orientation Claude's bbox coordinates are expressed in. The
+  // viewer rotates the display by this so highlights trace the rows.
+  displayRotation Int        @default(0)
   createdAt  DateTime       @default(now())
   session    InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }

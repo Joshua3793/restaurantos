@@ -140,7 +140,8 @@ OUTPUT SCHEMA
     "confidence":      "low" | "medium" | "high",
     "confidenceNotes": string | null,
     "bbox": { "page": 0, "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.05 } | null
-  } ]
+  } ],
+  "pageRotations": [ <0|90|180|270 per page, index = page> ]
 }
 
 formatNotes: null normally. In LEARNING MODE only, fill it with a compact
@@ -335,14 +336,22 @@ extracted value could be wrong.
 ═══════════════════════════════════════════════════════
 BOUNDING BOX
 ═══════════════════════════════════════════════════════
-For each line item, return the bounding box of the entire row (spanning all
-columns) as fractions of the image/page dimensions:
+First decide each page's orientation. A photo may be rotated (sideways/upside
+down). Return "pageRotations": an array indexed by page (0-indexed file index)
+where each value is the degrees to rotate that image CLOCKWISE so its text reads
+UPRIGHT — one of 0, 90, 180, 270. (0 if already upright.)
+
+Express ALL bounding boxes in the UPRIGHT orientation — i.e. as if the page were
+already rotated by its pageRotation so the rows run left-to-right. For each line
+item, return the bounding box of the entire row (spanning all columns) as
+fractions of the UPRIGHT page dimensions:
   { "page": <0-indexed file index>,
-    "x": <left edge / image width>,
-    "y": <top edge / image height>,
-    "w": <row width / image width>,
-    "h": <row height / image height> }
-All values are 0.0–1.0. If the position cannot be determined, return null.
+    "x": <left edge / upright width>,
+    "y": <top edge / upright height>,
+    "w": <row width / upright width>,
+    "h": <row height / upright height> }
+All values are 0.0–1.0. Be precise about y/h: the box must tightly bracket the
+row's text, not a neighbouring row. If the position cannot be determined, return null.
 
 ═══════════════════════════════════════════════════════
 NUMERIC FORMATTING
@@ -748,6 +757,11 @@ export interface OcrResult {
 
   // Lines
   lineItems: OcrLineItem[]
+
+  // Per-page rotation (index = page / file index): degrees to rotate the stored
+  // image CLOCKWISE so its text reads upright. This IS the orientation the bbox
+  // coordinates are expressed in, so the viewer rotates the display to match.
+  pageRotations: number[]
 }
 
 // ── JSON parsing & normalization ──────────────────────────────────────────────
@@ -863,7 +877,17 @@ function parseOcrResponse(rawText: string): OcrResult {
     total:           asNum(parsed.total),
     formatNotes:     asStr(parsed.formatNotes),
     lineItems:       rawItems.map(normalizeLineItem),
+    pageRotations:   (Array.isArray(parsed.pageRotations) ? parsed.pageRotations : [])
+      .map(v => normalizePageRotation(v)),
   }
+}
+
+/** Snap any rotation value to the nearest valid quarter-turn (0/90/180/270). */
+export function normalizePageRotation(v: unknown): number {
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  if (!Number.isFinite(n)) return 0
+  const r = ((Math.round(n / 90) * 90) % 360 + 360) % 360
+  return r
 }
 
 // ── JSON retry wrapper ────────────────────────────────────────────────────────
@@ -1149,7 +1173,7 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
       supplierName: null, invoiceNumber: null, invoiceDate: null, poNumber: null,
       subtotal: null, discount: null, fuelSurcharge: null, freight: null,
       minimumOrderFee: null, gst: null, hst: null, pst: null,
-      otherCharges: [], total: null, formatNotes: null, lineItems: [],
+      otherCharges: [], total: null, formatNotes: null, lineItems: [], pageRotations: [],
     }
   }
 
@@ -1202,6 +1226,6 @@ export async function extractInvoiceFromCsv(csvText: string): Promise<OcrResult>
     supplierName: null, invoiceNumber: null, invoiceDate: null, poNumber: null,
     subtotal: null, discount: null, fuelSurcharge: null, freight: null,
     minimumOrderFee: null, gst: null, hst: null, pst: null,
-    otherCharges: [], total: null, formatNotes: null, lineItems,
+    otherCharges: [], total: null, formatNotes: null, lineItems, pageRotations: [],
   }
 }

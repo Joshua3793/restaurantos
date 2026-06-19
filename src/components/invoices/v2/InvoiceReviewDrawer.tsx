@@ -949,6 +949,13 @@ export function InvoiceReviewDrawer({
                     <ImageViewerV2
                       files={session.files}
                       activeBbox={activeBbox}
+                      sessionId={session.id}
+                      onFileRotated={(fileId, displayRotation) =>
+                        setSession(prev => prev ? {
+                          ...prev,
+                          files: prev.files.map(f => f.id === fileId ? { ...f, displayRotation } : f),
+                        } : prev)
+                      }
                     />
                   </div>
                   <div className="hidden md:block w-px bg-line shrink-0" />

@@ -13,8 +13,17 @@ export interface BBox {
 }
 
 interface Props {
-  files: Array<{ id: string; fileName: string; fileType: string; fileUrl: string }>
+  files: Array<{ id: string; fileName: string; fileType: string; fileUrl: string; displayRotation?: number }>
   activeBbox?: BBox | null
+  /** Session id — needed to persist a user-corrected page rotation. */
+  sessionId?: string
+  /** Called after the user rotates a page so the parent can keep files in sync. */
+  onFileRotated?: (fileId: string, displayRotation: number) => void
+}
+
+/** Normalize any rotation to 0/90/180/270. */
+function normRot(deg: number | undefined): number {
+  return ((((deg ?? 0) % 360) + 360) % 360) as 0 | 90 | 180 | 270
 }
 
 const ZOOM_STEP = 0.25
@@ -22,10 +31,12 @@ const ZOOM_MIN  = 0.25
 const ZOOM_MAX  = 6
 const PADDING   = 16   // px of inset padding around the image
 
-export function ImageViewerV2({ files, activeBbox }: Props) {
+export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: Props) {
   const [activeIdx,   setActiveIdx]   = useState(0)
   const [zoom,        setZoom]        = useState(1)
   const [rotation,    setRotation]    = useState(0)
+  // User-corrected page rotation (persisted) — overrides the OCR's guess.
+  const [pageRot,     setPageRot]     = useState<number | null>(null)
   const [pan,         setPan]         = useState({ x: 0, y: 0 })
   const [isDragging,  setIsDragging]  = useState(false)
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null)
@@ -40,25 +51,33 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
   const isPdf   = file?.fileType === 'application/pdf' || file?.fileName?.endsWith('.pdf')
   const isImage = file?.fileType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file?.fileName ?? '')
 
-  // ── Compute the pixel rect of the contained image ──────────────────────────
+  // Page rotation Claude reported (degrees CW to make the stored image upright).
+  // The whole viewer works in the UPRIGHT frame: bbox coords, the contain rect,
+  // and auto-zoom all use upright dims; only the <img> itself is rotated.
+  const baseRotation = normRot(pageRot ?? file?.displayRotation)
+  const swap = baseRotation === 90 || baseRotation === 270
+
+  // ── Compute the pixel rect of the contained (upright) image ─────────────────
   // object-fit: contain centres the image and letterboxes — we need the exact
-  // rendered rect so the bbox SVG overlay aligns with the visible pixels.
+  // rendered rect so the bbox SVG overlay aligns with the visible pixels. `ns`
+  // is the RAW natural size; we swap W/H when the page is rotated 90/270.
   const computeImgRect = useCallback((ns: { w: number; h: number }) => {
     const c = containerRef.current
     if (!c) return
+    const o = swap ? { w: ns.h, h: ns.w } : ns   // upright dimensions
     const availW = c.clientWidth  - PADDING * 2
     const availH = c.clientHeight - PADDING * 2
     if (availW <= 0 || availH <= 0) return
-    const scale = Math.min(availW / ns.w, availH / ns.h)
-    const rw = ns.w * scale
-    const rh = ns.h * scale
+    const scale = Math.min(availW / o.w, availH / o.h)
+    const rw = o.w * scale
+    const rh = o.h * scale
     setImgRect({
       x: PADDING + (availW - rw) / 2,
       y: PADDING + (availH - rh) / 2,
       w: rw,
       h: rh,
     })
-  }, [])
+  }, [swap])
 
   // Recompute whenever container resizes (also fires when hidden → visible on tab switch)
   useEffect(() => {
@@ -72,7 +91,7 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
 
   // ── Reset when switching files ──────────────────────────────────────────────
   useEffect(() => {
-    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }); setNaturalSize(null); setImgRect(null)
+    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }); setNaturalSize(null); setImgRect(null); setPageRot(null)
   }, [activeIdx])
 
   // ── Switch page when activeBbox points to a different file ──────────────────
@@ -101,9 +120,12 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
     const ch = rect.height - PADDING * 2
     if (cw <= 0 || ch <= 0) return
 
-    const scale  = Math.min(cw / naturalSize.w, ch / naturalSize.h)
-    const rendW  = naturalSize.w * scale
-    const rendH  = naturalSize.h * scale
+    // Work in the UPRIGHT frame (bbox coords are upright).
+    const oW = swap ? naturalSize.h : naturalSize.w
+    const oH = swap ? naturalSize.w : naturalSize.h
+    const scale  = Math.min(cw / oW, ch / oH)
+    const rendW  = oW * scale
+    const rendH  = oH * scale
 
     const bboxCx = activeBbox.x + activeBbox.w / 2
     const bboxCy = activeBbox.y + activeBbox.h / 2
@@ -137,14 +159,27 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
       x: Math.max(-maxPanX, Math.min(maxPanX, panX)),
       y: Math.max(-maxPanY, Math.min(maxPanY, panY)),
     })
-  }, [activeBbox, activeIdx, naturalSize, rotation]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeBbox, activeIdx, naturalSize, rotation, swap]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toolbar actions ─────────────────────────────────────────────────────────
   const zoomIn      = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
   const zoomOut     = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
-  const rotateRight = () => setRotation(r => (r + 90) % 360)
-  const rotateLeft  = () => setRotation(r => (r + 270) % 360)
-  const reset       = () => { setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }) }
+  // Rotating the PAGE re-orients the image within the fixed bbox frame so the
+  // highlight keeps tracing the rows; persist it so the scan stays straight.
+  const rotatePage = (delta: number) => {
+    const next = normRot((pageRot ?? normRot(file?.displayRotation)) + delta)
+    setPageRot(next)
+    if (file && sessionId) {
+      fetch(`/api/invoices/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId: file.id, displayRotation: next }),
+      }).then(() => onFileRotated?.(file.id, next)).catch(() => {})
+    }
+  }
+  const rotateRight = () => rotatePage(90)
+  const rotateLeft  = () => rotatePage(270)
+  const reset       = () => { setZoom(1); setPan({ x: 0, y: 0 }) }
 
   // ── Mouse-wheel zoom ────────────────────────────────────────────────────────
   const handleWheel = (e: React.WheelEvent) => {
@@ -240,46 +275,71 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
       >
         {isImage && file?.fileUrl ? (
           <>
-            {/* Image — object-fit:contain guarantees it fits the container at any size */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={file.fileUrl}
-              alt={file.fileName}
-              draggable={false}
-              onLoad={handleImageLoad}
-              className="rounded-lg shadow-sm border border-line"
-              style={{
-                position: 'absolute',
-                left: PADDING, top: PADDING, right: PADDING, bottom: PADDING,
-                width: `calc(100% - ${PADDING * 2}px)`,
-                height: `calc(100% - ${PADDING * 2}px)`,
-                objectFit: 'contain',
-                objectPosition: 'center',
-                display: 'block',
-                transform,
-                transformOrigin: 'center center',
-                transition,
-                userSelect: 'none',
-              }}
-            />
+            {/* Hidden loader — captures the raw natural size before we can place
+                the precise upright group. */}
+            {(!imgRect || !naturalSize) && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={file.fileUrl}
+                alt=""
+                onLoad={handleImageLoad}
+                style={{
+                  position: 'absolute', left: PADDING, top: PADDING,
+                  width: `calc(100% - ${PADDING * 2}px)`, height: `calc(100% - ${PADDING * 2}px)`,
+                  objectFit: 'contain', opacity: 0, pointerEvents: 'none',
+                }}
+              />
+            )}
 
-            {/* SVG bbox overlay — positioned to match the rendered image pixels */}
-            {showBbox && imgRect && (
+            {/* Upright image group — positioned at the contained UPRIGHT rect and
+                carrying pan/zoom/user-rotation. The <img> inside is rotated by the
+                page's baseRotation so its content reads upright; the bbox overlay
+                lives in the same upright frame, so highlights trace the rows. */}
+            {imgRect && naturalSize && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: imgRect.x, top: imgRect.y, width: imgRect.w, height: imgRect.h,
+                  transform, transformOrigin: 'center center', transition,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={file.fileUrl}
+                  alt={file.fileName}
+                  draggable={false}
+                  onLoad={handleImageLoad}
+                  className="rounded-lg shadow-sm border border-line"
+                  style={
+                    swap
+                      ? {
+                          position: 'absolute',
+                          width: imgRect.h, height: imgRect.w,
+                          left: (imgRect.w - imgRect.h) / 2, top: (imgRect.h - imgRect.w) / 2,
+                          objectFit: 'contain', display: 'block', userSelect: 'none',
+                          transform: `rotate(${baseRotation}deg)`, transformOrigin: 'center center',
+                        }
+                      : {
+                          position: 'absolute', inset: 0, width: '100%', height: '100%',
+                          objectFit: 'contain', display: 'block', userSelect: 'none',
+                          transform: baseRotation === 180 ? 'rotate(180deg)' : 'none',
+                        }
+                  }
+                />
+
+                {/* SVG bbox overlay — upright frame, fills the group */}
+                {showBbox && (
               <svg
                 key={bboxKey}
                 viewBox="0 0 1 1"
                 preserveAspectRatio="none"
                 style={{
                   position: 'absolute',
-                  left: imgRect.x,
-                  top: imgRect.y,
-                  width: imgRect.w,
-                  height: imgRect.h,
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
                   pointerEvents: 'none',
                   overflow: 'visible',
-                  transform,
-                  transformOrigin: 'center center',
-                  transition,
                 }}
                 className="rounded-lg"
               >
@@ -298,6 +358,8 @@ export function ImageViewerV2({ files, activeBbox }: Props) {
                 <CornerAccent cx={activeBbox!.x} cy={activeBbox!.y} size={0.018} position="tl" />
                 <CornerAccent cx={activeBbox!.x + activeBbox!.w} cy={activeBbox!.y + activeBbox!.h} size={0.018} position="br" />
               </svg>
+                )}
+              </div>
             )}
           </>
         ) : isPdf && file?.fileUrl ? (

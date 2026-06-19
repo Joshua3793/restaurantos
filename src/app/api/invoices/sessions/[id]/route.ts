@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
-      files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true }, orderBy: { createdAt: 'asc' } },
+      files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, displayRotation: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
         include: { matchedItem: { select: { id: true, itemName: true, ...PRICING_SELECT, purchasePrice: true, supplierPrices: true } } },
         orderBy: { sortOrder: 'asc' },
@@ -54,6 +54,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const body = await req.json()
+
+  // Persist a file's display rotation (user straightening a sideways scan).
+  if (body.fileId && body.displayRotation !== undefined) {
+    const deg = ((((Number(body.displayRotation) || 0) % 360) + 360) % 360)
+    const f = await prisma.invoiceFile.update({
+      where: { id: body.fileId },
+      data: { displayRotation: deg },
+      select: { id: true, displayRotation: true },
+    })
+    return NextResponse.json(f)
+  }
 
   // Update scan item action/match
   if (body.scanItemId) {

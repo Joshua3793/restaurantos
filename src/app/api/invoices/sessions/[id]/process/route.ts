@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import fs from 'fs'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
-import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv, quickExtractMeta } from '@/lib/invoice-ocr'
+import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv, quickExtractMeta, normalizePageRotation } from '@/lib/invoice-ocr'
 import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
@@ -161,16 +161,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         const result = await extractInvoiceFromImages(imagePayloads, session.supplierName, isLearning, savedFormatNotes)
         mergeResult(result, sessionMeta)
         allOcrItems = [...allOcrItems, ...result.lineItems]
-        await prisma.invoiceFile.update({
-          where: { id: imageFiles[0].id },
-          data: { ocrStatus: 'COMPLETE', ocrRawJson: JSON.stringify(result) },
-        })
-        if (imageFiles.length > 1) {
-          await prisma.invoiceFile.updateMany({
-            where: { id: { in: imageFiles.slice(1).map(f => f.id) } },
-            data: { ocrStatus: 'COMPLETE' },
+        // Persist each page's upright rotation (index = position in imageFiles,
+        // which is the page index Claude's bbox.page / pageRotations use).
+        await Promise.all(imageFiles.map((f, i) =>
+          prisma.invoiceFile.update({
+            where: { id: f.id },
+            data: {
+              ocrStatus: 'COMPLETE',
+              displayRotation: normalizePageRotation(result.pageRotations?.[i]),
+              ...(i === 0 ? { ocrRawJson: JSON.stringify(result) } : {}),
+            },
           })
-        }
+        ))
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         // The combined call can blow the output-token budget on very long
@@ -201,7 +203,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
               allOcrItems = [...allOcrItems, ...r.value.lineItems]
               await prisma.invoiceFile.update({
                 where: { id: imageFiles[i].id },
-                data: { ocrStatus: 'COMPLETE', ocrRawJson: JSON.stringify(r.value) },
+                data: {
+                  ocrStatus: 'COMPLETE',
+                  ocrRawJson: JSON.stringify(r.value),
+                  // single-page result → rotation at index 0
+                  displayRotation: normalizePageRotation(r.value.pageRotations?.[0]),
+                },
               })
             } else {
               console.error(`[process] Per-page OCR failed for ${imageFiles[i].fileName}:`, r.reason)

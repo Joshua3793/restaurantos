@@ -8,6 +8,8 @@ export interface ScanFile {
   fileType: string
   fileUrl: string
   ocrStatus: string
+  /** Degrees (0/90/180/270) to rotate the stored image CW so it displays upright. */
+  displayRotation?: number
 }
 
 export interface InventoryMatch {
