@@ -59,14 +59,19 @@ export function isBigPriceChange(item: ScanItem, ref?: SupplierRef | null): bool
   // when prices can't be normalised (e.g. per-case with no base unit).
   const norm = computeNormalisedPrices(item)
   if (norm) {
-    // Compare against THIS supplier's own last $/base when we know it — a
-    // supplier switch with both suppliers flat must not demand an ack.
+    // The trigger is SPINE-relative: approving re-costs every recipe at the item's
+    // pricePerBaseUnit, so if the invoice price matches the current spine there is
+    // nothing to acknowledge — even when this supplier's stored offer is stale.
+    // (Comparing against the offer instead let a bad/stale offerPPB raise a phantom
+    // "Price ↑ 0%" alert while the spine — and the displayed pct — were unchanged.)
+    if (Math.abs(norm.pctDiff) <= 15) return false
+    // Spine moved >15%, but suppress the ack when the move is purely a supplier
+    // switch: THIS supplier's own last $/base is flat (≤3%), so the spine jump came
+    // from a different supplier. The SupplierSwitchNote covers this case instead.
     const offer = ref ? offerForSupplier(item, ref) : null
     const offerPPB = offer ? offerPricePerBase(offer) : 0
-    if (offerPPB > 0) {
-      return Math.abs(((norm.invoicePPB - offerPPB) / offerPPB) * 100) > 15
-    }
-    return Math.abs(norm.pctDiff) > 15
+    if (offerPPB > 0 && Math.abs(((norm.invoicePPB - offerPPB) / offerPPB) * 100) <= 3) return false
+    return true
   }
   return hasPriceChange(item, 15)
 }
