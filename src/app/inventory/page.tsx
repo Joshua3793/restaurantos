@@ -14,6 +14,7 @@ import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { QuickCountSheet } from '@/components/inventory/QuickCountSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { rcHex } from '@/lib/rc-colors'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
 import { InventoryImportModal } from '@/components/inventory/InventoryImportModal'
@@ -205,6 +206,10 @@ function InventoryPageInner() {
   const [showAdd,      setShowAdd]      = useState(false)
   const [showImport,   setShowImport]   = useState(false)
   const [form,         setForm]         = useState(defaultForm)
+  // RC the new item's initial stock is distributed to (defaults to the active RC).
+  const [addRcId,      setAddRcId]      = useState<string | null>(null)
+  // When the Add-Item modal opens, default its RC to the active RC (else main pool).
+  useEffect(() => { if (showAdd) setAddRcId(activeRcId ?? defaultRcId) }, [showAdd, activeRcId, defaultRcId])
   const [checkedIds,   setCheckedIds]   = useState<Set<string>>(new Set())
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set())
   const [bulkAction,        setBulkAction]        = useState('')
@@ -534,6 +539,16 @@ function InventoryPageInner() {
       const err = await res.json().catch(() => null)
       alert(err?.error ?? `Add failed (${res.status}). Please try again.`)
       return
+    }
+    const created = await res.json().catch(() => null)
+    // Distribute the initial stock to the chosen revenue center (the item is
+    // created with stock in the main pool; pull moves it into a non-default RC).
+    const initialStock = parseFloat(form.stockOnHand) || 0
+    if (created?.id && addRcId && addRcId !== defaultRcId && initialStock > 0) {
+      await fetch('/api/stock-allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventoryItemId: created.id, rcId: addRcId, quantity: initialStock }),
+      }).catch(() => {})
     }
     setShowAdd(false); setForm(defaultForm); fetchItems()
   }
@@ -1663,6 +1678,35 @@ function InventoryPageInner() {
                     <input type="number" step="any" value={form.stockOnHand} onChange={e => setForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
+
+                {/* Revenue center — distribute the initial stock. Prominent because
+                    picking the RC for an item is a primary task. */}
+                {revenueCenters.length > 1 && (
+                  <div className="rounded-lg border border-[#fcd34d] bg-gold-soft p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gold-2">Revenue center</span>
+                      <span className="text-[11px] text-[#92722f]">Where this item&rsquo;s stock goes</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {revenueCenters.map(rc => {
+                        const sel = addRcId === rc.id
+                        return (
+                          <button
+                            key={rc.id}
+                            type="button"
+                            onClick={() => setAddRcId(rc.id)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                              sel ? 'bg-white border-[#fcd34d] text-ink shadow-sm' : 'bg-white/40 border-transparent text-ink-3 hover:bg-white/70'
+                            }`}
+                          >
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
+                            {rc.name}{rc.isDefault && <span className="text-ink-4 font-normal ml-0.5">· main</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Live preview */}

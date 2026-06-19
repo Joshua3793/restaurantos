@@ -657,6 +657,23 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   )
                 })()}
 
+                {/* Revenue-center distribution — elevated: assigning stock to an RC
+                    is a primary task, so it sits right under the price, above the
+                    stock log. */}
+                {revenueCenters.length > 1 && (
+                  <RcAllocationPanel
+                    itemId={item.id}
+                    stockOnHand={displayStock(item)}
+                    countUOM={resolveCountUom(itemChainDims(item)) || item.baseUnit}
+                    defaultRcId={defaultRcId}
+                    toDisplay={(base) => baseToDisplay(item, base)}
+                    onPulled={() => {
+                      fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(setItem)
+                      onUpdated?.()
+                    }}
+                  />
+                )}
+
                 {/* Stock Overview */}
                 <div className="space-y-2">
                   <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em]">Stock</div>
@@ -721,21 +738,6 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     <div className="text-[12px] text-ink-4 text-center py-2">No movements recorded</div>
                   )}
                 </div>
-
-                {/* RC Allocation Panel */}
-                {revenueCenters.length > 1 && (
-                  <RcAllocationPanel
-                    itemId={item.id}
-                    stockOnHand={displayStock(item)}
-                    countUOM={resolveCountUom(itemChainDims(item)) || item.baseUnit}
-                    defaultRcId={defaultRcId}
-                    toDisplay={(base) => baseToDisplay(item, base)}
-                    onPulled={() => {
-                      fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(setItem)
-                      onUpdated?.()
-                    }}
-                  />
-                )}
 
                 {/* Supplier offers */}
                 <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} onRepriced={() => { fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => setItem(normalizeItem(d))); onUpdated?.() }} />

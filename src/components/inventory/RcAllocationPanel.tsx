@@ -132,10 +132,23 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
     loadData()
   }
 
+  // How much of the on-hand stock has been distributed out of the main pool.
+  const allInMain = allocations.length === 0
+
   return (
-    <div className="border border-line rounded-xl overflow-hidden">
-      <div className="px-4 py-3 bg-bg border-b border-line">
-        <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide">Stock by Revenue Center</p>
+    <div className="border border-[#fcd34d] rounded-xl overflow-hidden shadow-[0_1px_0_var(--gold-soft)]">
+      <div className="px-4 py-3 bg-gold-soft border-b border-[#fcd34d] flex items-center gap-2.5">
+        <span className="w-7 h-7 shrink-0 grid place-items-center rounded-lg bg-white/70 text-gold-2">
+          <ArrowRight size={14} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-gold-2 uppercase tracking-wide">Revenue centers</p>
+          <p className="text-[11px] text-[#92722f] leading-tight">
+            {allInMain
+              ? 'All stock is in the main pool — pull some into a revenue center.'
+              : `Distributed across ${allocations.length} revenue center${allocations.length === 1 ? '' : 's'}.`}
+          </p>
+        </div>
       </div>
 
       <div className="divide-y divide-line">
