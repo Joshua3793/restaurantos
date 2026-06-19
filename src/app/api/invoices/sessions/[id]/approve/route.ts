@@ -9,7 +9,7 @@ import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
-import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, type PackLink } from '@/lib/item-model'
+import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 
@@ -391,26 +391,35 @@ async function doApprove(
           continue
         }
         const newData = JSON.parse(scanItem.newItemData)
-        const newPurchasePrice = Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0
-        const newPackQty  = Number(newData.qtyPerPurchaseUnit) || 1
-        const newPackSize = Number(newData.packSize) || 1
-        const newPackUOM  = newData.packUOM || 'each'
-        const newPriceType: 'CASE' | 'UOM' = newData.priceType === 'UOM' ? 'UOM' : 'CASE'
-        const newCountUOM = newData.countUOM || 'each'
-        // Reconstruct the chain from the resolved pack fields so the new item is
-        // born with a chain that reproduces newPricePerBase via pricePerBaseUnit().
-        const newChain = formToChain({
-          purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
-          purchasePrice:      newPurchasePrice,
-          qtyPerPurchaseUnit: newPackQty,
-          qtyUOM:             'each',
-          innerQty:           null,
-          packSize:           newPackSize,
-          packUOM:            newPackUOM,
-          priceType:          newPriceType,
-          countUOM:           newCountUOM,
-          baseUnit:           newData.baseUnit || deriveBaseUnit('each', newPackUOM, newPackSize),
-        })
+        // The drawer's AddNewItemModal now writes a chain-shaped newItemData
+        // ({ dimension, packChain, pricing, countUnit }). Older sessions may
+        // still carry the legacy pack-field shape — reconstruct the chain from
+        // those via formToChain so in-flight invoices keep approving.
+        const newChain: { dimension: Dimension; baseUnit: string; packChain: PackLink[]; pricing: Pricing; countUnit: string } =
+          Array.isArray(newData.packChain)
+            ? {
+                dimension: (newData.dimension ?? dimensionOf(newData.baseUnit ?? 'each')) as Dimension,
+                baseUnit: DIMENSION_BASE[(newData.dimension ?? dimensionOf(newData.baseUnit ?? 'each')) as Dimension],
+                packChain: newData.packChain as PackLink[],
+                pricing: newData.pricing as Pricing,
+                countUnit: newData.countUnit || 'each',
+              }
+            : formToChain({
+                purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
+                purchasePrice:      Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0,
+                qtyPerPurchaseUnit: Number(newData.qtyPerPurchaseUnit) || 1,
+                qtyUOM:             'each',
+                innerQty:           null,
+                packSize:           Number(newData.packSize) || 1,
+                packUOM:            newData.packUOM || 'each',
+                priceType:          newData.priceType === 'UOM' ? 'UOM' : 'CASE',
+                countUOM:           newData.countUOM || 'each',
+                baseUnit:           newData.baseUnit || deriveBaseUnit('each', newData.packUOM || 'each', Number(newData.packSize) || 1),
+              })
+        // Headline purchasePrice for the column: PACK price, or RATE rate.
+        const newPurchasePrice = newChain.pricing.mode === 'RATE'
+          ? Number(newChain.pricing.rate) || 0
+          : Number(newChain.pricing.purchasePrice) || 0
         const created = await prisma.inventoryItem.create({
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,

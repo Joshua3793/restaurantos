@@ -26,7 +26,15 @@ import {
 } from '@/lib/invoice/predicates'
 import { lineUnresolved, isCharge, isBigPriceChange } from '@/lib/invoice/resolution'
 import { formatCurrency } from '@/lib/invoice/formatters'
-import { PACK_UOMS, PURCHASE_UNITS, calcPricePerBaseUnit, deriveBaseUnit } from '@/lib/utils'
+import { formatPricePerBase } from '@/lib/utils'
+import {
+  DIMENSION_BASE, pricePerBaseUnit, basePerUnit, validateChainItem,
+  type Dimension, type PackLink, type Pricing,
+} from '@/lib/item-model'
+import { formToChain } from '@/lib/item-model-form'
+import {
+  DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
+} from '@/components/inventory/ItemChainEditor'
 
 // ─── InvoiceHeader ─────────────────────────────────────────────────────────────
 
@@ -1421,16 +1429,30 @@ function AddNewItemModal({
   onSaved: (newItemDataJson: string) => void
   onClose: () => void
 }) {
-  const [saving,          setSaving]          = useState(false)
-  const [categories,      setCategories]      = useState<string[]>([])
-  const [itemName,        setItemName]        = useState(item.rawDescription ?? '')
-  const [category,        setCategory]        = useState('DRY')
-  const [purchaseUnit,    setPurchaseUnit]    = useState(item.rawUnit ?? 'case')
-  const [qtyPerPurchase,  setQtyPerPurchase]  = useState(item.invoicePackQty ?? '1')
-  const [packSize,        setPackSize]        = useState(item.invoicePackSize ?? '1')
-  const [packUOM,         setPackUOM]         = useState(item.invoicePackUOM ?? 'each')
-  const [priceType,       setPriceType]       = useState<'CASE' | 'UOM'>(item.pricingMode === 'per_weight' ? 'UOM' : 'CASE')
-  const [purchasePrice,   setPurchasePrice]   = useState(item.rate ?? item.rawUnitPrice ?? item.newPrice ?? '')
+  const [saving,     setSaving]     = useState(false)
+  const [categories, setCategories] = useState<string[]>([])
+  const [itemName,   setItemName]   = useState(item.rawDescription ?? '')
+  const [category,   setCategory]   = useState('DRY')
+
+  // Seed the chain from the invoice's OCR'd pack fields via the same formToChain
+  // helper the approve route uses — so the form opens pre-filled to what the
+  // scan saw, and the manager only confirms or tweaks.
+  const seed = useMemo(() => formToChain({
+    purchaseUnit:       item.rawUnit ?? 'case',
+    purchasePrice:      Number(item.rate ?? item.rawUnitPrice ?? item.newPrice ?? 0),
+    qtyPerPurchaseUnit: Number(item.invoicePackQty) || 1,
+    qtyUOM:             'each',
+    innerQty:           null,
+    packSize:           Number(item.invoicePackSize) || 1,
+    packUOM:            item.invoicePackUOM ?? 'each',
+    priceType:          item.pricingMode === 'per_weight' ? 'UOM' : 'CASE',
+    countUOM:           'each',
+  }), [item])
+
+  const [dimension, setDimension] = useState<Dimension>(seed.dimension)
+  const [chain,     setChain]     = useState<PackLink[]>(seed.packChain)
+  const [pricing,   setPricing]   = useState<Pricing>(seed.pricing)
+  const [countUnit, setCountUnit] = useState<string>(seed.countUnit)
 
   useEffect(() => {
     fetch('/api/categories').then(r => r.json()).then((data: { name: string }[]) => {
@@ -1438,31 +1460,25 @@ function AddNewItemModal({
     }).catch(() => {})
   }, [])
 
-  const ppb = (() => {
-    const price = Number(purchasePrice)
-    const qty   = Number(qtyPerPurchase) || 1
-    const ps    = Number(packSize) || 1
-    if (!price) return null
-    return calcPricePerBaseUnit(price, qty, 'each', null, ps, packUOM, priceType)
-  })()
+  const baseUnit = DIMENSION_BASE[dimension]
+  const chainItem = { dimension, baseUnit, packChain: chain, pricing, countUnit }
+  const ppb = pricePerBaseUnit(chainItem)
+  const perCount = basePerUnit(chainItem, countUnit)
 
   const handleSave = async () => {
+    const errors = validateChainItem(chainItem)
+    if (errors.length) { alert(errors.join('; ')); return }
     setSaving(true)
+    // Chain-shaped newItemData — the approve route stores dimension/packChain/
+    // pricing/countUnit directly (with a legacy-field fallback for any session
+    // configured before this form was migrated).
     const newItemData = {
-      itemName:           itemName.trim() || item.rawDescription,
+      itemName: itemName.trim() || item.rawDescription,
       category,
-      purchaseUnit,
-      qtyPerPurchaseUnit: Number(qtyPerPurchase) || 1,
-      packSize:           Number(packSize) || 1,
-      packUOM,
-      priceType,
-      purchasePrice:      Number(purchasePrice) || 0,
-      pricePerBaseUnit:   ppb ?? 0,
-      // baseUnit must be the canonical SI base (g/ml/each) so it stays
-      // consistent with ppb, which calcPricePerBaseUnit returns in $/SI-base.
-      // Using packUOM directly (e.g. 'kg') stored ppb in $/g under a kg label →
-      // recipe costs 1000× too low. deriveBaseUnit matches the manual form.
-      baseUnit:           deriveBaseUnit('each', packUOM, Number(packSize) || 1),
+      dimension,
+      packChain: chain,
+      pricing,
+      countUnit,
     }
     await fetch(`/api/invoices/sessions/${sessionId}`, {
       method: 'PATCH',
@@ -1479,8 +1495,8 @@ function AddNewItemModal({
     onSaved(JSON.stringify(newItemData))
   }
 
-  const inputCls = 'w-full border border-line rounded-lg px-3 py-[7px] text-[13px] focus:outline-none focus:ring-2 focus:ring-blue/20 focus:border-blue transition-colors'
-  const labelCls = 'block text-[11px] font-medium text-ink-3 mb-[5px] uppercase tracking-wide'
+  const inputCls = 'w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
+  const labelCls = 'block text-xs font-medium text-ink-3 mb-1'
 
   return (
     <>
@@ -1515,75 +1531,54 @@ function AddNewItemModal({
             {/* Category */}
             <div>
               <label className={labelCls}>Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value)} className={inputCls}>
+              <select value={category} onChange={e => setCategory(e.target.value)} className={`${inputCls} bg-white`}>
                 {(categories.length ? categories : ['DRY', 'DAIRY', 'MEAT', 'PRODUCE', 'FROZEN', 'BEVERAGE', 'OTHER']).map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
 
-            {/* Purchase unit */}
+            {/* Dimension · pack chain · pricing — the shared backbone editor */}
+            <DimensionToggle
+              dimension={dimension}
+              onChange={d => {
+                setDimension(d)
+                setPricing(p => p.mode === 'RATE' ? { mode: 'RATE', rate: p.rate, rateUnit: DIM_UNITS[d][0] } : p)
+                const opts = countUnitOptions(d, chain)
+                setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
+              }}
+            />
+
+            <PackChainEditor
+              chain={chain}
+              baseUnit={baseUnit}
+              onChange={c => {
+                setChain(c)
+                const opts = countUnitOptions(dimension, c)
+                setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
+              }}
+            />
+
+            <PricingEditor dimension={dimension} pricing={pricing} onChange={setPricing} />
+
+            {/* Count unit */}
             <div>
-              <label className={labelCls}>Purchase unit</label>
-              <select value={purchaseUnit} onChange={e => setPurchaseUnit(e.target.value)} className={inputCls}>
-                {(PURCHASE_UNITS as readonly string[]).map(u => <option key={u} value={u}>{u}</option>)}
+              <label className={labelCls}>Count unit</label>
+              <select value={countUnit} onChange={e => setCountUnit(e.target.value)} className={`${inputCls} bg-white`}>
+                {countUnitOptions(dimension, chain).map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
 
-            {/* Pack structure */}
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className={labelCls}>Pack qty</label>
-                <input type="number" min="1" step="1" value={qtyPerPurchase} onChange={e => setQtyPerPurchase(e.target.value)} className={inputCls} />
+            {/* Live preview */}
+            <div className="bg-gold-soft rounded-lg p-3 space-y-1.5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gold-2">Live preview</div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-xs text-gold-2">Price:</span>
+                <span className="text-lg font-bold text-gold-2">{formatPricePerBase(ppb, baseUnit)}</span>
               </div>
-              <div>
-                <label className={labelCls}>Pack size</label>
-                <input type="number" min="0" step="any" value={packSize} onChange={e => setPackSize(e.target.value)} className={inputCls} />
+              <div className="text-xs text-gold-2">
+                1 {countUnit} = {perCount.toLocaleString()} {baseUnit}
               </div>
-              <div>
-                <label className={labelCls}>Pack UOM</label>
-                <select value={packUOM} onChange={e => setPackUOM(e.target.value)} className={inputCls}>
-                  {(PACK_UOMS as readonly string[]).map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Price type */}
-            <div>
-              <label className={labelCls}>Pricing mode</label>
-              <div className="flex rounded-lg border border-line overflow-hidden text-[12px]">
-                {(['CASE', 'UOM'] as const).map(pt => (
-                  <button
-                    key={pt}
-                    type="button"
-                    onClick={() => setPriceType(pt)}
-                    className={`flex-1 py-[7px] font-medium transition-colors ${
-                      priceType === pt ? 'bg-ink text-paper' : 'bg-paper text-ink-3 hover:bg-bg'
-                    }`}
-                  >
-                    {pt === 'CASE' ? 'Per case' : 'Per weight / UOM'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Purchase price */}
-            <div>
-              <label className={labelCls}>Purchase price</label>
-              <div className="flex items-center border border-line rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue/20 focus-within:border-blue transition-colors">
-                <span className="px-3 text-ink-4 text-[13px]">$</span>
-                <input
-                  type="number" min="0" step="any"
-                  value={purchasePrice}
-                  onChange={e => setPurchasePrice(e.target.value)}
-                  className="flex-1 py-[7px] pr-3 text-[13px] bg-transparent border-none outline-none"
-                />
-              </div>
-              {ppb !== null && (
-                <p className="text-[11px] text-ink-4 mt-1">
-                  = {formatCurrency(ppb)}/{packUOM} per base unit
-                </p>
-              )}
             </div>
           </div>
 
