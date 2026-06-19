@@ -370,11 +370,8 @@ export function InvoiceMathFields({
 
   return (
     <div>
-      {/* Card header */}
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10.5px] text-ink-4 uppercase tracking-[0.06em] font-medium">
-          Invoice math
-        </span>
+      {/* Mode toggle — the "Invoice math" label is provided by the Zone header. */}
+      <div className="flex items-center justify-end mb-3">
         <ModeToggle mode={mode} onChange={m => { onMode(m); setPanelDismissed(false); setEdited(new Set()) }} />
       </div>
 

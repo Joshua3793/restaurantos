@@ -5,7 +5,8 @@
 // inventory-cost comparison. Reads shared state from DrawerContext.
 
 import { useRef } from 'react'
-import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown } from 'lucide-react'
+import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, type LucideIcon } from 'lucide-react'
+import { rcHex } from '@/lib/rc-colors'
 import { useDrawerContext } from './context'
 import { LineNumberChip } from './atoms'
 import {
@@ -25,6 +26,37 @@ import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/c
 import { priceDisplayScale } from '@/lib/utils'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
 import type { ScanItem } from '@/components/invoices/types'
+
+// ─── Zone ────────────────────────────────────────────────────────────────────
+// One delineated band inside an expanded line: an icon-led label header + body.
+// Solid top border + alternating tone make Pack structure / Invoice math /
+// Inventory comparison read as distinct sections instead of one fused block.
+
+type ZoneTone = 'paper' | 'bg' | 'gold'
+function Zone({ icon: Icon, label, right, tone = 'paper', innerRef, children }: {
+  icon: LucideIcon
+  label: string
+  right?: React.ReactNode
+  tone?: ZoneTone
+  innerRef?: React.Ref<HTMLDivElement>
+  children: React.ReactNode
+}) {
+  const bg    = tone === 'bg' ? 'bg-bg' : tone === 'gold' ? 'bg-gold-soft/60' : 'bg-paper'
+  const accent = tone === 'gold' ? 'text-gold-2' : 'text-ink-3'
+  const iconC  = tone === 'gold' ? 'text-gold-2' : 'text-ink-4'
+  return (
+    <div ref={innerRef} className={`px-4 py-3 border-t border-line ${bg}`}>
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className={`flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.06em] font-semibold ${accent}`}>
+          <Icon size={12} className={iconC} />
+          {label}
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  )
+}
 
 // ─── LineItemCard ──────────────────────────────────────────────────────────────
 
@@ -94,10 +126,6 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
 
   const handleMathChange = (patch: Partial<ScanItem>) => ctx.updateLine(lineId, patch)
   const defaultRcId = ctx.sessionRcId ?? ctx.revenueCenters.find(r => r.isDefault)?.id ?? ''
-  const handleRcChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const picked = ctx.revenueCenters.find(r => r.id === e.target.value) ?? null
-    ctx.setLineRc(lineId, picked)
-  }
 
   const total = item.rawLineTotal ? Number(item.rawLineTotal) : null
   const rate  = formatRateLabel(item)
@@ -302,46 +330,64 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       {!isPicking && (
         <>
           {pricingMode === 'per_case' && (
-            <div className="px-4 py-2.5 border-b border-dashed border-line">
-              <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold mb-2">Pack structure</div>
+            <Zone icon={Boxes} label="Pack structure" tone="paper">
               <CaseStructureEditor item={item} onChange={patch => ctx.updateLine(lineId, patch)} />
-            </div>
+            </Zone>
           )}
 
-          <div ref={mathRef} className="px-4 py-2.5 bg-bg border-b border-dashed border-line">
+          <Zone icon={Calculator} label="Invoice math" tone="bg" innerRef={mathRef}>
             <InvoiceMathFields
               item={item}
               mode={pricingMode}
               onMode={m => ctx.updateLine(lineId, { pricingMode: m })}
               onChange={handleMathChange}
             />
-          </div>
+          </Zone>
 
           {/* inventory cost comparison — hidden when the price issue already shows it */}
           {item.matchedItem && !isCreateNew && !bigPrice && (
             <InventoryComparisonCard item={item} />
           )}
 
-          {/* line actions: revenue center + skip */}
-          <div className="px-4 py-2.5 flex items-center gap-2" onClick={e => e.stopPropagation()} role="presentation">
-            <select
-              value={item.revenueCenterId ?? defaultRcId}
-              onChange={handleRcChange}
-              className="font-mono text-[11px] text-ink-3 bg-bg border border-line rounded px-1.5 py-[3px] hover:bg-bg-2 focus:outline-none focus:ring-1 focus:ring-gold/40 cursor-pointer"
-            >
-              {ctx.revenueCenters.map(r => (
-                <option key={r.id} value={r.id}>{r.name}{r.isDefault ? ' (default)' : ''}</option>
-              ))}
-            </select>
-            <span className="flex-1" />
-            <button
-              type="button"
-              onClick={() => ctx.updateLine(lineId, { action: 'SKIP' })}
-              title="Skip this line — won't affect COGS"
-              className="inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-4 hover:text-ink-2 hover:bg-bg-2 px-2 py-[3px] rounded transition-colors"
-            >
-              <Ban size={11} /> Skip
-            </button>
+          {/* Revenue center — the primary allocation decision, given a prominent
+              gold band with colour-dot chips instead of a buried dropdown. */}
+          <div
+            className="px-4 py-3 border-t border-line bg-gold-soft/60"
+            onClick={e => e.stopPropagation()}
+            role="presentation"
+          >
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.06em] font-semibold text-gold-2">
+                <Building2 size={12} className="text-gold-2" />
+                Revenue center
+              </div>
+              <button
+                type="button"
+                onClick={() => ctx.updateLine(lineId, { action: 'SKIP' })}
+                title="Skip this line — won't affect COGS"
+                className="inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-4 hover:text-ink-2 hover:bg-white/60 px-2 py-[3px] rounded transition-colors"
+              >
+                <Ban size={11} /> Skip
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {ctx.revenueCenters.map(r => {
+                const sel = (item.revenueCenterId ?? defaultRcId) === r.id
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => ctx.setLineRc(lineId, r)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[12px] font-medium border transition-colors ${
+                      sel ? 'bg-white border-[#fcd34d] text-ink shadow-sm' : 'bg-white/40 border-transparent text-ink-3 hover:bg-white/70'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(r.color) }} />
+                    {r.name}{r.isDefault && <span className="text-ink-4 font-normal ml-0.5">· default</span>}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </>
       )}
@@ -402,19 +448,20 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
   const isBad = pct !== null && pct > 0
 
   return (
-    <div className="px-4 py-2.5 border-b border-dashed border-line">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">Inventory comparison</div>
-        {item.matchedItem?.id && (
-          <button
-            type="button"
-            onClick={() => ctx.openInventoryEdit(item.matchedItem!.id)}
-            className="inline-flex items-center gap-1 font-mono text-[10.5px] text-gold hover:text-gold-2 font-semibold border-b border-dashed border-gold/70"
-          >
-            Edit <ExternalLink size={11} />
-          </button>
-        )}
-      </div>
+    <Zone
+      icon={Scale}
+      label="Inventory comparison"
+      tone="paper"
+      right={item.matchedItem?.id && (
+        <button
+          type="button"
+          onClick={() => ctx.openInventoryEdit(item.matchedItem!.id)}
+          className="inline-flex items-center gap-1 font-mono text-[10.5px] text-gold hover:text-gold-2 font-semibold border-b border-dashed border-gold/70"
+        >
+          Edit <ExternalLink size={11} />
+        </button>
+      )}
+    >
       <div className="grid grid-cols-2 gap-2.5">
         <div className="bg-bg border border-line rounded-lg px-3 py-2.5">
           <div className="font-mono text-[9.5px] uppercase tracking-[0.02em] text-ink-4">Current cost</div>
@@ -432,7 +479,7 @@ function InventoryComparisonCard({ item }: { item: ScanItem }) {
           </div>
         </div>
       </div>
-    </div>
+    </Zone>
   )
 }
 
