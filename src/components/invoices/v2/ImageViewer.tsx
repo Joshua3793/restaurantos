@@ -1,15 +1,21 @@
 'use client'
-// Invoice image viewer with zoom / pan / rotate toolbar and SVG bbox highlight.
+// Invoice image viewer — single "plate" architecture (redesign per handoff brief).
+//
+// The image and the highlight live inside ONE element — the *plate* — which IS the
+// upright image's coordinate space. The plate carries one transform; the highlight
+// is a plain <div> addressed in percentages of the plate, so layout (not JS) keeps
+// them locked together at every zoom / pan / rotation. No imgRect, no SVG, no
+// ResizeObserver-measured pixel rect, no second size recompute.
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { RotateCcw, RotateCw, Maximize2, FileText, Minus, Plus } from 'lucide-react'
 
 export interface BBox {
   page: number   // 0-indexed file index
-  x: number      // left edge as fraction of image width  (0–1)
-  y: number      // top edge  as fraction of image height (0–1)
-  w: number      // width  as fraction of image width
-  h: number      // height as fraction of image height
+  x: number      // left edge as fraction of the UPRIGHT image width  (0–1)
+  y: number      // top edge  as fraction of the UPRIGHT image height (0–1)
+  w: number      // width  as fraction of the upright image width
+  h: number      // height as fraction of the upright image height
 }
 
 interface Props {
@@ -19,153 +25,106 @@ interface Props {
   sessionId?: string
   /** Called after the user rotates a page so the parent can keep files in sync. */
   onFileRotated?: (fileId: string, displayRotation: number) => void
-}
-
-/** Normalize any rotation to 0/90/180/270. */
-function normRot(deg: number | undefined): number {
-  return ((((deg ?? 0) % 360) + 360) % 360) as 0 | 90 | 180 | 270
+  /** Tapping the highlight returns to the line (mobile round-trip). */
+  onPickRegion?: (bboxItemId: string) => void
+  /** Item id behind the active bbox — passed back through onPickRegion. */
+  activeBboxItemId?: string | null
 }
 
 const ZOOM_STEP = 0.25
 const ZOOM_MIN  = 0.25
 const ZOOM_MAX  = 6
-const PADDING   = 16   // px of inset padding around the image
+const PAD       = 16   // px inset around the plate inside the stage
+const AUTO_ZOOM_MIN = 1
+const AUTO_ZOOM_MAX = 3.4
 
-export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: Props) {
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+/** Normalize a rotation to 0/90/180/270. */
+const normRot = (deg: number | undefined): number => ((((deg ?? 0) % 360) + 360) % 360)
+
+export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onPickRegion, activeBboxItemId }: Props) {
   const [activeIdx,   setActiveIdx]   = useState(0)
   const [zoom,        setZoom]        = useState(1)
-  const [rotation,    setRotation]    = useState(0)
-  // User-corrected page rotation (persisted) — overrides the OCR's guess.
-  const [pageRot,     setPageRot]     = useState<number | null>(null)
   const [pan,         setPan]         = useState({ x: 0, y: 0 })
   const [isDragging,  setIsDragging]  = useState(false)
-  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null)
+  const [stage,       setStage]       = useState<{ w: number; h: number } | null>(null)
+  const [natural,     setNatural]     = useState<{ w: number; h: number } | null>(null)
+  // Persisted per-file orientation correction (degrees CW to upright the storage).
+  const [pageRot,     setPageRot]     = useState<number | null>(null)
   const [bboxKey,     setBboxKey]     = useState(0)
-  // Pixel rect of the rendered image inside containerRef (for bbox SVG positioning)
-  const [imgRect,     setImgRect]     = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
-  const containerRef = useRef<HTMLDivElement>(null)
-  const dragStart    = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const stageRef  = useRef<HTMLDivElement>(null)
+  const dragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
 
   const file    = files[activeIdx]
   const isPdf   = file?.fileType === 'application/pdf' || file?.fileName?.endsWith('.pdf')
   const isImage = file?.fileType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file?.fileName ?? '')
 
-  // Page rotation Claude reported (degrees CW to make the stored image upright).
-  // The whole viewer works in the UPRIGHT frame: bbox coords, the contain rect,
-  // and auto-zoom all use upright dims; only the <img> itself is rotated.
+  // baseRotation = the OCR page rotation (or the user's persisted correction):
+  // how far to rotate stored pixels CW so the page reads upright.
   const baseRotation = normRot(pageRot ?? file?.displayRotation)
-  const swap = baseRotation === 90 || baseRotation === 270
+  const swapBase = baseRotation === 90 || baseRotation === 270
 
-  // ── Compute the pixel rect of the contained (upright) image ─────────────────
-  // object-fit: contain centres the image and letterboxes — we need the exact
-  // rendered rect so the bbox SVG overlay aligns with the visible pixels. `ns`
-  // is the RAW natural size; we swap W/H when the page is rotated 90/270.
-  const computeImgRect = useCallback((ns: { w: number; h: number }) => {
-    const c = containerRef.current
-    if (!c) return
-    const o = swap ? { w: ns.h, h: ns.w } : ns   // upright dimensions
-    const availW = c.clientWidth  - PADDING * 2
-    const availH = c.clientHeight - PADDING * 2
-    if (availW <= 0 || availH <= 0) return
-    const scale = Math.min(availW / o.w, availH / o.h)
-    const rw = o.w * scale
-    const rh = o.h * scale
-    setImgRect({
-      x: PADDING + (availW - rw) / 2,
-      y: PADDING + (availH - rh) / 2,
-      w: rw,
-      h: rh,
-    })
-  }, [swap])
+  // Upright natural dims of the active page (the plate's intrinsic size).
+  const Wp = natural ? (swapBase ? natural.h : natural.w) : 0
+  const Hp = natural ? (swapBase ? natural.w : natural.h) : 0
 
-  // Recompute whenever container resizes (also fires when hidden → visible on tab switch)
+  // Fit-scale: the single source of truth for "100%". One computation.
+  const fit = (stage && Wp > 0 && Hp > 0)
+    ? Math.min((stage.w - PAD * 2) / Wp, (stage.h - PAD * 2) / Hp)
+    : 1
+  const scale = fit * zoom
+
+  // ── Stage size — ONE ResizeObserver ─────────────────────────────────────────
   useEffect(() => {
-    const c = containerRef.current
-    if (!c || !naturalSize) return
-    const obs = new ResizeObserver(() => computeImgRect(naturalSize))
-    obs.observe(c)
-    computeImgRect(naturalSize)
+    const el = stageRef.current
+    if (!el) return
+    const measure = () => setStage({ w: el.clientWidth, h: el.clientHeight })
+    measure()
+    const obs = new ResizeObserver(measure)
+    obs.observe(el)
     return () => obs.disconnect()
-  }, [naturalSize, computeImgRect])
+  }, [])
 
-  // ── Reset when switching files ──────────────────────────────────────────────
+  // ── Reset view when switching files ─────────────────────────────────────────
   useEffect(() => {
-    setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }); setNaturalSize(null); setImgRect(null); setPageRot(null)
+    setZoom(1); setPan({ x: 0, y: 0 }); setNatural(null); setPageRot(null)
   }, [activeIdx])
 
-  // ── Switch page when activeBbox points to a different file ──────────────────
+  // ── Switch page when the active bbox points elsewhere ───────────────────────
   useEffect(() => {
     if (activeBbox && activeBbox.page !== activeIdx) setActiveIdx(activeBbox.page)
   }, [activeBbox]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Record natural size on load ─────────────────────────────────────────────
-  const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget
-    const ns = { w: img.naturalWidth, h: img.naturalHeight }
-    setNaturalSize(ns)
-    computeImgRect(ns)
-  }, [computeImgRect])
-
-  // ── Auto-pan+zoom to activeBbox ─────────────────────────────────────────────
-  const AUTO_ZOOM_MAX = 2.5
-
+  // ── Focus: centre + frame the row in ONE coordinate space, no clamp ─────────
   useEffect(() => {
-    if (!activeBbox || activeBbox.page !== activeIdx || !naturalSize || !containerRef.current) return
-
+    if (!activeBbox || activeBbox.page !== activeIdx || !stage || Wp <= 0 || Hp <= 0) return
     setBboxKey(k => k + 1)
-
-    const rect = containerRef.current.getBoundingClientRect()
-    const cw = rect.width  - PADDING * 2
-    const ch = rect.height - PADDING * 2
-    if (cw <= 0 || ch <= 0) return
-
-    // Work in the UPRIGHT frame (bbox coords are upright).
-    const oW = swap ? naturalSize.h : naturalSize.w
-    const oH = swap ? naturalSize.w : naturalSize.h
-    const scale  = Math.min(cw / oW, ch / oH)
-    const rendW  = oW * scale
-    const rendH  = oH * scale
-
-    const bboxCx = activeBbox.x + activeBbox.w / 2
-    const bboxCy = activeBbox.y + activeBbox.h / 2
-
-    const rad    = (rotation * Math.PI) / 180
-    const cosA   = Math.abs(Math.cos(rad))
-    const sinA   = Math.abs(Math.sin(rad))
-    const bboxVisW = (activeBbox.w * cosA + activeBbox.h * sinA) * rendW
-    const bboxVisH = (activeBbox.h * cosA + activeBbox.w * sinA) * rendH
-
-    if (bboxVisW < 2 || bboxVisH < 2) return
-
-    const targetZoom = Math.min(
-      Math.max((Math.min(cw, ch) * 0.4) / Math.max(bboxVisW, bboxVisH), 1.2),
-      AUTO_ZOOM_MAX,
+    const b = activeBbox
+    // plate-centre → bbox-centre, in plate-local px (upright frame)
+    const lx = (b.x + b.w / 2) * Wp - Wp / 2
+    const ly = (b.y + b.h / 2) * Hp - Hp / 2
+    // userRot is 0 here (rotate buttons correct storage orientation, not the view)
+    const visW = b.w * Wp
+    const visH = b.h * Hp
+    if (visW < 1 || visH < 1) return
+    const want = clamp(
+      Math.min((stage.w * 0.62) / (visW * fit), (stage.h * 0.42) / (visH * fit)),
+      AUTO_ZOOM_MIN, AUTO_ZOOM_MAX,
     )
+    const s = fit * want
+    setZoom(want)
+    setPan({ x: -lx * s, y: -ly * s })   // exact centre — no clamp (kills overshoot)
+  }, [activeBbox, activeIdx, stage, Wp, Hp, fit])
 
-    const dx = (bboxCx - 0.5) * rendW
-    const dy = (bboxCy - 0.5) * rendH
-    const cos = Math.cos(rad)
-    const sin = Math.sin(rad)
-    const rdx = cos * dx - sin * dy
-    const rdy = sin * dx + cos * dy
+  // ── Toolbar ──────────────────────────────────────────────────────────────────
+  const zoomIn  = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
+  const zoomOut = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
+  const reset   = () => { setZoom(1); setPan({ x: 0, y: 0 }) }
 
-    const panX = -rdx * targetZoom
-    const panY = -rdy * targetZoom
-    const maxPanX = (rendW  * targetZoom - cw)  / 2
-    const maxPanY = (rendH  * targetZoom - ch) / 2
-    setZoom(targetZoom)
-    setPan({
-      x: Math.max(-maxPanX, Math.min(maxPanX, panX)),
-      y: Math.max(-maxPanY, Math.min(maxPanY, panY)),
-    })
-  }, [activeBbox, activeIdx, naturalSize, rotation, swap]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Toolbar actions ─────────────────────────────────────────────────────────
-  const zoomIn      = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
-  const zoomOut     = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
-  // Rotating the PAGE re-orients the image within the fixed bbox frame so the
-  // highlight keeps tracing the rows; persist it so the scan stays straight.
+  // Rotating the PAGE re-orients the image within the fixed upright frame so the
+  // highlight keeps tracing the rows; persist so the scan stays straight. (OCR's
+  // auto-detected rotation is unreliable for no-EXIF sideways captures.)
   const rotatePage = (delta: number) => {
     const next = normRot((pageRot ?? normRot(file?.displayRotation)) + delta)
     setPageRot(next)
@@ -177,31 +136,34 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: P
       }).then(() => onFileRotated?.(file.id, next)).catch(() => {})
     }
   }
-  const rotateRight = () => rotatePage(90)
-  const rotateLeft  = () => rotatePage(270)
-  const reset       = () => { setZoom(1); setPan({ x: 0, y: 0 }) }
 
-  // ── Mouse-wheel zoom ────────────────────────────────────────────────────────
   const handleWheel = (e: React.WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey) return
     e.preventDefault()
     if (e.deltaY < 0) zoomIn(); else zoomOut()
   }
 
-  // ── Drag-to-pan ─────────────────────────────────────────────────────────────
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // ── Drag-to-pan (mouse + touch) — clamp here, with max(0,…) so it can't invert ─
+  const beginDrag = (cx: number, cy: number) => {
     if (zoom <= 1) return
     setIsDragging(true)
-    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
+    dragStart.current = { x: cx, y: cy, panX: pan.x, panY: pan.y }
   }
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !dragStart.current) return
+  const moveDrag = (cx: number, cy: number) => {
+    if (!isDragging || !dragStart.current || !stage) return
+    const maxX = Math.max(0, (Wp * scale - stage.w) / 2)
+    const maxY = Math.max(0, (Hp * scale - stage.h) / 2)
     setPan({
-      x: dragStart.current.panX + (e.clientX - dragStart.current.x),
-      y: dragStart.current.panY + (e.clientY - dragStart.current.y),
+      x: clamp(dragStart.current.panX + (cx - dragStart.current.x), -maxX, maxX),
+      y: clamp(dragStart.current.panY + (cy - dragStart.current.y), -maxY, maxY),
     })
   }
-  const stopDrag = () => { setIsDragging(false); dragStart.current = null }
+  const endDrag = () => { setIsDragging(false); dragStart.current = null }
+
+  const onMouseDown  = (e: React.MouseEvent) => beginDrag(e.clientX, e.clientY)
+  const onMouseMove  = (e: React.MouseEvent) => moveDrag(e.clientX, e.clientY)
+  const onTouchStart = (e: React.TouchEvent) => { const t = e.touches[0]; if (t) beginDrag(t.clientX, t.clientY) }
+  const onTouchMove  = (e: React.TouchEvent) => { const t = e.touches[0]; if (t) moveDrag(t.clientX, t.clientY) }
 
   const Btn = ({ onClick, children, title, disabled }: {
     onClick: () => void; children: React.ReactNode; title: string; disabled?: boolean
@@ -216,10 +178,22 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: P
     </button>
   )
 
-  const showBbox = activeBbox && activeBbox.page === activeIdx && isImage
+  const showBbox = !!activeBbox && activeBbox.page === activeIdx && isImage && Wp > 0 && Hp > 0
 
-  const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`
-  const transition = isDragging ? 'none' : 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)'
+  // The image element's box inside the plate, corrected for storage orientation.
+  const imgStyle: React.CSSProperties = swapBase
+    ? {
+        position: 'absolute',
+        width: Hp, height: Wp,                       // swapped — fills plate after 90/270
+        left: (Wp - Hp) / 2, top: (Hp - Wp) / 2,
+        transform: `rotate(${baseRotation}deg)`, transformOrigin: 'center center',
+        objectFit: 'contain', display: 'block', userSelect: 'none',
+      }
+    : {
+        position: 'absolute', inset: 0, width: '100%', height: '100%',
+        transform: baseRotation === 180 ? 'rotate(180deg)' : 'none',
+        objectFit: 'contain', display: 'block', userSelect: 'none',
+      }
 
   return (
     <div className="flex flex-col bg-[#1f1d1a] w-full md:flex-1 md:min-w-0 overflow-hidden">
@@ -245,13 +219,11 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: P
       {isImage && file?.fileUrl && (
         <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-[#3a352d] bg-[#27241f] shrink-0">
           <Btn onClick={zoomOut} title="Zoom out" disabled={zoom <= ZOOM_MIN}><Minus size={14} /></Btn>
-          <span className="text-xs font-mono text-ink-4 w-12 text-center select-none">
-            {Math.round(zoom * 100)}%
-          </span>
+          <span className="text-xs font-mono text-ink-4 w-12 text-center select-none">{Math.round(zoom * 100)}%</span>
           <Btn onClick={zoomIn} title="Zoom in" disabled={zoom >= ZOOM_MAX}><Plus size={14} /></Btn>
           <div className="w-px h-4 bg-[#3a352d] mx-1" />
-          <Btn onClick={rotateLeft}  title="Rotate left"><RotateCcw size={14} /></Btn>
-          <Btn onClick={rotateRight} title="Rotate right"><RotateCw size={14} /></Btn>
+          <Btn onClick={() => rotatePage(270)} title="Rotate left"><RotateCcw size={14} /></Btn>
+          <Btn onClick={() => rotatePage(90)}  title="Rotate right"><RotateCw size={14} /></Btn>
           <div className="w-px h-4 bg-[#3a352d] mx-1" />
           <Btn onClick={reset} title="Reset view"><Maximize2 size={14} /></Btn>
           {showBbox && (
@@ -262,106 +234,67 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: P
         </div>
       )}
 
-      {/* Image / PDF / fallback */}
+      {/* Stage */}
       <div
-        ref={containerRef}
-        className="flex-1 overflow-hidden select-none relative"
+        ref={stageRef}
+        className="flex-1 overflow-hidden select-none relative flex items-center justify-center"
         style={{ cursor: isImage && zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
         onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={stopDrag}
-        onMouseLeave={stopDrag}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={endDrag}
       >
         {isImage && file?.fileUrl ? (
-          <>
-            {/* Hidden loader — captures the raw natural size before we can place
-                the precise upright group. */}
-            {(!imgRect || !naturalSize) && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={file.fileUrl}
-                alt=""
-                onLoad={handleImageLoad}
-                style={{
-                  position: 'absolute', left: PADDING, top: PADDING,
-                  width: `calc(100% - ${PADDING * 2}px)`, height: `calc(100% - ${PADDING * 2}px)`,
-                  objectFit: 'contain', opacity: 0, pointerEvents: 'none',
-                }}
-              />
-            )}
+          <div
+            // The PLATE — sized to the upright natural dims; one transform; the
+            // image and the highlight ride it together.
+            style={{
+              position: 'relative',
+              width: Wp > 0 ? Wp : (stage ? stage.w - PAD * 2 : '100%'),
+              height: Hp > 0 ? Hp : (stage ? stage.h - PAD * 2 : '100%'),
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              transformOrigin: 'center center',
+              transition: isDragging ? 'none' : 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
+              flex: 'none',
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={file.fileUrl}
+              alt={file.fileName}
+              draggable={false}
+              onLoad={e => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+              className="rounded-[3px] shadow-sm border border-line bg-paper"
+              style={imgStyle}
+            />
 
-            {/* Upright image group — positioned at the contained UPRIGHT rect and
-                carrying pan/zoom/user-rotation. The <img> inside is rotated by the
-                page's baseRotation so its content reads upright; the bbox overlay
-                lives in the same upright frame, so highlights trace the rows. */}
-            {imgRect && naturalSize && (
+            {/* Highlight — a % rect of the plate (Box style). --s counter-scales
+                the ring so it stays ~2px crisp at any zoom. */}
+            {showBbox && (
               <div
-                style={{
-                  position: 'absolute',
-                  left: imgRect.x, top: imgRect.y, width: imgRect.w, height: imgRect.h,
-                  transform, transformOrigin: 'center center', transition,
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={file.fileUrl}
-                  alt={file.fileName}
-                  draggable={false}
-                  onLoad={handleImageLoad}
-                  className="rounded-lg shadow-sm border border-line"
-                  style={
-                    swap
-                      ? {
-                          position: 'absolute',
-                          width: imgRect.h, height: imgRect.w,
-                          left: (imgRect.w - imgRect.h) / 2, top: (imgRect.h - imgRect.w) / 2,
-                          objectFit: 'contain', display: 'block', userSelect: 'none',
-                          transform: `rotate(${baseRotation}deg)`, transformOrigin: 'center center',
-                        }
-                      : {
-                          position: 'absolute', inset: 0, width: '100%', height: '100%',
-                          objectFit: 'contain', display: 'block', userSelect: 'none',
-                          transform: baseRotation === 180 ? 'rotate(180deg)' : 'none',
-                        }
-                  }
-                />
-
-                {/* SVG bbox overlay — upright frame, fills the group */}
-                {showBbox && (
-              <svg
                 key={bboxKey}
-                viewBox="0 0 1 1"
-                preserveAspectRatio="none"
+                className="bbox-overlay bbox-box"
+                onClick={() => activeBboxItemId && onPickRegion?.(activeBboxItemId)}
                 style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  pointerEvents: 'none',
-                  overflow: 'visible',
+                  left:   `${activeBbox!.x * 100}%`,
+                  top:    `${activeBbox!.y * 100}%`,
+                  width:  `${activeBbox!.w * 100}%`,
+                  height: `${activeBbox!.h * 100}%`,
+                  ['--s' as string]: String(scale),
                 }}
-                className="rounded-lg"
               >
-                <rect
-                  className="bbox-highlight"
-                  x={activeBbox!.x} y={activeBbox!.y}
-                  width={activeBbox!.w} height={activeBbox!.h}
-                  fill="rgba(251, 191, 36, 0.22)" rx="0.004"
-                />
-                <rect
-                  className="bbox-ring"
-                  x={activeBbox!.x} y={activeBbox!.y}
-                  width={activeBbox!.w} height={activeBbox!.h}
-                  fill="none" stroke="rgb(245, 158, 11)" strokeWidth="0.003" rx="0.004"
-                />
-                <CornerAccent cx={activeBbox!.x} cy={activeBbox!.y} size={0.018} position="tl" />
-                <CornerAccent cx={activeBbox!.x + activeBbox!.w} cy={activeBbox!.y + activeBbox!.h} size={0.018} position="br" />
-              </svg>
-                )}
+                <div className="bbox-box-fill" />
+                <span className="bbox-corner tl" />
+                <span className="bbox-corner tr" />
+                <span className="bbox-corner bl" />
+                <span className="bbox-corner br" />
               </div>
             )}
-          </>
+          </div>
         ) : isPdf && file?.fileUrl ? (
           <div className="absolute inset-0 p-2">
             <iframe
@@ -388,26 +321,5 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated }: P
         <p className="font-mono text-[10px] text-ink-3 truncate">{file?.fileName}</p>
       </div>
     </div>
-  )
-}
-
-// ── Corner accent ──────────────────────────────────────────────────────────────
-function CornerAccent({ cx, cy, size, position }: {
-  cx: number; cy: number; size: number; position: 'tl' | 'br'
-}) {
-  const s = size
-  const paths = {
-    tl: `M ${cx + s} ${cy} L ${cx} ${cy} L ${cx} ${cy + s}`,
-    br: `M ${cx - s} ${cy} L ${cx} ${cy} L ${cx} ${cy - s}`,
-  }
-  return (
-    <path
-      className="bbox-ring"
-      d={paths[position]}
-      fill="none"
-      stroke="rgb(245, 158, 11)"
-      strokeWidth="0.004"
-      strokeLinecap="round"
-    />
   )
 }

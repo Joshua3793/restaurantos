@@ -950,6 +950,8 @@ export function InvoiceReviewDrawer({
                       files={session.files}
                       activeBbox={activeBbox}
                       sessionId={session.id}
+                      activeBboxItemId={activeBboxItemId}
+                      onPickRegion={(id) => { toggleExpand(id, true); setMobileTab('review') }}
                       onFileRotated={(fileId, displayRotation) =>
                         setSession(prev => prev ? {
                           ...prev,
