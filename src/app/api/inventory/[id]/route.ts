@@ -4,6 +4,7 @@ import {
   DIMENSION_BASE, validateChainItem, withPpb, type ChainItem,
 } from '@/lib/item-model'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const item = await prisma.inventoryItem.findUnique({
@@ -95,6 +96,11 @@ async function postUpdate(
   if (linkedRecipe) {
     await syncPrepToInventory(linkedRecipe.id)
   }
+
+  // A manual edit to an item that has supplier offers also updates its PRIMARY
+  // offer, so the offer table doesn't silently disagree with the item spine.
+  // No-op when the item has no primary offer (PREP-linked / manual-only items).
+  await mirrorItemToPrimaryOffer(id)
 
   // A manual price edit is a spine write: propagate it to every PREP recipe that
   // uses this item (directly or transitively) so their costs don't go stale —

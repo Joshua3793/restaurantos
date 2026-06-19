@@ -902,7 +902,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 )}
 
                 {/* Supplier offers */}
-                <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} />
+                <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} onRepriced={() => { fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => setItem(normalizeItem(d))); onUpdated?.() }} />
 
                 {/* Price History */}
                 {priceHistory.length > 0 && (
