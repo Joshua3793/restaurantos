@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
+import { ensurePrimary, mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
@@ -185,44 +186,6 @@ async function doApprove(
         // the per-supplier offer chain below (no legacy-column reads).
         const itemTopUnit = (item.packChain as PackLink[] | null)?.[0]?.unit
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const itemOps: any[] = [
-          prisma.inventoryItem.update({
-            where: { id: scanItem.matchedItemId },
-            data: {
-              purchasePrice:    newPurchasePrice,
-              lastUpdated:      new Date(),
-              // Spine write: pricing only. The item's chain/format is preserved.
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              pricing: newPricing as any,
-            },
-          }),
-          prisma.invoiceScanItem.update({
-            where: { id: scanItem.id },
-            data: { approved: true },
-          }),
-        ]
-
-        if (prevPrice > 0 && Math.abs(changePct) >= 15) {
-          itemOps.push(
-            prisma.priceAlert.create({
-              data: {
-                sessionId,
-                inventoryItemId: scanItem.matchedItemId,
-                previousPrice:   prevPrice,
-                newPrice:        newPurchasePrice,
-                changePct,
-                direction:       changePct > 0 ? 'UP' : 'DOWN',
-              },
-            })
-          )
-          priceAlertsCreated++
-        }
-
-        await prisma.$transaction(itemOps)
-        updatedItemIds.push(scanItem.matchedItemId)
-        registerAlloc(scanItem.matchedItemId, scanItem.revenueCenterId)
-
         // Upsert this supplier's offer: their last price, their pack format
         // (post-review resolved values), their SKU. Non-critical, outside the
         // transaction. Unique (inventoryItemId, supplierName) replaced the old
@@ -327,6 +290,68 @@ async function doApprove(
             },
           }).catch((e) => console.error('[approve] offer upsert failed:', e))
         }
+
+        // ── Primary-offer authority ─────────────────────────────────────────
+        // Bootstrap: the item's FIRST offer becomes primary. The item's $ spine is
+        // the PRIMARY offer's value and the primary is a sticky MANUAL choice — a
+        // non-primary supplier's invoice records its offer (above) but never
+        // re-prices the item. Re-price only when this line's supplier IS the
+        // primary, OR when the invoice had no resolvable supplier (no offer to
+        // derive from → legacy direct write so the spine still updates).
+        let shouldReprice = true
+        if (offerSupplierName) {
+          await ensurePrimary(scanItem.matchedItemId)
+          const primary = await prisma.inventorySupplierPrice.findFirst({
+            where: { inventoryItemId: scanItem.matchedItemId, isPrimary: true },
+            select: { supplierName: true },
+          })
+          shouldReprice = primary?.supplierName === offerSupplierName
+        }
+
+        // ── Write the item spine (only when re-pricing) + mark approved ──────
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const itemOps: any[] = [
+          prisma.invoiceScanItem.update({ where: { id: scanItem.id }, data: { approved: true } }),
+        ]
+        if (shouldReprice) {
+          itemOps.unshift(
+            prisma.inventoryItem.update({
+              where: { id: scanItem.matchedItemId },
+              data: {
+                purchasePrice: newPurchasePrice,
+                lastUpdated:   new Date(),
+                // Spine write: pricing only. The item's chain/format is preserved.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                pricing: newPricing as any,
+              },
+            }),
+          )
+          if (prevPrice > 0 && Math.abs(changePct) >= 15) {
+            itemOps.push(
+              prisma.priceAlert.create({
+                data: {
+                  sessionId,
+                  inventoryItemId: scanItem.matchedItemId,
+                  previousPrice:   prevPrice,
+                  newPrice:        newPurchasePrice,
+                  changePct,
+                  direction:       changePct > 0 ? 'UP' : 'DOWN',
+                },
+              }),
+            )
+            priceAlertsCreated++
+          }
+        }
+
+        await prisma.$transaction(itemOps)
+        if (shouldReprice) updatedItemIds.push(scanItem.matchedItemId)
+        // Keep the PRIMARY offer's chain == the item's chain so their per-base
+        // prices never diverge (non-primary offers keep their own invoice chain
+        // for accurate cross-supplier comparison).
+        if (shouldReprice && offerSupplierName) {
+          await mirrorItemToPrimaryOffer(scanItem.matchedItemId)
+        }
+        registerAlloc(scanItem.matchedItemId, scanItem.revenueCenterId)
       }
 
       // ── CREATE_NEW ──────────────────────────────────────────────────────
