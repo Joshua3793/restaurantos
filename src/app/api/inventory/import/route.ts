@@ -35,6 +35,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No valid rows to import', created: 0 }, { status: 400 })
     }
 
+    // An import IS a declared opening count: stamp lastCountDate/lastCountQty so the
+    // stockOnHand becomes a dated baseline. Without this anchor the theoretical-stock
+    // engine treats the item as never-counted (see count-expected.ts) and would lean
+    // on the epoch catch-all; a real date lets subsequent receipts credit precisely.
+    const importedAt = new Date()
     await prisma.$transaction(
       valid.map(r => prisma.inventoryItem.create({
         data: {
@@ -43,6 +48,8 @@ export async function POST(req: NextRequest) {
           purchasePrice: r.payload!.purchasePrice,
           baseUnit: r.payload!.baseUnit,
           stockOnHand: r.payload!.stockOnHand,
+          lastCountDate: importedAt,
+          lastCountQty: r.payload!.stockOnHand,
           barcode: r.payload!.barcode,
           isActive: r.payload!.isActive,
           dimension: r.payload!.dimension,

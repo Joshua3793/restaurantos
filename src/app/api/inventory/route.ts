@@ -174,10 +174,18 @@ export async function POST(req: NextRequest) {
   // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
   const isStocked = body.isStocked !== false
 
+  // A declared opening stock IS an initial count: stamp lastCountDate/lastCountQty so
+  // the value becomes a dated baseline rather than an undated, never-counted balance
+  // whose later receipts the theoretical engine would otherwise have to treat as
+  // epoch-wide. Only when a positive opening stock is provided (0 = nothing to anchor).
+  const openingStock = Number(rest.stockOnHand)
+  const hasOpeningStock = Number.isFinite(openingStock) && openingStock > 0
+
   const item = await prisma.inventoryItem.create({
     data: {
       ...rest,
       isStocked,
+      ...(hasOpeningStock ? { lastCountDate: new Date(), lastCountQty: openingStock } : {}),
       // chain columns (authoritative)
       dimension,
       packChain: packChain as any,
