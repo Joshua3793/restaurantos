@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { resyncPrepRecipe } from '@/lib/recipeCosts'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export const dynamic = 'force-dynamic'
@@ -34,10 +34,10 @@ export async function PATCH(
     },
   })
 
-  // Fire sync in background — don't block the response.
-  // The client already shows the correct cost via optimistic update.
+  // Re-sync the linked item and dependent preps. Awaited so the cascade runs before
+  // responding; caught so a rare sync hiccup doesn't fail the edit (headless endpoint repairs).
   const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined || linkedRecipeId !== undefined
-  if (costAffecting) syncPrepToInventory(params.id).catch(console.error)
+  if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient PATCH] resync', e))
 
   return NextResponse.json({ ok: true })
 }
@@ -48,8 +48,7 @@ export async function DELETE(
 ) {
   await prisma.recipeIngredient.delete({ where: { id: params.ingredientId } })
 
-  // Fire sync in background — don't block the response.
-  syncPrepToInventory(params.id).catch(console.error)
+  await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient DELETE] resync', e))
 
   return NextResponse.json({ ok: true })
 }
