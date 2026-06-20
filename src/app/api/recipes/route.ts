@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost, resyncPrepRecipe } from '@/lib/recipeCosts'
+import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
@@ -174,6 +175,7 @@ export async function POST(req: NextRequest) {
     // Initialise the linked item from the recipe (near no-op at create — no ingredients yet —
     // but keeps the create path uniform with edits).
     await resyncPrepRecipe(recipe.id).catch(e => console.error('[recipe POST] resync', e))
+    await syncPrepItemFromRecipe(recipe.id).catch(e => console.error('[recipe POST] prep-item sync', e))
     return NextResponse.json({ ...recipe, inventoryItemId: invItem.id }, { status: 201 })
   }
 

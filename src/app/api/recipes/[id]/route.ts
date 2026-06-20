@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { fetchRecipeWithCost, resyncPrepRecipe, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -52,6 +53,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // name flows to the PREPD item's itemName; yield qty/unit drive cost.
   const costAffecting = baseYieldQty !== undefined || yieldUnit !== undefined || name !== undefined
   if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[recipe PATCH] resync', e))
+
+  // Keep the PrepItem task-row in step when its source fields change.
+  const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined
+  if (prepItemAffecting) await syncPrepItemFromRecipe(params.id).catch(e => console.error('[recipe PATCH] prep-item sync', e))
 
   const updated = await fetchRecipeWithCost(params.id)
   return NextResponse.json(updated)
