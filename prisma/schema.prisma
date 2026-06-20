@@ -91,6 +91,7 @@ model InventoryItem {
   pricing            Json                     @default("{\"mode\":\"PACK\",\"purchasePrice\":0}")
   countUnit          String                   @default("each")      // a chain level OR a same-dimension unit
   stockOnHand        Decimal                  @default(0)
+  createdAt          DateTime                 @default(now())
   lastUpdated        DateTime                 @default(now()) @updatedAt
   location           String?
   isActive           Boolean                  @default(true)

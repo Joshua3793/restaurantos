@@ -35,14 +35,17 @@ type RecipeForExpansion = {
  * into X's baseline and would be double-counted.
  *
  * When `cutoff` is omitted, every event passes (legacy single-window behaviour).
- * When provided, items absent from the map (no count date) receive nothing —
- * matching `computeExpectedForItem`, which collapses to the baseline with no
- * lookback window.
+ * When provided, an item present in the map is gated at its own `lastCountDate`.
+ * An item ABSENT from the map has never been counted: its baseline is its current
+ * `stockOnHand` (0 for most items, an imported opening balance for a few), so its
+ * entire movement history is "new" and must be applied — every event passes.
+ * (Previously such items received nothing, which silently dropped their purchases.)
  */
 function inWindow(cutoff: Map<string, Date> | undefined, id: string, date: Date): boolean {
   if (!cutoff) return true
   const c = cutoff.get(id)
-  return c != null && date >= c
+  if (c == null) return true
+  return date >= c
 }
 
 function expandRecipeIngredients(
@@ -277,8 +280,9 @@ export function computeExpected(
  *   - non-default → this RC's `StockAllocation.quantity`, falling back to 0
  *     (NOT global stock) when the RC has never been counted.
  *   - no RC       → global `stockOnHand`.
- * The lookback window is the item's own `lastCountDate`; with no prior count
- * the maps are empty and expected collapses to the baseline.
+ * The lookback window is the item's own `lastCountDate`, or epoch when the item
+ * has never been counted (baseline = current `stockOnHand`, so its whole movement
+ * history is applied rather than ignored — mirrors getTheoreticalStockMap).
  */
 export async function computeExpectedForItem(
   itemId: string,
@@ -315,8 +319,10 @@ export async function computeExpectedForItem(
     }
   }
 
-  const since = item.lastCountDate
-  if (!since) return { expectedBase: Math.max(0, baseStock), baseStock }
+  // Never-counted item → epoch window so its full purchase/prep history is applied
+  // (these buildXMap calls pass no cutoff, so inWindow includes every event within
+  // the window). For a counted item the window is its own lastCountDate.
+  const since = item.lastCountDate ?? new Date(0)
 
   const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
     buildConsumptionMap(since, rcId),
@@ -462,13 +468,22 @@ export async function getTheoreticalStockMap(
   const cutoff = new Map<string, Date>()
   for (const i of items) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
 
+  // Window start. Counted items are gated per-item by `cutoff`; a never-counted item
+  // (baseline = its current stockOnHand) must have its FULL history applied, so when
+  // any uncounted item is present we widen the query window to epoch. The per-item
+  // cutoff still scopes counted items correctly within that wider window. Without this,
+  // an uncounted item's purchases that predate `earliest` are filtered out by the
+  // `createdAt >= since` DB query before `inWindow` ever sees them.
+  const hasUncounted = items.some(i => !i.lastCountDate)
+  const since = hasUncounted ? new Date(0) : earliest
+
   const empty = new Map<string, number>()
-  const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliest
+  const [consumptionMap, purchaseMap, wastageMap, prepMap] = since
     ? await Promise.all([
-        buildConsumptionMap(earliest, rcId, cutoff),
-        buildPurchaseMap(earliest, rcId, cutoff),
-        buildWastageMap(earliest, ids, rcId, cutoff),
-        buildPrepMap(earliest, rcId, cutoff),
+        buildConsumptionMap(since, rcId, cutoff),
+        buildPurchaseMap(since, rcId, cutoff),
+        buildWastageMap(since, ids, rcId, cutoff),
+        buildPrepMap(since, rcId, cutoff),
       ])
     : [empty, empty, empty, { consumption: empty, output: empty }]
 
