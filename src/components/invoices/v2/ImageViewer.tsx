@@ -38,7 +38,7 @@ const ZOOM_STEP = 0.25
 const ZOOM_MIN  = 0.25
 const ZOOM_MAX  = 6
 const PAD       = 16   // px inset around the plate inside the stage
-const AUTO_ZOOM_MIN = 1
+const AUTO_ZOOM_MIN = 1.35   // floor so a focused row actually reads as zoomed-in
 const AUTO_ZOOM_MAX = 3.4
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -158,7 +158,7 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onP
     const visH = b.h * Hp
     if (visW < 1 || visH < 1) return
     const want = clamp(
-      Math.min((stage.w * 0.62) / (visW * fit), (stage.h * 0.42) / (visH * fit)),
+      Math.min((stage.w * 0.98) / (visW * fit), (stage.h * 0.34) / (visH * fit)),
       AUTO_ZOOM_MIN, AUTO_ZOOM_MAX,
     )
     const s = fit * want
@@ -323,7 +323,7 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onP
             {showBbox && (
               <div
                 key={bboxKey}
-                className="bbox-overlay bbox-box"
+                className="bbox-overlay"
                 onClick={() => activeBboxItemId && onPickRegion?.(activeBboxItemId)}
                 style={{
                   left:   `${activeBbox!.x * 100}%`,
@@ -333,11 +333,8 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onP
                   ['--s' as string]: String(scale),
                 }}
               >
-                <div className="bbox-box-fill" />
-                <span className="bbox-corner tl" />
-                <span className="bbox-corner tr" />
-                <span className="bbox-corner bl" />
-                <span className="bbox-corner br" />
+                <div className="bbox-tag-fill" />
+                <div className="bbox-tag-bar" />
               </div>
             )}
           </div>

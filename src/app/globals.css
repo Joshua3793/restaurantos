@@ -98,56 +98,38 @@ body {
   select { font-size: 16px !important; }
 }
 
-/* ── Invoice image viewer — plate highlight (Box style, % rect overlay) ────── */
-/* --s is the plate's current scale; dividing by it keeps strokes ~constant px. */
-@keyframes bbox-fill-pulse {
-  0%   { opacity: 0; }
-  15%  { opacity: 1; }
-  60%  { opacity: 0.85; }
-  100% { opacity: 0.5; }
+/* ── Invoice image viewer — plate highlight (Tag style: soft tint + bracket) ──── */
+/* --s is the plate's current scale; dividing by it keeps strokes ~constant px.    */
+@keyframes hl-pop {
+  0%   { opacity: 0; transform: scale(1.06); }
+  35%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
 }
-@keyframes bbox-focus-pulse {
-  0%   { opacity: 0;   transform: scale(1); }
-  25%  { opacity: 1; }
-  100% { opacity: 0;   transform: scale(1.06); }
-}
-
 .bbox-overlay {
   position: absolute;
   pointer-events: auto;
   cursor: pointer;
+  animation: hl-pop 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
-/* Box (recommended): amber ring + fill + corner ticks + one focus pulse */
-.bbox-box {
-  border: calc(2px / var(--s, 1)) solid rgba(245, 158, 11, 0.95);
-  border-radius: calc(3px / var(--s, 1));
+@media (prefers-reduced-motion: reduce) {
+  .bbox-overlay { animation: none; }
 }
-.bbox-box::after {                 /* one-shot glow on focus */
-  content: '';
-  position: absolute;
-  inset: calc(-3px / var(--s, 1));
-  border-radius: calc(5px / var(--s, 1));
-  box-shadow: 0 0 0 calc(2px / var(--s, 1)) rgba(245, 158, 11, 0.45);
-  animation: bbox-focus-pulse 1.1s ease-out forwards;
-  pointer-events: none;
-}
-.bbox-box-fill {
+/* Tag (default): soft amber tint + a left bracket bar — the quietest style. */
+.bbox-tag-fill {
   position: absolute;
   inset: 0;
-  background: rgba(251, 191, 36, 0.18);
-  animation: bbox-fill-pulse 1.4s ease-out forwards;
+  background: rgba(217, 119, 6, 0.12);
+  border-radius: calc(3px / var(--s, 1));
 }
-.bbox-corner {
+.bbox-tag-bar {
   position: absolute;
-  width: calc(11px / var(--s, 1));
-  height: calc(11px / var(--s, 1));
-  border: 0 solid rgb(245, 158, 11);
-  border-width: calc(2.5px / var(--s, 1));
+  top: 0;
+  bottom: 0;
+  left: calc(-4px / var(--s, 1));
+  width: calc(4px / var(--s, 1));
+  background: #d97706;
+  border-radius: calc(2px / var(--s, 1));
 }
-.bbox-corner.tl { left: calc(-2px / var(--s,1)); top: calc(-2px / var(--s,1)); border-right: 0; border-bottom: 0; }
-.bbox-corner.tr { right: calc(-2px / var(--s,1)); top: calc(-2px / var(--s,1)); border-left: 0; border-bottom: 0; }
-.bbox-corner.bl { left: calc(-2px / var(--s,1)); bottom: calc(-2px / var(--s,1)); border-right: 0; border-top: 0; }
-.bbox-corner.br { right: calc(-2px / var(--s,1)); bottom: calc(-2px / var(--s,1)); border-left: 0; border-top: 0; }
 
 /* ── Toast notification system ─────────────────────────────────────────────── */
 @keyframes toast-in {
