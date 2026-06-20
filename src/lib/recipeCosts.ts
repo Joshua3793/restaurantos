@@ -286,6 +286,7 @@ export async function syncPrepToInventory(recipeId: string) {
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },
     data: {
+      itemName:           recipe.name,
       purchasePrice:      recipe.totalCost,
       baseUnit:           yieldUnit,
       allergens:          recipe.allergens,
@@ -393,4 +394,20 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
   }
 
   return [...movedOutputs]
+}
+
+/**
+ * Re-sync a PREP recipe's cost to its linked InventoryItem AND cascade to every
+ * dependent prep. The single entry point for every recipe-mutation path; no-op for
+ * non-PREP or unlinked recipes. Awaited by callers so the cascade completes before
+ * the response; callers wrap in .catch() so a rare sync failure never fails the edit.
+ */
+export async function resyncPrepRecipe(recipeId: string): Promise<void> {
+  const recipe = await prisma.recipe.findUnique({
+    where: { id: recipeId },
+    select: { type: true, inventoryItemId: true },
+  })
+  if (!recipe || recipe.type !== 'PREP' || !recipe.inventoryItemId) return
+  await syncPrepToInventory(recipeId)                      // this recipe's own output item
+  await propagatePrepCostChanges([recipe.inventoryItemId]) // cascade to consumers
 }

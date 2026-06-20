@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import {
-  ChefHat, Plus, RefreshCw, Search, Settings, BookOpen,
+  ChefHat, Plus, RefreshCw, Search, Settings,
   SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock, MoreHorizontal,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -43,8 +43,6 @@ export default function PrepPage() {
   const [showSettings, setShowSettings] = useState(false)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [actionError,  setActionError]  = useState<string | null>(null)
-  const [syncing,      setSyncing]      = useState(false)
-  const [syncResult,   setSyncResult]   = useState<{ created: number; updated: number; skipped: number } | null>(null)
   const [isOffline,      setIsOffline]      = useState(false)
   const [offlineSyncing, setOfflineSyncing] = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
@@ -338,20 +336,6 @@ export default function PrepPage() {
     finally { setGenerating(false) }
   }
 
-  const handleSync = async () => {
-    setSyncing(true)
-    setSyncResult(null)
-    try {
-      const res  = await fetch('/api/prep/sync-from-recipes', { method: 'POST' })
-      const data = await res.json()
-      setSyncResult(data)
-      if (data.created > 0) await load()
-    } catch {
-      setActionError('Sync failed — check your connection and try again.')
-    } finally {
-      setSyncing(false)
-    }
-  }
 
   async function handleStatusChange(itemId: string, newStatus: string, actualQty?: number) {
     if (pendingItems.current.has(itemId)) return
@@ -877,7 +861,7 @@ export default function PrepPage() {
               <button onClick={() => setShowHeaderMenu(v => !v)}
                 className="p-2 rounded-lg border border-line text-ink-2 active:bg-bg-2"
                 title="More actions" aria-haspopup="menu" aria-expanded={showHeaderMenu}>
-                <MoreHorizontal size={16} className={syncing || generating ? 'text-gold' : ''} />
+                <MoreHorizontal size={16} className={generating ? 'text-gold' : ''} />
               </button>
               {showHeaderMenu && (
                 <>
@@ -887,11 +871,6 @@ export default function PrepPage() {
                       className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2 disabled:opacity-50" role="menuitem">
                       <RefreshCw size={15} className={`text-ink-3 ${generating ? 'animate-spin' : ''}`} />
                       {generating ? 'Refreshing…' : 'Refresh'}
-                    </button>
-                    <button onClick={() => { setShowHeaderMenu(false); handleSync() }} disabled={syncing}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2 disabled:opacity-50" role="menuitem">
-                      <BookOpen size={15} className={`text-gold ${syncing ? 'animate-pulse' : ''}`} />
-                      {syncing ? 'Syncing…' : 'Sync from recipes'}
                     </button>
                     <button onClick={() => { setShowHeaderMenu(false); setShowSettings(true) }}
                       className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
@@ -1020,11 +999,6 @@ export default function PrepPage() {
               <RefreshCw size={13} className={`text-ink-3 ${generating ? 'animate-spin' : ''}`} />
               {generating ? 'Refreshing…' : 'Refresh'}
             </button>
-            <button onClick={handleSync} disabled={syncing}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-50 whitespace-nowrap">
-              <BookOpen size={13} className={`text-ink-3 ${syncing ? 'animate-pulse' : ''}`} />
-              {syncing ? 'Syncing…' : 'Sync from recipes'}
-            </button>
             <button onClick={() => setShowSettings(true)} title="Settings"
               className="inline-flex items-center justify-center p-2.5 rounded-[9px] border border-line bg-paper text-ink-2 hover:border-ink-3 transition-colors">
               <Settings size={15} className="text-ink-3" />
@@ -1067,17 +1041,6 @@ export default function PrepPage() {
         </div>
       )}
 
-      {syncResult && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-green-soft border border-green-soft rounded-xl text-sm text-green-text">
-          <span>
-            {(syncResult.created > 0 || syncResult.updated > 0)
-              ? <>{syncResult.created > 0 && <> Created <strong>{syncResult.created}</strong> new prep item{syncResult.created !== 1 ? 's' : ''}.</>}{syncResult.updated > 0 && <> Updated categor{syncResult.updated !== 1 ? 'ies' : 'y'} on <strong>{syncResult.updated}</strong> existing item{syncResult.updated !== 1 ? 's' : ''}.</>}</>
-              : <>Everything is already in sync — {syncResult.skipped} prep item{syncResult.skipped !== 1 ? 's' : ''} matched.</>
-            }
-          </span>
-          <button onClick={() => setSyncResult(null)} className="shrink-0 text-green hover:text-green-text">✕</button>
-        </div>
-      )}
 
       {/* ══════════════════════════════════════════════════════
           TODAY TAB

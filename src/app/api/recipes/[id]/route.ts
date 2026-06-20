@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { fetchRecipeWithCost, syncPrepToInventory } from '@/lib/recipeCosts'
+import { fetchRecipeWithCost, resyncPrepRecipe, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -48,10 +49,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     },
   })
 
-  // Only sync to inventory when fields that affect cost change (yield quantity/unit).
-  // name, notes, isActive, categoryId, menuPrice, portionSize/Unit do not affect cost.
-  const costAffecting = baseYieldQty !== undefined || yieldUnit !== undefined
-  if (costAffecting) await syncPrepToInventory(params.id)
+  // Re-sync the linked item (and dependents) when cost- or name-affecting fields change.
+  // name flows to the PREPD item's itemName; yield qty/unit drive cost.
+  const costAffecting = baseYieldQty !== undefined || yieldUnit !== undefined || name !== undefined
+  if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[recipe PATCH] resync', e))
+
+  // Keep the PrepItem task-row in step when its source fields change.
+  const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined
+  if (prepItemAffecting) await syncPrepItemFromRecipe(params.id).catch(e => console.error('[recipe PATCH] prep-item sync', e))
 
   const updated = await fetchRecipeWithCost(params.id)
   return NextResponse.json(updated)
@@ -61,6 +66,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const id = params.id
   try {
+    let deactivatedItemId: string | null = null
     await prisma.$transaction(async tx => {
       await tx.recipeIngredient.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
       await tx.saleLineItem.deleteMany({ where: { recipeId: id } })
@@ -68,10 +74,15 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       await tx.recipeAlert.deleteMany({ where: { recipeId: id } })
       const recipe = await tx.recipe.findUnique({ where: { id }, select: { inventoryItemId: true } })
       if (recipe?.inventoryItemId) {
+        deactivatedItemId = recipe.inventoryItemId
         await tx.inventoryItem.update({ where: { id: recipe.inventoryItemId }, data: { isActive: false } })
       }
       await tx.recipe.delete({ where: { id } })
     })
+    // A deleted PREP is no longer a priced ingredient — re-cost any prep that used it.
+    if (deactivatedItemId) {
+      await propagatePrepCostChanges([deactivatedItemId]).catch(e => console.error('[recipe DELETE] propagate', e))
+    }
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('[DELETE /api/recipes/:id]', err)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { resyncPrepRecipe } from '@/lib/recipeCosts'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 
 export const dynamic = 'force-dynamic'
@@ -47,7 +47,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  // Fire sync in background — client handles optimistic display
-  syncPrepToInventory(params.id).catch(console.error)
+  // Keep the linked inventory item and dependent preps in sync. Awaited so the cascade
+  // runs before responding; caught so a rare sync hiccup doesn't fail the edit (the
+  // headless /api/inventory/sync-prepd endpoint is the recovery path).
+  await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient POST] resync', e))
   return NextResponse.json({ id: ing.id }, { status: 201 })
 }

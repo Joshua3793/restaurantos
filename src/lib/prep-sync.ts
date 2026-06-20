@@ -1,0 +1,65 @@
+import { prisma } from '@/lib/prisma'
+import { PREP_CATEGORIES } from '@/lib/prep-utils'
+
+/**
+ * Ensure the PrepItem for a PREP recipe exists and matches the recipe
+ * (name / category / unit / linked inventory item), and that the recipe's category is
+ * present in PrepSettings.categories (the recipe-managed category list). Single entry
+ * point for prep task-row sync — reused by the recipe-mutation hooks and the headless
+ * bulk endpoint. No-op for non-PREP or inactive recipes.
+ */
+export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
+  const recipe = await prisma.recipe.findUnique({
+    where: { id: recipeId },
+    select: {
+      id: true, name: true, type: true, isActive: true, yieldUnit: true,
+      inventoryItemId: true,
+      category: { select: { name: true } },
+      prepItems: { select: { id: true }, take: 1 },
+    },
+  })
+  if (!recipe || recipe.type !== 'PREP' || !recipe.isActive) return
+  const categoryName = recipe.category?.name ?? 'MISC'
+
+  // Upsert the PrepItem keyed by its linked recipe.
+  const existing = recipe.prepItems[0]
+  if (existing) {
+    await prisma.prepItem.update({
+      where: { id: existing.id },
+      data: {
+        name: recipe.name,
+        category: categoryName,
+        unit: recipe.yieldUnit,
+        linkedInventoryItemId: recipe.inventoryItemId ?? null,
+      },
+    })
+  } else {
+    await prisma.prepItem.create({
+      data: {
+        name: recipe.name,
+        linkedRecipeId: recipe.id,
+        linkedInventoryItemId: recipe.inventoryItemId ?? null,
+        unit: recipe.yieldUnit,
+        category: categoryName,
+        parLevel: 0,
+        minThreshold: 0,
+        isActive: true,
+      },
+    })
+  }
+
+  // Ensure the category is present in PrepSettings.categories (recipe-managed list).
+  // ORM upsert with a text[] value — the same proven path the bulk route uses
+  // (NOT $executeRaw tagged templates; see CLAUDE.md pgBouncer note). Gated on a miss
+  // so we only write the array when it actually changes.
+  const settings = await prisma.prepSettings.findUnique({ where: { id: 'singleton' } })
+  const existingCats = settings?.categories ?? PREP_CATEGORIES
+  if (!existingCats.includes(categoryName)) {
+    const mergedCats = [...new Set([...existingCats, categoryName])].sort()
+    await prisma.prepSettings.upsert({
+      where: { id: 'singleton' },
+      update: { categories: mergedCats },
+      create: { id: 'singleton', categories: mergedCats, stations: [] },
+    })
+  }
+}
