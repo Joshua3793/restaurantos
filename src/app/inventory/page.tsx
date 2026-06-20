@@ -23,7 +23,7 @@ import {
 } from '@/components/inventory/ItemChainEditor'
 import { useToast } from '@/components/Toast'
 import {
-  Search, Plus, X, Download, Loader2,
+  Search, Plus, X, Download,
   CheckSquare, Square, ChevronDown, ChevronRight, AlertCircle,
   ChevronsUpDown, ChevronUp, Pencil, Trash2, ShoppingCart, Copy, UploadCloud, ClipboardCheck,
 } from 'lucide-react'
@@ -218,7 +218,6 @@ function InventoryPageInner() {
   const [showBulkAllergen, setShowBulkAllergen] = useState(false)
   const [countedFlash,  setCountedFlash]  = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [syncingPrepd,  setSyncingPrepd]  = useState(false)
   const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
   const [showOrderList, setShowOrderList] = useState(false)
   const [orderTab, setOrderTab] = useState<'all' | 'belowPar' | 'outOfStock'>('all')
@@ -440,29 +439,6 @@ function InventoryPageInner() {
     setCheckedIds(new Set())
   }
 
-  const syncAllPrepd = async () => {
-    setSyncingPrepd(true)
-    const pending = showToast({ type: 'info', title: 'Syncing PREPD…', message: 'Pulling prep recipes into inventory', duration: 60_000 })
-    try {
-      const res = await fetch('/api/inventory/sync-prepd', { method: 'POST' })
-      const j = await res.json().catch(() => null)
-      await fetchItems()
-      dismissToast(pending)
-      if (!res.ok || !j) {
-        showToast({ type: 'error', title: 'Sync failed', message: 'Could not sync PREPD items — try again.' })
-      } else {
-        const parts = [`${j.synced} synced`]
-        if (j.created) parts.push(`${j.created} new`)
-        if (j.failed)  parts.push(`${j.failed} failed`)
-        showToast({ type: j.failed ? 'warning' : 'success', title: 'PREPD synced', message: parts.join(' · ') })
-      }
-    } catch {
-      dismissToast(pending)
-      showToast({ type: 'error', title: 'Sync failed', message: 'Check your connection and try again.' })
-    } finally {
-      setSyncingPrepd(false)
-    }
-  }
 
   const handleToggleActive = async (e: React.MouseEvent, item: InventoryItem) => {
     e.stopPropagation()
@@ -769,15 +745,6 @@ function InventoryPageInner() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={syncAllPrepd}
-            disabled={syncingPrepd}
-            title="Re-sync all PREPD item prices from their recipes"
-            className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-50"
-          >
-            <span className="text-ink-3 text-[13px]">⟳</span>
-            {syncingPrepd ? 'Syncing…' : 'Sync PREPD'}
-          </button>
-          <button
             onClick={() => { setShowOrderList(true); setOrderQtys({}); setOrderTab('all') }}
             className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
           >
@@ -956,16 +923,6 @@ function InventoryPageInner() {
             className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
           >
             <Download size={11} /> CSV
-          </button>
-          {/* Sync PREPD */}
-          <button
-            onClick={syncAllPrepd}
-            disabled={syncingPrepd}
-            title="Re-sync all PREPD item prices from their recipes"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3 disabled:opacity-50"
-          >
-            {syncingPrepd ? <Loader2 size={11} className="animate-spin" /> : <span className="text-[11px] text-ink-3">⟳</span>}
-            PREPD
           </button>
         </div>
         {/* Status pills — scrollable */}
