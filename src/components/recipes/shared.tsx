@@ -535,6 +535,14 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
             </div>
           </div>
 
+          {/* Allergens */}
+          {recipe.allergens && recipe.allergens.length > 0 && (
+            <div className="mb-6 flex items-center gap-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 shrink-0">Allergens</h2>
+              <AllergenBadges allergens={recipe.allergens} size="sm" />
+            </div>
+          )}
+
           {/* Ingredients */}
           <div className="mb-6">
             <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-3">Ingredients</h2>
@@ -615,6 +623,8 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
           body > * { display: none !important; }
           .fixed.z-\\[200\\] { display: block !important; position: static !important; background: white; }
           .fixed.z-\\[200\\] .absolute { display: none !important; }
+          /* keep allergen pill colors when printing */
+          .fixed.z-\\[200\\] * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
     </div>
