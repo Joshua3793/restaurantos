@@ -672,6 +672,31 @@ export function InvoiceReviewDrawer({
   // ── Approve ─────────────────────────────────────────────────────────────────
   const handleApprove = async (force = false) => {
     if (!session) return
+
+    // Untracked-spend guard: a PENDING line (unmatched, or a low-confidence match the
+    // user never confirmed) is SKIPPED by approve — its money is paid but its stock is
+    // never credited. Surface it so purchases can't silently fail to reach inventory.
+    // (SKIP lines are intentional — cleaning supplies etc. — so they're excluded.)
+    if (!force) {
+      const untracked = session.scanItems.filter(
+        i => i.action === 'PENDING' && Number(i.rawLineTotal ?? 0) > 0,
+      )
+      if (untracked.length > 0) {
+        const total = untracked.reduce((s, i) => s + Number(i.rawLineTotal ?? 0), 0)
+        const list = untracked
+          .slice(0, 8)
+          .map(i => `• ${formatCurrency(Number(i.rawLineTotal ?? 0))}  ${(i.rawDescription ?? '').slice(0, 42)}`)
+          .join('\n')
+        const more = untracked.length > 8 ? `\n…and ${untracked.length - 8} more` : ''
+        const ok = window.confirm(
+          `${untracked.length} unmatched line${untracked.length > 1 ? 's' : ''} (${formatCurrency(total)}) ` +
+            `won't be tracked in stock — the purchase won't add to inventory:\n\n${list}${more}\n\n` +
+            `Match them first, or approve anyway?`,
+        )
+        if (!ok) return
+      }
+    }
+
     setApproving(true)
     try {
       // Make sure staged line edits (e.g. a just-clicked format consent) are
