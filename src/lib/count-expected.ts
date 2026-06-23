@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { convertQty, UNIT_FACTORS, canonicalUom } from '@/lib/uom'
 import { computeScale } from '@/lib/prep-utils'
-import { asChainItem, basePerUnit, PRICING_SELECT } from '@/lib/item-model'
+import { asChainItem, basePerUnit, dimensionOf, PRICING_SELECT } from '@/lib/item-model'
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
@@ -138,7 +138,10 @@ export async function buildPurchaseMap(
       },
       approved: true,
       splitToSessionId: null,                          // count each line in exactly ONE RC (bug #1)
-      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
+      // CREATE_NEW is a real purchase too — the line that CREATED the item also
+      // received its first stock. Excluding it dropped every invoice-created item's
+      // opening receipt (showed 0 on-hand despite being bought).
+      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
       matchedItemId: { not: null },
       rawQty: { not: null },
     },
@@ -197,7 +200,12 @@ export async function buildPurchaseMap(
       const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
       const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
       const packUOM  = si.invoicePackUOM ?? null
-      if (packQty > 0 && packSize > 0 && packUOM) {
+      // Only trust the invoice's pack format when its UOM is the SAME dimension as the
+      // item's base unit. Otherwise convertQty does a cross-dimension passthrough that
+      // silently inflates/zeros (e.g. a COUNT item whose case is described by weight:
+      // "6 × 240 G" → convertQty(1440 g → each) returned 1440 muffins instead of 24 →
+      // 60× inflation). On a dimension mismatch, derive from the item's OWN chain.
+      if (packQty > 0 && packSize > 0 && packUOM && dimensionOf(packUOM) === chainItem.dimension) {
         // Invoice supplied its own pack format (one-off) → compute base from it.
         baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
       } else {
