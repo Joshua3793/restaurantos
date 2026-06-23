@@ -429,7 +429,8 @@ async function buildMultiSupplierBlock(days: number) {
     where: {
       approved: true,
       splitToSessionId: null,
-      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
+      // CREATE_NEW = the invoice that created the item also received its first stock.
+      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
       matchedItemId: { in: [...byItem.keys()] },
       session: { status: 'APPROVED', approvedAt: { gte: since } },
     },

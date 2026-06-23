@@ -78,7 +78,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     where: {
       matchedItemId: params.id,
       approved: true,
-      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
+      // CREATE_NEW = the invoice that created the item also received its first stock.
+      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
       session: { status: 'APPROVED', approvedAt: { gte: since } },
       rawQty: { not: null },
       splitToSessionId: null,
