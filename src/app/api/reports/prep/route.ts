@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// GET /api/reports/prep?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+// GET /api/reports/prep?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&rcId=<id>
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const startStr = searchParams.get('startDate')
   const endStr   = searchParams.get('endDate')
+  const rcId     = searchParams.get('rcId') || null
 
   if (!startStr || !endStr) {
     return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })
@@ -16,8 +17,9 @@ export async function GET(req: NextRequest) {
   const end = new Date(endStr)
   end.setHours(23, 59, 59, 999)
 
+  // PrepLog.revenueCenterId is NOT NULL — scope to the active RC, or all when omitted.
   const logs = await prisma.prepLog.findMany({
-    where: { logDate: { gte: start, lte: end } },
+    where: { logDate: { gte: start, lte: end }, ...(rcId ? { revenueCenterId: rcId } : {}) },
     include: { prepItem: { select: { name: true, category: true, unit: true } } },
     orderBy: { logDate: 'asc' },
   })

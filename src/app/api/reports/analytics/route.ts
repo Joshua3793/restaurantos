@@ -15,7 +15,32 @@ function isoDate(d: Date) {
   return d.toISOString().split('T')[0]
 }
 
-// ── GET /api/reports/analytics?section=overview|sales|inventory|purchasing&days=30 ──
+/**
+ * Analytics request context. The time window is either an absolute calendar range
+ * (`from`/`to`, parsed at UTC boundaries — same convention as Overview/COGS) or the
+ * legacy rolling `days` window. `win` is the inclusive [since, until] filter every
+ * windowed query uses; `prevWin` is the immediately-preceding equal-length window for
+ * period-over-period deltas.
+ *
+ * RC scoping: `rcEq` filters NOT-NULL rc columns (SalesEntry/WastageLog/PrepLog);
+ * `sessionRc` filters the nullable InvoiceSession.revenueCenterId (default RC also
+ * matches legacy null sessions); `countRc` is the snapshot/count scope (default + All
+ * read global counts, a non-default RC reads its own). Empty objects = no scope (All).
+ */
+interface Ctx {
+  since: Date; until: Date; days: number
+  win:     { gte: Date; lte: Date }
+  prevWin: { gte: Date; lt: Date }
+  rcId: string | null
+  isDefault: boolean
+  rcEq: { revenueCenterId?: string }
+  sessionRc: Record<string, unknown>
+  countRc: { revenueCenterId: string | null } | Record<string, never>
+}
+
+// ── GET /api/reports/analytics?section=overview|sales|inventory|purchasing ──
+//   &from=YYYY-MM-DD&to=YYYY-MM-DD  (absolute range, preferred)  OR  &days=30 (legacy)
+//   &rcId=<id>&isDefault=true       (scope to a revenue center; omit for All)
 export async function GET(req: NextRequest) {
   try { await requireSession('MANAGER') }
   catch (e) {
@@ -26,14 +51,33 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const section = searchParams.get('section') ?? 'overview'
   const days    = parseInt(searchParams.get('days') ?? '30', 10)
-  const since   = startOf(days)
-  const prevSince = startOf(days * 2)
+
+  const fromParam = searchParams.get('from')
+  const toParam   = searchParams.get('to')
+  const hasRange  = !!fromParam && !!toParam
+  const since = hasRange ? new Date(`${fromParam}T00:00:00.000Z`) : startOf(days)
+  const until = hasRange ? new Date(`${toParam}T23:59:59.999Z`)   : new Date()
+  const spanMs = until.getTime() - since.getTime()
+  const prevSince = hasRange ? new Date(since.getTime() - spanMs) : startOf(days * 2)
+
+  const rcId      = searchParams.get('rcId') || null
+  const isDefault = searchParams.get('isDefault') === 'true'
+
+  const ctx: Ctx = {
+    since, until, days,
+    win:     { gte: since, lte: until },
+    prevWin: { gte: prevSince, lt: since },
+    rcId, isDefault,
+    rcEq:      rcId ? { revenueCenterId: rcId } : {},
+    sessionRc: rcId ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId }) : {},
+    countRc:   rcId && !isDefault ? { revenueCenterId: rcId } : { revenueCenterId: null },
+  }
 
   try {
-    if (section === 'overview') return NextResponse.json(await getOverview(since, prevSince, days))
-    if (section === 'sales')    return NextResponse.json(await getSales(since, days))
-    if (section === 'inventory') return NextResponse.json(await getInventory(since))
-    if (section === 'purchasing') return NextResponse.json(await getPurchasing(since, days))
+    if (section === 'overview') return NextResponse.json(await getOverview(ctx))
+    if (section === 'sales')    return NextResponse.json(await getSales(ctx))
+    if (section === 'inventory') return NextResponse.json(await getInventory(ctx))
+    if (section === 'purchasing') return NextResponse.json(await getPurchasing(ctx))
     return NextResponse.json({ error: 'Unknown section' }, { status: 400 })
   } catch (err) {
     console.error('[analytics]', err)
@@ -42,7 +86,8 @@ export async function GET(req: NextRequest) {
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────────
-async function getOverview(since: Date, prevSince: Date, days: number) {
+async function getOverview(ctx: Ctx) {
+  const { win, prevWin, days, rcEq, sessionRc } = ctx
   const [
     salesCur, salesPrev,
     wastageCur, wastagePrev,
@@ -51,10 +96,10 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
     countSessions,
     purchasesCur, purchasesPrev,
   ] = await Promise.all([
-    prisma.salesEntry.aggregate({ where: { date: { gte: since } }, _sum: { totalRevenue: true, foodSalesPct: true }, _count: true }),
-    prisma.salesEntry.aggregate({ where: { date: { gte: prevSince, lt: since } }, _sum: { totalRevenue: true }, _count: true }),
-    prisma.wastageLog.aggregate({ where: { date: { gte: since } }, _sum: { costImpact: true } }),
-    prisma.wastageLog.aggregate({ where: { date: { gte: prevSince, lt: since } }, _sum: { costImpact: true } }),
+    prisma.salesEntry.aggregate({ where: { date: win, ...rcEq }, _sum: { totalRevenue: true, foodSalesPct: true }, _count: true }),
+    prisma.salesEntry.aggregate({ where: { date: prevWin, ...rcEq }, _sum: { totalRevenue: true }, _count: true }),
+    prisma.wastageLog.aggregate({ where: { date: win, ...rcEq }, _sum: { costImpact: true } }),
+    prisma.wastageLog.aggregate({ where: { date: prevWin, ...rcEq }, _sum: { costImpact: true } }),
     prisma.inventoryItem.findMany({
       where: { isActive: true, isStocked: true },
       select: { stockOnHand: true, category: true, ...PRICING_SELECT,
@@ -70,18 +115,18 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
       take: 5,
     }),
     prisma.countSession.findMany({
-      where: { status: 'FINALIZED', finalizedAt: { gte: since } },
+      where: { status: 'FINALIZED', finalizedAt: { gte: win.gte, lte: win.lte } },
       select: { finalizedAt: true, totalCountedValue: true, label: true },
       orderBy: { finalizedAt: 'desc' },
       take: 1,
     }),
     // Purchases current period
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: since } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: win, ...sessionRc } },
       _sum: { rawLineTotal: true },
     }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: prevSince, lt: since } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: prevWin, ...sessionRc } },
       _sum: { rawLineTotal: true },
     }),
   ])
@@ -100,7 +145,7 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
 
   // Average food cost % from sales entries in period
   const salesEntries = await prisma.salesEntry.findMany({
-    where: { date: { gte: since } },
+    where: { date: win, ...rcEq },
     select: { totalRevenue: true, foodSalesPct: true },
   })
   let totalFoodSales = 0, totalFoodCost = 0
@@ -109,10 +154,10 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
     ? salesEntries.reduce((s, e) => s + Number(e.foodSalesPct) * 100, 0) / salesEntries.length
     : 0
 
-  // Revenue trend (daily for last N days)
+  // Revenue trend (daily over the window)
   const dailySales = await prisma.salesEntry.groupBy({
     by: ['date'],
-    where: { date: { gte: since } },
+    where: { date: win, ...rcEq },
     _sum: { totalRevenue: true },
     orderBy: { date: 'asc' },
   })
@@ -145,24 +190,25 @@ async function getOverview(since: Date, prevSince: Date, days: number) {
 }
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
-async function getSales(since: Date, days: number) {
+async function getSales(ctx: Ctx) {
+  const { win, days, rcEq } = ctx
   const [salesEntries, topItems, weeklyData] = await Promise.all([
     prisma.salesEntry.findMany({
-      where: { date: { gte: since } },
+      where: { date: win, ...rcEq },
       include: { lineItems: { include: { recipe: { select: { name: true, menuPrice: true } } } } },
       orderBy: { date: 'asc' },
     }),
     // top menu items by qty sold
     prisma.saleLineItem.groupBy({
       by: ['recipeId'],
-      where: { sale: { date: { gte: since } } },
+      where: { sale: { date: win, ...rcEq } },
       _sum: { qtySold: true },
       orderBy: { _sum: { qtySold: 'desc' } },
       take: 15,
     }),
     // weekly revenue + food sales
     prisma.salesEntry.findMany({
-      where: { date: { gte: since } },
+      where: { date: win, ...rcEq },
       select: { date: true, totalRevenue: true, foodSalesPct: true },
       orderBy: { date: 'asc' },
     }),
@@ -232,10 +278,13 @@ async function getSales(since: Date, days: number) {
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
-async function getInventory(since: Date) {
+async function getInventory(ctx: Ctx) {
+  const { win, rcId, isDefault, countRc } = ctx
   const [priceAlerts, items, countSessions] = await Promise.all([
+    // Price changes are GLOBAL — PriceAlert has no RC column (a price change is
+    // item-level, not revenue-center-specific). Windowed by the selected range.
     prisma.priceAlert.findMany({
-      where: { createdAt: { gte: since } },
+      where: { createdAt: win },
       include: { inventoryItem: { select: { itemName: true, category: true, supplier: { select: { name: true } } } },
         session: { select: { supplierName: true, invoiceDate: true } } },
       orderBy: { changePct: 'desc' },
@@ -247,16 +296,26 @@ async function getInventory(since: Date) {
         stockOnHand: true, ...PRICING_SELECT,
         purchasePrice: true, lastCountDate: true,
         supplier: { select: { name: true } },
+        stockAllocations: { select: { quantity: true, revenueCenterId: true } },
       },
       orderBy: { itemName: 'asc' },
     }),
     prisma.countSession.findMany({
-      where: { status: 'FINALIZED' },
+      where: { status: 'FINALIZED', type: 'FULL', ...countRc },
       select: { id: true, sessionDate: true, finalizedAt: true, totalCountedValue: true, label: true },
       orderBy: { sessionDate: 'desc' },
       take: 6,
     }),
   ])
+
+  // RC-aware current stock (point-in-time): default RC = stockOnHand; non-default =
+  // its allocation; All = stockOnHand + every allocation. Mirrors the inventory page.
+  const effStock = (i: typeof items[number]) => {
+    if (!rcId) return Number(i.stockOnHand) + i.stockAllocations.reduce((a, r) => a + Number(r.quantity), 0)
+    if (isDefault) return Number(i.stockOnHand)
+    const a = i.stockAllocations.find(x => x.revenueCenterId === rcId)
+    return a ? Number(a.quantity) : 0
+  }
 
   const now = new Date()
 
@@ -300,21 +359,21 @@ async function getInventory(since: Date) {
     .sort((a, b) => b.changes - a.changes)
     .slice(0, 8)
 
-  // Inventory value by category
+  // Inventory value by category (RC-aware current stock)
   const byCategory: Record<string, { value: number; count: number }> = {}
   for (const i of items) {
-    const val = Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i))
+    const val = effStock(i) * pricePerBaseUnit(asChainItem(i))
     if (!byCategory[i.category]) byCategory[i.category] = { value: 0, count: 0 }
     byCategory[i.category].value += val
     byCategory[i.category].count++
   }
 
-  // Top value items
+  // Top value items (RC-aware current stock)
   const topValueItems = items
-    .map(i => ({ ...i, invValue: Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i)) }))
+    .map(i => ({ ...i, invValue: effStock(i) * pricePerBaseUnit(asChainItem(i)) }))
     .sort((a, b) => b.invValue - a.invValue)
     .slice(0, 10)
-    .map(i => ({ name: i.itemName, category: i.category, supplier: i.supplier?.name ?? '—', value: i.invValue, stock: Number(i.stockOnHand) }))
+    .map(i => ({ name: i.itemName, category: i.category, supplier: i.supplier?.name ?? '—', value: i.invValue, stock: effStock(i) }))
 
   // Inventory value trend from count sessions
   const valueTrend = countSessions.map(s => ({
@@ -323,7 +382,7 @@ async function getInventory(since: Date) {
     value: Number(s.totalCountedValue),
   })).reverse()
 
-  const totalValue = items.reduce((s, i) => s + Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i)), 0)
+  const totalValue = items.reduce((s, i) => s + effStock(i) * pricePerBaseUnit(asChainItem(i)), 0)
 
   return {
     summary: { totalValue, totalItems: items.length, notCounted30, priceChanges: priceAlerts.length, priceIncreases: priceIncreases.length, priceDecreases: priceDecreases.length },
@@ -332,14 +391,17 @@ async function getInventory(since: Date) {
     topValueItems,
     valueTrend,
     byCategory: Object.entries(byCategory).map(([cat, d]) => ({ cat, ...d })).sort((a, b) => b.value - a.value),
+    // Price changes & supplier volatility are global (no RC dimension on PriceAlert).
+    priceChangesGlobal: true,
   }
 }
 
 // ── Purchasing ────────────────────────────────────────────────────────────────
-async function getPurchasing(since: Date, days: number) {
+async function getPurchasing(ctx: Ctx) {
+  const { win, days, sessionRc } = ctx
   const [scanItems, supplierPrices] = await Promise.all([
     prisma.invoiceScanItem.findMany({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: since } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: win, ...sessionRc } },
       select: {
         rawDescription: true, rawQty: true, rawUnitPrice: true, rawLineTotal: true,
         matchedItem: { select: { itemName: true, category: true } },
@@ -347,7 +409,7 @@ async function getPurchasing(since: Date, days: number) {
       },
     }),
     prisma.inventorySupplierPrice.findMany({
-      where: { lastUpdated: { gte: since } },
+      where: { lastUpdated: win },
       include: { inventoryItem: { select: { itemName: true, category: true } }, supplier: { select: { name: true } } },
       orderBy: { lastUpdated: 'desc' },
       take: 50,
@@ -407,13 +469,16 @@ async function getPurchasing(since: Date, days: number) {
     supplierSpend,
     topItems,
     spendTrend,
-    multiSupplier: await buildMultiSupplierBlock(days),
+    multiSupplier: await buildMultiSupplierBlock(ctx.win),
     period: days,
+    // Multi-supplier price comparison & volatility are global (offers have no RC).
+    multiSupplierGlobal: true,
   }
 }
 
 // ── Multi-supplier comparison (purchasing section) ───────────────────────────
-async function buildMultiSupplierBlock(days: number) {
+// Global by nature — supplier offers (InventorySupplierPrice) carry no revenue center.
+async function buildMultiSupplierBlock(win: { gte: Date; lte: Date }) {
   // Items with offers from 2+ suppliers
   const offers = await prisma.inventorySupplierPrice.findMany({
     include: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, packChain: true } } },
@@ -424,7 +489,6 @@ async function buildMultiSupplierBlock(days: number) {
     byItem.get(o.inventoryItemId)!.push(o)
   }
 
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
   const lines = await prisma.invoiceScanItem.findMany({
     where: {
       approved: true,
@@ -432,7 +496,7 @@ async function buildMultiSupplierBlock(days: number) {
       // CREATE_NEW = the invoice that created the item also received its first stock.
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
       matchedItemId: { in: [...byItem.keys()] },
-      session: { status: 'APPROVED', approvedAt: { gte: since } },
+      session: { status: 'APPROVED', approvedAt: win },
     },
     select: {
       matchedItemId: true, rawLineTotal: true,

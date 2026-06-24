@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { ChefHat, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
 
 interface DailySummary {
   date: string
@@ -41,11 +43,7 @@ interface PrepReport {
   totals: { total: number; done: number; partial: number; blocked: number; skipped: number; notStarted: number; completionRate: number }
 }
 
-const PERIOD_OPTIONS = [
-  { label: '7 days',  days: 7 },
-  { label: '30 days', days: 30 },
-  { label: '90 days', days: 90 },
-]
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
 function fmtDate(iso: string) {
   return new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -58,43 +56,33 @@ function completionColor(rate: number) {
 }
 
 export default function PrepTab() {
-  const [period,  setPeriod]  = useState(30)
+  const { activeRcId, activeRc } = useRc()
+  const [range,   setRange]   = useState<DateRange>(() => rangeForPreset('last30'))
   const [report,  setReport]  = useState<PrepReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
     setError(null)
-    const end   = new Date()
-    const start = new Date()
-    start.setDate(start.getDate() - period + 1)
-    const fmt = (d: Date) => d.toISOString().slice(0, 10)
-    fetch(`/api/reports/prep?startDate=${fmt(start)}&endDate=${fmt(end)}`)
+    const params = new URLSearchParams({ startDate: ymd(range.from), endDate: ymd(range.to) })
+    if (activeRcId) params.set('rcId', activeRcId)
+    fetch(`/api/reports/prep?${params}`)
       .then(r => r.json())
-      .then(data => { setReport(data); setLoading(false) })
-      .catch(() => { setError('Failed to load prep report'); setLoading(false) })
-  }, [period])
+      .then(data => { if (!cancelled) { setReport(data); setLoading(false) } })
+      .catch(() => { if (!cancelled) { setError('Failed to load prep report'); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [range, activeRcId, activeRc])
 
   return (
     <div className="space-y-6">
-      {/* Header + period selector */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <ChefHat size={18} className="text-gold" />
-          <h2 className="text-base font-semibold text-ink-2">Prep Performance</h2>
-        </div>
-        <div className="flex items-center gap-0.5 border border-line rounded-lg p-0.5 bg-white">
-          {PERIOD_OPTIONS.map(opt => (
-            <button key={opt.days} onClick={() => setPeriod(opt.days)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                period === opt.days ? 'bg-ink text-paper [&_svg]:text-gold shadow-sm' : 'text-ink-3 hover:bg-bg'
-              }`}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
+      {/* Header + range picker */}
+      <div className="flex items-center gap-2">
+        <ChefHat size={18} className="text-gold" />
+        <h2 className="text-base font-semibold text-ink-2">Prep Performance</h2>
       </div>
+      <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
 
       {loading ? (
         <div className="flex justify-center py-20">

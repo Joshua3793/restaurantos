@@ -38,14 +38,37 @@ function toInputValue(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+/**
+ * Build report-analytics query params from a range + the active revenue center:
+ * `from`/`to` as calendar days (the API parses them at UTC boundaries) plus
+ * `rcId`/`isDefault` when an RC is selected. Shared by the analytics report tabs.
+ */
+export function analyticsParams(
+  range: DateRange,
+  activeRcId: string | null,
+  activeRc: { isDefault?: boolean } | null,
+): URLSearchParams {
+  const params = new URLSearchParams({ from: toInputValue(range.from), to: toInputValue(range.to) })
+  if (activeRcId) {
+    params.set('rcId', activeRcId)
+    if (activeRc?.isDefault) params.set('isDefault', 'true')
+  }
+  return params
+}
+
 /** 'YYYY-MM-DD' (local) → Date at local midnight. */
 function fromInputValue(s: string): Date {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d)
 }
 
-export function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: DateRange) => void }) {
-  const [preset, setPreset] = useState<PresetKey>('thisWeek')
+export function DateRangePicker({ value, onChange, defaultPreset = 'thisWeek' }: {
+  value: DateRange
+  onChange: (r: DateRange) => void
+  /** Which preset chip is highlighted initially — match whatever the parent seeded `value` with. */
+  defaultPreset?: Exclude<PresetKey, 'custom'>
+}) {
+  const [preset, setPreset] = useState<PresetKey>(defaultPreset)
 
   const fromStr = toInputValue(value.from)
   const toStr   = toInputValue(value.to)

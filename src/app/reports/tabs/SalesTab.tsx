@@ -6,19 +6,30 @@ import {
 } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
 import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 
-export default function SalesTab({ period }: { period: number }) {
+export default function SalesTab() {
+  const { activeRcId, activeRc } = useRc()
+  const [range, setRange] = useState<DateRange>(() => rangeForPreset('last30'))
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    fetch(`/api/reports/analytics?section=sales&days=${period}`)
-      .then(r => r.json()).then(setData).finally(() => setLoading(false))
-  }, [period])
+    const params = analyticsParams(range, activeRcId, activeRc); params.set('section', 'sales')
+    fetch(`/api/reports/analytics?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) setData(d) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [range, activeRcId, activeRc])
 
-  if (loading) return <LoadingState />
-  if (!data) return <EmptyState message="Failed to load sales data" />
+  const picker = <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
+
+  if (loading && !data) return <div className="space-y-6">{picker}<LoadingState /></div>
+  if (!data) return <div className="space-y-6">{picker}<EmptyState message="Failed to load sales data" /></div>
 
   const summary = data.summary as { totalRevenue: number; totalFoodSales: number; totalOrders: number }
   const topMenuItems = (data.topMenuItems as {
@@ -29,9 +40,10 @@ export default function SalesTab({ period }: { period: number }) {
 
   return (
     <div className="space-y-6">
+      {picker}
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <KpiCard label="Total Revenue" value={formatCurrency(summary.totalRevenue)} accent="blue" icon={TrendingUp} sub={`last ${period}d`} />
+        <KpiCard label="Total Revenue" value={formatCurrency(summary.totalRevenue)} accent="blue" icon={TrendingUp} sub={range.label} />
         <KpiCard label="Food Sales" value={formatCurrency(summary.totalFoodSales)} accent="green" sub="est. food portion" />
         <KpiCard label="Service Days" value={String(summary.totalOrders)} accent="gray" sub="entries logged" />
       </div>
@@ -55,7 +67,7 @@ export default function SalesTab({ period }: { period: number }) {
 
       {/* Top Menu Items */}
       <Card>
-        <SectionHeader title="Top Menu Items" subtitle={`By quantity sold · last ${period} days`} />
+        <SectionHeader title="Top Menu Items" subtitle={`By quantity sold · ${range.label}`} />
         {topMenuItems.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

@@ -6,19 +6,30 @@ import {
 } from 'recharts'
 import { formatCurrency, formatPricePerBase } from '@/lib/utils'
 import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 
-export default function PurchasingTab({ period }: { period: number }) {
+export default function PurchasingTab() {
+  const { activeRcId, activeRc } = useRc()
+  const [range, setRange] = useState<DateRange>(() => rangeForPreset('last30'))
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    fetch(`/api/reports/analytics?section=purchasing&days=${period}`)
-      .then(r => r.json()).then(setData).finally(() => setLoading(false))
-  }, [period])
+    const params = analyticsParams(range, activeRcId, activeRc); params.set('section', 'purchasing')
+    fetch(`/api/reports/analytics?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) setData(d) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [range, activeRcId, activeRc])
 
-  if (loading) return <LoadingState />
-  if (!data) return <EmptyState message="Failed to load purchasing data" />
+  const picker = <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
+
+  if (loading && !data) return <div className="space-y-6">{picker}<LoadingState /></div>
+  if (!data) return <div className="space-y-6">{picker}<EmptyState message="Failed to load purchasing data" /></div>
 
   const summary = data.summary as { totalSpend: number; totalLines: number; supplierCount: number }
   const supplierSpend = (data.supplierSpend as { name: string; spend: number; lines: number }[]) ?? []
@@ -29,9 +40,10 @@ export default function PurchasingTab({ period }: { period: number }) {
 
   return (
     <div className="space-y-6">
+      {picker}
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <KpiCard label="Total Spend" value={formatCurrency(summary.totalSpend)} accent="purple" icon={ShoppingCart} sub={`last ${period}d`} />
+        <KpiCard label="Total Spend" value={formatCurrency(summary.totalSpend)} accent="purple" icon={ShoppingCart} sub={range.label} />
         <KpiCard label="Line Items" value={summary.totalLines.toLocaleString()} accent="blue" sub="invoice lines processed" />
         <KpiCard label="Suppliers" value={String(summary.supplierCount)} accent="gray" sub="with approved invoices" />
       </div>
@@ -112,7 +124,7 @@ export default function PurchasingTab({ period }: { period: number }) {
             <Card>
               <SectionHeader
                 title="Multi-Supplier Items"
-                subtitle={ms.totalSaving > 0 ? `Buying each from its cheapest supplier would have saved ~${formatCurrency(ms.totalSaving)} over this period` : 'Price comparison across suppliers'}
+                subtitle={`${ms.totalSaving > 0 ? `Buying each from its cheapest supplier would have saved ~${formatCurrency(ms.totalSaving)} over this period` : 'Price comparison across suppliers'}${activeRcId ? ' · global (offers aren’t RC-specific)' : ''}`}
               />
               {ms.items.length > 0 ? (
                 <div className="space-y-3 overflow-y-auto max-h-96">

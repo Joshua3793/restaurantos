@@ -6,19 +6,30 @@ import {
 } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
 import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState, CAT_COLORS } from '../report-components'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 
-export default function InventoryTab({ period }: { period: number }) {
+export default function InventoryTab() {
+  const { activeRcId, activeRc } = useRc()
+  const [range, setRange] = useState<DateRange>(() => rangeForPreset('last30'))
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    fetch(`/api/reports/analytics?section=inventory&days=${period}`)
-      .then(r => r.json()).then(setData).finally(() => setLoading(false))
-  }, [period])
+    const params = analyticsParams(range, activeRcId, activeRc); params.set('section', 'inventory')
+    fetch(`/api/reports/analytics?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) setData(d) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [range, activeRcId, activeRc])
 
-  if (loading) return <LoadingState />
-  if (!data) return <EmptyState message="Failed to load inventory data" />
+  const picker = <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
+
+  if (loading && !data) return <div className="space-y-6">{picker}<LoadingState /></div>
+  if (!data) return <div className="space-y-6">{picker}<EmptyState message="Failed to load inventory data" /></div>
 
   const summary = data.summary as { totalValue: number; totalItems: number; notCounted30: number; priceChanges: number; priceIncreases: number; priceDecreases: number }
   const topPriceChanges = (data.topPriceChanges as { item: string; category: string; supplier: string; previousPrice: number; newPrice: number; changePct: number; direction: string }[]) ?? []
@@ -29,13 +40,14 @@ export default function InventoryTab({ period }: { period: number }) {
 
   return (
     <div className="space-y-6">
-      {/* KPIs */}
+      {picker}
+      {/* KPIs — value/items are current (point-in-time); price moves are over the range */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <KpiCard label="Inventory Value" value={formatCurrency(summary.totalValue)} accent="green" icon={Package} />
+        <KpiCard label="Inventory Value" value={formatCurrency(summary.totalValue)} accent="green" icon={Package} sub="current" />
         <KpiCard label="Active Items" value={String(summary.totalItems)} accent="blue" sub="in inventory" />
         <KpiCard label="Not Counted 30d" value={String(summary.notCounted30)} accent={summary.notCounted30 > 20 ? 'red' : 'amber'} sub="needs attention" />
-        <KpiCard label="Price Increases" value={String(summary.priceIncreases)} accent="red" sub={`last ${period}d`} />
-        <KpiCard label="Price Decreases" value={String(summary.priceDecreases)} accent="green" sub={`last ${period}d`} />
+        <KpiCard label="Price Increases" value={String(summary.priceIncreases)} accent="red" sub={range.label} />
+        <KpiCard label="Price Decreases" value={String(summary.priceDecreases)} accent="green" sub={range.label} />
       </div>
 
       {/* Charts Row */}
@@ -94,7 +106,7 @@ export default function InventoryTab({ period }: { period: number }) {
 
       {/* Price Changes Table */}
       <Card>
-        <SectionHeader title="Biggest Price Changes" subtitle={`Items with the largest price movements in the last ${period} days`} />
+        <SectionHeader title="Biggest Price Changes" subtitle={`Largest price movements · ${range.label}${activeRcId ? ' · global (not RC-specific)' : ''}`} />
         {topPriceChanges.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -126,13 +138,13 @@ export default function InventoryTab({ period }: { period: number }) {
               </tbody>
             </table>
           </div>
-        ) : <EmptyState message={`No price changes recorded in the last ${period} days`} />}
+        ) : <EmptyState message={`No price changes recorded · ${range.label}`} />}
       </Card>
 
       {/* Supplier Volatility + Top Value Items */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <SectionHeader title="Supplier Price Volatility" subtitle="Suppliers with the most price changes" />
+          <SectionHeader title="Supplier Price Volatility" subtitle={`Suppliers with the most price changes${activeRcId ? ' · global' : ''}`} />
           {supplierVol.length > 0 ? (
             <div className="space-y-3">
               {supplierVol.map(s => (
