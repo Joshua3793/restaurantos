@@ -54,8 +54,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const costAffecting = baseYieldQty !== undefined || yieldUnit !== undefined || name !== undefined
   if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[recipe PATCH] resync', e))
 
-  // Keep the PrepItem task-row in step when its source fields change.
-  const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined
+  // Keep the PrepItem task-row in step when its source fields change — including
+  // isActive, so deactivating/reactivating a recipe flows to its prep task row.
+  const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined || isActive !== undefined
   if (prepItemAffecting) await syncPrepItemFromRecipe(params.id).catch(e => console.error('[recipe PATCH] prep-item sync', e))
 
   const updated = await fetchRecipeWithCost(params.id)
@@ -70,7 +71,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     await prisma.$transaction(async tx => {
       await tx.recipeIngredient.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
       await tx.saleLineItem.deleteMany({ where: { recipeId: id } })
-      await tx.prepItem.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null } })
+      // The recipe is being removed — its prep task row is orphaned, so deactivate it
+      // (not just unlink) instead of leaving a stale active item on the prep list.
+      await tx.prepItem.updateMany({ where: { linkedRecipeId: id }, data: { linkedRecipeId: null, isActive: false } })
       await tx.recipeAlert.deleteMany({ where: { recipeId: id } })
       const recipe = await tx.recipe.findUnique({ where: { id }, select: { inventoryItemId: true } })
       if (recipe?.inventoryItemId) {

@@ -32,10 +32,15 @@ export async function resolvePrepUnit(
 
 /**
  * Ensure the PrepItem for a PREP recipe exists and matches the recipe
- * (name / category / unit / linked inventory item), and that the recipe's category is
- * present in PrepSettings.categories (the recipe-managed category list). Single entry
- * point for prep task-row sync — reused by the recipe-mutation hooks and the headless
- * bulk endpoint. No-op for non-PREP or inactive recipes.
+ * (name / category / unit / linked inventory item / active state), and that the recipe's
+ * category is present in PrepSettings.categories (the recipe-managed category list).
+ * Single entry point for prep task-row sync — reused by the recipe-mutation hooks and the
+ * headless bulk endpoint.
+ *
+ * The recipe is the source of truth for its prep task row's active state: a recipe that
+ * is inactive or no longer a PREP must not leave an active prep item behind, and
+ * re-activating the recipe re-activates its prep item. (Deletion is handled by the recipe
+ * DELETE route, which can't reach here once the row is gone.)
  */
 export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
   const recipe = await prisma.recipe.findUnique({
@@ -47,7 +52,16 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
       prepItems: { select: { id: true }, take: 1 },
     },
   })
-  if (!recipe || recipe.type !== 'PREP' || !recipe.isActive) return
+  if (!recipe) return
+
+  // No longer an active PREP → deactivate any linked task row(s) and stop.
+  if (recipe.type !== 'PREP' || !recipe.isActive) {
+    await prisma.prepItem.updateMany({
+      where: { linkedRecipeId: recipe.id, isActive: true },
+      data: { isActive: false },
+    })
+    return
+  }
   const categoryName = recipe.category?.name ?? 'MISC'
 
   // Upsert the PrepItem keyed by its linked recipe.
@@ -60,6 +74,7 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
         category: categoryName,
         unit: recipe.yieldUnit,
         linkedInventoryItemId: recipe.inventoryItemId ?? null,
+        isActive: true,
       },
     })
   } else {
