@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
 import { getTheoreticalStock } from '@/lib/count-expected'
+import { convertQty, UnitError } from '@/lib/uom'
+import { resolvePrepUnit } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
 
 export async function GET(
@@ -56,6 +58,14 @@ export async function GET(
     } else if (item.linkedRecipe?.inventoryItem) {
       onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
     }
+  }
+
+  // theoretical onHand is in baseUnit (g/ml/each); par/min/target are in the prep
+  // item's display unit — convert so comparisons and the suggested qty are consistent.
+  const invBaseUnit =
+    item.linkedInventoryItem?.baseUnit ?? item.linkedRecipe?.inventoryItem?.baseUnit ?? null
+  if (invBaseUnit && item.unit) {
+    onHand = convertQty(onHand, invBaseUnit, item.unit)
   }
 
   const parLevel     = parseFloat(String(item.parLevel))
@@ -116,6 +126,29 @@ export async function PUT(
 ) {
   const body = await req.json()
 
+  // Resolve the unit defensively: a recipe-linked item inherits the recipe's yield
+  // unit; a free-standing item's unit must be a known canonical token. This closes
+  // the dimension-mismatch hole regardless of what the client sends.
+  let unitToWrite: string | undefined
+  if (body.unit !== undefined || body.linkedRecipeId !== undefined) {
+    const effectiveRecipeId =
+      body.linkedRecipeId !== undefined
+        ? (body.linkedRecipeId || null)
+        : (await prisma.prepItem.findUnique({
+            where: { id: params.id },
+            select: { linkedRecipeId: true },
+          }))?.linkedRecipeId ?? null
+    // Only recompute the unit when the caller touched it or re-linked a recipe.
+    if (body.unit !== undefined || effectiveRecipeId) {
+      try {
+        unitToWrite = await resolvePrepUnit(effectiveRecipeId, body.unit)
+      } catch (err) {
+        if (err instanceof UnitError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+      }
+    }
+  }
+
   const item = await prisma.prepItem.update({
     where: { id: params.id },
     data: {
@@ -125,7 +158,7 @@ export async function PUT(
       ...(body.category               !== undefined && { category: body.category }),
       ...(body.station                !== undefined && { station: body.station || null }),
       ...(body.parLevel               !== undefined && { parLevel: parseFloat(String(body.parLevel)) }),
-      ...(body.unit                   !== undefined && { unit: body.unit }),
+      ...(unitToWrite                 !== undefined && { unit: unitToWrite }),
       ...(body.minThreshold           !== undefined && { minThreshold: parseFloat(String(body.minThreshold)) }),
       ...(body.targetToday            !== undefined && { targetToday: body.targetToday ? parseFloat(String(body.targetToday)) : null }),
       ...(body.shelfLifeDays          !== undefined && { shelfLifeDays: body.shelfLifeDays ? parseInt(String(body.shelfLifeDays)) : null }),

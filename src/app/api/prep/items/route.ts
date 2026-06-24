@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { convertQty, UnitError } from '@/lib/uom'
+import { resolvePrepUnit } from '@/lib/prep-sync'
 
 const recipeInclude = {
   select: {
@@ -11,7 +13,7 @@ const recipeInclude = {
     baseYieldQty: true,
     inventoryItemId: true,
     inventoryItem: {
-      select: { id: true, stockOnHand: true },
+      select: { id: true, stockOnHand: true, baseUnit: true },
     },
     ingredients: {
       include: {
@@ -92,6 +94,17 @@ export async function GET(req: NextRequest) {
       } else if (item.linkedRecipe?.inventoryItem) {
         onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
       }
+    }
+
+    // onHand resolves in the inventory item's baseUnit (g/ml/each), but parLevel,
+    // minThreshold and targetToday are stored in the prep item's display unit
+    // (e.g. l, kg). Convert onHand into the prep unit so every downstream calc
+    // (priority, suggestedQty, the % badge, the displayed on-hand) is unit-consistent.
+    // convertQty passes through unchanged when units already match or share no dimension.
+    const invBaseUnit =
+      item.linkedInventoryItem?.baseUnit ?? item.linkedRecipe?.inventoryItem?.baseUnit ?? null
+    if (invBaseUnit && item.unit) {
+      onHand = convertQty(onHand, invBaseUnit, item.unit)
     }
 
     const parLevel     = parseFloat(String(item.parLevel))
@@ -192,6 +205,14 @@ export async function POST(req: NextRequest) {
 
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
+  let resolvedUnit: string
+  try {
+    resolvedUnit = await resolvePrepUnit(linkedRecipeId || null, unit)
+  } catch (err) {
+    if (err instanceof UnitError) return NextResponse.json({ error: err.message }, { status: 400 })
+    throw err
+  }
+
   const item = await prisma.prepItem.create({
     data: {
       name,
@@ -200,7 +221,7 @@ export async function POST(req: NextRequest) {
       category:              category              || 'MISC',
       station:               station               || null,
       parLevel:              parLevel   ? parseFloat(String(parLevel))   : 0,
-      unit:                  unit       || 'batch',
+      unit:                  resolvedUnit,
       minThreshold:          minThreshold ? parseFloat(String(minThreshold)) : 0,
       targetToday:           targetToday  ? parseFloat(String(targetToday))  : null,
       shelfLifeDays:         shelfLifeDays ? parseInt(String(shelfLifeDays)) : null,

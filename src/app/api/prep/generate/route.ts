@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeSuggestedQty } from '@/lib/prep-utils'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { convertQty } from '@/lib/uom'
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
@@ -14,9 +15,9 @@ export async function POST(req: NextRequest) {
   const items = await prisma.prepItem.findMany({
     where: { isActive: true },
     include: {
-      linkedInventoryItem: { select: { id: true } },
+      linkedInventoryItem: { select: { id: true, baseUnit: true } },
       linkedRecipe: {
-        include: { inventoryItem: { select: { id: true } } },
+        include: { inventoryItem: { select: { id: true, baseUnit: true } } },
       },
       logs: {
         where: { logDate: { gte: today, lt: tomorrow } },
@@ -56,6 +57,12 @@ export async function POST(req: NextRequest) {
     let onHand = 0
     if (invId) {
       onHand = theoreticalMaps.get(rc)?.get(invId) ?? 0
+    }
+    // theoretical onHand is in baseUnit; par/target are in the prep unit — convert.
+    const invBaseUnit =
+      item.linkedInventoryItem?.baseUnit ?? item.linkedRecipe?.inventoryItem?.baseUnit ?? null
+    if (invBaseUnit && item.unit) {
+      onHand = convertQty(onHand, invBaseUnit, item.unit)
     }
 
     const revenueCenterId: string | null = item.revenueCenterId ?? body.revenueCenterId ?? null

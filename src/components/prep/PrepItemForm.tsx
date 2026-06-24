@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { PREP_STATIONS, PREP_PRIORITY_META, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { PREP_YIELD_UNITS } from '@/lib/uom'
 import type { PrepItemRich } from './types'
 
 
@@ -88,6 +89,19 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
   const set = useCallback((k: keyof typeof BLANK, v: string) => {
     setForm(prev => ({ ...prev, [k]: v }))
   }, [])
+
+  // The unit is authoritative from the linked recipe's yield unit (prep-sync rewrites
+  // it on every recipe change), so a recipe-linked prep item must NOT let the user pick
+  // a divergent unit — that's how dimension mismatches (par in "l" vs recipe in "g")
+  // sneak in and bias every downstream stock calc. Lock it to the recipe's yield unit;
+  // only free-standing prep items get the canonical picker.
+  const linkedRecipe = recipes.find(r => r.id === form.linkedRecipeId) ?? null
+  const recipeUnit = linkedRecipe?.yieldUnit ?? (form.linkedRecipeId ? form.unit : null)
+  useEffect(() => {
+    if (linkedRecipe && linkedRecipe.yieldUnit && form.unit !== linkedRecipe.yieldUnit) {
+      set('unit', linkedRecipe.yieldUnit)
+    }
+  }, [linkedRecipe, form.unit, set])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -178,9 +192,14 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
               <input className={inputCls} type="number" min="0" step="0.1"
                 value={form.parLevel} onChange={e => set('parLevel', e.target.value)} placeholder="0" />
             ))}
-            {field('Unit', (
-              <select className={inputCls + ' bg-white'} value={form.unit} onChange={e => set('unit', e.target.value)}>
-                {['batch', 'portion', 'serve', 'each', 'pkg', 'tray', 'kg', 'g', 'lb', 'oz', 'l', 'ml'].map(u => <option key={u}>{u}</option>)}
+            {field('Unit', recipeUnit ? (
+              <div className={inputCls + ' bg-bg text-ink-3 flex items-center justify-between cursor-default'} title="Inherited from the linked recipe's yield unit">
+                <span>{recipeUnit}</span>
+                <span className="text-[11px] text-ink-4">from recipe</span>
+              </div>
+            ) : (
+              <select className={selCls} value={form.unit} onChange={e => set('unit', e.target.value)}>
+                {PREP_YIELD_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             ))}
           </div>

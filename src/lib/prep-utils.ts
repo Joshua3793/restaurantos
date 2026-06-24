@@ -1,4 +1,5 @@
 import { nextServiceStart, prepDeadline, type SchedulableRc } from './service-hours'
+import { convertQty, sameDimension } from './uom'
 
 export type PrepPriority = '911' | 'NEEDED_TODAY' | 'LATER'
 
@@ -116,8 +117,12 @@ export function computeScale(
   recipeBaseYieldQty: number,
 ): { scale: number; unitMismatch: boolean } {
   if (unit === 'batch') return { scale: actualPrepQty, unitMismatch: false }
-  if (unit === recipeYieldUnit && recipeBaseYieldQty > 0) {
-    return { scale: actualPrepQty / recipeBaseYieldQty, unitMismatch: false }
+  // Compatible as long as the prep unit shares the recipe yield unit's dimension —
+  // convert the made qty into the yield unit before scaling (so "made 2 kg" of a
+  // recipe that yields in g scales correctly instead of falsely flagging a mismatch).
+  if (recipeBaseYieldQty > 0 && sameDimension(unit, recipeYieldUnit)) {
+    const qtyInYieldUnit = convertQty(actualPrepQty, unit, recipeYieldUnit)
+    return { scale: qtyInYieldUnit / recipeBaseYieldQty, unitMismatch: false }
   }
   return { scale: 1, unitMismatch: true }
 }

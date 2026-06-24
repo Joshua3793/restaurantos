@@ -1,5 +1,34 @@
 import { prisma } from '@/lib/prisma'
 import { PREP_CATEGORIES } from '@/lib/prep-utils'
+import { assertKnownUnit, getUnitGroup, UnitError } from '@/lib/uom'
+
+/**
+ * Resolve the canonical unit to persist on a PrepItem write (POST/PUT).
+ * Recipe-linked items inherit the recipe's yield unit (the same value
+ * syncPrepItemFromRecipe enforces) so a client can never store a unit whose
+ * dimension diverges from the recipe — the root cause of biased stock math.
+ * Free-standing items must pass a known canonical token (throws UnitError otherwise).
+ */
+export async function resolvePrepUnit(
+  linkedRecipeId: string | null | undefined,
+  fallbackUnit: string | null | undefined,
+): Promise<string> {
+  if (linkedRecipeId) {
+    const rec = await prisma.recipe.findUnique({
+      where: { id: linkedRecipeId },
+      select: { yieldUnit: true },
+    })
+    if (rec?.yieldUnit) return rec.yieldUnit
+  }
+  const canonical = assertKnownUnit(fallbackUnit || 'batch', 'prep unit')
+  // Container units (pack/case/tray…) have no fixed conversion factor — they resolve
+  // only through an inventory item's pack chain. As a prep yield unit they'd make every
+  // baseUnit↔unit conversion silently pass through, so reject them here.
+  if (!getUnitGroup(canonical)) {
+    throw new UnitError(canonical, 'prep unit')
+  }
+  return canonical
+}
 
 /**
  * Ensure the PrepItem for a PREP recipe exists and matches the recipe
