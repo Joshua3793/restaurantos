@@ -35,10 +35,21 @@ export async function GET(req: NextRequest) {
   const hasRange  = !!fromParam && !!toParam
   const periodStart = hasRange ? new Date(`${fromParam}T00:00:00.000Z`) : null
   const periodEnd   = hasRange ? new Date(`${toParam}T23:59:59.999Z`)   : null
+  // The food-cost block can be windowed independently of the cards via fcFrom/fcTo.
+  // The Pass snapshot uses this to show month-to-date food cost while leaving the
+  // rolling-7d cards (e.g. wastage) untouched. Same UTC-boundary parsing as from/to.
+  const fcFromParam = searchParams.get('fcFrom')
+  const fcToParam   = searchParams.get('fcTo')
+  const hasFcRange  = !!fcFromParam && !!fcToParam
+
   // Card metrics default to rolling-7d (weekAgo); food-cost block defaults to WTD (weekStart).
-  // A supplied range overrides both with the same window.
+  // A supplied from/to range overrides both with the same window; fcFrom/fcTo overrides only
+  // the food-cost window (highest precedence for it).
   const cardsWin = hasRange ? { gte: periodStart!, lte: periodEnd! } : { gte: weekAgo }
-  const fcWin    = hasRange ? { gte: periodStart!, lte: periodEnd! } : { gte: weekStart }
+  const fcWin    = hasFcRange
+    ? { gte: new Date(`${fcFromParam}T00:00:00.000Z`), lte: new Date(`${fcToParam}T23:59:59.999Z`) }
+    : hasRange ? { gte: periodStart!, lte: periodEnd! }
+    : { gte: weekStart }
 
   // Sales / wastage filter: if a specific RC is selected, filter by it; otherwise all
   const rcFilter = rcId ? { revenueCenterId: rcId } : {}

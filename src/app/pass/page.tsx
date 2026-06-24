@@ -104,8 +104,16 @@ export default function PassPage() {
     const load = async () => {
       try {
         const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''
+        // Food-cost KPIs are month-to-date (the rolling-7d/WTD windows are often empty
+        // early in the week). fcFrom/fcTo window only the food-cost block — the wastage
+        // card stays rolling-7d.
+        const now = new Date()
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const fcFrom = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
+        const fcTo   = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+        const fcQs = `${qs ? `${qs}&` : '?'}fcFrom=${fcFrom}&fcTo=${fcTo}`
         const [d, c, k, p, s, a, fv, ie] = await Promise.all([
-          fetch(`/api/reports/dashboard${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch(`/api/reports/dashboard${fcQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch('/api/prep/items', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
@@ -245,12 +253,12 @@ export default function PassPage() {
 
         <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.2fr_1.2fr_1fr_1fr_1fr]">
           <FoodCostHero
-            label="PURCHASE COST · WTD" sub="invoices ÷ food sales"
+            label="PURCHASE COST · MTD" sub="invoices ÷ food sales"
             pct={dashboard?.purchaseFoodCostPct ?? chrome?.foodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
           />
           <FoodCostHero
-            label="THEORETICAL FOOD COST · WTD" sub="from recipe costs"
+            label="THEORETICAL FOOD COST · MTD" sub="from recipe costs"
             pct={dashboard?.theoreticalFoodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
             footer={dashboard ? (
