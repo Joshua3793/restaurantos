@@ -98,6 +98,13 @@ export default function PassPage() {
     period?: { startDate: string; endDate: string }
   } | null>(null)
   const [invEff, setInvEff] = useState<{ daysOnHand: number | null; turnsAnnual: number | null } | null>(null)
+  const [cogs, setCogs] = useState<{
+    actualFoodCostPct: number | null
+    theoreticalFoodCostPct: number | null
+    foodCostVariancePts: number | null
+    beginningInventory?: { needsCount: boolean }
+    endingInventory?: { needsCount: boolean; sameAsOpening: boolean }
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -112,7 +119,8 @@ export default function PassPage() {
         const fcFrom = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
         const fcTo   = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
         const fcQs = `${qs ? `${qs}&` : '?'}fcFrom=${fcFrom}&fcTo=${fcTo}`
-        const [d, c, k, p, s, a, fv, ie] = await Promise.all([
+        const cogsQs = `?startDate=${fcFrom}&endDate=${fcTo}${activeRcId ? `&rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''}`
+        const [d, c, k, p, s, a, fv, ie, cg] = await Promise.all([
           fetch(`/api/reports/dashboard${fcQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
@@ -121,6 +129,7 @@ export default function PassPage() {
           fetch('/api/invoices/alerts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { priceAlerts: [] }),
           fetch('/api/insights/food-cost-variance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch('/api/reports/inventory-efficiency?days=30', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch(`/api/reports/cogs${cogsQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
         ])
         if (cancelled) return
         if (d) setDashboard(d)
@@ -131,6 +140,7 @@ export default function PassPage() {
         if (a?.priceAlerts) setPriceAlertCount(a.priceAlerts.length)
         if (fv) setFcVariance(fv)
         if (ie) setInvEff(ie)
+        setCogs(cg ?? null)
       } catch { /* swallow */ }
     }
     load()
@@ -251,11 +261,33 @@ export default function PassPage() {
           }
         />
 
-        <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.2fr_1.2fr_1fr_1fr_1fr]">
+        <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-3">
           <FoodCostHero
             label="PURCHASE COST · MTD" sub="invoices ÷ food sales"
             pct={dashboard?.purchaseFoodCostPct ?? chrome?.foodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
+          />
+          <FoodCostHero
+            label="ACTUAL FOOD COST · MTD" sub="COGS ÷ food sales"
+            pct={cogs?.actualFoodCostPct ?? null}
+            target={chrome?.targetPct ?? 27}
+            footer={
+              cogs && cogs.actualFoodCostPct != null ? (
+                <>
+                  {cogs.foodCostVariancePts != null ? (
+                    <>
+                      <span className={cogs.foodCostVariancePts > 0 ? 'text-red' : 'text-green'}>
+                        {cogs.foodCostVariancePts > 0 ? '+' : ''}{cogs.foodCostVariancePts.toFixed(1)} pts
+                      </span>{' '}vs theoretical{' '}
+                      <b className="text-paper">{cogs.theoreticalFoodCostPct != null ? `${cogs.theoreticalFoodCostPct.toFixed(1)}%` : '—'}</b>
+                    </>
+                  ) : <>vs theoretical n/a</>}
+                  {(cogs.beginningInventory?.needsCount || cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening) && (
+                    <span className="text-ink-4"> · needs closing count</span>
+                  )}
+                </>
+              ) : <span className="text-ink-4">needs full count</span>
+            }
           />
           <FoodCostHero
             label="THEORETICAL FOOD COST · MTD" sub="from recipe costs"
