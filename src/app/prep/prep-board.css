@@ -180,9 +180,10 @@
 .pb .later-strip .lcount{margin-left:auto;font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10.5px;color:var(--ink-3);}
 .pb .later-body{display:none;border-top:1px solid var(--line);}
 .pb .later.open .later-body{display:block;}
-.pb .later-grid{display:grid;grid-template-columns:1fr;}
-@container (min-width:640px){ .pb .later-grid{grid-template-columns:1fr 1fr;} }
-@container (min-width:1000px){ .pb .later-grid{grid-template-columns:1fr 1fr 1fr;} }
+/* Each .row needs ~500px (14px + minmax(150px,1fr) + 78+60+46+84 cols + gaps + padding);
+   its fixed columns can't shrink, so a hardcoded 2-/3-col grid wider than the container
+   clipped the right column. auto-fit only creates as many ≥500px columns as actually fit. */
+.pb .later-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));}
 .pb .later-grid .row{border-right:1px solid var(--line);}
 .pb .later-note{padding:9px 16px;font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10px;color:var(--ink-4);letter-spacing:0.02em;border-top:1px solid var(--line);background:var(--bg);}
 
