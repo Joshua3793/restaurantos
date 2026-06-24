@@ -102,8 +102,8 @@ export default function PassPage() {
     actualFoodCostPct: number | null
     theoreticalFoodCostPct: number | null
     foodCostVariancePts: number | null
-    beginningInventory?: { needsCount: boolean }
-    endingInventory?: { needsCount: boolean; sameAsOpening: boolean }
+    beginningInventory?: { needsCount: boolean; sessionDate: string | null }
+    endingInventory?: { needsCount: boolean; sameAsOpening: boolean; sessionDate: string | null }
   } | null>(null)
 
   useEffect(() => {
@@ -271,6 +271,15 @@ export default function PassPage() {
             label="ACTUAL FOOD COST · MTD" sub="COGS ÷ food sales"
             pct={cogs?.actualFoodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
+            title={
+              cogs && cogs.actualFoodCostPct != null
+                ? cogs.beginningInventory?.needsCount
+                  ? 'No opening full count for this period — run one to bracket COGS.'
+                  : (cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening)
+                    ? `Opening count ${fmtCountDate(cogs.beginningInventory?.sessionDate)} · no closing full count yet — COGS = opening + purchases. Run a full count to close the period.`
+                    : `COGS bracketed by full counts: ${fmtCountDate(cogs.beginningInventory?.sessionDate)} → ${fmtCountDate(cogs.endingInventory?.sessionDate)}`
+                : undefined
+            }
             footer={
               cogs && cogs.actualFoodCostPct != null ? (
                 <>
@@ -282,9 +291,14 @@ export default function PassPage() {
                       <b className="text-paper">{cogs.theoreticalFoodCostPct != null ? `${cogs.theoreticalFoodCostPct.toFixed(1)}%` : '—'}</b>
                     </>
                   ) : <>vs theoretical n/a</>}
-                  {(cogs.beginningInventory?.needsCount || cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening) && (
-                    <span className="text-ink-4"> · needs closing count</span>
-                  )}
+                  {' · '}
+                  <span className="text-ink-4">
+                    {cogs.beginningInventory?.needsCount
+                      ? 'count needed'
+                      : (cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening)
+                        ? `${fmtCountDate(cogs.beginningInventory?.sessionDate)} → now*`
+                        : `${fmtCountDate(cogs.beginningInventory?.sessionDate)} → ${fmtCountDate(cogs.endingInventory?.sessionDate)}`}
+                  </span>
                 </>
               ) : <span className="text-ink-4">needs full count</span>
             }
@@ -416,15 +430,19 @@ export default function PassPage() {
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function FoodCostHero({ label, sub, pct, target, footer }: {
-  label: string; sub: string; pct: number | null; target: number; footer?: React.ReactNode
+// sessionDate is stored at UTC midnight — format in UTC so the calendar day doesn't shift.
+const fmtCountDate = (s?: string | null) =>
+  s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : null
+
+function FoodCostHero({ label, sub, pct, target, footer, title }: {
+  label: string; sub: string; pct: number | null; target: number; footer?: React.ReactNode; title?: string
 }) {
   const t = Number(target)
   const formatted = pct !== null ? pct.toFixed(1) : null
   const intStr = formatted !== null ? formatted.split('.')[0] : '—'
   const decimal = formatted !== null ? `.${formatted.split('.')[1]}%` : ''
   return (
-    <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
+    <div title={title} className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
         <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">{label}</div>
         <div className="font-mono text-[9px] text-ink-4 tracking-[0.01em] mt-0.5">{sub}</div>
