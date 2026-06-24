@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
-import { periodPurchases, periodSnapshotBounds } from '@/lib/cogs'
+import { periodPurchases, periodSnapshotBounds, type SnapshotBound } from '@/lib/cogs'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
@@ -76,30 +76,70 @@ export async function GET(req: NextRequest) {
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
-  // Opening/closing inventory = the FULL counts bounding the period, by sessionDate,
-  // RC-scoped (default RC + All read global counts; a non-default RC reads its own).
-  // Canonical shared resolver (periodSnapshotBounds in src/lib/cogs.ts). Counted stock
-  // is the ONLY source — no StockAllocation fallback (allocations aren't counted values
-  // and have no time dimension; the default RC has none, which is what produced $0).
-  const { opening: beginSession, closing: endSession } =
-    await periodSnapshotBounds(rangeStart.getTime(), rangeEnd.getTime(), { rcId, isDefault })
+  // COGS pieces for ONE scope (a specific RC, or the default pool). Opening/closing
+  // inventory = the FULL counts bounding the period by sessionDate; purchases = approved
+  // non-split scan items by session.approvedAt. Counted stock is the ONLY inventory
+  // source (no StockAllocation fallback — allocations aren't counted values).
+  const cogsForScope = async (scope: { rcId: string; isDefault: boolean }) => {
+    const { opening, closing } =
+      await periodSnapshotBounds(rangeStart.getTime(), rangeEnd.getTime(), scope)
+    const { total, byCategory: purchByCat, invoiceCount } =
+      await periodPurchases(rangeStart.getTime(), rangeEnd.getTime(), scope)
+    return {
+      opening, closing,
+      beginningValue: opening?.value ?? 0,
+      endingValue: closing?.value ?? 0,
+      beginByCategory: opening?.byCategory ?? {},
+      endByCategory: closing?.byCategory ?? {},
+      totalPurchases: total, purchasesByCategory: purchByCat, invoiceCount,
+      // A single FULL count can't bound both ends (COGS collapses to purchases).
+      sameBoundingCount: !!opening && opening.sessionId === closing?.sessionId,
+      fullyBracketed: !!opening && !!closing && opening.sessionId !== closing.sessionId,
+    }
+  }
 
-  const beginningValue = beginSession?.value ?? 0
-  const beginByCategory: Record<string, number> = beginSession?.byCategory ?? {}
-  const endingValue = endSession?.value ?? 0
-  const endByCategory: Record<string, number> = endSession?.byCategory ?? {}
+  let beginningValue = 0, endingValue = 0, totalPurchases = 0, invoiceCount = 0
+  let beginByCategory: Record<string, number> = {}
+  let endByCategory: Record<string, number> = {}
+  let purchasesByCategory: Record<string, number> = {}
+  let beginSession: SnapshotBound | null = null
+  let endSession: SnapshotBound | null = null
+  let sameBoundingCount = false
+  let rcCoverage: { total: number; counted: number; uncounted: string[] } | null = null
 
-  // A single FULL count can't bound both ends: when opening === closing the ending
-  // inventory is assumed unchanged (COGS = purchases) and flagged so the UI can warn.
-  const sameBoundingCount = !!beginSession && beginSession.sessionId === endSession?.sessionId
-
-  // Purchases in range — canonical spine definition (see periodPurchases in
-  // src/lib/cogs.ts): approved, non-split scan items by session.approvedAt,
-  // RC-scoped. No action filter and no legacy Invoice rows, so this stays
-  // consistent with the live cost-chrome food-cost number and with
-  // computePeriodCogs (used by /api/insights/food-cost-variance).
-  const { total: totalPurchases, byCategory: purchasesByCategory, invoiceCount } =
-    await periodPurchases(rangeStart.getTime(), rangeEnd.getTime(), { rcId, isDefault })
+  if (rcId) {
+    const r = await cogsForScope({ rcId, isDefault })
+    beginningValue = r.beginningValue; endingValue = r.endingValue
+    totalPurchases = r.totalPurchases; invoiceCount = r.invoiceCount
+    beginByCategory = r.beginByCategory; endByCategory = r.endByCategory
+    purchasesByCategory = r.purchasesByCategory
+    beginSession = r.opening; endSession = r.closing
+    sameBoundingCount = r.sameBoundingCount
+  } else {
+    // "All RCs" = Σ per-RC COGS, each revenue center bracketed by its OWN counts (the
+    // default RC reads the global pool). Mirrors getTheoreticalStockMap's ALL = ΣRC.
+    // An RC lacking an opening+closing bracket falls back to purchases-only for its
+    // slice and is reported in rcCoverage.uncounted so the UI can caveat the total.
+    const rcs = await prisma.revenueCenter.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, isDefault: true },
+    })
+    const parts = await Promise.all(
+      rcs.map(rc => cogsForScope({ rcId: rc.id, isDefault: rc.isDefault }).then(p => ({ rc, p }))),
+    )
+    const uncounted: string[] = []
+    for (const { rc, p } of parts) {
+      beginningValue += p.beginningValue
+      endingValue += p.endingValue
+      totalPurchases += p.totalPurchases
+      invoiceCount += p.invoiceCount
+      for (const [k, v] of Object.entries(p.beginByCategory)) beginByCategory[k] = (beginByCategory[k] ?? 0) + v
+      for (const [k, v] of Object.entries(p.endByCategory)) endByCategory[k] = (endByCategory[k] ?? 0) + v
+      for (const [k, v] of Object.entries(p.purchasesByCategory)) purchasesByCategory[k] = (purchasesByCategory[k] ?? 0) + v
+      if (!p.fullyBracketed) uncounted.push(rc.name)
+    }
+    rcCoverage = { total: rcs.length, counted: rcs.length - uncounted.length, uncounted }
+  }
 
   // Food sales
   // Shared sales scope: date range + RC filter. Reused by both the food-sales
@@ -153,19 +193,22 @@ export async function GET(req: NextRequest) {
       value: beginningValue,
       sessionDate: beginSession?.sessionDate ?? null,
       sessionId: beginSession?.sessionId ?? null,
-      needsCount: !beginSession,
+      needsCount: rcId ? !beginSession : (rcCoverage!.counted === 0),
     },
     purchases: { total: totalPurchases, invoiceCount },
     endingInventory: {
       value: endingValue,
       sessionDate: endSession?.sessionDate ?? null,
       sessionId: endSession?.sessionId ?? null,
-      needsCount: !endSession,
+      needsCount: rcId ? !endSession : false,
       // Ending falls on the same FULL count as beginning → no end-of-period count yet.
       sameAsOpening: sameBoundingCount,
     },
     // Scope echoed back so the UI can phrase "No full count for <RC>" correctly.
     scope: rcId ? (isDefault ? 'default' : 'rc') : 'all',
+    // For "All RCs": how many of the N revenue centers have a full opening+closing
+    // bracket (the rest fall back to purchases-only for their slice). Null for single-RC.
+    rcCoverage,
     cogs,
     foodSales,
     foodCostPct,

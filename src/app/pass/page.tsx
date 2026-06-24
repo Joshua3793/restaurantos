@@ -104,6 +104,7 @@ export default function PassPage() {
     foodCostVariancePts: number | null
     beginningInventory?: { needsCount: boolean; sessionDate: string | null }
     endingInventory?: { needsCount: boolean; sameAsOpening: boolean; sessionDate: string | null }
+    rcCoverage?: { total: number; counted: number; uncounted: string[] } | null
   } | null>(null)
 
   useEffect(() => {
@@ -273,11 +274,15 @@ export default function PassPage() {
             target={chrome?.targetPct ?? 27}
             title={
               cogs && cogs.actualFoodCostPct != null
-                ? cogs.beginningInventory?.needsCount
-                  ? 'No opening full count for this period — run one to bracket COGS.'
-                  : (cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening)
-                    ? `Opening count ${fmtCountDate(cogs.beginningInventory?.sessionDate)} · no closing full count yet — COGS = opening + purchases. Run a full count to close the period.`
-                    : `COGS bracketed by full counts: ${fmtCountDate(cogs.beginningInventory?.sessionDate)} → ${fmtCountDate(cogs.endingInventory?.sessionDate)}`
+                ? cogs.rcCoverage
+                  ? cogs.rcCoverage.uncounted.length > 0
+                    ? `Sum of all ${cogs.rcCoverage.total} revenue centers. Uncounted (purchases-only this period): ${cogs.rcCoverage.uncounted.join(', ')}.`
+                    : `Sum of all ${cogs.rcCoverage.total} revenue centers, each bracketed by its own full counts.`
+                  : cogs.beginningInventory?.needsCount
+                    ? 'No opening full count for this period — run one to bracket COGS.'
+                    : (cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening)
+                      ? `Opening count ${fmtCountDate(cogs.beginningInventory?.sessionDate)} · no closing full count yet — COGS = opening + purchases. Run a full count to close the period.`
+                      : `COGS bracketed by full counts: ${fmtCountDate(cogs.beginningInventory?.sessionDate)} → ${fmtCountDate(cogs.endingInventory?.sessionDate)}`
                 : undefined
             }
             footer={
@@ -293,11 +298,15 @@ export default function PassPage() {
                   ) : <>vs theoretical n/a</>}
                   {' · '}
                   <span className="text-ink-4">
-                    {cogs.beginningInventory?.needsCount
-                      ? 'count needed'
-                      : (cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening)
-                        ? `${fmtCountDate(cogs.beginningInventory?.sessionDate)} → now*`
-                        : `${fmtCountDate(cogs.beginningInventory?.sessionDate)} → ${fmtCountDate(cogs.endingInventory?.sessionDate)}`}
+                    {cogs.rcCoverage
+                      ? cogs.rcCoverage.uncounted.length > 0
+                        ? `${cogs.rcCoverage.uncounted.length} of ${cogs.rcCoverage.total} RCs uncounted`
+                        : `ΣRC · ${cogs.rcCoverage.total} RCs`
+                      : cogs.beginningInventory?.needsCount
+                        ? 'count needed'
+                        : (cogs.endingInventory?.needsCount || cogs.endingInventory?.sameAsOpening)
+                          ? `${fmtCountDate(cogs.beginningInventory?.sessionDate)} → now*`
+                          : `${fmtCountDate(cogs.beginningInventory?.sessionDate)} → ${fmtCountDate(cogs.endingInventory?.sessionDate)}`}
                   </span>
                 </>
               ) : <span className="text-ink-4">needs full count</span>

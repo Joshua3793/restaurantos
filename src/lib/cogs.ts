@@ -107,11 +107,18 @@ export interface SnapshotScope {
 export async function periodSnapshotBounds(
   startMs: number, endMs: number, scope: SnapshotScope = {},
 ): Promise<{ opening: SnapshotBound | null; closing: SnapshotBound | null }> {
-  // All-RCs and default-RC both bound on global counts; a non-default RC on its own.
-  const scopeRc = scope.rcId && !scope.isDefault ? scope.rcId : null
+  // A default-RC count may be tagged with the global null pool OR the default RC's own
+  // id (depending how it was created), so the default reads both; a non-default RC reads
+  // only its own counts; an unscoped call falls back to the global pool. ("All RCs" is
+  // computed as ΣRC by the caller — it never calls this without an rcId.)
+  const rcWhere = scope.rcId
+    ? (scope.isDefault
+        ? { OR: [{ revenueCenterId: scope.rcId }, { revenueCenterId: null }] }
+        : { revenueCenterId: scope.rcId })
+    : { revenueCenterId: null }
 
   const sessions = await prisma.countSession.findMany({
-    where: { status: 'FINALIZED', type: 'FULL', revenueCenterId: scopeRc },
+    where: { status: 'FINALIZED', type: 'FULL', ...rcWhere },
     select: {
       id: true, sessionDate: true,
       snapshots: { select: { totalValue: true, category: true } },
