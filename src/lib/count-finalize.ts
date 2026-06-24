@@ -43,6 +43,12 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   const isRcScopedCount = !!session.revenueCenterId && !session.revenueCenter?.isDefault
 
   const now = new Date()
+  // The count's EFFECTIVE date (what the user set), not when they clicked approve.
+  // `lastCountDate` gates theoretical-stock movements (a movement only applies if it
+  // happened on/after the item's last count), so it must reflect the date the stock
+  // was actually counted — otherwise sales/purchases between the count date and the
+  // approval date get silently dropped as "already baked into the baseline".
+  const countDate = session.sessionDate
   let totalCountedValue = 0
   let itemsUpdated = 0
   let itemsSkipped = 0
@@ -114,8 +120,8 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
           prisma.inventoryItem.update({
             where: { id: item.id },
             data: isRcScopedCount
-              ? { lastCountDate: now, lastCountQty: qtyBase }
-              : { stockOnHand: qtyBase, lastCountDate: now, lastCountQty: qtyBase },
+              ? { lastCountDate: countDate, lastCountQty: qtyBase }
+              : { stockOnHand: qtyBase, lastCountDate: countDate, lastCountQty: qtyBase },
           })
         )
       }

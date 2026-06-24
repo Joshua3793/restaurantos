@@ -83,12 +83,14 @@ export async function buildConsumptionMap(
   const lineItems = await prisma.saleLineItem.findMany({
     where: {
       sale: {
-        date: { gte: since },
+        // A period sale (date..endDate) is relevant if ANY part of its range falls
+        // in the window — match on either bound, then gate per-item by its end below.
+        OR: [{ date: { gte: since } }, { endDate: { gte: since } }],
         ...(rcId ? { revenueCenterId: rcId } : {}),
       },
     },
     include: {
-      sale: { select: { date: true } },
+      sale: { select: { date: true, endDate: true } },
       recipe: {
         include: {
           ingredients: {
@@ -117,7 +119,14 @@ export async function buildConsumptionMap(
         ? Number(recipe.baseYieldQty) / Number(recipe.portionSize)
         : 1
     const batches = li.qtySold / portionsPerBatch
-    expandRecipeIngredients(recipe, batches, map, new Set<string>(), li.sale.date, cutoff)
+    // Gate a period sale by where its range ENDS, not where it starts. A sale spanning
+    // (date..endDate) represents consumption across the whole period, so it should apply
+    // to any item counted on/before the period end — gating on the start date would drop
+    // the entire period whenever the start predates a count. (Caveat: an item recounted
+    // mid-period gets the full period's consumption, not just the post-count portion —
+    // acceptable until per-day sales granularity exists.)
+    const effectiveDate = li.sale.endDate ?? li.sale.date
+    expandRecipeIngredients(recipe, batches, map, new Set<string>(), effectiveDate, cutoff)
   }
   return map
 }
