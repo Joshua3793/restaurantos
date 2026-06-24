@@ -6,6 +6,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
 import { ReportsSubnav } from './ReportsSubnav'
+import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
 
 interface ChromeData {
   foodCostPct: number | null
@@ -27,6 +28,7 @@ interface DashboardData {
   weeklyFoodSales: number
   weeklyPurchaseCost: number
   estimatedFoodCostPct: number
+  purchaseFoodCostPct: number | null
 }
 
 interface RecipeDriftRow {
@@ -43,21 +45,36 @@ export default function ReportsPage() {
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
+  const [range, setRange] = useState<DateRange>(() => rangeForPreset('thisWeek'))
 
+  // cost-chrome (target + live on-hand) and recipes are point-in-time — fetch on RC change only.
   useEffect(() => {
-    const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${activeRc?.isDefault ?? false}` : ''
     Promise.all([
       fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-      fetch(`/api/reports/dashboard${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
       fetch(`/api/recipes?type=MENU`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
-    ]).then(([c, d, r]) => {
+    ]).then(([c, r]) => {
       if (c) setChrome(c)
-      if (d) setDashboard(d)
       if (Array.isArray(r)) setRecipes(r)
     })
-  }, [activeRcId, activeRc])
+  }, [activeRcId])
+
+  // dashboard is range-driven — refetch when the RC or the selected range changes.
+  useEffect(() => {
+    // Send calendar days (YYYY-MM-DD, local Y/M/D); the API interprets them at UTC
+    // boundaries to match how sales dates are stored (date-only → UTC midnight).
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const params = new URLSearchParams()
+    if (activeRcId) { params.set('rcId', activeRcId); params.set('isDefault', String(activeRc?.isDefault ?? false)) }
+    params.set('from', ymd(range.from))
+    params.set('to', ymd(range.to))
+    fetch(`/api/reports/dashboard?${params.toString()}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setDashboard(d) })
+  }, [activeRcId, activeRc, range])
 
   const target = chrome?.targetPct ?? 27
+  // Food-cost % is now range-driven (purchases / food sales over the selected window).
+  const rangeFoodCostPct = dashboard?.purchaseFoodCostPct ?? null
   const drift = useMemo<RecipeDriftRow[]>(() => {
     return recipes
       .filter(r => r.menuPrice !== null && r.totalCost > 0)
@@ -79,19 +96,21 @@ export default function ReportsPage() {
       <PageHead
         crumbs={<><BarChart3 size={12} /> INSIGHTS / REPORTS</>}
         title="Reports"
-        sub={chrome ? <>WTD food cost <b>{chrome.foodCostPct?.toFixed(1) ?? '—'}%</b> vs target <b>{target.toFixed(1)}%</b> · on hand <b>{formatCurrency(chrome.onHand)}</b></> : <>Loading…</>}
+        sub={chrome ? <>{range.label} food cost <b>{rangeFoodCostPct?.toFixed(1) ?? '—'}%</b> vs target <b>{target.toFixed(1)}%</b> · on hand <b>{formatCurrency(chrome.onHand)}</b></> : <>Loading…</>}
       />
 
       <ReportsSubnav />
 
+      <DateRangePicker value={range} onChange={setRange} />
+
       <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-        <HeroCard chrome={chrome} target={target} />
-        <Card label="WEEKLY REVENUE" value={dashboard ? formatCurrency(dashboard.weeklyRevenue) : '—'} delta={<>WTD</>} />
-        <Card label="WEEKLY PURCHASES" value={dashboard ? formatCurrency(dashboard.weeklyPurchaseCost) : '—'} delta={<>numerator</>} />
-        <Card label="WASTAGE · 7D"
+        <HeroCard pct={rangeFoodCostPct} target={target} label={range.label} />
+        <Card label="REVENUE" value={dashboard ? formatCurrency(dashboard.weeklyRevenue) : '—'} delta={<>{range.label}</>} />
+        <Card label="PURCHASES" value={dashboard ? formatCurrency(dashboard.weeklyPurchaseCost) : '—'} delta={<>numerator</>} />
+        <Card label="WASTAGE"
           value={dashboard ? formatCurrency(dashboard.weeklyWastageCost) : '—'}
           valueClass={dashboard && dashboard.weeklyWastageCost > 0 ? 'text-red-text' : ''}
-          delta={<>from log</>}
+          delta={<>{range.label}</>}
         />
       </div>
 
@@ -174,14 +193,13 @@ export default function ReportsPage() {
   )
 }
 
-function HeroCard({ chrome, target }: { chrome: ChromeData | null; target: number }) {
-  const pct = chrome?.foodCostPct ?? null
+function HeroCard({ pct, target, label }: { pct: number | null; target: number; label: string }) {
   const intStr = pct !== null ? Math.floor(pct).toString() : '—'
   const decStr = pct !== null ? `.${(pct % 1).toFixed(1).slice(2)}%` : ''
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
-        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">FOOD COST · WEEK TO DATE</div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase">FOOD COST · {label}</div>
         <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
           {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decStr}</sub>
         </div>

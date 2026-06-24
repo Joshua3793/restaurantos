@@ -21,6 +21,25 @@ export async function GET(req: NextRequest) {
   const monthAgo = new Date(now); monthAgo.setDate(monthAgo.getDate() - 30)
   const weekStart = startOfWeek(now)
 
+  // Optional analysis range (Reports Overview date-range picker). `from`/`to` are
+  // calendar dates (YYYY-MM-DD) interpreted at UTC boundaries — matching how sales
+  // `date` is stored (date-only → UTC midnight). Using UTC (not local) boundaries is
+  // essential: a sale dated 2026-06-01 lives at 00:00Z, so a local-midnight "start of
+  // June 1" (07:00Z in Pacific) would wrongly exclude it.
+  // When BOTH are present every time-windowed metric is computed over that single
+  // window; when absent the legacy behaviour is preserved byte-for-byte (rolling-7d
+  // cards + WTD food-cost block), so the `pass` / `signals` consumers — which never
+  // send a range — are unaffected.
+  const fromParam = searchParams.get('from')
+  const toParam   = searchParams.get('to')
+  const hasRange  = !!fromParam && !!toParam
+  const periodStart = hasRange ? new Date(`${fromParam}T00:00:00.000Z`) : null
+  const periodEnd   = hasRange ? new Date(`${toParam}T23:59:59.999Z`)   : null
+  // Card metrics default to rolling-7d (weekAgo); food-cost block defaults to WTD (weekStart).
+  // A supplied range overrides both with the same window.
+  const cardsWin = hasRange ? { gte: periodStart!, lte: periodEnd! } : { gte: weekAgo }
+  const fcWin    = hasRange ? { gte: periodStart!, lte: periodEnd! } : { gte: weekStart }
+
   // Sales / wastage filter: if a specific RC is selected, filter by it; otherwise all
   const rcFilter = rcId ? { revenueCenterId: rcId } : {}
 
@@ -35,7 +54,7 @@ export async function GET(req: NextRequest) {
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },
       },
     }),
-    prisma.wastageLog.aggregate({ where: { date: { gte: weekAgo },  ...rcFilter }, _sum: { costImpact: true } }),
+    prisma.wastageLog.aggregate({ where: { date: cardsWin,          ...rcFilter }, _sum: { costImpact: true } }),
     prisma.wastageLog.aggregate({ where: { date: { gte: monthAgo }, ...rcFilter }, _sum: { costImpact: true } }),
     prisma.invoiceSession.findMany({
       take: 8,
@@ -43,13 +62,13 @@ export async function GET(req: NextRequest) {
       where: { status: { not: 'UPLOADING' } },
       select: { id: true, status: true, supplierName: true, invoiceNumber: true, invoiceDate: true, total: true, createdAt: true },
     }),
-    prisma.salesEntry.findMany({ where: { date: { gte: weekAgo }, ...rcFilter } }),
+    prisma.salesEntry.findMany({ where: { date: cardsWin, ...rcFilter } }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: weekAgo } } },
+      where: { approved: true, splitToSessionId: null, session: { approvedAt: cardsWin } },
       _sum: { rawLineTotal: true },
     }),
     prisma.salesEntry.findMany({
-      where: { date: { gte: weekStart }, ...rcFilter },
+      where: { date: fcWin, ...rcFilter },
       select: {
         totalRevenue: true, foodSalesPct: true, covers: true,
         lineItems: { select: { recipeId: true, qtySold: true } },
@@ -59,7 +78,7 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: { approvedAt: { gte: weekStart }, ...(rcId ? { revenueCenterId: rcId } : {}) },
+        session: { approvedAt: fcWin, ...(rcId ? { revenueCenterId: rcId } : {}) },
       },
       _sum: { rawLineTotal: true },
     }),
@@ -164,6 +183,7 @@ export async function GET(req: NextRequest) {
     foodCostLabel,
     inventoryCount: inventory.length,
     weekStartWTD: weekStart.toISOString(),
+    appliedRange: hasRange ? { from: periodStart!.toISOString(), to: periodEnd!.toISOString() } : null,
     foodSalesWTD,
     purchasesWTD: purchasesWTDTotal,
     purchaseFoodCostPct,
