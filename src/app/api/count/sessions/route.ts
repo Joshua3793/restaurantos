@@ -55,6 +55,9 @@ export async function POST(req: NextRequest) {
       isActive: true,
       isStocked: true,
       ...(areaIds.length > 0 ? { storageAreaId: { in: areaIds } } : {}),
+      // RC-scoped count → only items that are members of this revenue center
+      // (ItemRevenueCenter). An unscoped count (no rcId) keeps the legacy "all items".
+      ...(revenueCenterId ? { revenueCenters: { some: { revenueCenterId } } } : {}),
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })

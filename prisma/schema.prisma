@@ -115,6 +115,7 @@ model InventoryItem {
   stockAllocations   StockAllocation[]
   stockTransfers     StockTransfer[]
   wastageLogs        WastageLog[]
+  revenueCenters     ItemRevenueCenter[]
 }
 
 model Invoice {
@@ -561,6 +562,7 @@ model RevenueCenter {
   tempUnits         TempUnit[]        @relation("TempUnitRC")
   prepItems         PrepItem[]        @relation("PrepItemRC")
   prepLogs          PrepLog[]         @relation("PrepLogRC")
+  itemMemberships   ItemRevenueCenter[]
 }
 
 model StockAllocation {
@@ -575,6 +577,22 @@ model StockAllocation {
   revenueCenter   RevenueCenter @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
 
   @@unique([revenueCenterId, inventoryItemId])
+}
+
+// Explicit item↔revenue-center membership ("shared items"). Pure visibility/scope —
+// no stock lives here. Controls which items appear in an RC's count. Stock stays in
+// InventoryItem.stockOnHand (default RC) and StockAllocation (non-default). The default
+// RC participates like any other RC. See docs/superpowers/specs/2026-06-24-item-rc-membership-design.md
+model ItemRevenueCenter {
+  id              String        @id @default(cuid())
+  inventoryItemId String
+  revenueCenterId String
+  createdAt       DateTime      @default(now())
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  revenueCenter   RevenueCenter @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
+
+  @@unique([inventoryItemId, revenueCenterId])
+  @@index([revenueCenterId])
 }
 
 model StockTransfer {

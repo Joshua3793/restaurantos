@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
   // single source of truth. Every create path (inventory add, count quick-add,
   // CSV import) sends a chain body — there is no legacy-field create path.
-  const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, ...rest } = body
+  const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, revenueCenterId, ...rest } = body
   if (!packChain) {
     return NextResponse.json({ error: 'packChain is required' }, { status: 400 })
   }
@@ -197,5 +197,18 @@ export async function POST(req: NextRequest) {
     },
     include: { supplier: true, storageArea: true },
   })
+
+  // A new item joins exactly the RC chosen at creation (default RC if none) — its first
+  // ItemRevenueCenter membership, so it shows up in that RC's counts. More RCs are added
+  // later via the item drawer / inventory bulk action.
+  const chosenRc =
+    revenueCenterId ||
+    (await prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { id: true } }))?.id
+  if (chosenRc) {
+    await prisma.itemRevenueCenter
+      .create({ data: { inventoryItemId: item.id, revenueCenterId: chosenRc } })
+      .catch(e => console.error('[inventory POST] membership create', e))
+  }
+
   return NextResponse.json(withPpb(item), { status: 201 })
 }

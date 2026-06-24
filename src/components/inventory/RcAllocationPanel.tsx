@@ -49,11 +49,19 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
   const [savingPar,      setSavingPar]      = useState(false)
   const [parError,       setParError]       = useState('')
 
+  // Item↔RC membership: which RCs this item is "in" (controls count visibility).
+  const [members,    setMembers]    = useState<Set<string>>(new Set())
+  const [togglingRc, setTogglingRc] = useState<string | null>(null)
+  const [memberErr,  setMemberErr]  = useState<{ rcId: string; msg: string } | null>(null)
+
   const loadData = useCallback(async () => {
-    const [allocsRes, transferRes] = await Promise.all([
+    const [allocsRes, transferRes, membersRes] = await Promise.all([
       fetch(`/api/stock-allocations?itemId=${itemId}`).then(r => r.json()),
       fetch(`/api/stock-transfers?itemId=${itemId}`).then(r => r.json()),
+      fetch(`/api/inventory/${itemId}/revenue-centers`).then(r => r.json()).catch(() => []),
     ])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setMembers(new Set((Array.isArray(membersRes) ? membersRes : []).map((m: any) => m.id)))
     setAllocations(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (allocsRes as any[]).map((a: any) => ({
@@ -132,6 +140,24 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
     loadData()
   }
 
+  const toggleMembership = async (rcId: string, isMember: boolean) => {
+    setTogglingRc(rcId)
+    setMemberErr(null)
+    const res = isMember
+      ? await fetch(`/api/inventory/${itemId}/revenue-centers/${rcId}`, { method: 'DELETE' })
+      : await fetch(`/api/inventory/${itemId}/revenue-centers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revenueCenterId: rcId }),
+        })
+    setTogglingRc(null)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setMemberErr({ rcId, msg: d.error || 'Failed' })
+      return
+    }
+    loadData()
+  }
+
   // How much of the on-hand stock has been distributed out of the main pool.
   const allInMain = allocations.length === 0
 
@@ -162,11 +188,12 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
           const isEditingPar = editParRcId === rc.id
           const isPulling    = pullRcId === rc.id
           const suggested    = isBelowPar && parLevel !== null ? parLevel - qty : null
+          const isMember     = members.has(rc.id)
 
           return (
             <div
               key={rc.id}
-              className={`px-4 py-3 border-l-2 transition-colors ${isBelowPar ? 'border-gold bg-gold-soft/40' : 'border-transparent'}`}
+              className={`px-4 py-3 border-l-2 transition-colors ${isBelowPar ? 'border-gold bg-gold-soft/40' : 'border-transparent'} ${isMember ? '' : 'opacity-60'}`}
             >
               {/* RC header row */}
               <div className="flex items-center gap-2">
@@ -175,6 +202,18 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                   {rc.name}
                   {isDefaultRc && <span className="text-xs text-ink-4 font-normal ml-1">main pool</span>}
                 </span>
+                <button
+                  onClick={() => toggleMembership(rc.id, isMember)}
+                  disabled={togglingRc === rc.id}
+                  title={isMember ? 'In this revenue center — click to remove (counts here)' : 'Not in this revenue center — click to add'}
+                  className={`shrink-0 text-[10px] font-mono px-2 py-0.5 rounded-full border transition-colors disabled:opacity-50 ${
+                    isMember
+                      ? 'bg-green-soft text-green-text border-green-soft'
+                      : 'bg-bg-2 text-ink-4 border-line hover:text-ink-3'
+                  }`}
+                >
+                  {isMember ? '✓ in RC' : '+ add'}
+                </button>
                 <span className="text-sm font-medium text-ink-2">
                   {qty.toFixed(2)} <span className="text-xs text-ink-4">{countUOM}</span>
                   {parLevel !== null && (
@@ -217,6 +256,13 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
                   </button>
                 )}
               </div>
+
+              {/* Membership change error (e.g. blocked removal) */}
+              {memberErr?.rcId === rc.id && (
+                <div className="mt-1.5 ml-4 text-xs text-red bg-red-soft border border-red-soft rounded-lg px-2.5 py-1.5">
+                  {memberErr.msg}
+                </div>
+              )}
 
               {/* Below-par suggestion */}
               {isBelowPar && suggested !== null && !isEditingPar && (

@@ -428,6 +428,31 @@ function InventoryPageInner() {
     fetchItems()
   }
 
+  // Bulk RC membership — add/remove the checked items to/from a revenue center.
+  const bulkMembership = async (action: 'add' | 'remove', rcId: string) => {
+    if (!checkedIds.size) return
+    const res = await fetch('/api/inventory/revenue-centers/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemIds: Array.from(checkedIds), rcIds: [rcId], action }),
+    })
+    const d = await res.json().catch(() => ({}))
+    setBulkAction(''); setShowBulkMenu(false)
+    if (!res.ok) { showToast({ type: 'error', title: d.error || 'Failed' }); return }
+    const rcName = revenueCenters.find(r => r.id === rcId)?.name ?? 'RC'
+    if (action === 'add') {
+      showToast({ type: 'success', title: `Added ${d.added} membership${d.added === 1 ? '' : 's'} to ${rcName}` })
+    } else {
+      const blocked = d.blocked?.length ?? 0
+      showToast({
+        type: blocked > 0 ? 'error' : 'success',
+        title: `Removed ${d.removed} from ${rcName}` + (blocked > 0 ? ` · ${blocked} skipped (stock present or last RC)` : ''),
+      })
+    }
+    setCheckedIds(new Set())
+    fetchItems()
+  }
+
   const executeBulkAllergen = async (allergens: string[], mode: 'add' | 'replace') => {
     setShowBulkAllergen(false)
     await fetch('/api/inventory/bulk', {
@@ -509,6 +534,8 @@ function InventoryPageInner() {
         pricing: form.pricing,
         countUnit: form.countUnit,
         stockOnHand: stockBase,
+        // The new item joins exactly this RC (its first membership).
+        revenueCenterId: addRcId || defaultRcId || null,
       }),
     })
     if (!res.ok) {
@@ -1099,6 +1126,38 @@ function InventoryPageInner() {
                     <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-48 max-h-56 overflow-y-auto">
                       {storageAreas.map(a => (
                         <button key={a.id} onClick={() => executeBulk('setStorageArea', a.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{a.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Add to revenue center */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setBulkAction('addRc'); setShowBulkMenu(v => bulkAction === 'addRc' ? !v : true) }}
+                    className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
+                  >
+                    Add to RC <ChevronDown size={12} />
+                  </button>
+                  {showBulkMenu && bulkAction === 'addRc' && (
+                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-40 max-h-56 overflow-y-auto">
+                      {revenueCenters.map(rc => (
+                        <button key={rc.id} onClick={() => bulkMembership('add', rc.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{rc.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Remove from revenue center */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setBulkAction('removeRc'); setShowBulkMenu(v => bulkAction === 'removeRc' ? !v : true) }}
+                    className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
+                  >
+                    Remove from RC <ChevronDown size={12} />
+                  </button>
+                  {showBulkMenu && bulkAction === 'removeRc' && (
+                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-40 max-h-56 overflow-y-auto">
+                      {revenueCenters.map(rc => (
+                        <button key={rc.id} onClick={() => bulkMembership('remove', rc.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{rc.name}</button>
                       ))}
                     </div>
                   )}

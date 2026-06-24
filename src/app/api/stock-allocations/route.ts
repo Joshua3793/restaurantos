@@ -79,6 +79,13 @@ export async function POST(req: NextRequest) {
           data: { fromRcId: defaultRc.id, toRcId: rcId, inventoryItemId, quantity: qtyBase, notes: notes || null },
         })]
       : []),
+    // Stock in an RC implies membership — otherwise the item would hold stock there but
+    // be invisible in that RC's count. Idempotent.
+    prisma.itemRevenueCenter.upsert({
+      where: { inventoryItemId_revenueCenterId: { inventoryItemId, revenueCenterId: rcId } },
+      create: { inventoryItemId, revenueCenterId: rcId },
+      update: {},
+    }),
   ])
 
   return NextResponse.json({ ok: true })

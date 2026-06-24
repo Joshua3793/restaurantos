@@ -532,6 +532,8 @@ export default function CountPage() {
   // Create a count session scoped to the given area (or full when areaId is null),
   // then open count mode. Used by the area-based landing.
   const createAndOpenCount = async (label: string | undefined, areaId: string | null) => {
+    // A count writes to one revenue center — you can't count "All RCs" into one place.
+    if (!activeRcId) { setToast('Pick a specific revenue center to count — you can’t count “All RCs”.'); return }
     const res = await fetch('/api/count/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -581,6 +583,8 @@ export default function CountPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.countedBy.trim()) return
+    // A count writes to one revenue center — require a concrete RC (not "All RCs").
+    if (!selectedRcId) { setToast('Pick a specific revenue center to count — you can’t count “All RCs”.'); return }
     const res = await fetch('/api/count/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

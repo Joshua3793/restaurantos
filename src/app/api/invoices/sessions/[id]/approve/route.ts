@@ -504,6 +504,12 @@ async function doApprove(
           create: { revenueCenterId: rcId, inventoryItemId: itemId, quantity: 0 },
           update: {}, // already allocated — leave quantity/par/reorder untouched
         }).catch((e) => console.error('[approve] stock allocation upsert failed:', e))
+        // Receiving stock into an RC implies membership (so it's countable there).
+        await prisma.itemRevenueCenter.upsert({
+          where: { inventoryItemId_revenueCenterId: { inventoryItemId: itemId, revenueCenterId: rcId } },
+          create: { inventoryItemId: itemId, revenueCenterId: rcId },
+          update: {},
+        }).catch((e) => console.error('[approve] membership upsert failed:', e))
       }
     }
 
