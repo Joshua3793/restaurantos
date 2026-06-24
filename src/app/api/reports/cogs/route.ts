@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { periodPurchases, periodSnapshotBounds } from '@/lib/cogs'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
@@ -76,65 +76,22 @@ export async function GET(req: NextRequest) {
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
-  // Opening/closing inventory bounds — canonical shared resolver (see
-  // periodSnapshotBounds in src/lib/cogs.ts), so global COGS here matches
-  // computePeriodCogs (used by /api/insights/food-cost-variance) exactly.
-  // RC mode overrides these with current StockAllocation below.
+  // Opening/closing inventory = the FULL counts bounding the period, by sessionDate,
+  // RC-scoped (default RC + All read global counts; a non-default RC reads its own).
+  // Canonical shared resolver (periodSnapshotBounds in src/lib/cogs.ts). Counted stock
+  // is the ONLY source — no StockAllocation fallback (allocations aren't counted values
+  // and have no time dimension; the default RC has none, which is what produced $0).
   const { opening: beginSession, closing: endSession } =
-    await periodSnapshotBounds(rangeStart.getTime(), rangeEnd.getTime())
+    await periodSnapshotBounds(rangeStart.getTime(), rangeEnd.getTime(), { rcId, isDefault })
 
-  // Compute beginning inventory value
-  let beginningValue = 0
-  let beginningFallback = false
-  let beginByCategory: Record<string, number> = {}
+  const beginningValue = beginSession?.value ?? 0
+  const beginByCategory: Record<string, number> = beginSession?.byCategory ?? {}
+  const endingValue = endSession?.value ?? 0
+  const endByCategory: Record<string, number> = endSession?.byCategory ?? {}
 
-  if (rcId) {
-    // RC mode: use StockAllocation for beginning inventory
-    const allocations = await prisma.stockAllocation.findMany({
-      where: { revenueCenterId: rcId },
-      include: { inventoryItem: { select: { category: true, ...PRICING_SELECT } } },
-    })
-    for (const a of allocations) {
-      const v = Number(a.quantity) * pricePerBaseUnit(asChainItem(a.inventoryItem))
-      beginningValue += v
-      beginByCategory[a.inventoryItem.category] = (beginByCategory[a.inventoryItem.category] || 0) + v
-    }
-  } else if (beginSession) {
-    beginningValue = beginSession.value
-    beginByCategory = beginSession.byCategory
-  } else {
-    beginningFallback = true
-    const items = await prisma.inventoryItem.findMany({ where: { isStocked: true } })
-    for (const item of items) {
-      const v = Number(item.stockOnHand) * pricePerBaseUnit(asChainItem(item))
-      beginningValue += v
-      beginByCategory[item.category] = (beginByCategory[item.category] || 0) + v
-    }
-  }
-
-  // Compute ending inventory value
-  let endingValue = 0
-  let endingFallback = false
-  let endByCategory: Record<string, number> = {}
-
-  if (rcId) {
-    // RC mode: same StockAllocation snapshot — we use the current allocation
-    // (same as beginning; COGS formula will net them — user should run counts first)
-    const allocations = await prisma.stockAllocation.findMany({
-      where: { revenueCenterId: rcId },
-      include: { inventoryItem: { select: { category: true, ...PRICING_SELECT } } },
-    })
-    for (const a of allocations) {
-      const v = Number(a.quantity) * pricePerBaseUnit(asChainItem(a.inventoryItem))
-      endingValue += v
-      endByCategory[a.inventoryItem.category] = (endByCategory[a.inventoryItem.category] || 0) + v
-    }
-  } else if (endSession) {
-    endingValue = endSession.value
-    endByCategory = endSession.byCategory
-  } else {
-    endingFallback = true
-  }
+  // A single FULL count can't bound both ends: when opening === closing the ending
+  // inventory is assumed unchanged (COGS = purchases) and flagged so the UI can warn.
+  const sameBoundingCount = !!beginSession && beginSession.sessionId === endSession?.sessionId
 
   // Purchases in range — canonical spine definition (see periodPurchases in
   // src/lib/cogs.ts): approved, non-split scan items by session.approvedAt,
@@ -192,13 +149,23 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     startDate: startDateStr,
     endDate:   endDateStr,
-    beginningInventory: (rcId || beginSession)
-      ? { value: beginningValue, sessionDate: rcId ? null : (beginSession?.sessionDate ?? null), sessionId: rcId ? null : (beginSession?.sessionId ?? null), fallback: false }
-      : { value: beginningValue, sessionDate: null, sessionId: null, fallback: beginningFallback },
+    beginningInventory: {
+      value: beginningValue,
+      sessionDate: beginSession?.sessionDate ?? null,
+      sessionId: beginSession?.sessionId ?? null,
+      needsCount: !beginSession,
+    },
     purchases: { total: totalPurchases, invoiceCount },
-    endingInventory: (rcId || endSession)
-      ? { value: endingValue, sessionDate: rcId ? null : (endSession?.sessionDate ?? null), sessionId: rcId ? null : (endSession?.sessionId ?? null), fallback: false }
-      : { value: 0, sessionDate: null, sessionId: null, fallback: endingFallback },
+    endingInventory: {
+      value: endingValue,
+      sessionDate: endSession?.sessionDate ?? null,
+      sessionId: endSession?.sessionId ?? null,
+      needsCount: !endSession,
+      // Ending falls on the same FULL count as beginning → no end-of-period count yet.
+      sameAsOpening: sameBoundingCount,
+    },
+    // Scope echoed back so the UI can phrase "No full count for <RC>" correctly.
+    scope: rcId ? (isDefault ? 'default' : 'rc') : 'all',
     cogs,
     foodSales,
     foodCostPct,

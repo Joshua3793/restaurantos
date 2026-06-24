@@ -78,33 +78,50 @@ export interface SnapshotBound {
 }
 
 /**
- * Resolve the opening/closing finalized-count inventory bounding a period —
- * the SINGLE source of truth for global period inventory bounds, shared by
- * computePeriodCogs and /api/reports/cogs so they can't drift.
+ * Resolve the opening/closing counted inventory bounding a period — the SINGLE
+ * source of truth for period inventory bounds, shared by computePeriodCogs and
+ * /api/reports/cogs so they can't drift.
  *
- * opening = most recent finalized count ≤ startMs; closing = most recent ≤ endMs.
- * Value is summed from the session's InventorySnapshot rows (priced totalValue).
- * This equals CountSession.totalCountedValue by construction (count-finalize
- * writes both from the same per-line value), but the snapshot rows additionally
- * carry the per-category breakdown the COGS report needs. Returns null for a
- * bound when no finalized count precedes it. Global only.
+ * Only FULL counts qualify (a QUICK / single-item count snapshots one item, not the
+ * whole inventory — using it as a period bound massively understates value). Bounds
+ * are keyed on `sessionDate` (the effective count date the user chose), NOT
+ * `finalizedAt` (when they happened to click approve) — otherwise a count taken on
+ * the 1st but approved on the 10th would be excluded from a period starting the 1st.
+ *
+ * RC scope mirrors the rest of the app: a snapshot's revenue center is its session's
+ * (InventorySnapshot has no RC column). A global (rc=null) count writes the default
+ * pool, so the default RC and the "All RCs" view both read global counts; a
+ * non-default RC reads only its own RC-scoped FULL counts.
+ *
+ * opening = latest qualifying count with sessionDate ≤ startMs; closing = latest with
+ * sessionDate ≤ endMs. Value/byCategory summed from the session's InventorySnapshot
+ * rows (priced totalValue). Returns null for a bound when no qualifying count precedes
+ * it.
  */
-export async function periodSnapshotBounds(startMs: number, endMs: number): Promise<{
-  opening: SnapshotBound | null
-  closing: SnapshotBound | null
-}> {
+export interface SnapshotScope {
+  rcId?: string | null
+  /** When the selected RC is the default pool, read global counts (which wrote that pool). */
+  isDefault?: boolean
+}
+
+export async function periodSnapshotBounds(
+  startMs: number, endMs: number, scope: SnapshotScope = {},
+): Promise<{ opening: SnapshotBound | null; closing: SnapshotBound | null }> {
+  // All-RCs and default-RC both bound on global counts; a non-default RC on its own.
+  const scopeRc = scope.rcId && !scope.isDefault ? scope.rcId : null
+
   const sessions = await prisma.countSession.findMany({
-    where: { status: 'FINALIZED', finalizedAt: { not: null } },
+    where: { status: 'FINALIZED', type: 'FULL', revenueCenterId: scopeRc },
     select: {
-      id: true, finalizedAt: true, sessionDate: true,
+      id: true, sessionDate: true,
       snapshots: { select: { totalValue: true, category: true } },
     },
   })
-  // Sort descending so the first match in find() is the most recent ≤ bound.
-  sessions.sort((a, b) => ms(b.finalizedAt) - ms(a.finalizedAt))
+  // Sort descending by the effective count date so the first match is the most recent ≤ bound.
+  sessions.sort((a, b) => ms(b.sessionDate) - ms(a.sessionDate))
 
   const pick = (boundMs: number): SnapshotBound | null => {
-    const s = sessions.find(x => ms(x.finalizedAt) <= boundMs)
+    const s = sessions.find(x => ms(x.sessionDate) <= boundMs)
     if (!s) return null
     let value = 0
     const byCategory: Record<string, number> = {}

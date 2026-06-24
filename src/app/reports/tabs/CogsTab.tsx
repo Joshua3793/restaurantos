@@ -1,91 +1,91 @@
 'use client'
-import { useState, useCallback } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/utils'
 import { SectionHeader, Card, LoadingState } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
+import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
 
+interface InvBound { value: number; sessionDate: string | null; sessionId: string | null; needsCount: boolean; sameAsOpening?: boolean }
 interface CogsResult {
   startDate: string; endDate: string
-  beginningInventory: { value: number; sessionDate: string | null; sessionId: string | null; fallback: boolean }
+  beginningInventory: InvBound
   purchases: { total: number; invoiceCount: number }
-  endingInventory: { value: number; sessionDate: string | null; sessionId: string | null; fallback: boolean }
+  endingInventory: InvBound
+  scope: 'all' | 'default' | 'rc'
   cogs: number; foodSales: number; foodCostPct: number
   byCategory: Array<{ category: string; beginningValue: number; endingValue: number; purchases: number; cogs: number }>
 }
 
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// sessionDate is a date-only value stored at UTC midnight — render in UTC so a count
+// dated Jun 1 doesn't display as "May 31" in a behind-UTC timezone.
+const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+
+/** Beginning / Ending inventory card — shows the counted value or an honest "needs count" state. */
+function InventoryCard({ label, bound, rcName }: { label: string; bound: InvBound; rcName: string }) {
+  return (
+    <Card className="text-center">
+      <div className="text-xs font-medium text-ink-3 mb-1">{label}</div>
+      {bound.needsCount ? (
+        <>
+          <div className="text-xl font-bold text-ink-4">—</div>
+          <div className="text-[10px] text-gold mt-1">No full count for {rcName}</div>
+        </>
+      ) : (
+        <>
+          <div className="text-xl font-bold text-ink-2">{formatCurrency(bound.value)}</div>
+          {bound.sessionDate && <div className="text-[10px] text-ink-4 mt-1">counted {fmtDate(bound.sessionDate)}</div>}
+          {bound.sameAsOpening && <div className="text-[10px] text-gold mt-1">assumes unchanged — run an end count</div>}
+        </>
+      )}
+    </Card>
+  )
+}
+
 export default function CogsTab() {
   const { activeRcId, activeRc } = useRc()
-  const getWeekBounds = () => {
-    const today = new Date(), dow = today.getDay()
-    const mon = new Date(today); mon.setDate(today.getDate() - ((dow + 6) % 7))
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-    return { start: mon.toISOString().split('T')[0], end: sun.toISOString().split('T')[0] }
-  }
-  const { start: defaultStart, end: defaultEnd } = getWeekBounds()
-  const [startDate, setStartDate] = useState(defaultStart)
-  const [endDate, setEndDate]     = useState(defaultEnd)
+  const [range, setRange] = useState<DateRange>(() => rangeForPreset('thisWeek'))
   const [data, setData] = useState<CogsResult | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async () => {
+  // Auto-recompute whenever the range or revenue center changes.
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    try {
-      const params = new URLSearchParams({ startDate, endDate })
-      if (activeRcId) {
-        params.set('rcId', activeRcId)
-        if (activeRc?.isDefault) params.set('isDefault', 'true')
-      }
-      const res = await fetch(`/api/reports/cogs?${params}`)
-      setData(await res.json())
-    } finally { setLoading(false) }
-  }, [startDate, endDate, activeRcId, activeRc])
+    const params = new URLSearchParams({ startDate: ymd(range.from), endDate: ymd(range.to) })
+    if (activeRcId) {
+      params.set('rcId', activeRcId)
+      if (activeRc?.isDefault) params.set('isDefault', 'true')
+    }
+    fetch(`/api/reports/cogs?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setData(d) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [range, activeRcId, activeRc])
 
   const fcColor = (pct: number) => pct < 28 ? 'text-green-text' : pct < 35 ? 'text-gold' : 'text-red'
+  const rcName = activeRc ? activeRc.name : 'All RCs'
 
   return (
     <div className="space-y-6">
-      {/* Date selector */}
       <Card>
-        <SectionHeader title="COGS Calculator" subtitle="Beginning Inventory + Purchases − Ending Inventory" />
-        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
-          <div>
-            <label className="block text-xs font-medium text-ink-3 mb-1">Start Date</label>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-              className="border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-ink-3 mb-1">End Date</label>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-              className="border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-          </div>
-          <button onClick={load} disabled={loading}
-            className="flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-4 py-2 rounded-lg text-sm hover:bg-ink-2 disabled:opacity-50">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Calculating…' : 'Calculate COGS'}
-          </button>
-          {activeRc && (
-            <div className="flex items-center gap-1.5 text-xs text-ink-3">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(activeRc.color) }} />
-              {activeRc.name}
-            </div>
-          )}
+        <SectionHeader title="COGS Calculator" subtitle="Beginning Inventory + Purchases − Ending Inventory · from full counts" />
+        <DateRangePicker value={range} onChange={setRange} />
+        <div className="flex items-center gap-1.5 text-xs text-ink-3 mt-1">
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: activeRc ? rcHex(activeRc.color) : '#9ca3af' }} />
+          {rcName}{!activeRc && ' · global'}
         </div>
       </Card>
 
-      {loading && <LoadingState />}
+      {loading && !data && <LoadingState />}
 
       {data && (
         <>
           {/* Formula Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-center">
-            <Card className="text-center">
-              <div className="text-xs font-medium text-ink-3 mb-1">Beginning Inventory</div>
-              <div className="text-xl font-bold text-ink-2">{formatCurrency(data.beginningInventory.value)}</div>
-              {data.beginningInventory.fallback && <div className="text-[10px] text-gold mt-1">⚠ estimated</div>}
-              {data.beginningInventory.sessionDate && <div className="text-[10px] text-ink-4 mt-1">{data.beginningInventory.sessionDate}</div>}
-            </Card>
+            <InventoryCard label="Beginning Inventory" bound={data.beginningInventory} rcName={rcName} />
             <div className="flex items-center justify-center text-2xl font-light text-ink-4">+</div>
             <Card className="text-center">
               <div className="text-xs font-medium text-ink-3 mb-1">Purchases</div>
@@ -97,12 +97,7 @@ export default function CogsTab() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-center">
             <div className="hidden sm:block" />
             <div className="hidden sm:block" />
-            <Card className="text-center">
-              <div className="text-xs font-medium text-ink-3 mb-1">Ending Inventory</div>
-              <div className="text-xl font-bold text-ink-2">{formatCurrency(data.endingInventory.value)}</div>
-              {data.endingInventory.fallback && <div className="text-[10px] text-gold mt-1">⚠ estimated</div>}
-              {data.endingInventory.sessionDate && <div className="text-[10px] text-ink-4 mt-1">{data.endingInventory.sessionDate}</div>}
-            </Card>
+            <InventoryCard label="Ending Inventory" bound={data.endingInventory} rcName={rcName} />
             <Card className="text-center border-gold/30 bg-gold/10">
               <div className="text-xs font-semibold text-gold mb-1">= COGS</div>
               <div className="text-2xl font-bold text-gold">{formatCurrency(data.cogs)}</div>
