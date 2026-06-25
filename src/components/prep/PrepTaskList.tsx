@@ -1,6 +1,7 @@
 'use client'
 import { X } from 'lucide-react'
 import type { PrepTaskRow } from './types'
+import TaskName from './TaskName'
 
 interface Props {
   rows: PrepTaskRow[]   // pass only activeToday rows
@@ -24,12 +25,9 @@ export default function PrepTaskList({ rows, onDone, onRemove }: Props) {
               className="shrink-0"
               aria-label={`Mark ${row.name} done`}
             />
-            <span className="text-[14px] text-ink flex-1">{row.name}</span>
-            {row.linkedInventoryItem && (
-              <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-gold-soft text-gold-2 whitespace-nowrap">
-                {row.linkedInventoryItem.itemName}
-              </span>
-            )}
+            <span className="text-[14px] text-ink flex-1">
+              <TaskName name={row.name} linkedInventoryItem={row.linkedInventoryItem} />
+            </span>
             <button onClick={() => onRemove(row.id)} aria-label={`Remove ${row.name} from today`}
                     className="text-ink-4 hover:text-red-text shrink-0">
               <X size={14} />

@@ -1,7 +1,8 @@
 'use client'
 import { useMemo, useRef, useState } from 'react'
-import { Plus, GripVertical, Trash2, X, Check } from 'lucide-react'
+import { Plus, GripVertical, Trash2, Check } from 'lucide-react'
 import type { PrepTaskRow, LinkedItemSummary } from './types'
+import TaskName from './TaskName'
 
 interface Props {
   rows: PrepTaskRow[]
@@ -46,23 +47,29 @@ export default function PrepTaskLibrary({
 
   function onDraftChange(value: string) {
     setDraft(value)
+    // Open the picker while actively typing a mention: text after the last '@'
+    // with no space yet. A completed/inserted mention (has a trailing space) closes it.
     const at = value.lastIndexOf('@')
-    if (at >= 0 && !linkedItem) setMentionQuery(value.slice(at + 1))
-    else setMentionQuery(null)
+    const frag = at >= 0 ? value.slice(at + 1) : null
+    setMentionQuery(frag !== null && !frag.includes(' ') ? frag : null)
   }
 
   function pickItem(item: LinkedItemSummary) {
-    setLinkedItem(item)
-    // strip the "@query" fragment from the draft text
+    // Insert "@<item> " inline at the '@' the user typed, so the tag lives where
+    // the text is — e.g. "Slice @Salmon (is already cured)".
     const at = draft.lastIndexOf('@')
-    setDraft(at >= 0 ? draft.slice(0, at).trimEnd() : draft)
+    const before = at >= 0 ? draft.slice(0, at) : draft
+    setDraft(`${before}@${item.itemName} `)
+    setLinkedItem(item)
     setMentionQuery(null)
   }
 
   function submit() {
     const name = draft.trim()
     if (!name) return
-    onCreate(name, linkedItem?.id ?? null)
+    // Only keep the link if its inline mention survived in the text.
+    const linkedId = linkedItem && name.includes(`@${linkedItem.itemName}`) ? linkedItem.id : null
+    onCreate(name, linkedId)
     setDraft(''); setLinkedItem(null); setMentionQuery(null)
   }
 
@@ -97,12 +104,9 @@ export default function PrepTaskLibrary({
                 className="flex items-center gap-2 rounded-lg border border-line bg-paper px-2 py-1.5"
               >
                 <GripVertical size={14} className="text-ink-4 cursor-grab shrink-0" />
-                <span className="text-[14px] text-ink flex-1">{row.name}</span>
-                {row.linkedInventoryItem && (
-                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-gold-soft text-gold-2 whitespace-nowrap">
-                    {row.linkedInventoryItem.itemName}
-                  </span>
-                )}
+                <span className="text-[14px] text-ink flex-1">
+                  <TaskName name={row.name} linkedInventoryItem={row.linkedInventoryItem} />
+                </span>
                 <button
                   onClick={() => onToggleActive(row.id, !row.activeToday)}
                   title={row.activeToday ? "Remove from today's list" : "Add to today's list"}
@@ -126,20 +130,12 @@ export default function PrepTaskLibrary({
 
           <div className="relative mt-2">
             <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-1.5 rounded-lg border border-line bg-paper px-2 py-1.5">
-                {linkedItem && (
-                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-gold-soft text-gold-2 whitespace-nowrap flex items-center gap-1">
-                    {linkedItem.itemName}
-                    <button onClick={() => setLinkedItem(null)} aria-label="Remove linked ingredient">
-                      <X size={11} />
-                    </button>
-                  </span>
-                )}
+              <div className="flex-1 flex items-center rounded-lg border border-line bg-paper px-2 py-1.5">
                 <input
                   value={draft}
                   onChange={e => onDraftChange(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') submit() }}
-                  placeholder="New task… (type @ to link an ingredient)"
+                  placeholder="New task… (type @ to tag an ingredient)"
                   className="flex-1 bg-transparent text-[14px] text-ink outline-none min-w-0"
                 />
               </div>
