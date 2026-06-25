@@ -109,6 +109,7 @@ model InventoryItem {
   matchRules         InvoiceMatchRule[]       @relation("InventoryMatchRules")
   invoiceMatches     InvoiceScanItem[]        @relation("InventoryInvoiceMatches")
   prepItems          PrepItem[]               @relation("PrepItemInventory")
+  prepTaskRefs       PrepTask[]               @relation("PrepTaskInventory")
   priceAlerts        PriceAlert[]             @relation("InventoryPriceAlerts")
   recipe             Recipe?                  @relation("RecipeInventoryItem")
   recipeIngredients  RecipeIngredient[]       @relation("RecipeIngredientInventory")
@@ -563,6 +564,7 @@ model RevenueCenter {
   prepItems         PrepItem[]        @relation("PrepItemRC")
   prepLogs          PrepLog[]         @relation("PrepLogRC")
   itemMemberships   ItemRevenueCenter[]
+  prepTasks         PrepTask[]        @relation("PrepTaskRC")
 }
 
 model StockAllocation {
@@ -744,4 +746,30 @@ model ToastSyncLog {
   status           String   @default("ok") // 'ok' | 'error'
   error            String?
   createdAt        DateTime @default(now())
+}
+
+model PrepTask {
+  id                    String         @id @default(uuid())
+  name                  String
+  revenueCenterId       String
+  linkedInventoryItemId String?
+  sortOrder             Int            @default(0)
+  isActive              Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  revenueCenter         RevenueCenter  @relation("PrepTaskRC", fields: [revenueCenterId], references: [id])
+  linkedInventoryItem   InventoryItem? @relation("PrepTaskInventory", fields: [linkedInventoryItemId], references: [id])
+  logs                  PrepTaskLog[]
+
+  @@index([revenueCenterId])
+}
+
+model PrepTaskLog {
+  id         String   @id @default(uuid())
+  prepTaskId String
+  logDate    DateTime
+  createdAt  DateTime @default(now())
+  prepTask   PrepTask @relation(fields: [prepTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([prepTaskId, logDate])
 }
