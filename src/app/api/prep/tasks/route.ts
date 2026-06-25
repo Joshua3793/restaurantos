@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     })
     const today = await prisma.prepTaskLog.findMany({
-      where: { prepTask: { revenueCenterId: rcId }, logDate: { gte: start, lt: end } },
+      where: { prepTask: { revenueCenterId: rcId, isActive: true }, logDate: { gte: start, lt: end } },
       select: { id: true, prepTaskId: true, logDate: true },
     })
     return NextResponse.json({ library, today })
