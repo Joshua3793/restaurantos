@@ -87,3 +87,29 @@ export interface RecipeStepsData {
 export interface PrepItemDetail extends PrepItemRich {
   ingredients: IngredientAvailability[]
 }
+
+export interface LinkedItemSummary {
+  id: string
+  itemName: string
+}
+
+export interface PrepTask {
+  id: string
+  name: string
+  revenueCenterId: string
+  linkedInventoryItemId: string | null
+  sortOrder: number
+  isActive: boolean
+  linkedInventoryItem: LinkedItemSummary | null
+}
+
+export interface PrepTaskTodayLog {
+  id: string
+  prepTaskId: string
+  logDate: string
+}
+
+// A library task plus whether it is on today's list (active).
+export interface PrepTaskRow extends PrepTask {
+  activeToday: boolean
+}
