@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useRef, useState } from 'react'
-import { Plus, GripVertical, Trash2, X } from 'lucide-react'
+import { Plus, GripVertical, Trash2, X, Check } from 'lucide-react'
 import type { PrepTaskRow, LinkedItemSummary } from './types'
 
 interface Props {
@@ -97,19 +97,25 @@ export default function PrepTaskLibrary({
                 className="flex items-center gap-2 rounded-lg border border-line bg-paper px-2 py-1.5"
               >
                 <GripVertical size={14} className="text-ink-4 cursor-grab shrink-0" />
-                <input
-                  type="checkbox"
-                  checked={row.activeToday}
-                  onChange={e => onToggleActive(row.id, e.target.checked)}
-                  className="shrink-0"
-                  aria-label={`Activate ${row.name} for today`}
-                />
                 <span className="text-[14px] text-ink flex-1">{row.name}</span>
                 {row.linkedInventoryItem && (
                   <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-gold-soft text-gold-2 whitespace-nowrap">
                     {row.linkedInventoryItem.itemName}
                   </span>
                 )}
+                <button
+                  onClick={() => onToggleActive(row.id, !row.activeToday)}
+                  title={row.activeToday ? "Remove from today's list" : "Add to today's list"}
+                  className={`shrink-0 px-2.5 py-1 rounded-[8px] text-[12px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
+                    row.activeToday
+                      ? 'bg-green-soft text-green-text border border-green-soft hover:border-red hover:bg-red-soft hover:text-red'
+                      : 'bg-ink text-paper hover:bg-ink-2'
+                  }`}
+                >
+                  {row.activeToday
+                    ? <><Check size={12} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+                    : <><span className="text-gold font-semibold">+</span> Add</>}
+                </button>
                 <button onClick={() => onDelete(row.id)} aria-label={`Delete ${row.name}`}
                         className="text-ink-4 hover:text-red-text shrink-0">
                   <Trash2 size={14} />
