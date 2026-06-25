@@ -1134,25 +1134,6 @@ export default function PrepPage() {
               />
             </div>
           )}
-          {/* Prep tasks (checklist) — desktop */}
-          {viewMode === 'smartprep' && (
-            <div className="mb-3">
-              <PrepTaskLibrary
-                rows={taskRows}
-                inventory={inventoryForTasks}
-                disabled={tasksDisabled}
-                onCreate={createTask}
-                onToggleActive={setTaskActive}
-                onDelete={deleteTask}
-                onReorder={reorderTasks}
-              />
-            </div>
-          )}
-          {viewMode === 'today' && activeTaskRows.length > 0 && (
-            <div className="mb-3">
-              <PrepTaskList rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-            </div>
-          )}
           <div className="toolbar">
             <div className="search">
               <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
@@ -1186,6 +1167,20 @@ export default function PrepPage() {
               todayItems={filteredToday}
               handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onPriorityChange: handlePriorityChange }}
               onAddAll={handleAddIds}
+              tasksSlot={viewMode === 'smartprep'
+                ? <PrepTaskLibrary
+                    asBlock
+                    rows={taskRows}
+                    inventory={inventoryForTasks}
+                    disabled={tasksDisabled}
+                    onCreate={createTask}
+                    onToggleActive={setTaskActive}
+                    onDelete={deleteTask}
+                    onReorder={reorderTasks}
+                  />
+                : activeTaskRows.length > 0
+                  ? <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+                  : undefined}
             />
           )}
         </div>
