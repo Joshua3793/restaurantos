@@ -32,9 +32,15 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
     return (
       <div className="board">
         <div className="actionable">
-          {tasksSlot}
-          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} emptyText="No critical items" />
-          <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
+          {/* Left column stacks Tasks + Needed Today so they fill the space beside
+              the (usually taller) Critical column on the right. */}
+          <div className="col">
+            {tasksSlot}
+            <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
+          </div>
+          <div className="col">
+            <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} emptyText="No critical items" />
+          </div>
         </div>
         <PrepLater variant="closed" rows={closed} h={h} />
       </div>
@@ -50,9 +56,13 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
     return (
       <div className="board">
         <div className="actionable">
-          {tasksSlot}
-          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll(notOnListIds(crit))} />
-          <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll(notOnListIds(low))} />
+          <div className="col">
+            {tasksSlot}
+            <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll(notOnListIds(low))} />
+          </div>
+          <div className="col">
+            <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll(notOnListIds(crit))} />
+          </div>
         </div>
         <PrepLater variant="par" rows={par} h={h} />
       </div>

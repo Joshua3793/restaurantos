@@ -75,15 +75,20 @@
 
 /* ══════════ BOARD ══════════ */
 .pb .board{display:flex;flex-direction:column;gap:14px;}
-.pb .actionable{display:grid;grid-template-columns:1fr;gap:14px;}
+.pb .actionable{display:grid;grid-template-columns:1fr;gap:14px;align-items:start;}
 /* Breakpoints tuned to our content container (max-w-7xl ≈ 1163px collapsed,
    ≈ 976px when the nav is summoned) so the board is 2-up with the nav
    collapsed and reflows to 1-up when the nav is summoned. */
 @container (min-width:1040px){ .pb .actionable{grid-template-columns:1fr 1fr;} }
 @container (min-width:1240px){ .pb .actionable.tri{grid-template-columns:1fr 1fr 1fr;} }
+/* A grid cell that stacks several blocks (e.g. Tasks + Needed Today on the left
+   so they fill the space beside a tall Critical column). */
+.pb .actionable .col{display:flex;flex-direction:column;gap:14px;min-width:0;}
 
 /* Block card */
 .pb .block{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;align-self:start;}
+/* The Tasks block hosts the @-mention dropdown, which must escape the card. */
+.pb .block.prep-tasks{overflow:visible;}
 .pb .block.crit{border-color:#fca5a5;}
 .pb .block.low{border-color:#fcd34d;}
 .pb .bk-head{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap;flex-wrap:nowrap;}

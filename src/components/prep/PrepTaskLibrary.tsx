@@ -149,7 +149,7 @@ export default function PrepTaskLibrary({
   // ── Board .block card (desktop grid) ──
   if (asBlock) {
     return (
-      <div className="block">
+      <div className="block prep-tasks">
         <div className="bk-head">
           <span className="bk-dot dot-gray" />
           <span className="bk-title">TASKS</span>
