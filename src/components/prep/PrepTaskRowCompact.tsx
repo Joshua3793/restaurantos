@@ -88,7 +88,7 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenRecipe(item) } }}
           className="w-9 h-9 rounded-[10px] grid place-items-center shrink-0 bg-paper border border-line text-ink-2 active:scale-95"
         >
-          <span className="w-6 h-6 rounded-[7px] bg-ink text-gold grid place-items-center"><IcRecipe size={13} /></span>
+          <IcRecipe size={16} />
         </span>
       )}
       {(() => {
