@@ -84,6 +84,9 @@
 /* A grid cell that stacks several blocks (e.g. Tasks + Needed Today on the left
    so they fill the space beside a tall Critical column). */
 .pb .actionable .col{display:flex;flex-direction:column;gap:14px;min-width:0;}
+/* Blocks carry align-self:start for the grid (tri) layout; inside a stacked column
+   they must instead stretch to the full column width. */
+.pb .actionable .col > .block{align-self:stretch;}
 
 /* Block card */
 .pb .block{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;align-self:start;}
