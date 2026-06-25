@@ -1,6 +1,7 @@
 'use client'
 import type { PrepItemRich } from '@/components/prep/types'
 import { BoardRow, dotClass, fmtQty } from './prep-board-utils'
+import { IcRecipe } from '@/components/prep/icons'
 
 export interface RowHandlers {
   view: 'todo' | 'smart'
@@ -11,7 +12,6 @@ export interface RowHandlers {
   onPriorityChange: (id: string, priority: string) => void
 }
 
-const Recipe = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z"/><path d="M4 16a4 4 0 0 1 4-4h12"/></svg>)
 const OpenPanel = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>)
 
 export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
@@ -69,7 +69,7 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
       <span className="r-stock">{stock}</span>
       <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>
       <span className="r-reveal">
-        {item.linkedRecipeId && <button onClick={() => h.onOpenRecipe(item)} title="View recipe"><Recipe /></button>}
+        {item.linkedRecipeId && <button onClick={() => h.onOpenRecipe(item)} title="View recipe"><IcRecipe /></button>}
         <button onClick={() => h.onOpen(item)} title="Open details"><OpenPanel /></button>
       </span>
       <span className="r-act">{act}</span>
