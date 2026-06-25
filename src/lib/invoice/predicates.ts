@@ -68,14 +68,17 @@ export function hasPriceChange(item: ScanItem, thresholdPct = 3): boolean {
 
 // ── Unlinked ──────────────────────────────────────────────────────────────────
 export function isUnlinked(item: ScanItem): boolean {
-  return (
-    !item.matchedItemId &&
-    // CREATE_NEW only counts as a decision when the user actually configured
-    // the new item (newItemData from the AddNewItemModal). Legacy scan items
-    // auto-set to CREATE_NEW by the matcher carry no data and still need one.
-    !(item.action === 'CREATE_NEW' && item.newItemData) &&
-    item.action !== 'SKIP'
-  )
+  if (item.action === 'SKIP') return false
+  // CREATE_NEW only counts as a decision when the user actually configured
+  // the new item (newItemData from the AddNewItemModal). Legacy scan items
+  // auto-set to CREATE_NEW by the matcher carry no data and still need one.
+  if (item.action === 'CREATE_NEW' && item.newItemData) return false
+  // "Linked" means a CONFIRMED link. A still-PENDING line is undecided even when the
+  // matcher pre-filled a LOW-confidence matchedItemId *suggestion* — approve skips
+  // action==='PENDING', so such a line must surface for review (the user confirms the
+  // suggestion, which upgrades action to ADD_SUPPLIER/UPDATE_PRICE) rather than read as
+  // auto-matched and then silently fail to reach inventory.
+  return !item.matchedItemId || item.action === 'PENDING'
 }
 
 // ── Math check ────────────────────────────────────────────────────────────────
