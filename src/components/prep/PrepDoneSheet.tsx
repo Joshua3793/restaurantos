@@ -44,7 +44,12 @@ export default function PrepDoneSheet({ item, onClose, onConfirm }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center md:p-6">
-      <div onClick={onClose} className="fixed inset-0 z-40 bg-[rgba(9,9,11,0.36)] backdrop-blur-[2px]" aria-hidden="true" />
+      {/* Plain dim overlay — NO backdrop-blur. A full-viewport `backdrop-filter: blur()`
+          over the large prep page (which has a continuously-spinning in-progress loader
+          and an always-mounted nav backdrop-filter behind it) forces the browser to
+          re-blur the whole page every frame — that froze the app on weaker laptops.
+          See the same fix in RecipeCookAlongModal. A dim overlay is GPU-cheap. */}
+      <div onClick={onClose} className="fixed inset-0 z-40 bg-[rgba(9,9,11,0.6)]" aria-hidden="true" />
       <div
         role="dialog"
         aria-label="Mark prep done"

@@ -183,7 +183,10 @@ export default function PrepDrawer({
       {/* SCRIM */}
       <div
         onClick={onClose}
-        className={`fixed inset-0 z-40 bg-[rgba(9,9,11,0.36)] backdrop-blur-[2px] transition-opacity ${
+        // Plain dim overlay — NO backdrop-blur. A full-viewport `backdrop-filter: blur()`
+        // re-blurs the entire animating prep page every frame and stacks over the nav's
+        // own backdrop-filter, which froze the app on weaker laptops (see RecipeCookAlongModal).
+        className={`fixed inset-0 z-40 bg-[rgba(9,9,11,0.6)] transition-opacity ${
           open ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         aria-hidden="true"
