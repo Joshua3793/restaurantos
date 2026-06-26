@@ -414,6 +414,26 @@ export default function CountPage() {
     return () => clearInterval(timer)
   }, [sessions, loadSessions])
 
+  // Background drain of the offline queue. The 'online' event only fires on a real
+  // navigator.onLine flip, which flaky walk-in-cooler wifi often skips — so queued
+  // counts (including online saves that failed mid-request) would otherwise sit
+  // unsynced until a manual sync. Retry every few seconds while anything is pending.
+  // No full reload on success: the in-memory optimistic counts already match, and a
+  // re-count of a now-stale-token line is recovered by confirmLine's 409 merge.
+  useEffect(() => {
+    if (pendingCount === 0) return
+    let cancelled = false
+    const drain = async () => {
+      if (cancelled || offlineSyncing || typeof navigator !== 'undefined' && !navigator.onLine) return
+      const { synced } = await flushCountQueue()
+      if (cancelled) return
+      if (synced > 0) setPendingCount(loadCountQueue().length)
+    }
+    const timer = setInterval(drain, 5000)
+    drain()
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [pendingCount, offlineSyncing])
+
   // No body-scroll lock needed — new session form is its own view on mobile
   // and a small centered modal on desktop (sm+).
 
@@ -639,12 +659,9 @@ export default function CountPage() {
     const optimistic = mixed
       ? { countedQty: qtyBase, selectedUom: line.inventoryItem.baseUnit, entries }
       : { countedQty: qty, selectedUom: line.selectedUom, entries: null }
-    setActive(prev => ({
-      ...prev!,
-      lines: prev!.lines!.map(l =>
-        l.id === line.id ? { ...l, ...optimistic, skipped: false, variancePct: vPct, varianceCost: vCost } : l
-      ),
-    }))
+    const applyCount = (l: Line): Line =>
+      l.id === line.id ? { ...l, ...optimistic, skipped: false, variancePct: vPct, varianceCost: vCost } : l
+    setActive(prev => ({ ...prev!, lines: prev!.lines!.map(applyCount) }))
     setOpenId(null)
     // Auto-advance to next uncounted
     const next = filteredLines.find(l => l.id !== line.id && l.countedQty === null && !l.skipped)
@@ -655,32 +672,54 @@ export default function CountPage() {
         cardRefs.current[`${prefix}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }, 120)
     }
-    if (isOffline) {
+    // Durable save — used when offline AND when an online save fails. A PATCH that
+    // fails while navigator.onLine is still true (flaky walk-in-cooler wifi never
+    // fires the 'offline' event) used to throw and silently drop the count: the
+    // optimistic value showed counted but was neither persisted nor queued, so the
+    // next session reload/sync reverted it to uncounted. That was the "counts reset
+    // after counting / sync wipes my work, making me recount" bug. Queue + cache it
+    // so the offline flush retries it on the next reconnect.
+    const queueCount = () => {
       enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty, ...(mixed ? { entries } : {}) })
       setPendingCount(c => c + 1)
-      // Persist the optimistic state so the count survives a reload while offline.
-      if (active) saveCountSessionCache(active.id, {
-        ...active,
-        lines: active.lines!.map(l => l.id === line.id ? { ...l, ...optimistic, skipped: false, variancePct: vPct, varianceCost: vCost } : l),
-      })
-      return
+      if (active) saveCountSessionCache(active.id, { ...active, lines: active.lines!.map(applyCount) })
     }
-    const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        mixed
-          ? { entries, expectedUpdatedAt: line.updatedAt }
-          : { countedQty: qty, expectedUpdatedAt: line.updatedAt },
-      ),
-    })
-    if (res.status === 409) {
-      // Someone else edited this line — refresh the session to pick up their changes
-      setToast('This item was just counted on another device. Refreshing…')
-      const fresh = await loadSession(active!.id)
-      if (fresh) setActive(fresh)
-    } else if (res.ok) {
-      syncLineFromResponse(line.id, await res.json().catch(() => null))
+
+    if (isOffline) { queueCount(); return }
+
+    try {
+      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          mixed
+            ? { entries, expectedUpdatedAt: line.updatedAt }
+            : { countedQty: qty, expectedUpdatedAt: line.updatedAt },
+        ),
+      })
+      if (res.status === 409) {
+        // Another device counted this line first. Merge ONLY this line from the
+        // server's copy — never reload the whole session here: that would clobber
+        // every other line's not-yet-synced optimistic count (another way counts
+        // "reset"). Keep our local inventoryItem — it carries enrichment the
+        // conflict payload lacks.
+        const body = await res.json().catch(() => null)
+        const s = body?.currentLine
+        if (s) {
+          setActive(prev => prev ? { ...prev, lines: prev.lines!.map(l => l.id === line.id
+            ? { ...l, countedQty: s.countedQty, selectedUom: s.selectedUom, skipped: s.skipped, entries: s.entries ?? null, variancePct: s.variancePct, varianceCost: s.varianceCost, updatedAt: s.updatedAt }
+            : l) } : prev)
+        }
+        setToast('This item was just counted on another device.')
+      } else if (res.ok) {
+        syncLineFromResponse(line.id, await res.json().catch(() => null))
+      } else {
+        // Server rejected (5xx/4xx) — queue for retry rather than lose the count.
+        queueCount()
+      }
+    } catch {
+      // Network dropped mid-save while still "online" — queue so the count survives.
+      queueCount()
     }
   }
 
@@ -694,12 +733,14 @@ export default function CountPage() {
       ...prev!, lines: prev!.lines!.map(l => l.id === line.id ? { ...l, selectedUom: newUom } : l),
     }))
     if (!isOffline) {
-      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedUom: newUom }),
-      })
-      if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+      try {
+        const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selectedUom: newUom }),
+        })
+        if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+      } catch { /* network — the count's PATCH re-sends the unit; non-critical */ }
     }
   }
 
@@ -708,22 +749,26 @@ export default function CountPage() {
       ...prev!, lines: prev!.lines!.map(l => l.id === line.id ? { ...l, skipped: true } : l),
     }))
     setOpenId(null)
-    if (isOffline) {
+    // Durable save — same rationale as confirmLine: a failed online request must
+    // fall back to the queue, never silently drop the skip.
+    const queueSkip = () => {
       enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'skip' })
       setPendingCount(c => c + 1)
-      // Persist the optimistic state so the skip survives a reload while offline.
       if (active) saveCountSessionCache(active.id, {
         ...active,
         lines: active.lines!.map(l => l.id === line.id ? { ...l, skipped: true } : l),
       })
-      return
     }
-    const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skipped: true }),
-    })
-    if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+    if (isOffline) { queueSkip(); return }
+    try {
+      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skipped: true }),
+      })
+      if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+      else queueSkip()
+    } catch { queueSkip() }
   }
 
   const unskipLine = async (line: Line) => {
@@ -734,11 +779,16 @@ export default function CountPage() {
     }))
     setOpenId(line.id)
     setInputQty(0)
-    await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skipped: false }),
-    })
+    // Sync the bumped updatedAt from the response — without it the local token goes
+    // stale and the very next count on this line 409s (which used to reset the count).
+    try {
+      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skipped: false }),
+      })
+      if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+    } catch { /* offline / network — the next count re-asserts skipped:false anyway */ }
   }
 
   // Clear a recorded count back to uncounted (PATCH skipped:false resets countedQty server-side).

@@ -82,13 +82,17 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
   const queue = loadCountQueue()
   if (queue.length === 0) return { synced: 0, failed: 0 }
 
+  // Snapshot the ids we're flushing so we only remove THESE afterwards — a mutation
+  // enqueued while we await below must survive (clearing the whole queue dropped it).
+  const snapshotIds = new Set(queue.map(m => m.id))
   const deduped = deduplicateQueue(queue)
   let synced = 0
   let failed = 0
+  const failedLines = new Set<string>()
 
   for (const m of deduped) {
     try {
-      await fetch(`/api/count/sessions/${m.sessionId}/lines/${m.lineId}`, {
+      const res = await fetch(`/api/count/sessions/${m.sessionId}/lines/${m.lineId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -99,12 +103,23 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
               : { countedQty: m.qty },
         ),
       })
+      // A 4xx/5xx is NOT a successful sync — keep it queued for retry. (fetch only
+      // rejects on network failure, so without this an HTTP error silently "synced".)
+      if (!res.ok) throw new Error(String(res.status))
       synced++
     } catch {
       failed++
+      failedLines.add(m.lineId)
     }
   }
 
-  if (failed === 0) clearCountQueue()
+  // Drop only the snapshotted mutations whose line fully synced. Keep failed lines
+  // (retry next flush) and anything enqueued during the flush.
+  const remaining = loadCountQueue().filter(m => !snapshotIds.has(m.id) || failedLines.has(m.lineId))
+  if (remaining.length > 0) {
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining)) } catch { /* ok */ }
+  } else {
+    clearCountQueue()
+  }
   return { synced, failed }
 }
