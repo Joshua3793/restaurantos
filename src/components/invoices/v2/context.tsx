@@ -63,6 +63,10 @@ export interface DrawerContextValue {
   // ── Resolve a dimension conflict by changing the item to match the invoice ──
   adoptInvoiceFormat: (item: ScanItem) => void
 
+  // ── Resolve a dimension conflict non-destructively: set the bridge so the ──
+  // item stays COUNT but knows 1 each = N unit (e.g. 1100 g), then re-evaluate.
+  bridgeAndReceiveAsCount: (item: ScanItem) => Promise<void>
+
   // ── Price-change acknowledgement (resolves the price .issue) ───────────────
   acknowledgePrice: (id: string) => void
 

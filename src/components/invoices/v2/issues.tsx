@@ -76,6 +76,12 @@ export function DimensionConflictIssue({
   // Item side.
   const itemDim = (md?.dimension as string | undefined) ?? dimensionOf(md?.baseUnit ?? 'each')
   const itemUnit = md?.countUnit || md?.baseUnit || 'each'
+  // Bridge resolver: only shown when the matched item is COUNT and the line is measured.
+  const isCountItem    = itemDim === 'COUNT'
+  const offerIsMeasured = offer.dimension === 'MASS' || offer.dimension === 'VOLUME'
+  const perEachQty  = item.invoicePackSize != null ? Number(item.invoicePackSize) : null
+  const perEachUnit = (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null
+  const perEachLabel = perEachQty != null && perEachUnit ? `${perEachQty} ${perEachUnit}` : null
   return (
     <IssueShell
       kind="conflict"
@@ -84,6 +90,11 @@ export function DimensionConflictIssue({
         <>
           <ActButton onClick={onFixUom}>Scan error → fix the line</ActButton>
           <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link a different item</ActButton>
+          {isCountItem && offerIsMeasured && perEachLabel && (
+            <ActButton variant="primary" onClick={() => ctx.bridgeAndReceiveAsCount(item)}>
+              Set 1 each = {perEachLabel} and receive as units
+            </ActButton>
+          )}
           <ActButton variant="primary" onClick={() => ctx.adoptInvoiceFormat(item)}>
             Change {itemName} to {DIM_LABEL[offer.dimension] ?? offer.dimension}
           </ActButton>

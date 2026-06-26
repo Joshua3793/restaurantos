@@ -813,6 +813,36 @@ export function InvoiceReviewDrawer({
     return { page: typeof bb.page === 'number' ? bb.page : 0, x: bb.x, y: bb.y, w: bb.w, h: bb.h }
   }, [activeBboxItemId, session, editedLines])
 
+  // ── Non-destructive dimension-conflict resolver ──────────────────────────────
+  // Sets the item's eachMeasure bridge so 1 each = N unit (e.g. 1100 g), without
+  // changing the item's dimension, packChain, stock, or recipes. After the write
+  // the session is silently refreshed so hasDimensionConflict re-evaluates to false
+  // and the line falls through to the normal PACK approval path.
+  const bridgeAndReceiveAsCount = useCallback(async (item: ScanItem) => {
+    const md = item.matchedItem
+    if (!md?.id) return
+    // Pull the per-each measure from the scan item. For a per_weight (RATE) line
+    // the rateUOM is the unit; for a per_case (PACK) line the pack UOM is the unit.
+    // The quantity is the pack size (how much mass/volume is in one each).
+    const rawQty  = item.invoicePackSize != null ? Number(item.invoicePackSize) : null
+    const rawUnit = (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null
+    if (!(rawQty != null && rawQty > 0) || !rawUnit) return
+
+    await fetch(`/api/inventory/${md.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dimension:  md.dimension ?? 'COUNT',   // unchanged
+        packChain:  md.packChain,              // unchanged — route 400s if missing
+        pricing:    md.pricing,               // unchanged
+        countUnit:  md.countUnit ?? null,     // unchanged
+        eachMeasureQty:  rawQty,
+        eachMeasureUnit: rawUnit,
+      }),
+    })
+    if (session) await refreshSession(session.id)
+  }, [session, refreshSession])
+
   // ── Context value ────────────────────────────────────────────────────────────
   const ctxValue = useMemo<DrawerContextValue>(() => ({
     lines: session?.scanItems ?? [],
@@ -837,9 +867,10 @@ export function InvoiceReviewDrawer({
     setLineRc,
     startLinkPicker: (id) => setPickingLinkForId(id),
     closeLinkPicker: ()   => setPickingLinkForId(null),
-    openCreateNew:        (item) => setCreatingNewForItem(item),
-    openInventoryEdit:    (id)   => setEditingInventoryItemId(id),
-    adoptInvoiceFormat:   (item) => setAdoptingForItem(item),
+    openCreateNew:          (item) => setCreatingNewForItem(item),
+    openInventoryEdit:      (id)   => setEditingInventoryItemId(id),
+    adoptInvoiceFormat:     (item) => setAdoptingForItem(item),
+    bridgeAndReceiveAsCount,
     acknowledgePrice,
     acknowledgeConf,
     activeBboxItemId,
@@ -850,7 +881,7 @@ export function InvoiceReviewDrawer({
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
     activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
+    setLineRc, bridgeAndReceiveAsCount, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────
