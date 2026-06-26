@@ -75,15 +75,29 @@
 
 /* ══════════ BOARD ══════════ */
 .pb .board{display:flex;flex-direction:column;gap:14px;}
-.pb .actionable{display:grid;grid-template-columns:1fr;gap:14px;}
+.pb .actionable{display:grid;grid-template-columns:1fr;gap:14px;align-items:start;}
 /* Breakpoints tuned to our content container (max-w-7xl ≈ 1163px collapsed,
    ≈ 976px when the nav is summoned) so the board is 2-up with the nav
    collapsed and reflows to 1-up when the nav is summoned. */
 @container (min-width:1040px){ .pb .actionable{grid-template-columns:1fr 1fr;} }
-@container (min-width:1240px){ .pb .actionable.tri{grid-template-columns:1fr 1fr 1fr;} }
+/* Category / Station view: many comparable-height blocks, so use masonry columns
+   that pack vertically and fill the negative space (the short Tasks block no longer
+   leaves a gap beneath it). */
+.pb .actionable.tri{display:block;column-count:1;column-gap:14px;}
+@container (min-width:1040px){ .pb .actionable.tri{column-count:2;} }
+@container (min-width:1240px){ .pb .actionable.tri{column-count:3;} }
+.pb .actionable.tri > .block{break-inside:avoid;margin-bottom:14px;}
+/* A grid cell that stacks several blocks (e.g. Tasks + Needed Today on the left
+   so they fill the space beside a tall Critical column). */
+.pb .actionable .col{display:flex;flex-direction:column;gap:14px;min-width:0;}
+/* Blocks carry align-self:start for the grid (tri) layout; inside a stacked column
+   they must instead stretch to the full column width. */
+.pb .actionable .col > .block{align-self:stretch;}
 
 /* Block card */
 .pb .block{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;align-self:start;}
+/* The Tasks block hosts the @-mention dropdown, which must escape the card. */
+.pb .block.prep-tasks{overflow:visible;}
 .pb .block.crit{border-color:#fca5a5;}
 .pb .block.low{border-color:#fcd34d;}
 .pb .bk-head{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap;flex-wrap:nowrap;}
@@ -107,7 +121,7 @@
 /* ══════════ DENSE ROW ══════════ */
 .pb .row{
   display:grid;
-  grid-template-columns:14px minmax(150px,1fr) 78px 60px 46px 84px;
+  grid-template-columns:14px minmax(150px,1fr) 78px 60px auto;
   align-items:center;gap:8px;
   padding:7px 14px;border-bottom:1px solid var(--line);
   font-size:13px;min-height:35px;position:relative;
@@ -133,13 +147,12 @@
 .pb .r-make.crit{color:var(--red);} .pb .r-make.low{color:var(--gold-2);} .pb .r-make.par{color:var(--ink-4);font-weight:400;}
 
 /* hover reveal icons */
-.pb .r-reveal{display:flex;align-items:center;justify-content:flex-end;gap:1px;opacity:0;transition:opacity .12s;}
-.pb .row:hover .r-reveal{opacity:1;}
-.pb .r-reveal button{width:22px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3);}
-.pb .r-reveal button:hover{background:var(--bg-2);color:var(--ink);}
+/* "View recipe" shortcut — always visible, sits just before the Start button. */
+.pb .r-recipe{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3);flex-shrink:0;}
+.pb .r-recipe:hover{background:var(--bg-2);color:var(--ink);}
 
 /* primary action */
-.pb .r-act{justify-self:end;}
+.pb .r-act{justify-self:end;display:flex;align-items:center;gap:6px;}
 .pb .act-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border-radius:7px;font-size:11.5px;font-weight:500;white-space:nowrap;border:1px solid transparent;transition:.12s;}
 .pb .act-start{background:var(--ink);color:var(--paper);}
 .pb .act-start:hover{background:#18181b;}
