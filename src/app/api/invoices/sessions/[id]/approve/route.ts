@@ -288,12 +288,19 @@ async function doApprove(
                 qtyPerPurchaseUnit: Number(scanItem.invoicePackQty),
                 qtyUOM:             'each', // offer pack is expressed via packSize/packUOM
                 innerQty:           null,
-                packSize:           Number(scanItem.invoicePackSize),
+                // Bridged COUNT item: the line's weight (e.g. 1100 g) is the
+                // per-each SIZE (kept in the offerPack provenance triple), NOT a
+                // chain divisor. Build the offer chain in COUNT units so the leaf
+                // is `each per 1` and basePerPurchase = invoicePackQty — making the
+                // offer ppb equal the item spine ($/each). Without this, the leaf
+                // would be 1100 g → basePerPurchase 8800 → offer ppb ~1100× too low,
+                // which would corrupt the item spine if this offer becomes primary.
+                packSize:           (itemBridge && !isUomMode) ? 1 : Number(scanItem.invoicePackSize),
                 // UOM mode: pass the RESOLVED rate unit as packUOM so formToChain's
                 // RATE branch denominates by it (matches newPricePerBase exactly).
                 packUOM:            isUomMode
                   ? resolvedRateUnit
-                  : (scanItem.invoicePackUOM ?? 'each'),
+                  : (itemBridge ? 'each' : (scanItem.invoicePackUOM ?? 'each')),
                 priceType:          isUomMode ? 'UOM' : 'CASE',
                 countUOM:           item.countUnit ?? 'each',
                 baseUnit:           item.baseUnit ?? undefined,
