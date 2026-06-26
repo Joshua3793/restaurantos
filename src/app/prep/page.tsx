@@ -18,6 +18,9 @@ import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
 import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
+import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
+import PrepTaskList from '@/components/prep/PrepTaskList'
+import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
 import PrepGetAhead from '@/components/prep/PrepGetAhead'
 import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
@@ -92,6 +95,75 @@ export default function PrepPage() {
 
   // Prevent duplicate concurrent status mutations per item
   const pendingItems = useRef<Set<string>>(new Set())
+
+  // ── Prep tasks (checklist) ─────────────────────────────────────────────────
+  const [taskLibrary, setTaskLibrary] = useState<PrepTask[]>([])
+  const [taskTodayIds, setTaskTodayIds] = useState<Set<string>>(new Set())
+  const [inventoryForTasks, setInventoryForTasks] = useState<LinkedItemSummary[]>([])
+
+  const todayDateStr = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString()
+  }, [])
+
+  const loadTasks = useCallback(async () => {
+    if (!activeRcId) { setTaskLibrary([]); setTaskTodayIds(new Set()); return }
+    const res = await fetch(`/api/prep/tasks?rcId=${activeRcId}&date=${encodeURIComponent(todayDateStr)}`)
+    if (!res.ok) return
+    const data: { library: PrepTask[]; today: PrepTaskTodayLog[] } = await res.json()
+    setTaskLibrary(data.library)
+    setTaskTodayIds(new Set(data.today.map(t => t.prepTaskId)))
+  }, [activeRcId, todayDateStr])
+
+  useEffect(() => { loadTasks() }, [loadTasks])
+
+  useEffect(() => {
+    fetch('/api/inventory')
+      .then(r => r.ok ? r.json() : [])
+      .then((items: { id: string; itemName: string }[]) =>
+        setInventoryForTasks(items.map(i => ({ id: i.id, itemName: i.itemName }))))
+      .catch(() => {})
+  }, [])
+
+  const taskRows: PrepTaskRow[] = useMemo(
+    () => taskLibrary.map(t => ({ ...t, activeToday: taskTodayIds.has(t.id) })),
+    [taskLibrary, taskTodayIds],
+  )
+  const activeTaskRows = useMemo(() => taskRows.filter(r => r.activeToday), [taskRows])
+  const tasksDisabled = !activeRcId
+
+  const createTask = useCallback(async (name: string, linkedInventoryItemId: string | null) => {
+    if (!activeRcId) return
+    const res = await fetch('/api/prep/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, revenueCenterId: activeRcId, linkedInventoryItemId }),
+    })
+    if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => [...prev, t]) }
+  }, [activeRcId])
+
+  const deleteTask = useCallback(async (taskId: string) => {
+    setTaskLibrary(prev => prev.filter(t => t.id !== taskId))
+    await fetch(`/api/prep/tasks/${taskId}`, { method: 'DELETE' })
+  }, [])
+
+  const reorderTasks = useCallback(async (ids: string[]) => {
+    setTaskLibrary(prev => [...prev].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id))
+      .map((t, i) => ({ ...t, sortOrder: i })))
+    await fetch('/api/prep/tasks/reorder', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })
+  }, [])
+
+  const setTaskActive = useCallback(async (taskId: string, next: boolean) => {
+    setTaskTodayIds(prev => { const s = new Set(prev); if (next) s.add(taskId); else s.delete(taskId); return s })
+    await fetch(`/api/prep/tasks/${taskId}/today${next ? '' : `?date=${encodeURIComponent(todayDateStr)}`}`, {
+      method: next ? 'POST' : 'DELETE',
+      headers: next ? { 'Content-Type': 'application/json' } : undefined,
+      body: next ? JSON.stringify({ date: todayDateStr }) : undefined,
+    })
+  }, [todayDateStr])
+
+  const clearTaskToday = useCallback((taskId: string) => setTaskActive(taskId, false), [setTaskActive])
 
   // `silent` = background refresh (auto-poll): update data in place without the
   // full-screen loading state or wiping the list on a transient failure.
@@ -1065,6 +1137,25 @@ export default function PrepPage() {
               />
             </div>
           )}
+          {/* Prep tasks (checklist) — desktop */}
+          {viewMode === 'smartprep' && (
+            <div className="mb-3">
+              <PrepTaskLibrary
+                rows={taskRows}
+                inventory={inventoryForTasks}
+                disabled={tasksDisabled}
+                onCreate={createTask}
+                onToggleActive={setTaskActive}
+                onDelete={deleteTask}
+                onReorder={reorderTasks}
+              />
+            </div>
+          )}
+          {viewMode === 'today' && activeTaskRows.length > 0 && (
+            <div className="mb-3">
+              <PrepTaskList rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+            </div>
+          )}
           <div className="toolbar">
             <div className="search">
               <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
@@ -1119,6 +1210,12 @@ export default function PrepPage() {
               }
             />
           )}
+          {/* Prep tasks (checklist) — mobile To Do */}
+          {activeTaskRows.length > 0 && (
+            <div className="mb-3">
+              <PrepTaskList rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+            </div>
+          )}
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
@@ -1161,6 +1258,16 @@ export default function PrepPage() {
             </div>
           ) : (
             <>
+              {/* Prep tasks (checklist) — mobile Smart Prep */}
+              <PrepTaskLibrary
+                rows={taskRows}
+                inventory={inventoryForTasks}
+                disabled={tasksDisabled}
+                onCreate={createTask}
+                onToggleActive={setTaskActive}
+                onDelete={deleteTask}
+                onReorder={reorderTasks}
+              />
               {/* ── BY URGENCY ── */}
               {smartPrepView === 'urgency' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
