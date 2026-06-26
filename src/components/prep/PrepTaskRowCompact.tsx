@@ -16,6 +16,8 @@ interface Props {
   onOpen: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
   onStatusChange: (item: PrepItemRich, status: PrepStatus, actualQty?: number) => void
+  /** One-tap "Mark done" on an in-progress row: pops the yield prompt directly (no full drawer). */
+  onQuickDone: (item: PrepItemRich) => void
   onOrderStock?: (item: PrepItemRich) => void
 }
 
@@ -28,7 +30,7 @@ function fmt(n: number): string {
   return s.replace(/\.0+$/, '')
 }
 
-export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, onStatusChange }: Props) {
+export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, onStatusChange, onQuickDone }: Props) {
   const status: PrepStatus = item.todayLog?.status ?? 'NOT_STARTED'
   const state = PREP_STATE_META[status].key as 'not-started' | 'in-progress' | 'done' | 'skipped'
   const isCrit = item.priority === '911'
@@ -92,14 +94,14 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
         </span>
       )}
       {(() => {
-        // In-progress completion goes through the drawer so the chef confirms the
-        // actual yield (the drawer's "Mark done" prompt) rather than silently
-        // logging the suggested qty. Start / Reopen stay one-tap.
+        // In-progress completion pops the yield prompt directly (PrepDoneSheet) so the
+        // chef confirms the actual qty made without the full drawer detour, while still
+        // never silently logging the suggested qty. Start / Reopen stay one-tap.
         const inProgress = state === 'in-progress'
         const cls = inProgress ? 'bg-green text-white' : isDoneState ? 'bg-paper border border-line text-ink-3' : 'bg-ink text-gold'
         const Icon = inProgress ? IcCheck : isDoneState ? IcUndo : IcPlay
         const label = inProgress ? 'Mark done' : isDoneState ? 'Reopen' : item.isBlocked ? 'Start anyway' : 'Start prep'
-        const act = () => { if (inProgress) onOpen(item); else onStatusChange(item, isDoneState ? 'NOT_STARTED' : 'IN_PROGRESS') }
+        const act = () => { if (inProgress) onQuickDone(item); else onStatusChange(item, isDoneState ? 'NOT_STARTED' : 'IN_PROGRESS') }
         return (
           <span
             role="button"
