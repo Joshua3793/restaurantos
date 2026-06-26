@@ -2,6 +2,8 @@ import { getUnitConv, getUnitDimension } from './utils'
 
 export type Dimension = 'MASS' | 'VOLUME' | 'COUNT'
 export type PackLink = { unit: string; per: number }
+/** Canonical measure of ONE base count unit, e.g. { qty: 1100, unit: 'g' } = 1 each. */
+export type EachMeasure = { qty: number; unit: string }
 export type Pricing =
   | { mode: 'PACK'; purchasePrice: number }
   | { mode: 'RATE'; rate: number; rateUnit: string }
@@ -15,9 +17,25 @@ export interface ChainItem {
   pricing: Pricing
   countUnit?: string
   stockOnHand?: number
+  /** Present only on COUNT items with a count↔weight bridge configured. */
+  eachMeasure?: EachMeasure | null
 }
 
 export const DIMENSION_BASE: Record<Dimension, string> = { MASS: 'g', VOLUME: 'ml', COUNT: 'each' }
+
+/** Read the count↔weight bridge off an item row. Null unless the item is COUNT
+ *  and BOTH columns are populated. Decimal arrives as string from Prisma JSON. */
+export function eachMeasureOf(row: {
+  dimension?: string | null
+  eachMeasureQty?: unknown
+  eachMeasureUnit?: string | null
+}): EachMeasure | null {
+  if ((row.dimension ?? 'COUNT') !== 'COUNT') return null
+  const qty = row.eachMeasureQty != null ? Number(row.eachMeasureQty) : NaN
+  const unit = (row.eachMeasureUnit ?? '').trim()
+  if (!Number.isFinite(qty) || qty <= 0 || !unit) return null
+  return { qty, unit }
+}
 
 /** Map a unit string to a Dimension via the canonical uom.ts table. */
 export function dimensionOf(unit: string): Dimension {
@@ -93,12 +111,14 @@ export function validateChainItem(item: ChainItem): string[] {
 /** Prisma select fragment every cost reader uses to load pricing facts. */
 export const PRICING_SELECT = {
   dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true,
+  eachMeasureQty: true, eachMeasureUnit: true,
 } as const
 
 /** Coerce a Prisma row (Json columns may be untyped) into a ChainItem. */
 export function asChainItem(row: {
   dimension: string; baseUnit: string; packChain: unknown; pricing: unknown
   countUnit?: string; stockOnHand?: unknown
+  eachMeasureQty?: unknown; eachMeasureUnit?: string | null
 }): ChainItem {
   return {
     dimension: row.dimension as Dimension,
@@ -107,6 +127,7 @@ export function asChainItem(row: {
     pricing: (row.pricing as Pricing) ?? { mode: 'PACK', purchasePrice: 0 },
     countUnit: row.countUnit,
     stockOnHand: row.stockOnHand != null ? Number(row.stockOnHand) : 0,
+    eachMeasure: eachMeasureOf(row),
   }
 }
 
