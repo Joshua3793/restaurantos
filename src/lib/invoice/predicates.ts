@@ -6,7 +6,7 @@ import type { ScanItem } from '@/components/invoices/types'
 import { isMeasuredUnit } from '@/lib/utils'
 import { isKnownUnit } from '@/lib/uom'
 import { buildOffer, scanItemToOfferInput } from './offer'
-import { dimensionOf } from '@/lib/item-model'
+import { dimensionOf, eachMeasureOf } from '@/lib/item-model'
 
 // A UOM that measures weight or volume (vs a count/case unit). Delegates to the
 // canonical helper so it canonicalizes and covers the full unit set.
@@ -55,9 +55,17 @@ export function isCatchweight(item: ScanItem): boolean {
 export function hasDimensionConflict(item: ScanItem): boolean {
   if (!item.matchedItem) return false
   const offer = buildOffer(scanItemToOfferInput(item))
-  const md = item.matchedItem as { dimension?: string; baseUnit?: string }
+  const md = item.matchedItem as {
+    dimension?: string; baseUnit?: string
+    eachMeasureQty?: unknown; eachMeasureUnit?: string | null
+  }
   const itemDim = (md.dimension as 'MASS' | 'VOLUME' | 'COUNT' | undefined) ?? dimensionOf(md.baseUnit ?? 'each')
-  return offer.dimension !== itemDim
+  if (offer.dimension === itemDim) return false
+  // A measured offer (MASS/VOLUME) on a COUNT item is BRIDGEABLE, not a conflict,
+  // when the item carries an each-measure spanning that dimension.
+  const bridge = eachMeasureOf(md)
+  if (itemDim === 'COUNT' && bridge && dimensionOf(bridge.unit) === offer.dimension) return false
+  return true
 }
 
 // ── Price change ──────────────────────────────────────────────────────────────
