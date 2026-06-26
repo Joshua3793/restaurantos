@@ -9,7 +9,7 @@ import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { formToChain } from '@/lib/item-model-form'
-import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
+import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -29,7 +29,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -110,8 +110,17 @@ async function doApprove(
         // The line's pricing mode comes straight from the OCR (per_case /
         // per_weight). per_weight → RATE pricing, otherwise PACK. There is no
         // "mode mismatch" to resolve — the offer's mode is authoritative.
+        //
+        // A bridged COUNT item is ALWAYS a count purchase — the printed weight
+        // (e.g. Brioche "8×1100g") is the per-each size, not a $/weight billing
+        // rate. Route it through the PACK/CASE path so ppb derives as $/each from
+        // the item's OWN count chain (case price ÷ units per case), exactly like
+        // any other count item. Without this, the 'g' packUOM mis-classifies the
+        // line as per_weight and the dimension guard skips it.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight'
+        const itemBridge = eachMeasureOf(item as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight' && !itemBridge
 
         // The price to write comes from the RAW, user-editable fields — NEVER
         // the stored `newPrice`. newPrice is computed once at OCR/match time and
