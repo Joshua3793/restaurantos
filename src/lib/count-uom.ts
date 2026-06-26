@@ -192,14 +192,20 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
 
   const fmtBase = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-  // Chain levels, outer → inner.
+  // Chain levels, outer → inner. Resolve each level's base-content through the
+  // SAME function the converters use (resolveUnitBase) so the listed toBase /
+  // display can never diverge from what counting in that unit actually stores.
+  // This matters when a chain link's name collides with the base unit — e.g. a
+  // COUNT item's leaf "each" (per>1, its case content) counts as 1 single base
+  // unit, NOT its pack content, so it must show "each", not "each (9 each)".
   for (const link of chain) {
-    const toBase = levels[link.unit] ?? 0
+    const toBase = resolveUnitBase(link.unit, ci)
     if (!(toBase > 0)) continue
+    const isBaseUnit = link.unit.toLowerCase() === baseUnit.toLowerCase()
     push({
       label: link.unit,
       toBase,
-      display: `${link.unit} (${fmtBase(toBase)} ${baseUnit})`,
+      display: isBaseUnit ? link.unit : `${link.unit} (${fmtBase(toBase)} ${baseUnit})`,
     })
   }
 
@@ -212,13 +218,17 @@ export function getCountableUoms(item: ItemDims): CountableUom[] {
   // Dimensional count units for the item's dimension not already a level.
   if (ci.dimension === 'MASS' && hasMeasuredLeaf) {
     push({ label: 'kg', toBase: 1000, hint: '1,000 g', display: 'kg' })
-    push({ label: 'g', toBase: 1, display: 'g' })
     push({ label: 'lb', toBase: 453.592, hint: '454 g', display: 'lb' })
+    push({ label: 'g', toBase: 1, display: 'g' })
   } else if (ci.dimension === 'VOLUME') {
     push({ label: 'l', toBase: 1000, hint: '1,000 ml', display: 'l' })
     push({ label: 'ml', toBase: 1, display: 'ml' })
+  } else if (ci.dimension === 'COUNT') {
+    // No dimensional units for COUNT, but the base unit itself is always a valid
+    // option (e.g. count individual "each" even when the chain's only level is a
+    // multi-unit "batch"). push() dedupes when the base is already a chain level.
+    push({ label: baseUnit, toBase: getUnitConv(baseUnit) || 1, display: baseUnit })
   }
-  // COUNT: no extra dimensional units.
 
   return uoms
 }

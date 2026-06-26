@@ -5,7 +5,8 @@
  */
 import { prisma } from './prisma'
 import { convertQty, dimensionallyCostable } from './uom'
-import { dimensionOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import { getUnitConv } from './utils'
+import { dimensionOf, DIMENSION_BASE, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
   id: string
@@ -270,32 +271,36 @@ export async function syncPrepToInventory(recipeId: string) {
   const baseYieldQty     = recipe.baseYieldQty > 0 ? recipe.baseYieldQty : 1
   const yieldUnit        = recipe.yieldUnit
 
-  // Preserve the user-chosen count unit (drives the chain's countUnit below).
-  const current = await prisma.inventoryItem.findUnique({
-    where:  { id: recipe.inventoryItemId },
-    select: { countUnit: true },
-  })
-  const countUOM = current?.countUnit ?? yieldUnit
-
-  // Item-model chain (authoritative): a one-link PACK chain whose per = baseYieldQty
-  // and pricing.purchasePrice = totalCost yields ppb = totalCost / baseYieldQty.
+  // Item-model chain (authoritative). The spine + count system require `baseUnit`
+  // to be the CANONICAL SI base for the dimension (g / ml / each) — i.e. the unit
+  // where getUnitConv(baseUnit) === 1. Writing the recipe's yieldUnit verbatim
+  // (e.g. "lb", "kg", "l") produces a non-canonical base, which silently breaks
+  // every count conversion (counting 1 kg stores 1000 base units) and makes the
+  // displayed pricePerBaseUnit diverge from getUnitConv-based readers.
+  //
+  // So we express the batch as ONE "batch" container whose content is the yield
+  // converted into canonical base units: e.g. a 20 lb yield → { unit: 'batch',
+  // per: 9071.84 } over baseUnit "g". ppb = totalCost / batchInBase is then a
+  // genuine per-canonical-base price, and the count UI offers batch + g/kg/lb.
   const prepDimension = dimensionOf(yieldUnit)
-  const prepChain = [{ unit: countUOM || 'batch', per: baseYieldQty }]
-  const prepPricing = { mode: 'PACK' as const, purchasePrice: recipe.totalCost }
+  const canonBase     = DIMENSION_BASE[prepDimension]
+  const batchInBase   = baseYieldQty * (getUnitConv(yieldUnit) || 1)
+  const prepChain     = [{ unit: 'batch', per: batchInBase }]
+  const prepPricing   = { mode: 'PACK' as const, purchasePrice: recipe.totalCost }
 
   await prisma.inventoryItem.update({
     where: { id: recipe.inventoryItemId },
     data: {
       itemName:           recipe.name,
       purchasePrice:      recipe.totalCost,
-      baseUnit:           yieldUnit,
+      baseUnit:           canonBase,
       allergens:          recipe.allergens,
       dimension:          prepDimension,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       packChain:          prepChain as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pricing:            prepPricing as any,
-      countUnit:          countUOM,
+      countUnit:          'batch',
       lastUpdated: new Date(),
     },
   })

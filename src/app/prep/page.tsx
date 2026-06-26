@@ -17,6 +17,7 @@ import { PrepBoard } from '@/components/prep/board/PrepBoard'
 import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
+import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
 import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
 import PrepTaskList from '@/components/prep/PrepTaskList'
 import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
@@ -55,6 +56,8 @@ export default function PrepPage() {
   const { toast, toastNode } = usePrepToast()
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
+  // Quick yield prompt from the compact row's "Mark done" (no full drawer).
+  const [doneSheetItem, setDoneSheetItem] = useState<PrepItemRich | null>(null)
   const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string; loading: boolean } | null>(null)
   // Cache fetched cook-along data per prep item so reopening a recipe is instant.
   const recipeCache = useRef<Map<string, { recipe: RecipeStepsData; ings: IngredientAvailability[] }>>(new Map())
@@ -1184,7 +1187,7 @@ export default function PrepPage() {
               groupBy={smartPrepView}
               items={filteredSmart}
               todayItems={filteredToday}
-              handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onPriorityChange: handlePriorityChange }}
+              handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange }}
               onAddAll={handleAddIds}
             />
           )}
@@ -1229,13 +1232,13 @@ export default function PrepPage() {
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
               )}
               {todayGroups.critical.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+                <PrepTaskRowCompact key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
               ))}
               {todayGroups.needed.length > 0 && (
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
               )}
               {todayGroups.needed.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} />
+                <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
               ))}
               <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
               <p className="text-center text-xs text-ink-4 mt-4 pb-24 sm:pb-0">This list carries over each day — items stay until marked done or removed.</p>
@@ -1625,6 +1628,16 @@ export default function PrepPage() {
           onOpenRecipe={openRecipeModal}
         />
       </div>
+      {/* Quick yield prompt — shared by the mobile compact row and the desktop board row. */}
+      <PrepDoneSheet
+        item={doneSheetItem}
+        onClose={() => setDoneSheetItem(null)}
+        onConfirm={(item, qty) => {
+          onRowStatusChange(item, 'DONE', qty)
+          toast(`Done · ${qty} ${item.unit} made`)
+          setDoneSheetItem(null)
+        }}
+      />
       <div className="hidden md:block">
         <PrepBoardDrawer
           item={drawerItem}

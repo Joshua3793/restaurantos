@@ -8,6 +8,8 @@ export interface RowHandlers {
   onOpenRecipe: (item: PrepItemRich) => void
   onToggleOnList: (id: string, next: boolean) => void
   onStatusChange: (item: PrepItemRich, status: string, qty?: number) => void
+  /** One-tap "Done" on an in-progress row: pops the yield prompt directly (no full drawer). */
+  onQuickDone: (item: PrepItemRich) => void
   onPriorityChange: (id: string, priority: string) => void
 }
 
@@ -36,7 +38,7 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
     else act = <button className={`act-btn ${u === 'par' ? 'act-ghost' : 'act-add'}`} onClick={() => h.onToggleOnList(row.id, true)}><span className="ic">+</span> Add</button>
   } else {
     if (row.status === 'not-started') act = <button className="act-btn act-start" onClick={() => h.onStatusChange(item, 'IN_PROGRESS')}><span className="ic">▶</span> Start</button>
-    else if (row.status === 'in-progress') act = <button className="act-btn act-done" onClick={() => h.onOpen(item)}>✓ Done</button>
+    else if (row.status === 'in-progress') act = <button className="act-btn act-done" onClick={() => h.onQuickDone(item)}>✓ Done</button>
     else if (row.status === 'done') act = <button className="act-btn act-ghost" onClick={() => h.onStatusChange(item, 'NOT_STARTED')}>↻ Reset</button>
     else act = <button className="act-btn act-ghost" onClick={() => h.onStatusChange(item, 'NOT_STARTED')}>↩ Restore</button>
   }
