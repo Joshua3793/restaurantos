@@ -23,6 +23,9 @@ export interface IngredientWithCost {
   lineCost: number
   /** The base unit of the linked inventory item / recipe — used to filter compatible UOM options in the UI */
   ingredientBaseUnit: string
+  /** Allergens this single ingredient contributes — from its inventory item, or for a
+   * linked PREP the aggregated allergen set synced onto the prep's inventory item. */
+  allergens: string[]
   /**
    * True when `unit` is a DIFFERENT physical dimension than the ingredient's
    * baseUnit (e.g. counting an each-item in grams). convertQty silently passes
@@ -79,8 +82,8 @@ export function computeRecipeCost(
       recipePercent?: Numeric | null
       inventoryItemId: string | null
       linkedRecipeId: string | null
-      inventoryItem: ({ itemName: string; baseUnit: string } & Parameters<typeof asChainItem>[0]) | null
-      linkedRecipe: { name: string } | null
+      inventoryItem: ({ itemName: string; baseUnit: string; allergens?: string[] } & Parameters<typeof asChainItem>[0]) | null
+      linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
     }>
@@ -99,12 +102,14 @@ export function computeRecipeCost(
     // conversion is undefined. Weight↔volume is tolerated (density≈1 kitchen
     // convention; convertQty passes it through 1:1).
     let dimensionConflict = false
+    let allergens: string[] = []
 
     if (ing.inventoryItem) {
       pricePerBaseUnit   = chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
+      allergens          = ing.inventoryItem.allergens ?? []
       dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit)
       // Convert recipe unit → inventory base unit before multiplying by price
       lineCostQty = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
@@ -112,6 +117,7 @@ export function computeRecipeCost(
       pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
       ingredientName     = ing.linkedRecipe.name
       ingredientType     = 'recipe'
+      allergens          = ing.linkedRecipe.inventoryItem?.allergens ?? []
       // Convert recipe unit → linked recipe's yield unit before multiplying by price
       const yieldUnit    = ing._linkedRecipeYieldUnit ?? ing.unit
       ingredientBaseUnit = yieldUnit
@@ -135,6 +141,7 @@ export function computeRecipeCost(
       // rather than a garbage number.
       lineCost: dimensionConflict ? 0 : lineCostQty * pricePerBaseUnit,
       ingredientBaseUnit,
+      allergens,
       dimensionConflict,
     }
   })

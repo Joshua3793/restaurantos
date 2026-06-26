@@ -23,12 +23,12 @@ export async function GET(req: NextRequest) {
         category: { select: { name: true } },
         ingredients: {
           include: {
-            inventoryItem: { select: { itemName: true, ...PRICING_SELECT } },
+            inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
             linkedRecipe: {
               select: {
                 name: true,
                 yieldUnit: true,
-                inventoryItem: { select: { ...PRICING_SELECT } },
+                inventoryItem: { select: { allergens: true, ...PRICING_SELECT } },
               },
             },
           },

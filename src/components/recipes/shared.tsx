@@ -81,6 +81,8 @@ export interface IngredientWithCost {
   pricePerBaseUnit: number
   lineCost: number
   ingredientBaseUnit: string
+  /** Allergens this ingredient contributes (from its inventory item, or a linked prep's synced set). */
+  allergens?: string[]
   /** Recipe unit is a different dimension than the item's base unit — line is costed at $0. */
   dimensionConflict?: boolean
 }
@@ -557,7 +559,14 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
               <tbody className="divide-y divide-line">
                 {scaledIngredients.map(ing => (
                   <tr key={ing.id}>
-                    <td className="py-1.5 text-ink-2">{ing.ingredientName}</td>
+                    <td className="py-1.5 text-ink-2">
+                      <span className="inline-flex items-center gap-1.5 flex-wrap align-middle">
+                        {ing.ingredientName}
+                        {ing.allergens && ing.allergens.length > 0 && (
+                          <AllergenBadges allergens={ing.allergens} size="xs" />
+                        )}
+                      </span>
+                    </td>
                     <td className="py-1.5 text-right text-ink-3">
                       {formatQtyUnit(ing.qtyBase, ing.unit)}
                     </td>
@@ -759,6 +768,9 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             )}
             {needsQty && (
               <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px]">Needs qty</span>
+            )}
+            {ing.allergens && ing.allergens.length > 0 && (
+              <AllergenBadges allergens={ing.allergens} size="xs" />
             )}
           </div>
         </div>
@@ -1796,11 +1808,14 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
 
   return (
     <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-line hover:bg-bg group">
-      <div className="col-span-5 flex items-center gap-1.5 min-w-0">
+      <div className="col-span-5 flex items-center gap-1.5 min-w-0 flex-wrap">
         {ing.ingredientType === 'recipe'
           ? <ChefHat size={11} className="text-green shrink-0" />
           : <Package size={11} className="text-blue shrink-0" />}
         <span className="text-sm text-ink-2 truncate">{ing.ingredientName}</span>
+        {ing.allergens && ing.allergens.length > 0 && (
+          <AllergenBadges allergens={ing.allergens} size="xs" />
+        )}
       </div>
       <div className="col-span-2">
         <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
