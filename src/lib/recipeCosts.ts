@@ -4,8 +4,8 @@
  * Unit conversions are applied so e.g. 5 kg of an item priced per g costs correctly.
  */
 import { prisma } from './prisma'
-import { convertQty, dimensionallyCostable } from './uom'
-import { dimensionOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import { convertQty, convertQtyBridged, dimensionallyCostable } from './uom'
+import { dimensionOf, eachMeasureOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
   id: string
@@ -104,9 +104,10 @@ export function computeRecipeCost(
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
-      dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit)
+      const ingBridge = eachMeasureOf(ing.inventoryItem)
+      dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit, ingBridge)
       // Convert recipe unit → inventory base unit before multiplying by price
-      lineCostQty = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
+      lineCostQty = convertQtyBridged(qty, ing.unit, ing.inventoryItem.baseUnit, ingBridge)
     } else if (ing.linkedRecipe) {
       pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
       ingredientName     = ing.linkedRecipe.name
