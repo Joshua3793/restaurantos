@@ -153,7 +153,8 @@ export async function POST(req: NextRequest) {
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
   // single source of truth. Every create path (inventory add, count quick-add,
   // CSV import) sends a chain body — there is no legacy-field create path.
-  const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, revenueCenterId, ...rest } = body
+  const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, revenueCenterId,
+          eachMeasureQty, eachMeasureUnit, ...rest } = body
   if (!packChain) {
     return NextResponse.json({ error: 'packChain is required' }, { status: 400 })
   }
@@ -194,6 +195,8 @@ export async function POST(req: NextRequest) {
       baseUnit: ci.baseUnit,
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
+      eachMeasureQty: dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? Number(eachMeasureQty) : null,
+      eachMeasureUnit: dimension === 'COUNT' && Number(eachMeasureQty) > 0 && eachMeasureUnit ? String(eachMeasureUnit) : null,
     },
     include: { supplier: true, storageArea: true },
   })

@@ -31,6 +31,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // legacy-field update path.
   const {
     dimension, packChain, pricing, countUnit, supplierId, storageAreaId,
+    eachMeasureQty, eachMeasureUnit,
     supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
     ...rest
   } = body
@@ -70,6 +71,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       lastUpdated: new Date(),
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
+      eachMeasureQty: dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? Number(eachMeasureQty) : null,
+      eachMeasureUnit: dimension === 'COUNT' && Number(eachMeasureQty) > 0 && eachMeasureUnit ? String(eachMeasureUnit) : null,
     },
   })
 
