@@ -22,3 +22,8 @@ export {
   ChevronRight  as IcChevron,
   X             as IcX,
 } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
+
+// "View recipe" glyph — the same BookOpen mark the Recipes nav uses, shared by the
+// desktop board row and the mobile compact row so the affordance is consistent.
+export const IcRecipe = ({ size = 14 }: { size?: number }) => <BookOpen size={size} />

@@ -12,6 +12,7 @@ export interface PrepBoardProps {
   todayItems: PrepItemRich[]     // isOnList items (for To Do)
   handlers: Omit<RowHandlers, 'view'>
   onAddAll: (ids: string[]) => void
+  tasksSlot?: React.ReactNode    // checklist Tasks block — rendered as the first grid cell
 }
 
 const notOnListIds = (rows: BoardRow[]) => rows.filter(r => !r.onList).map(r => r.id)
@@ -20,7 +21,7 @@ const notOnListIds = (rows: BoardRow[]) => rows.filter(r => !r.onList).map(r => 
 const startedFirst = (rows: BoardRow[]) =>
   [...rows].sort((a, b) => (a.status === 'in-progress' ? 0 : 1) - (b.status === 'in-progress' ? 0 : 1))
 
-export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll }: PrepBoardProps) {
+export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll, tasksSlot }: PrepBoardProps) {
   const h: RowHandlers = { ...handlers, view }
 
   if (view === 'todo') {
@@ -31,10 +32,15 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
     return (
       <div className="board">
         <div className="actionable">
-          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} emptyText="No critical items" />
-          <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
+          <div className="col">
+            {tasksSlot}
+            <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} emptyText="No critical items" />
+          </div>
+          <div className="col">
+            <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
+            <PrepLater variant="closed" rows={closed} h={h} />
+          </div>
         </div>
-        <PrepLater variant="closed" rows={closed} h={h} />
       </div>
     )
   }
@@ -48,10 +54,15 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
     return (
       <div className="board">
         <div className="actionable">
-          <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll(notOnListIds(crit))} />
-          <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll(notOnListIds(low))} />
+          <div className="col">
+            {tasksSlot}
+            <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} addAll onAddAll={() => onAddAll(notOnListIds(crit))} />
+          </div>
+          <div className="col">
+            <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll(notOnListIds(low))} />
+            <PrepLater variant="par" rows={par} h={h} />
+          </div>
         </div>
-        <PrepLater variant="par" rows={par} h={h} />
       </div>
     )
   }
@@ -62,6 +73,7 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
   return (
     <div className="board">
       <div className="actionable tri">
+        {tasksSlot}
         {groupKeys.map(g => {
           const grp = rows.filter(r => keyOf(r) === g)
           const hasCrit = grp.some(r => r.urgency === 'critical')

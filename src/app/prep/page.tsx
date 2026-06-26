@@ -55,9 +55,9 @@ export default function PrepPage() {
   // Redesigned To-do tab — drawer, cook-along modal, toast, alert dismissal
   const { toast, toastNode } = usePrepToast()
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
-  const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
   // Quick yield prompt from the compact row's "Mark done" (no full drawer).
   const [doneSheetItem, setDoneSheetItem] = useState<PrepItemRich | null>(null)
+  const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
   const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string; loading: boolean } | null>(null)
   // Cache fetched cook-along data per prep item so reopening a recipe is instant.
   const recipeCache = useRef<Map<string, { recipe: RecipeStepsData; ings: IngredientAvailability[] }>>(new Map())
@@ -140,6 +140,15 @@ export default function PrepPage() {
     })
     if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => [...prev, t]) }
   }, [activeRcId])
+
+  const editTask = useCallback(async (taskId: string, name: string, linkedInventoryItemId: string | null) => {
+    const res = await fetch(`/api/prep/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, linkedInventoryItemId }),
+    })
+    if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => prev.map(x => x.id === taskId ? t : x)) }
+  }, [])
 
   const deleteTask = useCallback(async (taskId: string) => {
     setTaskLibrary(prev => prev.filter(t => t.id !== taskId))
@@ -1137,25 +1146,6 @@ export default function PrepPage() {
               />
             </div>
           )}
-          {/* Prep tasks (checklist) — desktop */}
-          {viewMode === 'smartprep' && (
-            <div className="mb-3">
-              <PrepTaskLibrary
-                rows={taskRows}
-                inventory={inventoryForTasks}
-                disabled={tasksDisabled}
-                onCreate={createTask}
-                onToggleActive={setTaskActive}
-                onDelete={deleteTask}
-                onReorder={reorderTasks}
-              />
-            </div>
-          )}
-          {viewMode === 'today' && activeTaskRows.length > 0 && (
-            <div className="mb-3">
-              <PrepTaskList rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-            </div>
-          )}
           <div className="toolbar">
             <div className="search">
               <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
@@ -1189,6 +1179,21 @@ export default function PrepPage() {
               todayItems={filteredToday}
               handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange }}
               onAddAll={handleAddIds}
+              tasksSlot={viewMode === 'smartprep'
+                ? <PrepTaskLibrary
+                    asBlock
+                    rows={taskRows}
+                    inventory={inventoryForTasks}
+                    disabled={tasksDisabled}
+                    onCreate={createTask}
+                    onEdit={editTask}
+                    onToggleActive={setTaskActive}
+                    onDelete={deleteTask}
+                    onReorder={reorderTasks}
+                  />
+                : activeTaskRows.length > 0
+                  ? <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+                  : undefined}
             />
           )}
         </div>
@@ -1264,6 +1269,7 @@ export default function PrepPage() {
                 inventory={inventoryForTasks}
                 disabled={tasksDisabled}
                 onCreate={createTask}
+                onEdit={editTask}
                 onToggleActive={setTaskActive}
                 onDelete={deleteTask}
                 onReorder={reorderTasks}

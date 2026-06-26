@@ -6,7 +6,7 @@
  * Rendered under md:hidden; the desktop renderer is PrepBoard (board/PrepRow).
  */
 import { Loader2 } from 'lucide-react'
-import { IcCheck, IcAlert, IcClock, IcSkip, IcSync, IcPlay, IcUndo } from '@/components/prep/icons'
+import { IcCheck, IcAlert, IcClock, IcSkip, IcPlay, IcUndo, IcRecipe } from '@/components/prep/icons'
 import { PrepItemRich, PrepStatus } from '@/components/prep/types'
 import { PREP_STATE_META } from '@/lib/prep-utils'
 
@@ -90,7 +90,7 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenRecipe(item) } }}
           className="w-9 h-9 rounded-[10px] grid place-items-center shrink-0 bg-paper border border-line text-ink-2 active:scale-95"
         >
-          <span className="w-6 h-6 rounded-[7px] bg-ink text-gold grid place-items-center"><IcSync size={13} /></span>
+          <IcRecipe size={16} />
         </span>
       )}
       {(() => {

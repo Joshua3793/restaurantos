@@ -1,13 +1,16 @@
 'use client'
 import { useMemo, useRef, useState } from 'react'
-import { Plus, GripVertical, Trash2, X } from 'lucide-react'
+import { Plus, GripVertical, Trash2, Check, Pencil, X } from 'lucide-react'
 import type { PrepTaskRow, LinkedItemSummary } from './types'
+import TaskName from './TaskName'
 
 interface Props {
   rows: PrepTaskRow[]
   inventory: LinkedItemSummary[]
   disabled?: boolean            // true when no specific RC is selected
+  asBlock?: boolean             // render as a board .block card (desktop grid) vs a plain section (mobile)
   onCreate: (name: string, linkedInventoryItemId: string | null) => void
+  onEdit: (taskId: string, name: string, linkedInventoryItemId: string | null) => void
   onToggleActive: (taskId: string, next: boolean) => void
   onDelete: (taskId: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -32,11 +35,12 @@ function fuzzyFilter(items: LinkedItemSummary[], q: string): LinkedItemSummary[]
 }
 
 export default function PrepTaskLibrary({
-  rows, inventory, disabled, onCreate, onToggleActive, onDelete, onReorder,
+  rows, inventory, disabled, asBlock, onCreate, onEdit, onToggleActive, onDelete, onReorder,
 }: Props) {
   const [draft, setDraft] = useState('')
   const [linkedItem, setLinkedItem] = useState<LinkedItemSummary | null>(null)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null) // null = picker closed
+  const [editingId, setEditingId] = useState<string | null>(null)        // task being edited, else null
   const dragId = useRef<string | null>(null)
 
   const suggestions = useMemo(
@@ -46,24 +50,42 @@ export default function PrepTaskLibrary({
 
   function onDraftChange(value: string) {
     setDraft(value)
+    // Open the picker while actively typing a mention: text after the last '@'
+    // with no space yet. A completed/inserted mention (has a trailing space) closes it.
     const at = value.lastIndexOf('@')
-    if (at >= 0 && !linkedItem) setMentionQuery(value.slice(at + 1))
-    else setMentionQuery(null)
+    const frag = at >= 0 ? value.slice(at + 1) : null
+    setMentionQuery(frag !== null && !frag.includes(' ') ? frag : null)
   }
 
   function pickItem(item: LinkedItemSummary) {
-    setLinkedItem(item)
-    // strip the "@query" fragment from the draft text
+    // Insert "@<item> " inline at the '@' the user typed, so the tag lives where
+    // the text is — e.g. "Slice @Salmon (is already cured)".
     const at = draft.lastIndexOf('@')
-    setDraft(at >= 0 ? draft.slice(0, at).trimEnd() : draft)
+    const before = at >= 0 ? draft.slice(0, at) : draft
+    setDraft(`${before}@${item.itemName} `)
+    setLinkedItem(item)
     setMentionQuery(null)
+  }
+
+  function resetDraft() {
+    setDraft(''); setLinkedItem(null); setMentionQuery(null); setEditingId(null)
   }
 
   function submit() {
     const name = draft.trim()
     if (!name) return
-    onCreate(name, linkedItem?.id ?? null)
-    setDraft(''); setLinkedItem(null); setMentionQuery(null)
+    // Only keep the link if its inline mention survived in the text.
+    const linkedId = linkedItem && name.includes(`@${linkedItem.itemName}`) ? linkedItem.id : null
+    if (editingId) onEdit(editingId, name, linkedId)
+    else onCreate(name, linkedId)
+    resetDraft()
+  }
+
+  function startEdit(row: PrepTaskRow) {
+    setEditingId(row.id)
+    setDraft(row.name)
+    setLinkedItem(row.linkedInventoryItem)
+    setMentionQuery(null)
   }
 
   function handleDrop(targetId: string) {
@@ -78,10 +100,114 @@ export default function PrepTaskLibrary({
     onReorder(ids)
   }
 
+  // Inner controls for one library row (grip · name · Add/On-list · delete).
+  const rowInner = (row: PrepTaskRow) => (
+    <>
+      <GripVertical size={14} className="text-ink-4 cursor-grab shrink-0" />
+      <span className="text-[14px] text-ink flex-1 min-w-0">
+        <TaskName name={row.name} linkedInventoryItem={row.linkedInventoryItem} />
+      </span>
+      <button
+        onClick={() => onToggleActive(row.id, !row.activeToday)}
+        title={row.activeToday ? "Remove from today's list" : "Add to today's list"}
+        className={`shrink-0 px-2.5 py-1 rounded-[8px] text-[12px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
+          row.activeToday
+            ? 'bg-green-soft text-green-text border border-green-soft hover:border-red hover:bg-red-soft hover:text-red'
+            : 'bg-ink text-paper hover:bg-ink-2'
+        }`}
+      >
+        {row.activeToday
+          ? <><Check size={12} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+          : <><span className="text-gold font-semibold">+</span> Add</>}
+      </button>
+      <button onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}
+              className={`shrink-0 ${editingId === row.id ? 'text-gold-2' : 'text-ink-4 hover:text-ink'}`}>
+        <Pencil size={13} />
+      </button>
+      <button onClick={() => onDelete(row.id)} aria-label={`Delete ${row.name}`}
+              className="text-ink-4 hover:text-red-text shrink-0">
+        <Trash2 size={14} />
+      </button>
+    </>
+  )
+
+  // The "new task" input + @-mention dropdown (shared by both layouts).
+  const inputArea = (
+    <div className="relative">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 flex items-center rounded-lg border border-line bg-paper px-2 py-1.5">
+          <input
+            value={draft}
+            onChange={e => onDraftChange(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); else if (e.key === 'Escape') resetDraft() }}
+            placeholder={editingId ? 'Edit task…' : 'New task… (type @ to tag an ingredient)'}
+            className="flex-1 bg-transparent text-[14px] text-ink outline-none min-w-0"
+          />
+        </div>
+        {editingId && (
+          <button onClick={resetDraft} aria-label="Cancel edit"
+                  className="flex items-center rounded-lg border border-line text-ink-3 hover:text-ink px-2 py-1.5">
+            <X size={14} />
+          </button>
+        )}
+        <button onClick={submit}
+                className="flex items-center gap-1 rounded-lg bg-ink text-paper px-2.5 py-1.5 text-[13px]">
+          {editingId ? <><Check size={14} /> Save</> : <><Plus size={14} /> Add</>}
+        </button>
+      </div>
+      {mentionQuery !== null && suggestions.length > 0 && (
+        <ul className="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-auto rounded-lg border border-line bg-paper shadow-lg">
+          {suggestions.map(item => (
+            <li key={item.id}>
+              <button onClick={() => pickItem(item)}
+                      className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-bg-2">
+                {item.itemName}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+
+  // ── Board .block card (desktop grid) ──
+  if (asBlock) {
+    return (
+      <div className="block prep-tasks">
+        <div className="bk-head">
+          <span className="bk-dot dot-gray" />
+          <span className="bk-title">TASKS</span>
+          {!disabled && <span className="bk-meta">· {rows.length} item{rows.length === 1 ? '' : 's'}</span>}
+        </div>
+        <div className="bk-body">
+          {disabled ? (
+            <p className="text-[13px] text-ink-3 italic px-3.5 py-2.5">Select a revenue center to manage tasks.</p>
+          ) : (
+            <>
+              {rows.map(row => (
+                <div
+                  key={row.id}
+                  draggable
+                  onDragStart={() => { dragId.current = row.id }}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={() => handleDrop(row.id)}
+                  className="flex items-center gap-2 px-3.5 py-2 border-b border-line"
+                >
+                  {rowInner(row)}
+                </div>
+              ))}
+              <div className="px-3.5 py-2.5">{inputArea}</div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Plain section (mobile) ──
   return (
     <section className="mb-4">
       <h3 className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-3 mb-2">Tasks</h3>
-
       {disabled ? (
         <p className="text-[13px] text-ink-3 italic">Select a revenue center to manage tasks.</p>
       ) : (
@@ -96,66 +222,11 @@ export default function PrepTaskLibrary({
                 onDrop={() => handleDrop(row.id)}
                 className="flex items-center gap-2 rounded-lg border border-line bg-paper px-2 py-1.5"
               >
-                <GripVertical size={14} className="text-ink-4 cursor-grab shrink-0" />
-                <input
-                  type="checkbox"
-                  checked={row.activeToday}
-                  onChange={e => onToggleActive(row.id, e.target.checked)}
-                  className="shrink-0"
-                  aria-label={`Activate ${row.name} for today`}
-                />
-                <span className="text-[14px] text-ink flex-1">{row.name}</span>
-                {row.linkedInventoryItem && (
-                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-gold-soft text-gold-2 whitespace-nowrap">
-                    {row.linkedInventoryItem.itemName}
-                  </span>
-                )}
-                <button onClick={() => onDelete(row.id)} aria-label={`Delete ${row.name}`}
-                        className="text-ink-4 hover:text-red-text shrink-0">
-                  <Trash2 size={14} />
-                </button>
+                {rowInner(row)}
               </li>
             ))}
           </ul>
-
-          <div className="relative mt-2">
-            <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-1.5 rounded-lg border border-line bg-paper px-2 py-1.5">
-                {linkedItem && (
-                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-gold-soft text-gold-2 whitespace-nowrap flex items-center gap-1">
-                    {linkedItem.itemName}
-                    <button onClick={() => setLinkedItem(null)} aria-label="Remove linked ingredient">
-                      <X size={11} />
-                    </button>
-                  </span>
-                )}
-                <input
-                  value={draft}
-                  onChange={e => onDraftChange(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') submit() }}
-                  placeholder="New task… (type @ to link an ingredient)"
-                  className="flex-1 bg-transparent text-[14px] text-ink outline-none min-w-0"
-                />
-              </div>
-              <button onClick={submit}
-                      className="flex items-center gap-1 rounded-lg bg-ink text-paper px-2.5 py-1.5 text-[13px]">
-                <Plus size={14} /> Add
-              </button>
-            </div>
-
-            {mentionQuery !== null && suggestions.length > 0 && (
-              <ul className="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-auto rounded-lg border border-line bg-paper shadow-lg">
-                {suggestions.map(item => (
-                  <li key={item.id}>
-                    <button onClick={() => pickItem(item)}
-                            className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-bg-2">
-                      {item.itemName}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <div className="mt-2">{inputArea}</div>
         </>
       )}
     </section>
