@@ -516,65 +516,60 @@ git commit -m "feat(invoice): normalize measured lines to count on bridged items
 
 ---
 
-## Task 7: Approve-route guard + $/each write
+## Task 7: Approve routes bridged-COUNT lines through the PACK/CASE path
+
+**REVISED during execution** after reading the approve route. Original assumption (rate→$/each math) was fragile. Findings that drive the new approach:
+
+- The item spine write stores **only `pricing`** (`route.ts:364-372`); ppb is compute-on-read from `pricing` over the item's **own stored `packChain`**. The invoice never rewrites the item's chain/dimension.
+- The **CASE branch** (`route.ts:159-164`) already computes `newPricePerBase = pricePerBaseUnit({ dimension, baseUnit, packChain: item.packChain, pricing: PACK(casePrice) })` — i.e. a COUNT item with a `[case×N, each]` chain yields `$/each` correctly, with **no rate math**.
+- `isUomMode = derivePricingMode(scanItem) === 'per_weight'` (`route.ts:114`). A Brioche `8×1100g` line is classified **per_weight** (because `invoicePackUOM='g'`), so it hits the rate path and gets **skipped** by the dimension guard — that's the bug.
+- The matched `item` is loaded via `include: { matchedItem: true }` (`route.ts:739`, whole row), so `eachMeasureQty/Unit` are present at **runtime**. Only the inline TS type at `route.ts:32` lacks them.
+
+**Approach:** a bridged COUNT item is *always* a count/PACK purchase (the printed weight is per-each size, not a billing rate). So **force such lines onto the existing PACK/CASE path** by excluding them from `isUomMode`. The CASE branch then derives `$/each` from the item's own COUNT chain + the per-case price — reusing the battle-tested path, no rate→$/each arithmetic, no spine-corruption risk. (Requirement: the item's COUNT chain must reflect the real pack, e.g. `[case×8, each]` — ensured by the inventory UI in Task 9 and backfill in Task 11.)
 
 **Files:**
-- Modify: `src/app/api/invoices/sessions/[id]/approve/route.ts` (guard ~178; ensure item select carries bridge)
+- Modify: `src/app/api/invoices/sessions/[id]/approve/route.ts`
 
-- [ ] **Step 1: Confirm the approved item row selects the bridge columns**
+- [ ] **Step 1: Add the bridge columns to the matched-item TS type**
 
-The approve route loads the matched `item` to compute the spine write. Find its select and ensure it includes the bridge:
-
-```bash
-grep -n "eachMeasure\|baseUnit\|dimension\|select:" src/app/api/invoices/sessions/[id]/approve/route.ts | head -30
-```
-
-If the item is loaded with an explicit select, add `eachMeasureQty: true, eachMeasureUnit: true`. If it spreads `...PRICING_SELECT`, it's already covered.
-
-- [ ] **Step 2: Make the dimension-conflict guard bridge-aware**
-
-At the guard (line ~178), build the bridge from the item and pass it through, AND convert the rate to $/each when bridged. Replace the guard condition:
+At `route.ts:32`, the `matchedItem` inline type is `{ id; dimension; baseUnit; packChain; pricing; countUnit }`. Add the two bridge fields so they can be read (runtime already has them via the whole-row include):
 
 ```ts
-        const itemBridge = eachMeasureOf(item)
-        if (isUomMode && item.baseUnit &&
-            !dimensionallyCostable(resolvedRateUnit, item.baseUnit, itemBridge)) {
-          console.error(
-            `[approve] Skipping price write for "${scanItem.rawDescription}" — ` +
-            `rate unit '${resolvedRateUnit}' (${dimensionOf(resolvedRateUnit)}) ` +
-            `can't be costed against item base '${item.baseUnit}' (${item.dimension}).`
-          )
-          skippedLines++
-          continue
-        }
+matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null } | null;
 ```
 
-- [ ] **Step 3: Convert a bridged rate to $/base-each before the spine write**
+- [ ] **Step 2: Import `eachMeasureOf`**
 
-Where `newPricePerBase` is computed for the UOM/rate path, a bridged COUNT item needs $/each, not $/g. After `newPricePerBase` is set and before the `<= 0` guard, add:
+Add `eachMeasureOf` to the existing `@/lib/item-model` import (line 12):
 
 ```ts
-        // Bridged COUNT item billed by weight: the rate's base is measured ($/g),
-        // but the spine base is `each`. Convert: $/each = $/g × (g per each).
-        if (isUomMode && item.dimension === 'COUNT' && itemBridge &&
-            dimensionOf(resolvedRateUnit) === dimensionOf(itemBridge.unit)) {
-          // newPricePerBase is in $/<bridge.unit base>; scale up to $/each.
-          newPricePerBase = newPricePerBase * convertQty(itemBridge.qty, itemBridge.unit, DIMENSION_BASE['MASS'] === itemBridge.unit ? 'g' : 'ml')
-        }
+import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 ```
 
-> Simpler equivalent if `newPricePerBase` is already per the canonical base unit (`g`/`ml`): `newPricePerBase = newPricePerBase * itemBridge.qty` (since `itemBridge.qty` is stored in the canonical base unit). Use the plain-multiply form and drop the convertQty wrapper:
+- [ ] **Step 3: Exclude bridged COUNT items from UOM/rate mode**
+
+Just after `const item = scanItem.matchedItem!` (≈line 108) and before `const isUomMode = ...` (≈line 114), compute the bridge; then make `isUomMode` bridge-aware. Replace:
 
 ```ts
-        if (isUomMode && item.dimension === 'COUNT' && itemBridge &&
-            dimensionOf(resolvedRateUnit) === dimensionOf(itemBridge.unit)) {
-          newPricePerBase = newPricePerBase * itemBridge.qty   // $/g × g-per-each → $/each
-        }
+        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight'
 ```
 
-Use the plain-multiply form. Ensure `eachMeasureOf`, `convertQty`, `DIMENSION_BASE` are imported in this route (add to existing item-model / uom imports as needed).
+with:
 
-> Note: most bridged Brioche lines are per_case (packQty present), not UOM/rate — those flow through the CASE branch, which after Task 6 builds a COUNT chain and yields $/each with no extra code. This step covers only the bare-weight/rate case.
+```ts
+        // A bridged COUNT item is ALWAYS a count purchase — the printed weight
+        // (e.g. Brioche "8×1100g") is the per-each size, not a $/weight billing
+        // rate. Route it through the PACK/CASE path so ppb derives as $/each from
+        // the item's OWN count chain (case price ÷ units per case), exactly like
+        // any other count item. Without this, the 'g' packUOM mis-classifies the
+        // line as per_weight and the dimension guard skips it.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const itemBridge = eachMeasureOf(item as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight' && !itemBridge
+```
+
+(`eachMeasureOf` returns non-null only when `item.dimension === 'COUNT'` and both columns are set, so `!itemBridge` leaves every existing item's behavior unchanged. No other lines change — the existing CASE branch, guard, pricing, offer-chain, and primary-offer mirror all then operate in PACK mode for these items.)
 
 - [ ] **Step 4: Type-check**
 
@@ -585,8 +580,10 @@ Expected: build succeeds.
 
 ```bash
 git add "src/app/api/invoices/sessions/[id]/approve/route.ts"
-git commit -m "feat(invoice): approve writes \$/each for bridged COUNT items"
+git commit -m "feat(invoice): approve bridged COUNT lines via the PACK path (\$/each)"
 ```
+
+> The original Task 6 `buildOffer` normalization remains useful for the review-UI/reconcile *display* (and is harmless/backward-compatible). This task deliberately does NOT wire `buildOffer` into approve — approve already derives $/each from the item's stored chain, which is the lower-risk path.
 
 ---
 
