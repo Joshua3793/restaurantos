@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useRef, useState } from 'react'
-import { Plus, GripVertical, Trash2, Check } from 'lucide-react'
+import { Plus, GripVertical, Trash2, Check, Pencil, X } from 'lucide-react'
 import type { PrepTaskRow, LinkedItemSummary } from './types'
 import TaskName from './TaskName'
 
@@ -10,6 +10,7 @@ interface Props {
   disabled?: boolean            // true when no specific RC is selected
   asBlock?: boolean             // render as a board .block card (desktop grid) vs a plain section (mobile)
   onCreate: (name: string, linkedInventoryItemId: string | null) => void
+  onEdit: (taskId: string, name: string, linkedInventoryItemId: string | null) => void
   onToggleActive: (taskId: string, next: boolean) => void
   onDelete: (taskId: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -34,11 +35,12 @@ function fuzzyFilter(items: LinkedItemSummary[], q: string): LinkedItemSummary[]
 }
 
 export default function PrepTaskLibrary({
-  rows, inventory, disabled, asBlock, onCreate, onToggleActive, onDelete, onReorder,
+  rows, inventory, disabled, asBlock, onCreate, onEdit, onToggleActive, onDelete, onReorder,
 }: Props) {
   const [draft, setDraft] = useState('')
   const [linkedItem, setLinkedItem] = useState<LinkedItemSummary | null>(null)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null) // null = picker closed
+  const [editingId, setEditingId] = useState<string | null>(null)        // task being edited, else null
   const dragId = useRef<string | null>(null)
 
   const suggestions = useMemo(
@@ -65,13 +67,25 @@ export default function PrepTaskLibrary({
     setMentionQuery(null)
   }
 
+  function resetDraft() {
+    setDraft(''); setLinkedItem(null); setMentionQuery(null); setEditingId(null)
+  }
+
   function submit() {
     const name = draft.trim()
     if (!name) return
     // Only keep the link if its inline mention survived in the text.
     const linkedId = linkedItem && name.includes(`@${linkedItem.itemName}`) ? linkedItem.id : null
-    onCreate(name, linkedId)
-    setDraft(''); setLinkedItem(null); setMentionQuery(null)
+    if (editingId) onEdit(editingId, name, linkedId)
+    else onCreate(name, linkedId)
+    resetDraft()
+  }
+
+  function startEdit(row: PrepTaskRow) {
+    setEditingId(row.id)
+    setDraft(row.name)
+    setLinkedItem(row.linkedInventoryItem)
+    setMentionQuery(null)
   }
 
   function handleDrop(targetId: string) {
@@ -106,6 +120,10 @@ export default function PrepTaskLibrary({
           ? <><Check size={12} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
           : <><span className="text-gold font-semibold">+</span> Add</>}
       </button>
+      <button onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}
+              className={`shrink-0 ${editingId === row.id ? 'text-gold-2' : 'text-ink-4 hover:text-ink'}`}>
+        <Pencil size={13} />
+      </button>
       <button onClick={() => onDelete(row.id)} aria-label={`Delete ${row.name}`}
               className="text-ink-4 hover:text-red-text shrink-0">
         <Trash2 size={14} />
@@ -121,14 +139,20 @@ export default function PrepTaskLibrary({
           <input
             value={draft}
             onChange={e => onDraftChange(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') submit() }}
-            placeholder="New task… (type @ to tag an ingredient)"
+            onKeyDown={e => { if (e.key === 'Enter') submit(); else if (e.key === 'Escape') resetDraft() }}
+            placeholder={editingId ? 'Edit task…' : 'New task… (type @ to tag an ingredient)'}
             className="flex-1 bg-transparent text-[14px] text-ink outline-none min-w-0"
           />
         </div>
+        {editingId && (
+          <button onClick={resetDraft} aria-label="Cancel edit"
+                  className="flex items-center rounded-lg border border-line text-ink-3 hover:text-ink px-2 py-1.5">
+            <X size={14} />
+          </button>
+        )}
         <button onClick={submit}
                 className="flex items-center gap-1 rounded-lg bg-ink text-paper px-2.5 py-1.5 text-[13px]">
-          <Plus size={14} /> Add
+          {editingId ? <><Check size={14} /> Save</> : <><Plus size={14} /> Add</>}
         </button>
       </div>
       {mentionQuery !== null && suggestions.length > 0 && (

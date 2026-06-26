@@ -15,10 +15,12 @@ export default function TaskName({
   const token = `@${linkedInventoryItem.itemName}`
   const idx = name.indexOf(token)
   if (idx < 0) return <>{name}</>
+  // Render the highlighted ingredient name WITHOUT the leading "@" — the "@" is only
+  // the mention marker stored in the text, not something to show in the final task.
   return (
     <>
       {name.slice(0, idx)}
-      <span className="font-medium px-1 py-0.5 rounded bg-gold-soft text-gold-2">{token}</span>
+      <span className="font-medium px-1 py-0.5 rounded bg-gold-soft text-gold-2">{linkedInventoryItem.itemName}</span>
       {name.slice(idx + token.length)}
     </>
   )

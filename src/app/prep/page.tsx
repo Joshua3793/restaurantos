@@ -138,6 +138,15 @@ export default function PrepPage() {
     if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => [...prev, t]) }
   }, [activeRcId])
 
+  const editTask = useCallback(async (taskId: string, name: string, linkedInventoryItemId: string | null) => {
+    const res = await fetch(`/api/prep/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, linkedInventoryItemId }),
+    })
+    if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => prev.map(x => x.id === taskId ? t : x)) }
+  }, [])
+
   const deleteTask = useCallback(async (taskId: string) => {
     setTaskLibrary(prev => prev.filter(t => t.id !== taskId))
     await fetch(`/api/prep/tasks/${taskId}`, { method: 'DELETE' })
@@ -1174,6 +1183,7 @@ export default function PrepPage() {
                     inventory={inventoryForTasks}
                     disabled={tasksDisabled}
                     onCreate={createTask}
+                    onEdit={editTask}
                     onToggleActive={setTaskActive}
                     onDelete={deleteTask}
                     onReorder={reorderTasks}
@@ -1256,6 +1266,7 @@ export default function PrepPage() {
                 inventory={inventoryForTasks}
                 disabled={tasksDisabled}
                 onCreate={createTask}
+                onEdit={editTask}
                 onToggleActive={setTaskActive}
                 onDelete={deleteTask}
                 onReorder={reorderTasks}
