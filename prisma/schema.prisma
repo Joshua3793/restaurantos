@@ -100,6 +100,11 @@ model InventoryItem {
   lastCountQty       Decimal?
   allergens          String[]                 @default([])
   barcode            String?
+  // ── Count↔weight bridge (COUNT items only) ──────────────────────────────────
+  // Canonical measure of ONE base count unit, e.g. 1 each (loaf) = 1100 g.
+  // Lets weight-format invoices normalize to count and weight-based recipes cost.
+  eachMeasureQty     Decimal?                 // measure of 1 base unit (e.g. 1100)
+  eachMeasureUnit    String?                  // its unit, base-canonical (g | ml)
   countLines         CountLine[]
   storageArea        StorageArea?             @relation(fields: [storageAreaId], references: [id])
   supplier           Supplier?                @relation(fields: [supplierId], references: [id])
