@@ -22,12 +22,8 @@ export {
   ChevronRight  as IcChevron,
   X             as IcX,
 } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
 
-// "View recipe" glyph — a custom recipe-card mark shared by the desktop board row
-// and the mobile compact row so the affordance is identical across renderers.
-export const IcRecipe = ({ size = 14 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z" />
-    <path d="M4 16a4 4 0 0 1 4-4h12" />
-  </svg>
-)
+// "View recipe" glyph — the same BookOpen mark the Recipes nav uses, shared by the
+// desktop board row and the mobile compact row so the affordance is consistent.
+export const IcRecipe = ({ size = 14 }: { size?: number }) => <BookOpen size={size} />

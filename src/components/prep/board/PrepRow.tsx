@@ -12,8 +12,6 @@ export interface RowHandlers {
   onPriorityChange: (id: string, priority: string) => void
 }
 
-const OpenPanel = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>)
-
 export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
   const { item, urgency: u } = row
   const stock = (
@@ -68,11 +66,10 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
       </span>
       <span className="r-stock">{stock}</span>
       <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>
-      <span className="r-reveal">
-        {item.linkedRecipeId && <button onClick={() => h.onOpenRecipe(item)} title="View recipe"><IcRecipe /></button>}
-        <button onClick={() => h.onOpen(item)} title="Open details"><OpenPanel /></button>
+      <span className="r-act">
+        {item.linkedRecipeId && <button className="r-recipe" onClick={() => h.onOpenRecipe(item)} title="View recipe"><IcRecipe /></button>}
+        {act}
       </span>
-      <span className="r-act">{act}</span>
     </div>
   )
 }
