@@ -26,10 +26,11 @@ const TZ = 'America/Los_Angeles'
 const SOURCE = 'toast'
 
 // `ToastRevenueCenterMap` rows whose toastGuid is `menu:<MENU NAME>` are not real
-// Toast revenue centers — they route orders that carry NO revenue center to an app
-// RC by the item's menu. Used for catering: Toast rings catering with no RC, only
-// the CATERING menu. e.g. `menu:CATERING` → the CATERING RevenueCenter.
-export const MENU_FALLBACK_PREFIX = 'menu:'
+// Toast revenue centers — they map a Toast MENU → app RC and route each line item
+// by the menu it's on (taking precedence over the order's revenue center). Lets
+// food/bar/catering split into different RCs even within one order. e.g.
+// `menu:BAR` → BAR, `menu:CATERING` → CATERING.
+export const MENU_ROUTE_PREFIX = 'menu:'
 
 // ── Date helpers (restaurant-local) ──────────────────────────────────────────
 
@@ -92,12 +93,12 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     prisma.toastItemMap.findMany({ select: { toastItemGuid: true, recipeId: true, toastGroup: true, toastMenu: true } }),
     prisma.revenueCenter.findMany({ select: { id: true, name: true } }),
   ])
-  // Real Toast RC GUID → app RC (uuid keys). Sentinel rows (`menu:<NAME>`) are a
-  // fallback for orders that carry NO revenue center — routed by item menu (e.g.
-  // catering, which Toast rings with no RC). See MENU_FALLBACK_PREFIX.
-  const rcByGuid = new Map(rcMaps.filter((m) => !m.toastGuid.startsWith(MENU_FALLBACK_PREFIX)).map((m) => [m.toastGuid, m.revenueCenterId!]))
-  const menuFallback = new Map(
-    rcMaps.filter((m) => m.toastGuid.startsWith(MENU_FALLBACK_PREFIX)).map((m) => [m.toastGuid.slice(MENU_FALLBACK_PREFIX.length), m.revenueCenterId!]),
+  // Real Toast RC GUID → app RC (uuid keys), used as the per-order fallback.
+  // Sentinel rows (`menu:<NAME>`) route a Toast MENU → app RC and take precedence
+  // per line item (e.g. BAR → BAR, CATERING → CATERING). See MENU_ROUTE_PREFIX.
+  const rcByGuid = new Map(rcMaps.filter((m) => !m.toastGuid.startsWith(MENU_ROUTE_PREFIX)).map((m) => [m.toastGuid, m.revenueCenterId!]))
+  const menuRoutes = new Map(
+    rcMaps.filter((m) => m.toastGuid.startsWith(MENU_ROUTE_PREFIX)).map((m) => [m.toastGuid.slice(MENU_ROUTE_PREFIX.length), m.revenueCenterId!]),
   )
   const itemByGuid = new Map(itemMaps.map((i) => [i.toastItemGuid, i]))
   const rcNameById = new Map(rcNames.map((r) => [r.id, r.name]))
@@ -116,47 +117,42 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   const buckets = new Map<string, RcBucket>()
   let skippedUnmappedRcOrders = 0
 
+  const getBucket = (rcId: string): RcBucket => {
+    let b = buckets.get(rcId)
+    if (!b) { b = { revenueCenterId: rcId, totalRevenue: 0, foodRevenue: 0, covers: 0, qtyByRecipe: new Map(), unmatched: new Map() }; buckets.set(rcId, b) }
+    return b
+  }
+
   for (const order of orders) {
     if (order.voided || order.deleted || order.excessFood) continue
     const rcGuid = order.revenueCenter?.guid
-    let revenueCenterId = rcGuid ? rcByGuid.get(rcGuid) : undefined
+    const orderRc = rcGuid ? rcByGuid.get(rcGuid) : undefined
 
-    // No revenue center → try menu fallback (catering: no RC, CATERING-menu items).
-    // Route the whole order to the app RC of its highest-revenue mapped menu.
-    if (!revenueCenterId && menuFallback.size) {
-      const revByRc = new Map<string, number>()
-      for (const check of order.checks ?? []) {
-        if (check.voided || check.deleted) continue
-        for (const sel of check.selections ?? []) {
-          if (sel.voided || sel.deferred) continue
-          const menu = sel.item?.guid ? itemByGuid.get(sel.item.guid)?.toastMenu : undefined
-          const fbRc = menu ? menuFallback.get(menu) : undefined
-          if (fbRc) revByRc.set(fbRc, (revByRc.get(fbRc) ?? 0) + (sel.price ?? 0))
-        }
-      }
-      if (revByRc.size) revenueCenterId = [...revByRc.entries()].sort((a, b) => b[1] - a[1])[0][0]
-    }
-
-    if (!revenueCenterId) { if (rcGuid) skippedUnmappedRcOrders++; continue }
-
-    let bucket = buckets.get(revenueCenterId)
-    if (!bucket) {
-      bucket = { revenueCenterId, totalRevenue: 0, foodRevenue: 0, covers: 0, qtyByRecipe: new Map(), unmatched: new Map() }
-      buckets.set(revenueCenterId, bucket)
-    }
-    bucket.covers += order.guestCount ?? 0
+    // Per-LINE-ITEM routing: each selection goes to its menu's RC if that menu is
+    // mapped (menuRoutes), else the order's RC. One order can split across RCs
+    // (e.g. a café ticket's brunch → CAFE, its cocktail → BAR). Track per-RC
+    // revenue in this order so covers can be attributed to the dominant RC.
+    const orderRcRevenue = new Map<string, number>()
+    let routedAny = false
 
     for (const check of order.checks ?? []) {
       if (check.voided || check.deleted) continue
       for (const sel of check.selections ?? []) {
         if (sel.voided || sel.deferred) continue
-        const price = sel.price ?? 0
         const item = sel.item?.guid ? itemByGuid.get(sel.item.guid) : undefined
+        const menuRc = item?.toastMenu ? menuRoutes.get(item.toastMenu) : undefined
+        const rcId = menuRc ?? orderRc
+        if (!rcId) continue // can't route (no menu mapping, no order RC) → skip line
+
         const cls = classifyGroup(item?.toastGroup)
         if (cls.ignore) continue // Toast scaffolding lines
 
+        const bucket = getBucket(rcId)
+        routedAny = true
+        const price = sel.price ?? 0
         bucket.totalRevenue += price
         if (cls.isFood) bucket.foodRevenue += price
+        orderRcRevenue.set(rcId, (orderRcRevenue.get(rcId) ?? 0) + price)
 
         const qty = Math.round(sel.quantity ?? 0)
         if (qty <= 0) continue
@@ -166,6 +162,14 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
           bucket.unmatched.set(sel.item.guid, (bucket.unmatched.get(sel.item.guid) ?? 0) + qty)
         }
       }
+    }
+
+    if (!routedAny) { if (rcGuid) skippedUnmappedRcOrders++; continue }
+
+    // Covers belong to the order's dominant (highest-revenue) RC.
+    if (order.guestCount && orderRcRevenue.size) {
+      const dominant = [...orderRcRevenue.entries()].sort((a, b) => b[1] - a[1])[0][0]
+      getBucket(dominant).covers += order.guestCount
     }
   }
 

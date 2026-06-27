@@ -21,6 +21,10 @@ interface RcData {
   discovered: DiscoveredRC[]
   revenueCenters: { id: string; name: string }[]
 }
+interface MenuRoutesData {
+  menus: { menu: string; revenueCenterId: string | null }[]
+  revenueCenters: { id: string; name: string }[]
+}
 interface MenuSyncResult {
   itemsSeen: number
   created: number
@@ -74,6 +78,10 @@ export default function ToastSetupPage() {
   const [rc, setRc] = useState<RcData | null>(null)
   const [rcEdits, setRcEdits] = useState<Record<string, string>>({}) // toastGuid → revenueCenterId|''
   const [rcSaving, setRcSaving] = useState(false)
+
+  const [mr, setMr] = useState<MenuRoutesData | null>(null)
+  const [mrEdits, setMrEdits] = useState<Record<string, string>>({}) // menu → revenueCenterId|''
+  const [mrSaving, setMrSaving] = useState(false)
 
   const [items, setItems] = useState<ItemsData | null>(null)
   const [itemsLoading, setItemsLoading] = useState(true)
@@ -132,7 +140,31 @@ export default function ToastSetupPage() {
     } catch { /* non-fatal */ }
   }, [])
 
-  useEffect(() => { loadConn(); loadRc(); loadItems(); loadStatus() }, [loadConn, loadRc, loadItems, loadStatus])
+  const loadMr = useCallback(async () => {
+    try {
+      const res = await fetch('/api/toast/menu-routing')
+      if (res.ok) {
+        const data: MenuRoutesData = await res.json()
+        setMr(data)
+        setMrEdits(Object.fromEntries(data.menus.map((m) => [m.menu, m.revenueCenterId ?? ''])))
+      }
+    } catch { /* non-fatal */ }
+  }, [])
+
+  const saveMr = async () => {
+    setMrSaving(true)
+    try {
+      const mappings = Object.entries(mrEdits).map(([menu, id]) => ({ menu, revenueCenterId: id || null }))
+      await fetch('/api/toast/menu-routing', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings }),
+      })
+      await loadMr()
+    } finally {
+      setMrSaving(false)
+    }
+  }
+
+  useEffect(() => { loadConn(); loadRc(); loadItems(); loadStatus(); loadMr() }, [loadConn, loadRc, loadItems, loadStatus, loadMr])
 
   const runSync = async (query: string) => {
     setRunning(true); setRunResult(null)
@@ -249,6 +281,10 @@ export default function ToastSetupPage() {
       <RcCard
         rc={rc} edits={rcEdits} setEdits={setRcEdits}
         onSave={saveRc} saving={rcSaving} onRediscover={() => loadRc(true)}
+      />
+
+      <MenuRoutingCard
+        mr={mr} edits={mrEdits} setEdits={setMrEdits} onSave={saveMr} saving={mrSaving}
       />
 
       {/* Menu sync */}
@@ -442,6 +478,57 @@ function RcCard({
               className="bg-ink text-paper px-3 py-1.5 rounded-xl text-xs font-semibold hover:bg-ink-2 disabled:opacity-40"
             >
               {saving ? 'Saving…' : 'Save mapping'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MenuRoutingCard({
+  mr, edits, setEdits, onSave, saving,
+}: {
+  mr: MenuRoutesData | null
+  edits: Record<string, string>
+  setEdits: (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  onSave: () => void
+  saving: boolean
+}) {
+  const dirty = mr?.menus.some((m) => (edits[m.menu] ?? '') !== (m.revenueCenterId ?? '')) ?? false
+  return (
+    <div className="bg-white border border-line rounded-2xl p-4">
+      <h3 className="text-sm font-semibold text-ink flex items-center gap-1.5"><Building2 size={14} /> Menu → revenue center</h3>
+      <p className="text-xs text-ink-3 mt-0.5">
+        Route each Toast menu to a revenue center. Items are attributed by their menu (e.g. BAR → BAR, CATERING → CATERING),
+        overriding the order’s revenue center. Leave “— Use order RC —” to fall back to the per-order mapping above.
+      </p>
+      {!mr ? (
+        <p className="text-xs text-ink-4 mt-3">Loading…</p>
+      ) : mr.menus.length === 0 ? (
+        <p className="text-xs text-ink-4 mt-3">No menus yet — run “Sync menu” below first.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {mr.menus.map((m) => (
+            <div key={m.menu} className="flex items-center gap-2">
+              <span className="text-sm text-ink-2 flex-1 min-w-0 truncate font-medium">{m.menu}</span>
+              <select
+                value={edits[m.menu] ?? ''}
+                onChange={(e) => setEdits((p) => ({ ...p, [m.menu]: e.target.value }))}
+                className="border border-line rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+              >
+                <option value="">— Use order RC —</option>
+                {mr.revenueCenters.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          ))}
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-ink-4">Don’t see a BAR center? Create it in Setup → Revenue centers, then it appears here.</span>
+            <button
+              onClick={onSave} disabled={!dirty || saving}
+              className="bg-ink text-paper px-3 py-1.5 rounded-xl text-xs font-semibold hover:bg-ink-2 disabled:opacity-40"
+            >
+              {saving ? 'Saving…' : 'Save routing'}
             </button>
           </div>
         </div>
