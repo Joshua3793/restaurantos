@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpDown, BarChart2, Calendar, Check, ChevronDown, ChevronUp,
-  Pencil, Plus, Search, Trash2, TrendingUp, Upload, Users, X,
+  Pencil, Plus, Search, Trash2, TrendingUp, Upload, Users, X, Zap, AlertTriangle,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -42,6 +42,7 @@ interface Sale {
   lineItems: SaleLineItem[]
   periodType: string
   endDate: string | null
+  source: string // 'toast' (auto) | 'manual'
 }
 
 type RangeMode = 'week' | 'month' | 'lastMonth' | 'custom'
@@ -75,12 +76,14 @@ function startOfWeek(d: Date) {
 
 function toISO(d: Date) { return d.toISOString().slice(0, 10) }
 
+// Dates are stored at UTC midnight; parse the date-portion as LOCAL so the
+// calendar day doesn't shift back a day in negative-offset timezones (Pacific).
 function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(s.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function fmtDay(s: string) {
-  return new Date(s).toLocaleDateString('en-CA', { weekday: 'short' })
+  return new Date(s.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-CA', { weekday: 'short' })
 }
 
 function weekRange(d: Date): [string, string] {
@@ -255,6 +258,44 @@ function buildMonthRows(sales: Sale[], rangeStart: string, rangeEnd: string): Pe
   return rows.reverse()
 }
 
+// ─── Source dedupe (prefer Toast over a manual duplicate for the same day+RC) ──
+
+// A single-day entry: a Toast day, or a manual day/single-day custom. Multi-day
+// period imports (week/month/spanning custom) are NOT deduped against Toast days.
+function isSingleDay(s: Sale): boolean {
+  if (s.periodType === 'day') return true
+  if (!s.endDate) return true
+  return s.endDate.slice(0, 10) === s.date.slice(0, 10)
+}
+function dayKey(s: Sale): string {
+  return `${s.date.slice(0, 10)}|${s.revenueCenterId ?? ''}`
+}
+
+/** Collapse single-day collisions, keeping the Toast row when present. Multi-day
+ *  entries pass through untouched. Used for KPIs / rollups / Top Items so a Toast
+ *  + manual duplicate doesn't double-count. */
+function dedupeSales(sales: Sale[]): Sale[] {
+  const winner = new Map<string, Sale>()
+  const passthrough: Sale[] = []
+  for (const s of sales) {
+    if (!isSingleDay(s)) { passthrough.push(s); continue }
+    const k = dayKey(s)
+    const cur = winner.get(k)
+    if (!cur) winner.set(k, s)
+    else if (cur.source !== 'toast' && s.source === 'toast') winner.set(k, s)
+  }
+  return [...winner.values(), ...passthrough]
+}
+
+/** IDs of manual single-day entries shadowed by a Toast entry on the same day+RC. */
+function duplicateManualIds(sales: Sale[]): Set<string> {
+  const hasToast = new Set<string>()
+  for (const s of sales) if (s.source === 'toast' && isSingleDay(s)) hasToast.add(dayKey(s))
+  const dups = new Set<string>()
+  for (const s of sales) if (s.source !== 'toast' && isSingleDay(s) && hasToast.has(dayKey(s))) dups.add(s.id)
+  return dups
+}
+
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function PeriodBadge({ badge, text }: { badge: PeriodRow['badge']; text: string }) {
@@ -266,6 +307,34 @@ function PeriodBadge({ badge, text }: { badge: PeriodRow['badge']; text: string 
     'not-available':  'bg-bg-2 text-ink-4',
   }[badge]
   return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cls}`}>{text}</span>
+}
+
+function SourceBadge({ source }: { source: string }) {
+  if (source === 'toast') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-gold-soft text-gold-2" title="Synced automatically from Toast">
+      <Zap size={9} /> Toast
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-bg-2 text-ink-3" title="Entered manually">
+      <Pencil size={9} /> Manual
+    </span>
+  )
+}
+
+function SyncHealthStrip({ sales }: { sales: Sale[] }) {
+  const toastSales = sales.filter(s => s.source === 'toast')
+  if (toastSales.length === 0) return null // RC with no Toast data (e.g. CATERING) — strip is irrelevant
+  const lastSync = toastSales.map(s => s.date).sort().at(-1)!
+  const days = new Set(toastSales.map(s => s.date.slice(0, 10))).size
+  return (
+    <div className="flex items-center gap-2 flex-wrap bg-white border border-line rounded-xl px-3 py-2 text-xs shadow-sm">
+      <Zap size={13} className="text-gold" />
+      <span className="font-medium text-ink-2">Toast auto-sync</span>
+      <span className="text-ink-4">· last synced {fmtDate(lastSync)} · {days} day{days === 1 ? '' : 's'} in this range</span>
+      <a href="/setup/toast" className="ml-auto text-gold hover:text-gold-2 font-medium">Manage in Setup →</a>
+    </div>
+  )
 }
 
 function KpiCard({ label, value, sub, accent = 'text-ink' }: {
@@ -828,22 +897,26 @@ export default function SalesPage() {
     })
   }, [])
 
-  // ── KPIs ──
+  // ── Source dedupe (Toast wins over a manual duplicate on the same day+RC) ──
+  const dedupedSales = useMemo(() => dedupeSales(sales), [sales])
+  const dupManualIds = useMemo(() => duplicateManualIds(sales), [sales])
+
+  // ── KPIs (deduped so a Toast+manual duplicate doesn't double-count) ──
   const kpis = useMemo(() => {
-    const totalRevenue  = sales.reduce((s, e) => s + Number(e.totalRevenue), 0)
-    const totalFoodSales = sales.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
-    const totalCovers   = sales.reduce((s, e) => s + (e.covers ?? 0), 0)
-    const days          = sales.length
+    const totalRevenue  = dedupedSales.reduce((s, e) => s + Number(e.totalRevenue), 0)
+    const totalFoodSales = dedupedSales.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
+    const totalCovers   = dedupedSales.reduce((s, e) => s + (e.covers ?? 0), 0)
+    const days          = dedupedSales.length
     const avgDaily      = days > 0 ? totalRevenue / days : 0
     const avgPerCover   = totalCovers > 0 ? totalRevenue / totalCovers : 0
-    const totalPortions = sales.reduce((s, e) => s + e.lineItems.reduce((ss, li) => ss + li.qtySold, 0), 0)
+    const totalPortions = dedupedSales.reduce((s, e) => s + e.lineItems.reduce((ss, li) => ss + li.qtySold, 0), 0)
     return { totalRevenue, totalFoodSales, totalCovers, days, avgDaily, avgPerCover, totalPortions }
-  }, [sales])
+  }, [dedupedSales])
 
   // ── Top items ──
   const topItems = useMemo(() => {
     const map = new Map<string, { name: string; qty: number; revenue: number }>()
-    for (const sale of sales) {
+    for (const sale of dedupedSales) {
       for (const li of sale.lineItems) {
         const prev = map.get(li.recipeId) ?? { name: li.recipe.name, qty: 0, revenue: 0 }
         map.set(li.recipeId, {
@@ -854,14 +927,14 @@ export default function SalesPage() {
       }
     }
     return Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 15)
-  }, [sales])
+  }, [dedupedSales])
 
-  // ── Period rows (week/month aggregation) ──
+  // ── Period rows (week/month aggregation; deduped to avoid double-count) ──
   const periodRows = useMemo((): PeriodRow[] => {
-    if (granularity === 'week')  return buildWeekRows(sales, startDate, endDate)
-    if (granularity === 'month') return buildMonthRows(sales, startDate, endDate)
+    if (granularity === 'week')  return buildWeekRows(dedupedSales, startDate, endDate)
+    if (granularity === 'month') return buildMonthRows(dedupedSales, startDate, endDate)
     return []
-  }, [sales, granularity, startDate, endDate])
+  }, [dedupedSales, granularity, startDate, endDate])
 
   // ── Sorted + filtered list ──
   const displayed = useMemo(() => {
@@ -995,6 +1068,20 @@ export default function SalesPage() {
         <KpiCard label="Portions Sold" value={kpis.totalPortions.toLocaleString()} sub="menu items" accent="text-blue" />
       </div>
 
+      {/* Toast sync health */}
+      <SyncHealthStrip sales={sales} />
+
+      {/* Duplicate warning — manual entries shadowed by a Toast day */}
+      {dupManualIds.size > 0 && (
+        <div className="flex items-center gap-2 bg-gold-soft border border-gold-soft rounded-xl px-3 py-2 text-sm text-gold-2">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>
+            {dupManualIds.size} manual {dupManualIds.size === 1 ? 'entry duplicates' : 'entries duplicate'} a Toast-synced day —
+            Toast is authoritative (totals already ignore the manual copy). Remove the flagged {dupManualIds.size === 1 ? 'row' : 'rows'} below to tidy up.
+          </span>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 border-b border-line">
         {([['list', 'Sales Log'], ['analytics', 'Top Items']] as const).map(([tab, label]) => (
@@ -1084,8 +1171,14 @@ export default function SalesPage() {
                             onClick={() => setSelectedSale(isSelected ? null : sale)}
                             className={`cursor-pointer transition-colors ${isSelected ? 'bg-gold-soft' : 'hover:bg-bg'}`}>
                             <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium text-ink-2">{fmtDate(sale.date)}</span>
+                                <SourceBadge source={sale.source} />
+                                {dupManualIds.has(sale.id) && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-soft text-red-text">
+                                    <AlertTriangle size={9} /> Duplicate
+                                  </span>
+                                )}
                                 {sale.revenueCenter && (
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-bg-2 text-ink-3">
                                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
@@ -1175,8 +1268,9 @@ export default function SalesPage() {
                     <div className="bg-white rounded-xl border border-line shadow-sm">
                       <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-line">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-semibold text-ink">{fmtDate(sale.date)}</span>
+                            <SourceBadge source={sale.source} />
                             {sale.revenueCenter && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-bg-2 text-ink-2">
                                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: rcHex(sale.revenueCenter.color) }} />
