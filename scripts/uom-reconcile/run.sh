@@ -6,6 +6,10 @@
 #   bash scripts/uom-reconcile/run.sh verify-convert-density.ts
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Plain ts-node doesn't auto-load .env the way Next.js does; DB-touching scripts
+# (Prisma) need DATABASE_URL in the environment. Source it if present.
+root="$(cd "$here/../.." && pwd)"
+if [ -f "$root/.env" ]; then set -a; . "$root/.env"; set +a; fi
 script="$1"
 # Accept either a bare filename or a path; normalize to scripts/uom-reconcile/<file>.
 case "$script" in
