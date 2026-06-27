@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { validatePrepQty } from '@/lib/prep-utils'
 
 const COMPLETION_STATUSES = new Set(['DONE', 'PARTIAL'])
 
@@ -26,6 +27,19 @@ export async function PUT(
       { error: 'actualPrepQty is required to mark as Done or Partial' },
       { status: 400 },
     )
+  }
+
+  // Guard against unit-magnitude typos (e.g. 25000 into a kg field). Only when a
+  // new qty is being recorded — leave existing rows untouched on metadata edits.
+  if (actualPrepQty !== undefined && qty != null) {
+    const prepItem = await prisma.prepItem.findUnique({
+      where: { id: existing.prepItemId },
+      select: { unit: true, linkedRecipe: { select: { yieldUnit: true, baseYieldQty: true } } },
+    })
+    if (prepItem?.linkedRecipe) {
+      const err = validatePrepQty(qty, prepItem.unit, prepItem.linkedRecipe.yieldUnit, Number(prepItem.linkedRecipe.baseYieldQty))
+      if (err) return NextResponse.json({ error: err }, { status: 400 })
+    }
   }
 
   const log = await prisma.prepLog.update({

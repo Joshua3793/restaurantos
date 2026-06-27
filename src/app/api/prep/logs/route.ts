@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { validatePrepQty } from '@/lib/prep-utils'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -50,12 +51,18 @@ export async function POST(req: NextRequest) {
 
   const prepItem = await prisma.prepItem.findUnique({
     where: { id: prepItemId },
-    select: { revenueCenterId: true },
+    select: { revenueCenterId: true, unit: true, linkedRecipe: { select: { yieldUnit: true, baseYieldQty: true } } },
   })
 
   const revenueCenterId: string | null = prepItem?.revenueCenterId ?? body.revenueCenterId ?? null
   if (!revenueCenterId) {
     return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
+
+  // Guard against unit-magnitude typos in "how much did you make?".
+  if (actualPrepQty !== undefined && actualPrepQty !== null && prepItem?.linkedRecipe) {
+    const err = validatePrepQty(parseFloat(String(actualPrepQty)), prepItem.unit, prepItem.linkedRecipe.yieldUnit, Number(prepItem.linkedRecipe.baseYieldQty))
+    if (err) return NextResponse.json({ error: err }, { status: 400 })
   }
 
   const log = await prisma.prepLog.upsert({

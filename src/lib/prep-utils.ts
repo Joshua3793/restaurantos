@@ -127,6 +127,34 @@ export function computeScale(
   return { scale: 1, unitMismatch: true }
 }
 
+/**
+ * A single prep log this many batches or more is treated as an implausible
+ * unit-magnitude typo (e.g. entering 25000 into a field whose unit is kg when one
+ * batch is 25 kg → 1000 batches). Catering can legitimately make several batches at
+ * once, so the ceiling is deliberately generous — it only catches the typo class.
+ */
+export const MAX_PLAUSIBLE_BATCHES_PER_LOG = 50
+
+/**
+ * Guards against unit-magnitude typos in "how much did you make?". Returns an error
+ * message when the entered qty scales to an absurd number of batches, else null.
+ * No-ops when we can't reason about it (no recipe yield, or cross-dimension units).
+ */
+export function validatePrepQty(
+  actualPrepQty: number,
+  prepUnit: string,
+  recipeYieldUnit: string,
+  recipeBaseYieldQty: number,
+): string | null {
+  if (!(actualPrepQty > 0) || !(recipeBaseYieldQty > 0)) return null
+  const { scale, unitMismatch } = computeScale(actualPrepQty, prepUnit, recipeYieldUnit, recipeBaseYieldQty)
+  if (unitMismatch) return null
+  if (scale >= MAX_PLAUSIBLE_BATCHES_PER_LOG) {
+    return `That's ~${Math.round(scale)} batches in one entry — looks like a unit mix-up (amount is in ${prepUnit}). Double-check how much was actually made.`
+  }
+  return null
+}
+
 /** Design status pills: maps our PrepStatus → the design's state + class suffix. */
 export const PREP_STATE_META: Record<string, { key: 'not-started'|'in-progress'|'done'|'skipped'; label: string }> = {
   NOT_STARTED: { key: 'not-started', label: 'Not started' },

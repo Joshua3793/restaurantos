@@ -150,7 +150,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           prepItems: {
             include: {
               logs: {
-                where: { status: { in: ['DONE', 'PARTIAL'] }, inventoryAdjusted: true, updatedAt: { gte: since } },
+                // NOTE: do NOT filter on inventoryAdjusted — the theoretical-stock
+                // model never sets it (prep no longer writes stockOnHand directly),
+                // so filtering on it would hide every prep movement. Mirrors buildPrepMap.
+                where: { status: { in: ['DONE', 'PARTIAL'] }, actualPrepQty: { not: null }, updatedAt: { gte: since } },
               },
             },
           },
@@ -177,8 +180,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // ── PREP: this item is the output of a prep recipe (credit) ──────────────
   const prepOutputLogs = await prisma.prepLog.findMany({
     where: {
+      // See note above: inventoryAdjusted is unset under the theoretical model.
       status: { in: ['DONE', 'PARTIAL'] },
-      inventoryAdjusted: true,
+      actualPrepQty: { not: null },
       updatedAt: { gte: since },
       prepItem: { linkedRecipe: { inventoryItemId: params.id } },
     },
@@ -194,7 +198,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const recipe    = log.prepItem.linkedRecipe!
     const actualQty = Number(log.actualPrepQty ?? 0)
     if (actualQty <= 0) continue
-    const credited  = convertQty(actualQty, recipe.yieldUnit, nonNullItem.baseUnit)
+    // Mirror buildPrepMap exactly: scale the recipe's base yield by how many batches
+    // were made (computeScale converts prep-unit → yield-unit). Treating actualPrepQty
+    // as if it were already in the yield unit diverged from the page's theoretical math.
+    const { scale } = computeScale(actualQty, log.prepItem.unit, recipe.yieldUnit, Number(recipe.baseYieldQty))
+    const credited  = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, nonNullItem.baseUnit) * scale
     raw.push({
       id: `prep-out-${log.id}`,
       date: log.updatedAt, type: 'PREP_OUT', qtyBase: credited,
