@@ -19,6 +19,8 @@ export interface ChainItem {
   stockOnHand?: number
   /** Present only on COUNT items with a count↔weight bridge configured. */
   eachMeasure?: EachMeasure | null
+  /** Present only on measured items with a weight↔volume density bridge. g/ml. */
+  densityGPerMl?: number | null
 }
 
 export const DIMENSION_BASE: Record<Dimension, string> = { MASS: 'g', VOLUME: 'ml', COUNT: 'each' }
@@ -38,6 +40,13 @@ export function eachMeasureOf(row: {
   const unit = (row.eachMeasureUnit ?? '').trim()
   if (!Number.isFinite(qty) || qty <= 0 || !unit) return null
   return { qty, unit }
+}
+
+/** Read the weight↔volume density (g/ml) off an item row. Null unless > 0.
+ *  Decimal arrives as a string from Prisma JSON. */
+export function densityOf(row: { densityGPerMl?: unknown }): number | null {
+  const d = row.densityGPerMl != null ? Number(row.densityGPerMl) : NaN
+  return Number.isFinite(d) && d > 0 ? d : null
 }
 
 /** Map a unit string to a Dimension via the canonical uom.ts table. */
@@ -114,7 +123,7 @@ export function validateChainItem(item: ChainItem): string[] {
 /** Prisma select fragment every cost reader uses to load pricing facts. */
 export const PRICING_SELECT = {
   dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true,
-  eachMeasureQty: true, eachMeasureUnit: true,
+  eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
 } as const
 
 /** Coerce a Prisma row (Json columns may be untyped) into a ChainItem. */
@@ -122,6 +131,7 @@ export function asChainItem(row: {
   dimension: string; baseUnit: string; packChain: unknown; pricing: unknown
   countUnit?: string; stockOnHand?: unknown
   eachMeasureQty?: unknown; eachMeasureUnit?: string | null
+  densityGPerMl?: unknown
 }): ChainItem {
   return {
     dimension: row.dimension as Dimension,
@@ -131,6 +141,7 @@ export function asChainItem(row: {
     countUnit: row.countUnit,
     stockOnHand: row.stockOnHand != null ? Number(row.stockOnHand) : 0,
     eachMeasure: eachMeasureOf(row),
+    densityGPerMl: densityOf(row),
   }
 }
 
