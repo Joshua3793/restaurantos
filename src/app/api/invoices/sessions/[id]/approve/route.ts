@@ -31,7 +31,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; itemName: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null; densityGPerMl?: unknown } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -154,6 +154,8 @@ async function doApprove(
         let density = 0
         // The RATE's resolved unit (only meaningful in UOM mode) — captured here
         // so the chain `pricing` below can store { mode:'RATE', rate, rateUnit }.
+        // This 'kg' default is ONLY meaningful inside the isUomMode branch (the
+        // density-cross check reads it there); do not rely on it outside that branch.
         let resolvedRateUnit = 'kg'
         if (isUomMode) {
           // newPurchasePrice is a rate ($/kg, $/lb…). Divide by the RATE's OWN
@@ -182,12 +184,10 @@ async function doApprove(
             (rateDim === 'MASS' && baseDim === 'VOLUME') ||
             (rateDim === 'VOLUME' && baseDim === 'MASS')
           if (crossesWV) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const learned = (item as any).densityGPerMl != null ? Number((item as any).densityGPerMl) : null
+            const learned = item.densityGPerMl != null ? Number(item.densityGPerMl) : null
             density = (learned && learned > 0)
               ? learned
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              : lookupDensity((item as any).itemName ?? scanItem.rawDescription ?? '').gPerMl
+              : lookupDensity(item.itemName ?? scanItem.rawDescription ?? '').gPerMl
             newPricePerBase = densityCrossedPpb(newPricePerBase, rateDim, baseDim, density)
           }
         } else if (reverseBridge && reverseBasePerCase > 0) {
@@ -435,7 +435,10 @@ async function doApprove(
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 pricing: newPricing as any,
                 // Persist the resolved weight↔volume density so the next invoice + every
-                // recipe cost uses the same factor (no per-path divergence).
+                // recipe cost uses the same factor (no per-path divergence). Only fires
+                // here, inside the shouldReprice branch — so density-learning happens on
+                // the PRIMARY supplier's invoice (the spine-write path); the resolver UI
+                // also lets the user set densityGPerMl directly.
                 ...(density > 0 ? { densityGPerMl: density } : {}),
               },
             }),
