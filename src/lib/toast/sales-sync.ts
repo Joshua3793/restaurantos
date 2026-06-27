@@ -25,6 +25,12 @@ import { classifyGroup } from '@/lib/toast/food-classify'
 const TZ = 'America/Los_Angeles'
 const SOURCE = 'toast'
 
+// `ToastRevenueCenterMap` rows whose toastGuid is `menu:<MENU NAME>` are not real
+// Toast revenue centers — they route orders that carry NO revenue center to an app
+// RC by the item's menu. Used for catering: Toast rings catering with no RC, only
+// the CATERING menu. e.g. `menu:CATERING` → the CATERING RevenueCenter.
+export const MENU_FALLBACK_PREFIX = 'menu:'
+
 // ── Date helpers (restaurant-local) ──────────────────────────────────────────
 
 /** Format a yyyymmdd int from a Date as seen in the restaurant's timezone. */
@@ -83,10 +89,16 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   // Load mappings up front.
   const [rcMaps, itemMaps, rcNames] = await Promise.all([
     prisma.toastRevenueCenterMap.findMany({ where: { revenueCenterId: { not: null } } }),
-    prisma.toastItemMap.findMany({ select: { toastItemGuid: true, recipeId: true, toastGroup: true } }),
+    prisma.toastItemMap.findMany({ select: { toastItemGuid: true, recipeId: true, toastGroup: true, toastMenu: true } }),
     prisma.revenueCenter.findMany({ select: { id: true, name: true } }),
   ])
-  const rcByGuid = new Map(rcMaps.map((m) => [m.toastGuid, m.revenueCenterId!]))
+  // Real Toast RC GUID → app RC (uuid keys). Sentinel rows (`menu:<NAME>`) are a
+  // fallback for orders that carry NO revenue center — routed by item menu (e.g.
+  // catering, which Toast rings with no RC). See MENU_FALLBACK_PREFIX.
+  const rcByGuid = new Map(rcMaps.filter((m) => !m.toastGuid.startsWith(MENU_FALLBACK_PREFIX)).map((m) => [m.toastGuid, m.revenueCenterId!]))
+  const menuFallback = new Map(
+    rcMaps.filter((m) => m.toastGuid.startsWith(MENU_FALLBACK_PREFIX)).map((m) => [m.toastGuid.slice(MENU_FALLBACK_PREFIX.length), m.revenueCenterId!]),
+  )
   const itemByGuid = new Map(itemMaps.map((i) => [i.toastItemGuid, i]))
   const rcNameById = new Map(rcNames.map((r) => [r.id, r.name]))
 
@@ -107,7 +119,24 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   for (const order of orders) {
     if (order.voided || order.deleted || order.excessFood) continue
     const rcGuid = order.revenueCenter?.guid
-    const revenueCenterId = rcGuid ? rcByGuid.get(rcGuid) : undefined
+    let revenueCenterId = rcGuid ? rcByGuid.get(rcGuid) : undefined
+
+    // No revenue center → try menu fallback (catering: no RC, CATERING-menu items).
+    // Route the whole order to the app RC of its highest-revenue mapped menu.
+    if (!revenueCenterId && menuFallback.size) {
+      const revByRc = new Map<string, number>()
+      for (const check of order.checks ?? []) {
+        if (check.voided || check.deleted) continue
+        for (const sel of check.selections ?? []) {
+          if (sel.voided || sel.deferred) continue
+          const menu = sel.item?.guid ? itemByGuid.get(sel.item.guid)?.toastMenu : undefined
+          const fbRc = menu ? menuFallback.get(menu) : undefined
+          if (fbRc) revByRc.set(fbRc, (revByRc.get(fbRc) ?? 0) + (sel.price ?? 0))
+        }
+      }
+      if (revByRc.size) revenueCenterId = [...revByRc.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    }
+
     if (!revenueCenterId) { if (rcGuid) skippedUnmappedRcOrders++; continue }
 
     let bucket = buckets.get(revenueCenterId)

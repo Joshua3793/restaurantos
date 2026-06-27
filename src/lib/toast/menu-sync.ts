@@ -21,6 +21,7 @@ import {
   type FlatMenuItem,
 } from '@/lib/toast/client'
 import { classifyGroup } from '@/lib/toast/food-classify'
+import { MENU_FALLBACK_PREFIX } from '@/lib/toast/sales-sync'
 
 export interface MenuSyncResult {
   lastUpdated?: string
@@ -152,6 +153,7 @@ export async function discoverRevenueCenters(windowDays = 14): Promise<RCDiscove
 
   const [maps, rcs] = await Promise.all([
     prisma.toastRevenueCenterMap.findMany({
+      where: { NOT: { toastGuid: { startsWith: MENU_FALLBACK_PREFIX } } },
       include: { revenueCenter: { select: { id: true, name: true } } },
     }),
     prisma.revenueCenter.findMany({
@@ -179,6 +181,7 @@ export async function discoverRevenueCenters(windowDays = 14): Promise<RCDiscove
 export async function listRevenueCenterMappings(): Promise<RCDiscoveryResult> {
   const [maps, rcs] = await Promise.all([
     prisma.toastRevenueCenterMap.findMany({
+      where: { NOT: { toastGuid: { startsWith: MENU_FALLBACK_PREFIX } } },
       include: { revenueCenter: { select: { id: true, name: true } } },
     }),
     prisma.revenueCenter.findMany({
