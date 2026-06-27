@@ -56,27 +56,52 @@ const toBase = (qty: number | null | undefined, unit: string | null | undefined)
   Number(qty || 0) * getUnitConv(unit || 'each')
 
 /** Build the pack chain from the OCR CASE/PKG/UNIT fields. Leaf carries base content. */
-export function chainFromOcr(o: OfferInput, dimension: Dimension): PackLink[] {
+export function chainFromOcr(
+  o: OfferInput, dimension: Dimension,
+  bridge?: { qty: number; unit: string } | null,
+): PackLink[] {
   const topUnit = norm(o.qtyShippedUOM) || 'case'
   const packQty = Number(o.packQty || 1)
   const packSize = Number(o.packSize || 1)
   const packUOM = norm(o.packUOM) || 'each'
-  const leafPer = dimension === 'COUNT' ? 1 : packSize * getUnitConv(packUOM)
-  const leafUnit = dimension === 'COUNT' ? 'each' : (packUOM === 'each' ? 'each' : packUOM)
-  if (packQty > 1) {
-    return [{ unit: topUnit, per: packQty }, { unit: leafUnit, per: leafPer }]
+
+  if (dimension === 'COUNT') {
+    // Bridged normalization of a measured line with NO explicit count:
+    // derive the count from the received total weight ÷ bridge, rounded to whole.
+    if (bridge && bridge.qty > 0 && packQty <= 1 && norm(packUOM) !== 'each') {
+      const totalInBridge = toBase(o.totalQty ?? o.qtyShipped, o.totalQtyUOM || packUOM)
+      const count = Math.max(1, Math.round(totalInBridge / bridge.qty))
+      return [{ unit: topUnit, per: count }]
+    }
+    // Explicit count present (e.g. 8 × 1100 g) → use packQty directly; never divide.
+    const leafPer = 1
+    const leafUnit = 'each'
+    if (packQty > 1) return [{ unit: topUnit, per: packQty }, { unit: leafUnit, per: leafPer }]
+    return [{ unit: topUnit, per: leafPer }]
   }
-  return [{ unit: topUnit, per: leafPer }]   // single inner: collapse to one link
+
+  const leafPer = packSize * getUnitConv(packUOM)
+  const leafUnit = packUOM === 'each' ? 'each' : packUOM
+  if (packQty > 1) return [{ unit: topUnit, per: packQty }, { unit: leafUnit, per: leafPer }]
+  return [{ unit: topUnit, per: leafPer }]
 }
 
 /** OCR line → OfferDraft. One branch on the mode the OCR already decided. */
-export function buildOffer(o: OfferInput): OfferDraft {
+export function buildOffer(
+  o: OfferInput,
+  opts?: { bridge?: { qty: number; unit: string } | null },
+): OfferDraft {
   const sigUnit = o.pricingMode === 'per_weight'
     ? (o.rateUOM || o.totalQtyUOM || 'kg')
     : (o.packUOM || o.qtyShippedUOM || 'each')
-  const dimension = dimensionOf(sigUnit)
+  const rawDimension = dimensionOf(sigUnit)
+  // When the matched item is a bridged COUNT item and the line is measured,
+  // normalize the offer to COUNT (the weight is per-each size, not the dimension).
+  const bridge = opts?.bridge ?? null
+  const dimension: Dimension =
+    bridge && bridge.qty > 0 && rawDimension !== 'COUNT' ? 'COUNT' : rawDimension
   const baseUnit = DIMENSION_BASE[dimension]
-  const packChain = chainFromOcr(o, dimension)
+  const packChain = chainFromOcr(o, dimension, bridge)
 
   if (o.pricingMode === 'per_weight') {
     const receivedBase = toBase(o.totalQty, o.totalQtyUOM || o.rateUOM)

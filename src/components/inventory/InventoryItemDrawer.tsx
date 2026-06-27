@@ -56,6 +56,9 @@ interface InventoryItem {
   packChain?: PackLink[] | null
   pricing?: Pricing | null
   countUnit?: string | null
+  // Count↔weight bridge
+  eachMeasureQty?: number | string | null
+  eachMeasureUnit?: string | null
 }
 
 interface EditForm {
@@ -72,6 +75,9 @@ interface EditForm {
   isStocked: boolean
   allergens: string[]
   barcode: string | null
+  // Count↔weight bridge
+  eachMeasureQty: number | null
+  eachMeasureUnit: string
 }
 
 // Default chain state for a brand-new item.
@@ -112,6 +118,9 @@ function buildEditForm(item: InventoryItem): EditForm {
     isStocked: item.isStocked ?? true,
     allergens: item.allergens ?? [],
     barcode: item.barcode ?? null,
+    // Count↔weight bridge. Prisma Decimal arrives as a string — coerce with Number().
+    eachMeasureQty: item.eachMeasureQty != null ? Number(item.eachMeasureQty) : null,
+    eachMeasureUnit: item.eachMeasureUnit ?? 'g',
   }
 }
 
@@ -213,6 +222,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     dimension: 'COUNT', chain: [...DEFAULT_CHAIN], pricing: { ...DEFAULT_PRICING },
     countUnit: 'each',
     stockOnHand: '0', isActive: true, isStocked: true, allergens: [], barcode: null,
+    eachMeasureQty: null, eachMeasureUnit: 'g',
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
@@ -285,6 +295,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
         isStocked: editForm.isStocked,
         allergens: editForm.allergens,
         barcode: editForm.barcode,
+        // Count↔weight bridge (only meaningful when dimension === 'COUNT').
+        eachMeasureQty: editForm.eachMeasureQty,
+        eachMeasureUnit: editForm.eachMeasureUnit,
       }),
     })
     if (!res.ok) {
@@ -491,6 +504,34 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
                       })}
                     />
+                  </div>
+                )}
+
+                {/* Count↔weight bridge — only meaningful for COUNT items */}
+                {editForm.dimension === 'COUNT' && (
+                  <div>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Weight / volume per unit <span className="font-normal text-ink-4">(optional)</span></label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        value={editForm.eachMeasureQty ?? ''}
+                        onChange={e => setEditForm(f => ({ ...f, eachMeasureQty: e.target.value === '' ? null : Number(e.target.value) }))}
+                        placeholder="e.g. 1100"
+                        className="flex-1 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
+                      />
+                      <select
+                        value={editForm.eachMeasureUnit}
+                        onChange={e => setEditForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
+                        className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
+                      >
+                        <option value="g">g</option>
+                        <option value="ml">ml</option>
+                      </select>
+                    </div>
+                    <p className="text-[10.5px] text-ink-4 mt-1">Lets weight-format invoices receive as units and weight-based recipes cost correctly.</p>
                   </div>
                 )}
 

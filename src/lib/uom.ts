@@ -252,6 +252,34 @@ export function convertQty(qty: number, fromUnit: string, toUnit: string): numbe
   return qty
 }
 
+/**
+ * Like convertQty, but bridges count↔(weight|volume) using a per-each measure.
+ *  - same dimension → delegates to convertQty (bridge ignored)
+ *  - measured → count: convert qty into the bridge unit, then divide by bridge.qty
+ *  - count → measured: multiply by bridge.qty (in the bridge unit), then convert
+ *  - cross-dimension with NO bridge → identical to convertQty (passthrough)
+ */
+export function convertQtyBridged(
+  qty: number, fromUnit: string, toUnit: string,
+  bridge?: { qty: number; unit: string } | null,
+): number {
+  const fromDim = dimensionForUnit(fromUnit)
+  const toDim = dimensionForUnit(toUnit)
+  if (fromDim === toDim) return convertQty(qty, fromUnit, toUnit)
+  if (!bridge || !(bridge.qty > 0)) return convertQty(qty, fromUnit, toUnit)
+  const bridgeDim = dimensionForUnit(bridge.unit)
+  // measured → count
+  if (fromDim === bridgeDim && toDim === 'count') {
+    return convertQty(qty, fromUnit, bridge.unit) / bridge.qty
+  }
+  // count → measured
+  if (fromDim === 'count' && toDim === bridgeDim) {
+    return convertQty(qty * bridge.qty, bridge.unit, toUnit)
+  }
+  // bridge doesn't span these two dimensions → unchanged
+  return convertQty(qty, fromUnit, toUnit)
+}
+
 /** Return the group name ('Weight' | 'Volume' | 'Count') for a unit, or null. */
 export function getUnitGroup(unit: string): string | null {
   const def = UNIT_FACTORS[canonicalUom(unit)]
@@ -280,10 +308,20 @@ export function sameDimension(unitA: string, unitB: string): boolean {
  * which convertQty already passes through 1:1). Only COUNT↔measured is a genuine
  * conflict (e.g. `g` of a per-each item), where the conversion is undefined.
  */
-export function dimensionallyCostable(unitA: string, unitB: string): boolean {
+export function dimensionallyCostable(
+  unitA: string, unitB: string,
+  bridge?: { qty: number; unit: string } | null,
+): boolean {
   const a = dimensionForUnit(unitA)
   const b = dimensionForUnit(unitB)
   if (a === b) return true
   const measured = (d: UnitDimension) => d === 'weight' || d === 'volume'
-  return measured(a) && measured(b)
+  if (measured(a) && measured(b)) return true
+  // count ↔ measured is costable ONLY when a bridge spans them
+  if (bridge && bridge.qty > 0) {
+    const bd = dimensionForUnit(bridge.unit)
+    const pair = new Set([a, b])
+    if (pair.has('count') && pair.has(bd) && measured(bd)) return true
+  }
+  return false
 }

@@ -77,6 +77,9 @@ const defaultForm = {
   countUnit: 'each',
   stockOnHand: '0',
   location: '', allergens: [] as string[],
+  // Count↔weight bridge (COUNT items only)
+  eachMeasureQty: null as number | null,
+  eachMeasureUnit: 'g' as string,
 }
 
 function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
@@ -534,6 +537,9 @@ function InventoryPageInner() {
         pricing: form.pricing,
         countUnit: form.countUnit,
         stockOnHand: stockBase,
+        // Count↔weight bridge (only meaningful when dimension === 'COUNT').
+        eachMeasureQty: form.eachMeasureQty,
+        eachMeasureUnit: form.eachMeasureUnit,
         // The new item joins exactly this RC (its first membership).
         revenueCenterId: addRcId || defaultRcId || null,
       }),
@@ -1680,6 +1686,34 @@ function InventoryPageInner() {
                     return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
                   })}
                 />
+
+                {/* Count↔weight bridge — only meaningful for COUNT items */}
+                {form.dimension === 'COUNT' && (
+                  <div>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">Weight / volume per unit <span className="font-normal text-ink-4">(optional)</span></label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        value={form.eachMeasureQty ?? ''}
+                        onChange={e => setForm(f => ({ ...f, eachMeasureQty: e.target.value === '' ? null : Number(e.target.value) }))}
+                        placeholder="e.g. 1100"
+                        className="flex-1 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
+                      />
+                      <select
+                        value={form.eachMeasureUnit}
+                        onChange={e => setForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
+                        className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
+                      >
+                        <option value="g">g</option>
+                        <option value="ml">ml</option>
+                      </select>
+                    </div>
+                    <p className="text-[10.5px] text-ink-4 mt-1">Lets weight-format invoices receive as units and weight-based recipes cost correctly.</p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>

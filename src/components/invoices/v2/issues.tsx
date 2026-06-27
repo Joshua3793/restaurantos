@@ -3,6 +3,7 @@
 // badge + plain-English description + a row of decision buttons — replaces the
 // three different warning languages the old drawer used (mock §1, §3, §7).
 
+import { useState } from 'react'
 import { ArrowRight, Check } from 'lucide-react'
 import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
@@ -76,6 +77,27 @@ export function DimensionConflictIssue({
   // Item side.
   const itemDim = (md?.dimension as string | undefined) ?? dimensionOf(md?.baseUnit ?? 'each')
   const itemUnit = md?.countUnit || md?.baseUnit || 'each'
+  // Bridge resolver: only shown when the matched item is COUNT and the line is measured.
+  const isCountItem    = itemDim === 'COUNT'
+  const offerIsMeasured = offer.dimension === 'MASS' || offer.dimension === 'VOLUME'
+  const canBridge       = isCountItem && offerIsMeasured
+  const perEachQty  = item.invoicePackSize != null ? Number(item.invoicePackSize) : null
+  const perEachUnit = (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null
+
+  // Editable "teach the package" form — pre-filled from the invoice, adjustable.
+  const [bridging, setBridging] = useState(false)
+  const [bq, setBq] = useState(perEachQty != null ? String(perEachQty) : '')
+  const [bu, setBu] = useState(perEachUnit ?? (offer.dimension === 'VOLUME' ? 'ml' : 'lb'))
+  const [saving, setSaving] = useState(false)
+  const unitOpts = offer.dimension === 'VOLUME' ? ['ml', 'l', 'oz'] : ['lb', 'kg', 'g', 'oz']
+  if (bu && !unitOpts.includes(bu)) unitOpts.unshift(bu)
+  const canSave = Number(bq) > 0 && !!bu && !saving
+  const saveBridge = async () => {
+    setSaving(true)
+    try { await ctx.bridgeAndReceiveAsCount(item, { qty: Number(bq), unit: bu }) }
+    finally { setSaving(false) }
+  }
+
   return (
     <IssueShell
       kind="conflict"
@@ -84,7 +106,12 @@ export function DimensionConflictIssue({
         <>
           <ActButton onClick={onFixUom}>Scan error → fix the line</ActButton>
           <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link a different item</ActButton>
-          <ActButton variant="primary" onClick={() => ctx.adoptInvoiceFormat(item)}>
+          {canBridge && (
+            <ActButton variant="primary" onClick={() => setBridging(b => !b)}>
+              Keep counting — set how 1 {itemUnit} is measured
+            </ActButton>
+          )}
+          <ActButton variant={canBridge ? 'default' : 'primary'} onClick={() => ctx.adoptInvoiceFormat(item)}>
             Change {itemName} to {DIM_LABEL[offer.dimension] ?? offer.dimension}
           </ActButton>
         </>
@@ -93,6 +120,40 @@ export function DimensionConflictIssue({
       This line is priced by <b className="font-semibold text-ink">{DIM_LABEL[offer.dimension] ?? offer.dimension}</b> ({invUnit}),
       but <span className="font-medium">{itemName}</span> is set up by{' '}
       <b className="font-semibold text-ink">{DIM_LABEL[itemDim] ?? itemDim}</b> ({itemUnit}). Pick the side that’s wrong.
+      {bridging && canBridge && (
+        <div className="mt-2.5 rounded-lg border border-line bg-bg px-3 py-2.5" onClick={e => e.stopPropagation()}>
+          <div className="text-[11.5px] text-ink-3 mb-2">
+            Teach the system how this package is made — keeps <span className="font-medium text-ink-2">{itemName}</span> counted
+            by <b>{itemUnit}</b> and converts weight invoices into units (no stock reset, no recipe flip).
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[12.5px] text-ink-2">1 {itemUnit} =</span>
+            <input
+              type="number" inputMode="decimal" min="0" step="any"
+              value={bq}
+              onChange={e => setBq(e.target.value)}
+              className="w-20 h-8 px-2 text-center border border-line rounded bg-paper text-sm tabular-nums focus:outline-none focus:border-blue focus:ring-[3px] focus:ring-blue/10"
+            />
+            <select
+              value={bu}
+              onChange={e => setBu(e.target.value)}
+              className="h-8 px-1.5 border border-line rounded bg-paper text-sm font-medium focus:outline-none focus:border-blue"
+            >
+              {unitOpts.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <ActButton variant="primary" disabled={!canSave} onClick={saveBridge}>
+              {saving ? 'Saving…' : 'Save & receive as units'}
+            </ActButton>
+            <button
+              type="button"
+              onClick={() => setBridging(false)}
+              className="text-[11px] text-ink-4 hover:text-ink-2 underline underline-offset-2"
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      )}
     </IssueShell>
   )
 }

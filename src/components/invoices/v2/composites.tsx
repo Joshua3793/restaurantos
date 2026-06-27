@@ -14,6 +14,7 @@ import { formatCurrency } from '@/lib/invoice/formatters'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { FILTER_LABELS, type FilterKey, type SortMode } from '@/lib/invoice/filters'
 import { PACK_UOMS } from '@/lib/utils'
+import { canonicalUom } from '@/lib/uom'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -391,11 +392,11 @@ export function InvoiceMathFields({
                 onBlur={() => onChange({ rawQty: qty || null })}
                 className={`flex-1 px-2 text-center ${inputBase} ${editedCls('qty')}`}
               />
-              <select
-                className="h-8 px-1.5 border border-line rounded bg-paper text-sm font-medium focus:outline-none"
-              >
-                <option>cs</option>
-              </select>
+              {/* Shipped-container unit — reflects the line's actual purchase unit
+                  (was a dead hard-coded "cs" that mislabelled every per-case line). */}
+              <span className="h-8 px-2.5 inline-flex items-center border border-line rounded bg-bg text-sm font-medium text-ink-3 whitespace-nowrap">
+                {canonicalUom(item.rawUnit) || 'cs'}
+              </span>
             </div>
           </div>
 
