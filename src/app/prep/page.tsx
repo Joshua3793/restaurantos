@@ -300,9 +300,13 @@ export default function PrepPage() {
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
-  // Today tab: persistent list items, sorted by priority then name
+  // Today tab: on-list items (still to do) PLUS anything completed today. Completing
+  // an item clears `isOnList` (so Smart Prep frees up + it's re-addable next session),
+  // but it stays visible in the "Done today" section for the rest of the shift.
   const todayItems = useMemo(() =>
-    items.filter(i => i.isOnList),
+    items.filter(i =>
+      i.isOnList || i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
+    ),
   [items])
 
   // Priority-change alerts: on-list items that have escalated to Critical but not started
@@ -436,11 +440,15 @@ export default function PrepPage() {
 
     const now = new Date().toISOString()
     const completingNow = newStatus === 'DONE' || newStatus === 'PARTIAL'
+    // Mirror the server's status→isOnList rule optimistically: completing/removing
+    // clears the item from the list, starting/resetting re-arms it.
+    const nextOnList = newStatus === 'NOT_STARTED' || newStatus === 'IN_PROGRESS'
     setItems(prev => prev.map(i => {
       if (i.id !== itemId) return i
       const existingLog = i.todayLog
       return {
         ...i,
+        isOnList: nextOnList,
         ...(completingNow && { manualPriorityOverride: null }),
         todayLog: existingLog
           ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}) }
@@ -976,7 +984,7 @@ export default function PrepPage() {
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
               className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
-              {m === 'today' ? <>To Do {todayItems.length > 0 && <span className="font-mono bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{todayItems.length}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              {m === 'today' ? <>To Do {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className="font-mono bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{shiftSummary.total - shiftSummary.resolved}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
@@ -1246,6 +1254,14 @@ export default function PrepPage() {
                 <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
               ))}
               <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
+              {todayGroups.done.length > 0 && (
+                <div className="mt-5">
+                  <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Done today · <span className="text-ink font-semibold">{todayGroups.done.length} prepped</span></div>
+                  {todayGroups.done.map(item => (
+                    <PrepTaskRowCompact key={item.id} item={item} onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
+                  ))}
+                </div>
+              )}
               <p className="text-center text-xs text-ink-4 mt-4 pb-24 sm:pb-0">This list carries over each day — items stay until marked done or removed.</p>
             </>
           )}

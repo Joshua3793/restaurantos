@@ -89,5 +89,18 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  // Keep `isOnList` coherent with status when one is supplied (mirrors the log PUT
+  // route): completing/removing clears the item from today's list, starting/resetting
+  // re-arms it. A statusless create (the common "ensure a log exists" call) leaves it.
+  if (status !== undefined) {
+    const data: { manualPriorityOverride?: null; isOnList?: boolean } = {}
+    if (status === 'DONE' || status === 'PARTIAL') { data.manualPriorityOverride = null; data.isOnList = false }
+    else if (status === 'SKIPPED') data.isOnList = false
+    else if (status === 'NOT_STARTED' || status === 'IN_PROGRESS') data.isOnList = true
+    if (Object.keys(data).length) {
+      await prisma.prepItem.update({ where: { id: prepItemId }, data })
+    }
+  }
+
   return NextResponse.json(log, { status: 201 })
 }

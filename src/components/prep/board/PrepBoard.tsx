@@ -26,9 +26,11 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
 
   if (view === 'todo') {
     const list = todayItems.map(toBoardRow)
-    const crit = startedFirst(list.filter(r => r.urgency === 'critical' && r.status !== 'done' && r.status !== 'skipped'))
-    const low = startedFirst(list.filter(r => r.urgency !== 'critical' && r.status !== 'done' && r.status !== 'skipped'))
-    const closed = list.filter(r => r.status === 'done' || r.status === 'skipped')
+    const open = (r: BoardRow) => r.status !== 'done' && r.status !== 'skipped'
+    const crit  = startedFirst(list.filter(r => r.urgency === 'critical' && open(r)))
+    const low   = startedFirst(list.filter(r => r.urgency === 'low'      && open(r)))
+    const later = startedFirst(list.filter(r => r.urgency === 'par'      && open(r)))
+    const closed = list.filter(r => r.status === 'done')
     return (
       <div className="board">
         <div className="actionable">
@@ -38,6 +40,7 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
           </div>
           <div className="col">
             <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
+            {later.length > 0 && <PrepLater variant="later" rows={later} h={h} />}
             <PrepLater variant="closed" rows={closed} h={h} />
           </div>
         </div>

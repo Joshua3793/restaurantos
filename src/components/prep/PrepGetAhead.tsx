@@ -22,8 +22,8 @@ export default function PrepGetAhead({ items, onAdd, totalCount }: PrepGetAheadP
         <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 flex items-center gap-2 min-w-0">
           <span className="w-2 h-2 rounded-full bg-green shrink-0" />
           <span className="truncate">
-            Get ahead · <b className="text-ink font-semibold">on par now</b>
-            <span className="hidden sm:inline">, prep early to stay buffered</span>
+            Later · <b className="text-ink font-semibold">if time allows</b>
+            <span className="hidden sm:inline"> — above par, do after the essentials</span>
           </span>
         </div>
         <span className="shrink-0 whitespace-nowrap text-[12.5px] font-semibold text-ink-3 hover:text-ink cursor-pointer">

@@ -54,12 +54,18 @@ export async function PUT(
     },
   })
 
-  // When marking done/partial: clear manual priority override so Plan Prep resets to auto
-  if (status && COMPLETION_STATUSES.has(status)) {
-    await prisma.prepItem.update({
-      where: { id: existing.prepItemId },
-      data: { manualPriorityOverride: null },
-    })
+  // Keep `isOnList` coherent with status: completing/removing clears the item from
+  // today's list (frees the Smart Prep "Add" button — the prep stays in History);
+  // starting or resetting re-arms it onto the list. Completing also clears the
+  // manual priority override so Plan Prep resets to auto.
+  if (status !== undefined) {
+    const data: { manualPriorityOverride?: null; isOnList?: boolean } = {}
+    if (COMPLETION_STATUSES.has(status)) { data.manualPriorityOverride = null; data.isOnList = false }
+    else if (status === 'SKIPPED') data.isOnList = false
+    else if (status === 'NOT_STARTED' || status === 'IN_PROGRESS') data.isOnList = true
+    if (Object.keys(data).length) {
+      await prisma.prepItem.update({ where: { id: existing.prepItemId }, data })
+    }
   }
 
   return NextResponse.json(log)
