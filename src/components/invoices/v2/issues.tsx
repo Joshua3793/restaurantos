@@ -8,6 +8,8 @@ import { ArrowRight, Check } from 'lucide-react'
 import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
+import { classifyDimensionRelationship } from '@/lib/invoice/classify'
+import { costDriftWithinBand } from '@/lib/invoice/cost-sanity'
 import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { dimensionOf } from '@/lib/item-model'
 import { formatCurrency } from '@/lib/invoice/formatters'
@@ -51,13 +53,42 @@ function IssueShell({
 }
 
 // ─── DimensionConflictIssue ──────────────────────────────────────────────────
-// The invoice line is priced by a unit whose dimension (mass / volume / count)
-// doesn't match the linked item's. This is the sole hard blocker under the
-// pack-chain model. It names BOTH sides of the mismatch and offers the three
-// ways to resolve it: fix the line (OCR misread the units), re-link to a
-// different item, or change the item itself to match the invoice.
+// Verdict-driven resolver for a line whose pricing dimension (mass / volume /
+// count) doesn't match the linked item's. classifyDimensionRelationship sorts
+// the gap into four cases:
+//   • DENSITY_BRIDGE — same liquid, weight↔volume — a BLUE recoverable bridge:
+//     confirm the density (g/ml) and the spine converts both sides.
+//   • PACK_BRIDGE    — count↔measured — a BLUE recoverable bridge: teach how
+//     1 each is measured (the existing count↔weight each-measure form).
+//   • TRUE_CONFLICT  — the names don't even look like the same product — a RED
+//     blocker that leads with re-link.
+//   • IDENTICAL      — already bridged / no gap — renders nothing.
+// In every branch the destructive "change the item to match the invoice"
+// (resets stock, re-costs recipes) is demoted behind an "Advanced" disclosure.
 
 const DIM_LABEL: Record<string, string> = { MASS: 'weight', VOLUME: 'volume', COUNT: 'count' }
+
+// The destructive adopt path — same markup reused under "Advanced" in every
+// branch so it's never the lead action.
+function AdoptAdvanced({ item, itemName, dimLabel, onAdopt }: {
+  item: ScanItem
+  itemName: string
+  dimLabel: string
+  onAdopt: () => void
+}) {
+  return (
+    <details className="mt-2.5" onClick={e => e.stopPropagation()}>
+      <summary className="cursor-pointer text-[11px] text-ink-4 hover:text-ink-2 select-none list-none [&::-webkit-details-marker]:hidden">
+        Advanced
+      </summary>
+      <div className="mt-2">
+        <ActButton variant="danger" onClick={onAdopt}>
+          Change {itemName} to {dimLabel} (resets stock, re-costs recipes)
+        </ActButton>
+      </div>
+    </details>
+  )
+}
 
 export function DimensionConflictIssue({
   item,
@@ -74,28 +105,30 @@ export function DimensionConflictIssue({
   // Invoice side: the SAME offer the conflict detector builds.
   const offer = buildOffer(scanItemToOfferInput(item))
   const invUnit = offer.pricing.mode === 'RATE' ? offer.pricing.rateUnit : offer.baseUnit
+  const offerDimLabel = DIM_LABEL[offer.dimension] ?? offer.dimension
   // Item side.
   const itemDim = (md?.dimension as string | undefined) ?? dimensionOf(md?.baseUnit ?? 'each')
+  const itemDimLabel = DIM_LABEL[itemDim] ?? itemDim
   const itemUnit = md?.countUnit || md?.baseUnit || 'each'
-  // Bridge resolver — works in EITHER direction:
-  //  • forward: a measured line on a COUNT item (teach the per-each weight)
-  //  • reverse: a count line on a measured item (teach how much 1 each weighs)
-  // The bridge's unit always belongs to the MEASURED side.
-  const isCountItem     = itemDim === 'COUNT'
-  const offerIsMeasured = offer.dimension === 'MASS' || offer.dimension === 'VOLUME'
-  const offerIsCount    = offer.dimension === 'COUNT'
-  const fwdBridge = isCountItem && offerIsMeasured
-  const revBridge = !isCountItem && offerIsCount
-  const canBridge = fwdBridge || revBridge
+
+  const rel = classifyDimensionRelationship(item)
+
+  // ── Bridge state (PACK_BRIDGE — count↔weight each-measure form) ──────────────
+  // Works in EITHER direction; the bridge's unit always belongs to the MEASURED
+  // side. Forward (measured line on a COUNT item) knows the per-each weight from
+  // the invoice pack; reverse (count line on a measured item) starts blank.
+  const isCountItem = itemDim === 'COUNT'
+  const fwdBridge = isCountItem && (offer.dimension === 'MASS' || offer.dimension === 'VOLUME')
   const bridgeDim = isCountItem ? offer.dimension : itemDim     // measured dimension
   const countLabel = isCountItem ? itemUnit : 'each'            // left of "1 ___ ="
-  // Forward knows the per-each weight from the invoice pack; a count invoice
-  // carries none, so the reverse direction starts blank for the user to fill.
-  const perEachQty  = fwdBridge && item.invoicePackSize != null ? Number(item.invoicePackSize) : null
-  const perEachUnit = fwdBridge ? (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null : null
+  // Prefill: prefer the classifier's perEach, then the invoice-derived pack.
+  const perEachQty = rel.verdict === 'PACK_BRIDGE' && rel.perEach
+    ? rel.perEach.qty
+    : (fwdBridge && item.invoicePackSize != null ? Number(item.invoicePackSize) : null)
+  const perEachUnit = rel.verdict === 'PACK_BRIDGE' && rel.perEach
+    ? rel.perEach.unit
+    : (fwdBridge ? (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null : null)
 
-  // Editable "teach the package" form — pre-filled from the invoice when possible.
-  const [bridging, setBridging] = useState(false)
   const [bq, setBq] = useState(perEachQty != null ? String(perEachQty) : '')
   const [bu, setBu] = useState(perEachUnit ?? (bridgeDim === 'VOLUME' ? 'ml' : 'lb'))
   const [saving, setSaving] = useState(false)
@@ -108,34 +141,81 @@ export function DimensionConflictIssue({
     finally { setSaving(false) }
   }
 
-  return (
-    <IssueShell
-      kind="conflict"
-      label="Dimension conflict"
-      actions={
-        <>
-          <ActButton onClick={onFixUom}>Scan error → fix the line</ActButton>
-          <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link a different item</ActButton>
-          {canBridge && (
-            <ActButton variant="primary" onClick={() => setBridging(b => !b)}>
-              {fwdBridge
-                ? `Keep counting — set how 1 ${itemUnit} is measured`
-                : `Receive by count — set how much 1 each weighs`}
+  // ── Density state (DENSITY_BRIDGE — weight↔volume) ───────────────────────────
+  const densityDefault = rel.verdict === 'DENSITY_BRIDGE' ? String(rel.density) : '1'
+  const [dq, setDq] = useState(densityDefault)
+  const [savingD, setSavingD] = useState(false)
+  const norm = computeNormalisedPrices(item)
+  const driftOk = norm ? costDriftWithinBand(norm.invoicePPB * Number(dq || 0), norm.inventoryPPB) : true
+  const canSaveDensity = Number(dq) > 0 && !savingD
+  const saveDensity = async () => {
+    setSavingD(true)
+    try { await ctx.setItemDensity(item, Number(dq)) }
+    finally { setSavingD(false) }
+  }
+
+  const advanced = (
+    <AdoptAdvanced item={item} itemName={itemName} dimLabel={offerDimLabel} onAdopt={() => ctx.adoptInvoiceFormat(item)} />
+  )
+
+  // ── A) DENSITY_BRIDGE — blue, recoverable ────────────────────────────────────
+  if (rel.verdict === 'DENSITY_BRIDGE') {
+    return (
+      <IssueShell
+        kind="bridge"
+        label="Confirm the bridge"
+        actions={
+          <>
+            <ActButton variant="primary" disabled={!canSaveDensity} onClick={saveDensity}>
+              {savingD ? 'Saving…' : `Confirm · 1 ml = ${dq || '?'} g`}
             </ActButton>
-          )}
-          <ActButton variant={canBridge ? 'default' : 'primary'} onClick={() => ctx.adoptInvoiceFormat(item)}>
-            Change {itemName} to {DIM_LABEL[offer.dimension] ?? offer.dimension}
-          </ActButton>
-        </>
-      }
-    >
-      This line is priced by <b className="font-semibold text-ink">{DIM_LABEL[offer.dimension] ?? offer.dimension}</b> ({invUnit}),
-      but <span className="font-medium">{itemName}</span> is set up by{' '}
-      <b className="font-semibold text-ink">{DIM_LABEL[itemDim] ?? itemDim}</b> ({itemUnit}). Pick the side that’s wrong.
-      {bridging && canBridge && (
+            <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Wrong item → re-link</ActButton>
+          </>
+        }
+      >
+        <span className="font-medium">{itemName}</span> is billed by{' '}
+        <b className="font-semibold text-ink">{offerDimLabel}</b> ({invUnit}) but tracked by{' '}
+        <b className="font-semibold text-ink">{itemDimLabel}</b> ({itemUnit}) — they’re the same liquid. Bridge by density.
+        {rel.source === 'fallback' && <i className="text-ink-3"> Estimate — confirm before saving.</i>}
+        <div className="mt-2.5 rounded-lg border border-line bg-bg px-3 py-2.5" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[12.5px] text-ink-2">1 ml =</span>
+            <input
+              type="number" inputMode="decimal" min="0" step="any"
+              value={dq}
+              onChange={e => setDq(e.target.value)}
+              className="w-20 h-8 px-2 text-center border border-line rounded bg-paper text-sm tabular-nums focus:outline-none focus:border-blue focus:ring-[3px] focus:ring-blue/10"
+            />
+            <span className="text-[12.5px] text-ink-2">g</span>
+          </div>
+          {!driftOk && <div className="mt-1.5"><i className="text-[11.5px] text-red-text">This factor swings cost &gt;25% — check it.</i></div>}
+        </div>
+        {advanced}
+      </IssueShell>
+    )
+  }
+
+  // ── B) PACK_BRIDGE — blue, recoverable (count↔weight each-measure) ────────────
+  if (rel.verdict === 'PACK_BRIDGE') {
+    return (
+      <IssueShell
+        kind="bridge"
+        label="Confirm the bridge"
+        actions={
+          <>
+            <ActButton variant="primary" disabled={!canSave} onClick={saveBridge}>
+              {saving ? 'Saving…' : 'Save & receive as units'}
+            </ActButton>
+            <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link a different item</ActButton>
+          </>
+        }
+      >
+        <span className="font-medium">{itemName}</span> is billed by{' '}
+        <b className="font-semibold text-ink">{offerDimLabel}</b> ({invUnit}) but tracked by{' '}
+        <b className="font-semibold text-ink">{itemDimLabel}</b> ({itemUnit}). Bridge by teaching how the package is made.
         <div className="mt-2.5 rounded-lg border border-line bg-bg px-3 py-2.5" onClick={e => e.stopPropagation()}>
           <div className="text-[11.5px] text-ink-3 mb-2">
-            Teach the system how this package is made — keeps <span className="font-medium text-ink-2">{itemName}</span>{' '}
+            Keeps <span className="font-medium text-ink-2">{itemName}</span>{' '}
             {fwdBridge
               ? <>counted by <b>{itemUnit}</b> and converts weight invoices into units</>
               : <>measured by <b>{itemUnit}</b> and lets count invoices cost via the per-each weight</>}
@@ -156,21 +236,37 @@ export function DimensionConflictIssue({
             >
               {unitOpts.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
-            <ActButton variant="primary" disabled={!canSave} onClick={saveBridge}>
-              {saving ? 'Saving…' : 'Save & receive as units'}
-            </ActButton>
-            <button
-              type="button"
-              onClick={() => setBridging(false)}
-              className="text-[11px] text-ink-4 hover:text-ink-2 underline underline-offset-2"
-            >
-              cancel
-            </button>
           </div>
         </div>
-      )}
-    </IssueShell>
-  )
+        {advanced}
+      </IssueShell>
+    )
+  }
+
+  // ── C) TRUE_CONFLICT — red, leads with re-link ───────────────────────────────
+  if (rel.verdict === 'TRUE_CONFLICT') {
+    return (
+      <IssueShell
+        kind="conflict"
+        label="Dimension conflict"
+        actions={
+          <>
+            <ActButton variant="primary" onClick={() => ctx.startLinkPicker(lineId)}>Link a different item</ActButton>
+            <ActButton onClick={onFixUom}>Scan error → fix the line</ActButton>
+          </>
+        }
+      >
+        <span className="font-medium">{itemName}</span> is billed by{' '}
+        <b className="font-semibold text-ink">{offerDimLabel}</b> ({invUnit}) but set up by{' '}
+        <b className="font-semibold text-ink">{itemDimLabel}</b> ({itemUnit}), and the names don’t look like the
+        same product — link the right item.
+        {advanced}
+      </IssueShell>
+    )
+  }
+
+  // ── D) IDENTICAL — no issue ──────────────────────────────────────────────────
+  return null
 }
 
 // ─── NewSkuIssue ───────────────────────────────────────────────────────────────
