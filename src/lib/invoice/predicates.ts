@@ -5,7 +5,7 @@
 import type { ScanItem } from '@/components/invoices/types'
 import { isMeasuredUnit } from '@/lib/utils'
 import { isKnownUnit } from '@/lib/uom'
-import { classifyDimensionRelationship } from './classify'
+import { classifyDimensionRelationship, isBridgeable } from './classify'
 
 // A UOM that measures weight or volume (vs a count/case unit). Delegates to the
 // canonical helper so it canonicalizes and covers the full unit set.
@@ -127,6 +127,7 @@ export function pickAccent(item: ScanItem): Accent {
   if (item.action === 'SKIP') return null
   if (isUnlinked(item))         return 'danger'
   if (hasDimensionConflict(item)) return 'danger' // hard, unresolvable blocker
+  if (isBridgeable(item))         return 'info'   // recoverable bridge — blue, not red
   if (hasMathCheck(item))       return 'warn'
   if (hasPriceChange(item, 15)) return 'warn'
   if (hasPriceChange(item, 3))  return 'info'
