@@ -844,6 +844,27 @@ export function InvoiceReviewDrawer({
     if (session) await refreshSession(session.id)
   }, [session, refreshSession])
 
+  // ── Non-destructive weight↔volume resolver ──────────────────────────────────
+  // Sets the item's densityGPerMl so a measured invoice in the other dimension
+  // (e.g. a weight invoice on a volume item, or vice-versa) costs correctly,
+  // without changing the item's dimension, packChain, stock, or recipes.
+  const setItemDensity = useCallback(async (item: ScanItem, gPerMl: number) => {
+    const md = item.matchedItem
+    if (!md?.id || !(gPerMl > 0)) return
+    await fetch(`/api/inventory/${md.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dimension:  md.dimension,        // unchanged
+        packChain:  md.packChain,        // unchanged
+        pricing:    md.pricing,          // unchanged
+        countUnit:  md.countUnit ?? null,// unchanged
+        densityGPerMl: gPerMl,           // ← the only meaningful write
+      }),
+    })
+    if (session) await refreshSession(session.id)
+  }, [session, refreshSession])
+
   // ── Context value ────────────────────────────────────────────────────────────
   const ctxValue = useMemo<DrawerContextValue>(() => ({
     lines: session?.scanItems ?? [],
@@ -872,6 +893,7 @@ export function InvoiceReviewDrawer({
     openInventoryEdit:      (id)   => setEditingInventoryItemId(id),
     adoptInvoiceFormat:     (item) => setAdoptingForItem(item),
     bridgeAndReceiveAsCount,
+    setItemDensity,
     acknowledgePrice,
     acknowledgeConf,
     activeBboxItemId,
@@ -882,7 +904,7 @@ export function InvoiceReviewDrawer({
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
     activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, bridgeAndReceiveAsCount, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
+    setLineRc, bridgeAndReceiveAsCount, setItemDensity, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────

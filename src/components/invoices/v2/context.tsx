@@ -68,6 +68,11 @@ export interface DrawerContextValue {
   // `measure` lets the user override the auto-derived per-each amount/unit.
   bridgeAndReceiveAsCount: (item: ScanItem, measure?: { qty: number; unit: string }) => Promise<void>
 
+  // ── Resolve a weight↔volume mismatch non-destructively: set the item's density
+  // (g/ml) so a measured invoice in the other dimension costs correctly. Like the
+  // pack bridge, this writes ONLY the bridge field — never dimension/chain/stock.
+  setItemDensity: (item: ScanItem, gPerMl: number) => Promise<void>
+
   // ── Price-change acknowledgement (resolves the price .issue) ───────────────
   acknowledgePrice: (id: string) => void
 

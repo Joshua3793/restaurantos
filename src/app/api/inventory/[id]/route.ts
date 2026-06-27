@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // legacy-field update path.
   const {
     dimension, packChain, pricing, countUnit, supplierId, storageAreaId,
-    eachMeasureQty, eachMeasureUnit,
+    eachMeasureQty, eachMeasureUnit, densityGPerMl,
     supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
     ...rest
   } = body
@@ -79,6 +79,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         ? Number(eachMeasureQty) : null,
       eachMeasureUnit: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
         ? String(eachMeasureUnit) : null,
+      // Weight↔volume density bridge. Non-destructive: allows a measured invoice
+      // in the other dimension to cost correctly without changing the item's
+      // dimension, chain, or stock. Written only when a positive value is provided.
+      ...(densityGPerMl != null && Number(densityGPerMl) > 0
+        ? { densityGPerMl: Number(densityGPerMl) }
+        : {}),
     },
   })
 
