@@ -13,5 +13,11 @@ eq('unknown',   lookupDensity('Mystery Goo'), { gPerMl: 1.0, source: 'fallback' 
 // case-insensitive + first-match-wins on the longest keyword
 eq('sesame oil', lookupDensity('SESAME OIL TOASTED'), { gPerMl: 0.92, source: 'library' })
 
+// word-boundary matching: bare keywords must not match inside longer words
+eq('eggplant not egg', lookupDensity('Eggplant Diced'), { gPerMl: 1.0, source: 'fallback' })
+eq('butternut not butter', lookupDensity('Butternut Squash'), { gPerMl: 1.0, source: 'fallback' })
+eq('watermelon not water', lookupDensity('Watermelon Chunks'), { gPerMl: 1.0, source: 'fallback' })
+eq('whole egg still matches', lookupDensity('Whole Egg Liquid'), { gPerMl: 1.03, source: 'library' })
+
 if (fails) { console.error(`${fails} failure(s)`); process.exit(1) }
 console.log('all passed'); process.exit(0)

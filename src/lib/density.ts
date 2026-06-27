@@ -32,11 +32,21 @@ const DENSITY_LIBRARY: Record<string, number> = {
 
 const KEYWORDS_BY_LENGTH = Object.keys(DENSITY_LIBRARY).sort((a, b) => b.length - a.length)
 
+// Whole-word, case-insensitive match for a keyword. `\b` anchors prevent
+// bare-substring false positives ("egg" must NOT match "Eggplant", "water"
+// must NOT match "Watermelon", "butter" must NOT match "Butternut"). Multi-word
+// keywords like "egg yolk" still match across the internal space. Regex
+// specials in the keyword are escaped (current keys have none — future-proofing).
+function wordRe(kw: string): RegExp {
+  const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`\\b${escaped}\\b`, 'i')
+}
+
 /** Best density default for an item, by name (category reserved for future use). */
 export function lookupDensity(name: string, _category?: string | null): DensityHit {
-  const n = (name ?? '').toLowerCase()
+  const n = name ?? ''
   for (const kw of KEYWORDS_BY_LENGTH) {
-    if (n.includes(kw)) return { gPerMl: DENSITY_LIBRARY[kw], source: 'library' }
+    if (wordRe(kw).test(n)) return { gPerMl: DENSITY_LIBRARY[kw], source: 'library' }
   }
   return { gPerMl: 1.0, source: 'fallback' }
 }
