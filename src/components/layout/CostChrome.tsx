@@ -7,9 +7,14 @@ import { RcSelector } from '@/components/navigation/RcSelector'
 import { SpineAuditDrawer } from './SpineAuditDrawer'
 
 /**
- * Dark live food-cost % strip — Principle 01 of Controla OS.
+ * Dark live cost strip — Principle 01 of Controla OS.
  * Fetches /api/insights/cost-chrome every 60s; refetches on RC change.
- * Phase 3 will add the click-through audit drawer.
+ *
+ * NOTE: the first KPI is a week-to-date PURCHASES ÷ FOOD-SALES ratio, not a
+ * true plate-cost food-cost %. Purchases are lumpy (a single delivery spikes the
+ * numerator) and WTD sales are thin early in the week, so the ratio routinely
+ * runs >100%. Labelled "Purchases ÷ sales · WTD" so it isn't read as broken.
+ * The accurate theoretical food-cost % lives on the Pass / Reports pages.
  */
 
 interface ChromeData {
@@ -78,9 +83,10 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
         <>
           <div className="hidden md:block w-px h-[14px] bg-ink-2" />
           <CCItem
-            label="Food cost · live"
+            label="Purchases ÷ sales · WTD"
             value={loading ? '…' : fmtPct(fcPct)}
             valueClass={fcClass}
+            title="Approved invoice spend this week ÷ food sales this week. Purchases are lumpy — a big delivery early in the week spikes this. It is NOT true plate cost; see Reports for theoretical food cost %."
           />
           <CCDivider />
           <CCItem
@@ -127,9 +133,9 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
   )
 }
 
-function CCItem({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
+function CCItem({ label, value, valueClass = '', title }: { label: string; value: string; valueClass?: string; title?: string }) {
   return (
-    <div className="flex items-baseline gap-2 shrink-0">
+    <div className="flex items-baseline gap-2 shrink-0" title={title}>
       <span className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.02em] whitespace-nowrap">{label}</span>
       <span className={`font-mono text-[14px] font-semibold tracking-[-0.01em] ${valueClass || 'text-paper'}`}>
         {value}

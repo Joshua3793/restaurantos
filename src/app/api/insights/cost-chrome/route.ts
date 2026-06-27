@@ -122,7 +122,12 @@ export async function GET(req: NextRequest) {
   )
   const sourceItemCount = inventory.length
 
-  // ── Food cost % WTD ───────────────────────────────────────────────────
+  // ── Purchases ÷ food-sales, week-to-date ──────────────────────────────
+  // NOTE: this is a purchase-spend-to-sales RATIO, not a true (plate-cost) food
+  // cost %. Purchases are lumpy — one big delivery spikes the numerator — and WTD
+  // sales are thin early in the week, so this routinely exceeds 100%. The strip
+  // labels it accordingly ("Purchases ÷ sales · WTD"). For accurate theoretical
+  // food cost see the Pass / Reports pages (theoreticalCostForLineItems).
   const foodSalesWTD = salesWTD.reduce(
     (sum, s) => sum + Number(s.totalRevenue) * Number(s.foodSalesPct),
     0,
