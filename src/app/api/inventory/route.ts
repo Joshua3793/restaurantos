@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit,
-  validateChainItem, withPpb, asChainItem, type ChainItem,
+  validateChainItem, withPpb, asChainItem, dimensionOf, type ChainItem,
 } from '@/lib/item-model'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 
@@ -195,8 +195,12 @@ export async function POST(req: NextRequest) {
       baseUnit: ci.baseUnit,
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
-      eachMeasureQty: dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? Number(eachMeasureQty) : null,
-      eachMeasureUnit: dimension === 'COUNT' && Number(eachMeasureQty) > 0 && eachMeasureUnit ? String(eachMeasureUnit) : null,
+      // Count↔weight bridge — valid in either direction (see [id] PUT route),
+      // so not gated on dimension; the unit must be a measured one.
+      eachMeasureQty: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
+        ? Number(eachMeasureQty) : null,
+      eachMeasureUnit: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
+        ? String(eachMeasureUnit) : null,
     },
     include: { supplier: true, storageArea: true },
   })

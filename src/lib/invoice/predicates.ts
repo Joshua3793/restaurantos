@@ -61,10 +61,15 @@ export function hasDimensionConflict(item: ScanItem): boolean {
   }
   const itemDim = (md.dimension as 'MASS' | 'VOLUME' | 'COUNT' | undefined) ?? dimensionOf(md.baseUnit ?? 'each')
   if (offer.dimension === itemDim) return false
-  // A measured offer (MASS/VOLUME) on a COUNT item is BRIDGEABLE, not a conflict,
-  // when the item carries an each-measure spanning that dimension.
+  // Bridgeable, not a conflict, when the item carries an each-measure spanning
+  // both sides. Two symmetric directions:
+  //  • measured offer (MASS/VOLUME) on a COUNT item — bridge unit matches offer
+  //  • count offer on a measured item — bridge unit matches the item dimension
   const bridge = eachMeasureOf(md)
-  if (itemDim === 'COUNT' && bridge && dimensionOf(bridge.unit) === offer.dimension) return false
+  if (bridge) {
+    if (itemDim === 'COUNT' && dimensionOf(bridge.unit) === offer.dimension) return false
+    if (offer.dimension === 'COUNT' && dimensionOf(bridge.unit) === itemDim) return false
+  }
   return true
 }
 

@@ -507,33 +507,40 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   </div>
                 )}
 
-                {/* Count↔weight bridge — only meaningful for COUNT items */}
-                {editForm.dimension === 'COUNT' && (
-                  <div>
-                    <label className="block text-xs font-medium text-ink-3 mb-1">Weight / volume per unit <span className="font-normal text-ink-4">(optional)</span></label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="any"
-                        value={editForm.eachMeasureQty ?? ''}
-                        onChange={e => setEditForm(f => ({ ...f, eachMeasureQty: e.target.value === '' ? null : Number(e.target.value) }))}
-                        placeholder="e.g. 1100"
-                        className="flex-1 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
-                      />
-                      <select
-                        value={editForm.eachMeasureUnit}
-                        onChange={e => setEditForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
-                        className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
-                      >
-                        <option value="g">g</option>
-                        <option value="ml">ml</option>
-                      </select>
-                    </div>
-                    <p className="text-[10.5px] text-ink-4 mt-1">Lets weight-format invoices receive as units and weight-based recipes cost correctly.</p>
+                {/* Count↔weight bridge — "1 each = N g/ml". On a COUNT item it's
+                    the per-each weight; on a measured item it's how much one
+                    countable each weighs (so count invoices/recipes convert). */}
+                <div>
+                  <label className="block text-xs font-medium text-ink-3 mb-1">
+                    {editForm.dimension === 'COUNT' ? 'Weight / volume per unit' : 'Weight per each (for count invoices)'}{' '}
+                    <span className="font-normal text-ink-4">(optional)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
+                      value={editForm.eachMeasureQty ?? ''}
+                      onChange={e => setEditForm(f => ({ ...f, eachMeasureQty: e.target.value === '' ? null : Number(e.target.value) }))}
+                      placeholder="e.g. 1100"
+                      className="flex-1 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
+                    />
+                    <select
+                      value={editForm.eachMeasureUnit}
+                      onChange={e => setEditForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
+                      className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
+                    >
+                      <option value="g">g</option>
+                      <option value="ml">ml</option>
+                    </select>
                   </div>
-                )}
+                  <p className="text-[10.5px] text-ink-4 mt-1">
+                    {editForm.dimension === 'COUNT'
+                      ? 'Lets weight-format invoices receive as units and weight-based recipes cost correctly.'
+                      : 'Lets count-format invoices (e.g. “70 each”) be received and costed against this item.'}
+                  </p>
+                </div>
 
                 {/* Stock + Count fields */}
                 <div className="grid grid-cols-2 gap-3">

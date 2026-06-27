@@ -23,14 +23,17 @@ export interface ChainItem {
 
 export const DIMENSION_BASE: Record<Dimension, string> = { MASS: 'g', VOLUME: 'ml', COUNT: 'each' }
 
-/** Read the count↔weight bridge off an item row. Null unless the item is COUNT
- *  and BOTH columns are populated. Decimal arrives as string from Prisma JSON. */
+/** Read the count↔weight bridge off an item row. Null unless BOTH columns are
+ *  populated. Semantics: "1 each ⟷ qty unit" (unit is a measured g/ml). Spans
+ *  count↔measured in EITHER direction: on a COUNT item it's the per-each weight
+ *  (weight invoices/recipes → count); on a measured item it's the weight of one
+ *  countable each (count invoices/recipes → that measured base). Decimal arrives
+ *  as a string from Prisma JSON. */
 export function eachMeasureOf(row: {
   dimension?: string | null
   eachMeasureQty?: unknown
   eachMeasureUnit?: string | null
 }): EachMeasure | null {
-  if ((row.dimension ?? 'COUNT') !== 'COUNT') return null
   const qty = row.eachMeasureQty != null ? Number(row.eachMeasureQty) : NaN
   const unit = (row.eachMeasureUnit ?? '').trim()
   if (!Number.isFinite(qty) || qty <= 0 || !unit) return null

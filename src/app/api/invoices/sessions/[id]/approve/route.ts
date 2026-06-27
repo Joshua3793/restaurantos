@@ -122,6 +122,21 @@ async function doApprove(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const isUomMode = derivePricingMode(scanItem as any) === 'per_weight' && !itemBridge
 
+        // ── Reverse bridge: a MEASURED item receiving a COUNT line ───────────
+        // Mirror of the forward bridge. The line is priced/shipped by count
+        // (e.g. "1 cs = 70 each") but the item is set up by weight/volume. The
+        // each-measure ("1 each = N g") converts the count pack into the item's
+        // base, so $/case ÷ (units-per-case × base-per-each) = $/base. Without
+        // this the CASE path would divide by the item's OWN (unrelated) chain.
+        const reverseBridge =
+          !!itemBridge && item.dimension !== 'COUNT' &&
+          dimensionOf(scanItem.invoicePackUOM ?? scanItem.rawUnit ?? 'each') === 'COUNT' &&
+          dimensionOf(itemBridge.unit) === item.dimension
+        const reverseBasePerCase = reverseBridge
+          ? ((Number(scanItem.invoicePackQty) || 1) * (Number(scanItem.invoicePackSize) || 1))
+            * (itemBridge!.qty * getUnitConv(itemBridge!.unit) / getUnitConv(item.baseUnit ?? itemBridge!.unit))
+          : 0
+
         // The price to write comes from the RAW, user-editable fields — NEVER
         // the stored `newPrice`. newPrice is computed once at OCR/match time and
         // saved on the scan item; a session matched by the pre-fix matcher kept
@@ -152,6 +167,9 @@ async function doApprove(
           resolvedRateUnit = rateUnit
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
+        } else if (reverseBridge && reverseBasePerCase > 0) {
+          // Reverse bridge: $/case ÷ (units-per-case × base-per-each) = $/base.
+          newPricePerBase = newPurchasePrice / reverseBasePerCase
         } else {
           // CASE: the price is PER CASE. pricePerBaseUnit derives from the pack
           // STRUCTURE — never from the line's totalQty. rawUnitPrice is a per-case
@@ -281,7 +299,15 @@ async function doApprove(
           // formToChain is the SANCTIONED legacy-form → pack-chain adapter; the
             // object below is a transient input DTO (qtyUOM/innerQty are vestigial
             // adapter params, never persisted), NOT legacy columns. Do not inline.
-          const offerChain = hasLinePack
+          const offerChain = (reverseBridge && reverseBasePerCase > 0)
+            // Reverse bridge: the offer is a measured purchase — 1 container =
+            // reverseBasePerCase base units. A single PACK link reproduces the
+            // spine ppb (offerLastPrice ÷ reverseBasePerCase == newPricePerBase).
+            ? {
+                packChain: [{ unit: itemTopUnit ?? scanItem.rawUnit ?? 'case', per: reverseBasePerCase }] as PackLink[],
+                pricing: { mode: 'PACK' as const, purchasePrice: offerLastPrice },
+              }
+            : hasLinePack
             ? formToChain({
                 purchaseUnit:       itemTopUnit ?? scanItem.rawUnit ?? 'case',
                 purchasePrice:      offerLastPrice,

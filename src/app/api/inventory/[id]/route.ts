@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
-  DIMENSION_BASE, validateChainItem, withPpb, type ChainItem,
+  DIMENSION_BASE, validateChainItem, withPpb, dimensionOf, type ChainItem,
 } from '@/lib/item-model'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
@@ -71,8 +71,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       lastUpdated: new Date(),
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
-      eachMeasureQty: dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? Number(eachMeasureQty) : null,
-      eachMeasureUnit: dimension === 'COUNT' && Number(eachMeasureQty) > 0 && eachMeasureUnit ? String(eachMeasureUnit) : null,
+      // Count↔weight bridge ("1 each = N g/ml"). Valid in EITHER direction — a
+      // per-each weight on a COUNT item, or how much one each weighs on a
+      // measured item — so it is NOT gated on dimension. The unit must be a
+      // measured one (the bridge always spans count↔measured).
+      eachMeasureQty: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
+        ? Number(eachMeasureQty) : null,
+      eachMeasureUnit: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
+        ? String(eachMeasureUnit) : null,
     },
   })
 
