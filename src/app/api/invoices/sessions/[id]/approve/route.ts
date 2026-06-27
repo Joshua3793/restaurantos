@@ -12,6 +12,8 @@ import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { lookupDensity } from '@/lib/density'
+import { densityCrossedPpb } from '@/lib/invoice/density-bridge'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -149,6 +151,7 @@ async function doApprove(
           : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : Number(scanItem.newPrice))
 
         let newPricePerBase: number
+        let density = 0
         // The RATE's resolved unit (only meaningful in UOM mode) — captured here
         // so the chain `pricing` below can store { mode:'RATE', rate, rateUnit }.
         let resolvedRateUnit = 'kg'
@@ -167,6 +170,26 @@ async function doApprove(
           resolvedRateUnit = rateUnit
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
+          // ── Weight↔volume density bridge ────────────────────────────────────
+          // A measured rate ($/kg) on an item whose base is the OTHER measured
+          // dimension ($/ml) must cross via density (g/ml), not the silent 1:1.
+          // Precedence: density already learned on the item > library default by
+          // name > 1.0 fallback. The resolved density is persisted on the item
+          // (spine write below) so recipe costing and this write always agree.
+          const rateDim = dimensionOf(resolvedRateUnit)
+          const baseDim = dimensionOf(item.baseUnit ?? 'each')
+          const crossesWV =
+            (rateDim === 'MASS' && baseDim === 'VOLUME') ||
+            (rateDim === 'VOLUME' && baseDim === 'MASS')
+          if (crossesWV) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const learned = (item as any).densityGPerMl != null ? Number((item as any).densityGPerMl) : null
+            density = (learned && learned > 0)
+              ? learned
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              : lookupDensity((item as any).itemName ?? scanItem.rawDescription ?? '').gPerMl
+            newPricePerBase = densityCrossedPpb(newPricePerBase, rateDim, baseDim, density)
+          }
         } else if (reverseBridge && reverseBasePerCase > 0) {
           // Reverse bridge: $/case ÷ (units-per-case × base-per-each) = $/base.
           newPricePerBase = newPurchasePrice / reverseBasePerCase
@@ -411,6 +434,9 @@ async function doApprove(
                 // Spine write: pricing only. The item's chain/format is preserved.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 pricing: newPricing as any,
+                // Persist the resolved weight↔volume density so the next invoice + every
+                // recipe cost uses the same factor (no per-path divergence).
+                ...(density > 0 ? { densityGPerMl: density } : {}),
               },
             }),
           )
