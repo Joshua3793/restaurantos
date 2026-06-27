@@ -6,7 +6,7 @@
 import { prisma } from './prisma'
 import { convertQty, convertQtyBridged, dimensionallyCostable } from './uom'
 import { getUnitConv } from './utils'
-import { dimensionOf, DIMENSION_BASE, eachMeasureOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
   id: string
@@ -82,7 +82,7 @@ export function computeRecipeCost(
       recipePercent?: Numeric | null
       inventoryItemId: string | null
       linkedRecipeId: string | null
-      inventoryItem: ({ itemName: string; baseUnit: string; allergens?: string[] } & Parameters<typeof asChainItem>[0]) | null
+      inventoryItem: ({ itemName: string; baseUnit: string; allergens?: string[]; densityGPerMl?: unknown } & Parameters<typeof asChainItem>[0]) | null
       linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
@@ -111,9 +111,11 @@ export function computeRecipeCost(
       ingredientBaseUnit = ing.inventoryItem.baseUnit
       allergens          = ing.inventoryItem.allergens ?? []
       const ingBridge    = eachMeasureOf(ing.inventoryItem)
+      const ingDensity   = densityOf(ing.inventoryItem)
       dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit, ingBridge)
-      // Convert recipe unit → inventory base unit before multiplying by price
-      lineCostQty = convertQtyBridged(qty, ing.unit, ing.inventoryItem.baseUnit, ingBridge)
+      // Convert recipe unit → inventory base unit before multiplying by price.
+      // Density bridges weight↔volume; ingBridge bridges count↔measured.
+      lineCostQty = convertQtyBridged(qty, ing.unit, ing.inventoryItem.baseUnit, ingBridge, ingDensity)
     } else if (ing.linkedRecipe) {
       pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
       ingredientName     = ing.linkedRecipe.name

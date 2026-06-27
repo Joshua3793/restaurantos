@@ -25,6 +25,7 @@ import {
   isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
 import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit } from '@/lib/invoice/resolution'
+import { isBridgeable } from '@/lib/invoice/classify'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { formatPricePerBase } from '@/lib/utils'
 import {
@@ -397,7 +398,7 @@ export function InvoiceReviewDrawer({
     initializedSessionRef.current = session.id
     const toExpand = new Set(
       session.scanItems
-        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i)))
+        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i)))
         .map(i => i.id),
     )
     setExpandedLineIds(toExpand)
@@ -417,7 +418,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
+          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
         ))
         .map(i => i.id),
     )
@@ -450,7 +451,7 @@ export function InvoiceReviewDrawer({
   )
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasDimensionConflict(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i),
+    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i),
   [session?.supplierId, session?.supplierName])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
@@ -844,6 +845,27 @@ export function InvoiceReviewDrawer({
     if (session) await refreshSession(session.id)
   }, [session, refreshSession])
 
+  // ── Non-destructive weight↔volume resolver ──────────────────────────────────
+  // Sets the item's densityGPerMl so a measured invoice in the other dimension
+  // (e.g. a weight invoice on a volume item, or vice-versa) costs correctly,
+  // without changing the item's dimension, packChain, stock, or recipes.
+  const setItemDensity = useCallback(async (item: ScanItem, gPerMl: number) => {
+    const md = item.matchedItem
+    if (!md?.id || !(gPerMl > 0)) return
+    await fetch(`/api/inventory/${md.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dimension:  md.dimension,        // unchanged
+        packChain:  md.packChain,        // unchanged
+        pricing:    md.pricing,          // unchanged
+        countUnit:  md.countUnit ?? null,// unchanged
+        densityGPerMl: gPerMl,           // ← the only meaningful write
+      }),
+    })
+    if (session) await refreshSession(session.id)
+  }, [session, refreshSession])
+
   // ── Context value ────────────────────────────────────────────────────────────
   const ctxValue = useMemo<DrawerContextValue>(() => ({
     lines: session?.scanItems ?? [],
@@ -872,6 +894,7 @@ export function InvoiceReviewDrawer({
     openInventoryEdit:      (id)   => setEditingInventoryItemId(id),
     adoptInvoiceFormat:     (item) => setAdoptingForItem(item),
     bridgeAndReceiveAsCount,
+    setItemDensity,
     acknowledgePrice,
     acknowledgeConf,
     activeBboxItemId,
@@ -882,7 +905,7 @@ export function InvoiceReviewDrawer({
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
     activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
-    setLineRc, bridgeAndReceiveAsCount, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
+    setLineRc, bridgeAndReceiveAsCount, setItemDensity, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────

@@ -253,19 +253,36 @@ export function convertQty(qty: number, fromUnit: string, toUnit: string): numbe
 }
 
 /**
- * Like convertQty, but bridges count↔(weight|volume) using a per-each measure.
- *  - same dimension → delegates to convertQty (bridge ignored)
- *  - measured → count: convert qty into the bridge unit, then divide by bridge.qty
- *  - count → measured: multiply by bridge.qty (in the bridge unit), then convert
- *  - cross-dimension with NO bridge → identical to convertQty (passthrough)
+ * Like convertQty, but bridges cross-dimension conversions in two ways:
+ *  - same dimension → delegates to convertQty (bridge and density ignored)
+ *  - weight ↔ volume WITH density (g/ml): converts through g/ml using the density
+ *    (weight → volume: g ÷ density → ml; volume → weight: ml × density → g).
+ *    Without a density (null/0), falls through to the 1:1 passthrough below.
+ *  - measured → count (via bridge): convert qty into the bridge unit, then divide by bridge.qty
+ *  - count → measured (via bridge): multiply by bridge.qty (in the bridge unit), then convert
+ *  - cross-dimension with NO bridge and NO density → identical to convertQty (passthrough)
  */
 export function convertQtyBridged(
   qty: number, fromUnit: string, toUnit: string,
   bridge?: { qty: number; unit: string } | null,
+  density?: number | null,   // grams per millilitre — weight↔volume only
 ): number {
   const fromDim = dimensionForUnit(fromUnit)
   const toDim = dimensionForUnit(toUnit)
   if (fromDim === toDim) return convertQty(qty, fromUnit, toUnit)
+
+  // weight ↔ volume via density (g/ml). Without a density, fall through to the
+  // 1:1 passthrough below (today's density≈1 behaviour, unchanged).
+  const measured = (d: UnitDimension) => d === 'weight' || d === 'volume'
+  if (measured(fromDim) && measured(toDim) && density && density > 0) {
+    if (fromDim === 'weight') {            // weight → volume:  g → ml = g / density
+      const grams = convertQty(qty, fromUnit, 'g')
+      return convertQty(grams / density, 'ml', toUnit)
+    }
+    const ml = convertQty(qty, fromUnit, 'ml')   // volume → weight: ml → g = ml × density
+    return convertQty(ml * density, 'g', toUnit)
+  }
+
   if (!bridge || !(bridge.qty > 0)) return convertQty(qty, fromUnit, toUnit)
   const bridgeDim = dimensionForUnit(bridge.unit)
   // measured → count
@@ -276,7 +293,6 @@ export function convertQtyBridged(
   if (fromDim === 'count' && toDim === bridgeDim) {
     return convertQty(qty * bridge.qty, bridge.unit, toUnit)
   }
-  // bridge doesn't span these two dimensions → unchanged
   return convertQty(qty, fromUnit, toUnit)
 }
 

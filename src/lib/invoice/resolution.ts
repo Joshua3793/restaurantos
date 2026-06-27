@@ -5,9 +5,10 @@
 
 import type { ScanItem } from '@/components/invoices/types'
 import {
-  isUnlinked, hasDimensionConflict, hasMathCheck, hasPriceChange,
+  isUnlinked, hasMathCheck, hasPriceChange,
   needsTrustCheck,
 } from './predicates'
+import { classifyDimensionRelationship } from './classify'
 import { computeNormalisedPrices } from './calculations'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
@@ -107,10 +108,13 @@ export function lineIssues(item: ScanItem, opts: ResolveOpts, sessionSupplier?: 
   // (all of which make isUnlinked() false), so while present it is unresolved.
   if (isUnlinked(item)) out.push({ kind: 'sku', resolved: false })
 
-  // Dimension conflict — the invoice line's dimension differs from the linked
-  // item's (e.g. $/kg priced onto an each item). Terminal/unresolvable: it can
-  // only be cleared by re-linking, so it always blocks approve.
-  if (hasDimensionConflict(item)) out.push({ kind: 'conflict', resolved: false })
+  // Dimension relationship — either a hard conflict (re-link required) or a
+  // recoverable bridge (set a density/eachMeasure factor to resolve).
+  if (item.matchedItem) {
+    const verdict = classifyDimensionRelationship(item).verdict
+    if (verdict === 'TRUE_CONFLICT') out.push({ kind: 'conflict', resolved: false })
+    else if (verdict === 'DENSITY_BRIDGE' || verdict === 'PACK_BRIDGE') out.push({ kind: 'bridge', resolved: false })
+  }
 
   // Big price change — resolved once acknowledged.
   if (isBigPriceChange(item, sessionSupplier)) out.push({ kind: 'price', resolved: opts.priceAck })

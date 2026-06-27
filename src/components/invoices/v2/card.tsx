@@ -23,6 +23,7 @@ import {
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
 import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit } from '@/lib/invoice/resolution'
+import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
@@ -78,12 +79,13 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
 
   const unlinked       = !isSkipped && isUnlinked(item)
   const dimConflict    = !isSkipped && hasDimensionConflict(item)
+  const bridge         = !isSkipped && isBridgeable(item)
   const uomReview      = !isSkipped && hasUnknownUom(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
   const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
   const trustCheck     = !isSkipped && needsTrustCheck(item)
   const badSplit       = !isSkipped && hasInvalidRcSplit(item)
-  const isAttention    = unlinked || dimConflict || mathCheck || bigPrice || trustCheck || badSplit
+  const isAttention    = unlinked || dimConflict || bridge || mathCheck || bigPrice || trustCheck || badSplit
   const isCatch        = isCatchweight(item)
 
   // RC split: the line's received quantity (count UOM) is the target the split
@@ -113,6 +115,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
     : unlinked       ? 'link'
     : mathCheck      ? 'math'
     : dimConflict    ? 'conflict'
+    : bridge         ? 'bridge'
     : undefined
 
   const handleToggle = () => ctx.toggleExpand(lineId)
@@ -337,7 +340,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       {!isPicking && (
         <>
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
-          {dimConflict && <DimensionConflictIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
+          {(dimConflict || bridge) && <DimensionConflictIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={{ supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }} />}
           {trustCheck && <ConfIssue item={item} lineId={lineId} />}

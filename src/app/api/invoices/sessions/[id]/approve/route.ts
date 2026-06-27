@@ -12,6 +12,8 @@ import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { lookupDensity } from '@/lib/density'
+import { densityCrossedPpb } from '@/lib/invoice/density-bridge'
 import { requireSession, AuthError } from '@/lib/auth'
 
 // Give background work up to 60s after the response is sent
@@ -29,7 +31,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; itemName: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null; densityGPerMl?: unknown } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -149,8 +151,11 @@ async function doApprove(
           : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : Number(scanItem.newPrice))
 
         let newPricePerBase: number
+        let density = 0
         // The RATE's resolved unit (only meaningful in UOM mode) — captured here
         // so the chain `pricing` below can store { mode:'RATE', rate, rateUnit }.
+        // This 'kg' default is ONLY meaningful inside the isUomMode branch (the
+        // density-cross check reads it there); do not rely on it outside that branch.
         let resolvedRateUnit = 'kg'
         if (isUomMode) {
           // newPurchasePrice is a rate ($/kg, $/lb…). Divide by the RATE's OWN
@@ -167,6 +172,24 @@ async function doApprove(
           resolvedRateUnit = rateUnit
           const uomConv = getUnitConv(rateUnit)
           newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
+          // ── Weight↔volume density bridge ────────────────────────────────────
+          // A measured rate ($/kg) on an item whose base is the OTHER measured
+          // dimension ($/ml) must cross via density (g/ml), not the silent 1:1.
+          // Precedence: density already learned on the item > library default by
+          // name > 1.0 fallback. The resolved density is persisted on the item
+          // (spine write below) so recipe costing and this write always agree.
+          const rateDim = dimensionOf(resolvedRateUnit)
+          const baseDim = dimensionOf(item.baseUnit ?? 'each')
+          const crossesWV =
+            (rateDim === 'MASS' && baseDim === 'VOLUME') ||
+            (rateDim === 'VOLUME' && baseDim === 'MASS')
+          if (crossesWV) {
+            const learned = item.densityGPerMl != null ? Number(item.densityGPerMl) : null
+            density = (learned && learned > 0)
+              ? learned
+              : lookupDensity(item.itemName ?? scanItem.rawDescription ?? '').gPerMl
+            newPricePerBase = densityCrossedPpb(newPricePerBase, rateDim, baseDim, density)
+          }
         } else if (reverseBridge && reverseBasePerCase > 0) {
           // Reverse bridge: $/case ÷ (units-per-case × base-per-each) = $/base.
           newPricePerBase = newPurchasePrice / reverseBasePerCase
@@ -411,6 +434,12 @@ async function doApprove(
                 // Spine write: pricing only. The item's chain/format is preserved.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 pricing: newPricing as any,
+                // Persist the resolved weight↔volume density so the next invoice + every
+                // recipe cost uses the same factor (no per-path divergence). Only fires
+                // here, inside the shouldReprice branch — so density-learning happens on
+                // the PRIMARY supplier's invoice (the spine-write path); the resolver UI
+                // also lets the user set densityGPerMl directly.
+                ...(density > 0 ? { densityGPerMl: density } : {}),
               },
             }),
           )

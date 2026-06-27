@@ -5,8 +5,7 @@
 import type { ScanItem } from '@/components/invoices/types'
 import { isMeasuredUnit } from '@/lib/utils'
 import { isKnownUnit } from '@/lib/uom'
-import { buildOffer, scanItemToOfferInput } from './offer'
-import { dimensionOf, eachMeasureOf } from '@/lib/item-model'
+import { classifyDimensionRelationship, isBridgeable } from './classify'
 
 // A UOM that measures weight or volume (vs a count/case unit). Delegates to the
 // canonical helper so it canonicalizes and covers the full unit set.
@@ -50,27 +49,13 @@ export function isCatchweight(item: ScanItem): boolean {
 }
 
 // ── Dimension conflict ────────────────────────────────────────────────────────
-/** True when the invoice line's dimension differs from the linked item's — the
- *  only hard blocker under the pack-chain model (e.g. a $/kg rate on an each item). */
+/** True only for a genuine, non-recoverable mismatch (a wrong match). Density and
+ *  pack bridges are NOT conflicts — they're recoverable and surface as "to bridge".
+ *  Thin wrapper over classifyDimensionRelationship so every legacy call site
+ *  (pickAccent, lineIssues, card) keeps the same boolean meaning. */
 export function hasDimensionConflict(item: ScanItem): boolean {
   if (!item.matchedItem) return false
-  const offer = buildOffer(scanItemToOfferInput(item))
-  const md = item.matchedItem as {
-    dimension?: string; baseUnit?: string
-    eachMeasureQty?: unknown; eachMeasureUnit?: string | null
-  }
-  const itemDim = (md.dimension as 'MASS' | 'VOLUME' | 'COUNT' | undefined) ?? dimensionOf(md.baseUnit ?? 'each')
-  if (offer.dimension === itemDim) return false
-  // Bridgeable, not a conflict, when the item carries an each-measure spanning
-  // both sides. Two symmetric directions:
-  //  • measured offer (MASS/VOLUME) on a COUNT item — bridge unit matches offer
-  //  • count offer on a measured item — bridge unit matches the item dimension
-  const bridge = eachMeasureOf(md)
-  if (bridge) {
-    if (itemDim === 'COUNT' && dimensionOf(bridge.unit) === offer.dimension) return false
-    if (offer.dimension === 'COUNT' && dimensionOf(bridge.unit) === itemDim) return false
-  }
-  return true
+  return classifyDimensionRelationship(item).verdict === 'TRUE_CONFLICT'
 }
 
 // ── Price change ──────────────────────────────────────────────────────────────
@@ -142,6 +127,7 @@ export function pickAccent(item: ScanItem): Accent {
   if (item.action === 'SKIP') return null
   if (isUnlinked(item))         return 'danger'
   if (hasDimensionConflict(item)) return 'danger' // hard, unresolvable blocker
+  if (isBridgeable(item))         return 'info'   // recoverable bridge — blue, not red
   if (hasMathCheck(item))       return 'warn'
   if (hasPriceChange(item, 15)) return 'warn'
   if (hasPriceChange(item, 3))  return 'info'

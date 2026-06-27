@@ -170,7 +170,7 @@ export function ModeToggle({
 // supplier). Mock §5: .badge.price → red-soft, .badge.mode → gold-soft,
 // .badge.sku → blue-soft. Mono, uppercase, pill.
 
-export type IssueKind = 'price' | 'sku' | 'supplier' | 'conf' | 'conflict'
+export type IssueKind = 'price' | 'sku' | 'supplier' | 'conf' | 'conflict' | 'bridge'
 
 const ISSUE_BADGE: Record<IssueKind, string> = {
   price:    'bg-red-soft text-red-text',
@@ -178,6 +178,7 @@ const ISSUE_BADGE: Record<IssueKind, string> = {
   supplier: 'bg-gold-soft text-gold-2',
   conf:     'bg-gold-soft text-gold-2',
   conflict: 'bg-red-soft text-red-text',
+  bridge:   'bg-blue-soft text-blue-text',
 }
 
 export function IssueBadge({ kind, children }: { kind: IssueKind; children: React.ReactNode }) {

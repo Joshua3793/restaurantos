@@ -19,6 +19,7 @@ import { SupplierOffersSection } from './SupplierOffersSection'
 import { QuickCountSheet } from './QuickCountSheet'
 import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { lookupDensity } from '@/lib/density'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,8 @@ interface InventoryItem {
   // Count↔weight bridge
   eachMeasureQty?: number | string | null
   eachMeasureUnit?: string | null
+  // Density bridge
+  densityGPerMl?: number | string | null
 }
 
 interface EditForm {
@@ -78,6 +81,8 @@ interface EditForm {
   // Count↔weight bridge
   eachMeasureQty: number | null
   eachMeasureUnit: string
+  // Density bridge
+  densityGPerMl: number | null
 }
 
 // Default chain state for a brand-new item.
@@ -121,6 +126,8 @@ function buildEditForm(item: InventoryItem): EditForm {
     // Count↔weight bridge. Prisma Decimal arrives as a string — coerce with Number().
     eachMeasureQty: item.eachMeasureQty != null ? Number(item.eachMeasureQty) : null,
     eachMeasureUnit: item.eachMeasureUnit ?? 'g',
+    // Density bridge. Prisma Decimal arrives as a string — coerce with Number().
+    densityGPerMl: item.densityGPerMl != null ? Number(item.densityGPerMl) : null,
   }
 }
 
@@ -223,6 +230,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     countUnit: 'each',
     stockOnHand: '0', isActive: true, isStocked: true, allergens: [], barcode: null,
     eachMeasureQty: null, eachMeasureUnit: 'g',
+    densityGPerMl: null,
   })
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
@@ -298,6 +306,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
         // Count↔weight bridge (only meaningful when dimension === 'COUNT').
         eachMeasureQty: editForm.eachMeasureQty,
         eachMeasureUnit: editForm.eachMeasureUnit,
+        // Density bridge (only meaningful for measured items).
+        densityGPerMl: editForm.densityGPerMl,
       }),
     })
     if (!res.ok) {
@@ -538,9 +548,32 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <p className="text-[10.5px] text-ink-4 mt-1">
                     {editForm.dimension === 'COUNT'
                       ? 'Lets weight-format invoices receive as units and weight-based recipes cost correctly.'
-                      : 'Lets count-format invoices (e.g. “70 each”) be received and costed against this item.'}
+                      : 'Lets count-format invoices (e.g. "70 each") be received and costed against this item.'}
                   </p>
                 </div>
+
+                {/* Density bridge — weight↔volume conversion for measured items */}
+                {editForm.dimension !== 'COUNT' && (
+                  <div>
+                    <label className="block text-xs font-medium text-ink-3 mb-1">
+                      Density (weight ↔ volume bridge) <span className="font-normal text-ink-4">(optional)</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-ink-2">1 ml =</span>
+                      <input
+                        type="number" inputMode="decimal" min="0" step="any"
+                        value={editForm.densityGPerMl ?? ''}
+                        onChange={e => setEditForm(f => ({ ...f, densityGPerMl: e.target.value === '' ? null : Number(e.target.value) }))}
+                        placeholder={String(lookupDensity(editForm.itemName ?? '').gPerMl)}
+                        className="flex-1 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
+                      />
+                      <span className="text-sm text-ink-3">g</span>
+                    </div>
+                    <p className="text-[10.5px] text-ink-4 mt-1">
+                      Lets a weight invoice ($/kg) price this {editForm.dimension === 'VOLUME' ? 'volume' : 'weight'} item across weight↔volume at the right density. Blank = the library default ({lookupDensity(editForm.itemName ?? '').gPerMl} g/ml, an estimate) is used until you set it here.
+                    </p>
+                  </div>
+                )}
 
                 {/* Stock + Count fields */}
                 <div className="grid grid-cols-2 gap-3">
