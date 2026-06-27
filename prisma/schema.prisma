@@ -105,6 +105,11 @@ model InventoryItem {
   // Lets weight-format invoices normalize to count and weight-based recipes cost.
   eachMeasureQty     Decimal?                 // measure of 1 base unit (e.g. 1100)
   eachMeasureUnit    String?                  // its unit, base-canonical (g | ml)
+  // ── Weight↔volume density bridge (measured items) ───────────────────────────
+  // Grams per millilitre for THIS good. Lets a weight invoice ($/kg) set the
+  // spine of a volume-based item (and vice-versa) without the silent density≈1
+  // assumption. Null = unknown (callers fall back to 1.0, flagged as estimate).
+  densityGPerMl      Decimal?
   countLines         CountLine[]
   storageArea        StorageArea?             @relation(fields: [storageAreaId], references: [id])
   supplier           Supplier?                @relation(fields: [supplierId], references: [id])
