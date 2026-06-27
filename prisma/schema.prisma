@@ -559,7 +559,8 @@ model RevenueCenter {
   schedulingMode    String            @default("FIXED")
   prepLeadMinutes   Int?
   serviceSchedule   Json?
-  toastGuid         String?           @unique // schema-only (Toast feature paused; column exists in DB)
+  toastGuid         String?           @unique // SUPERSEDED by ToastRevenueCenterMap (many Toast RCs → one app RC); unused, retained until dropped
+  toastRcMaps       ToastRevenueCenterMap[] @relation("ToastRCMap")
   countSessions     CountSession[]    @relation("CountRC")
   scanItems         InvoiceScanItem[] @relation("ScanItemRC")
   invoiceSessions   InvoiceSession[]  @relation("SessionRC")
@@ -741,9 +742,24 @@ model ToastItemMap {
   id            String   @id @default(cuid())
   toastItemGuid String   @unique
   toastName     String
+  toastGroup    String?  // menu-group name from Menus API — drives food/non-food classification (classified on read)
+  toastMenu     String?  // top-level menu name from Menus API — context for the mapping UI
   recipeId      String?
   lastSeenAt    DateTime @default(now())
   recipe        Recipe?  @relation("ToastItemRecipe", fields: [recipeId], references: [id], onDelete: SetNull)
+}
+
+// Maps Toast revenue-center GUIDs → app RevenueCenter. MANY-to-one: Fergie's has
+// 3 Toast revenue centers feeding 2 app RCs (CAFE/CATERING), and the Config API
+// that would name them is 403 — so GUIDs are discovered from order traffic and
+// labelled by an admin. Supersedes the single `RevenueCenter.toastGuid` column.
+model ToastRevenueCenterMap {
+  id              String         @id @default(cuid())
+  toastGuid       String         @unique
+  revenueCenterId String?        // null until an admin labels it
+  orderCountSeen  Int            @default(0) // last-known volume from discovery (display aid)
+  lastSeenAt      DateTime       @default(now())
+  revenueCenter   RevenueCenter? @relation("ToastRCMap", fields: [revenueCenterId], references: [id], onDelete: SetNull)
 }
 
 model ToastSyncLog {
