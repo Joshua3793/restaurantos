@@ -11,6 +11,7 @@ import { X, AlertTriangle, Loader2, ArrowRight } from 'lucide-react'
 import type { ScanItem } from '@/components/invoices/types'
 import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { dimensionOf, type PackLink } from '@/lib/item-model'
+import { canonicalUom } from '@/lib/uom'
 import { ActButton } from './atoms'
 
 const DIM_LABEL: Record<string, string> = { MASS: 'weight', VOLUME: 'volume', COUNT: 'count' }
@@ -45,11 +46,21 @@ export function AdoptFormatModal({
   // New format derived from the invoice line — identical to the conflict detector.
   const offer = buildOffer(scanItemToOfferInput(scanItem))
   const newChain = offer.packChain as PackLink[]
-  const countUnit = newChain[0]?.unit ?? offer.baseUnit
-  const packLabel = newChain.map(l => `${Number(l.per)} ${l.unit}`).join(' × ')
+  // Count unit: the chain's outer container, canonicalised so it reads "case",
+  // never the raw OCR abbreviation "cs" (and never a bare base unit).
+  const countUnit = canonicalUom(newChain[0]?.unit ?? offer.baseUnit)
+  // Human pack label from the OCR pack fields ("1 × 5 lb"), NOT the base-unit
+  // chain — rendering the leaf's per (grams) against the container unit produced
+  // the nonsensical "2267.96 cs".
+  const ocrPackSize = scanItem.invoicePackSize != null ? Number(scanItem.invoicePackSize) : null
+  const ocrPackQty  = scanItem.invoicePackQty  != null ? Number(scanItem.invoicePackQty)  : null
+  const ocrPackUOM  = scanItem.invoicePackUOM ?? scanItem.rateUOM ?? offer.baseUnit
+  const packLabel = ocrPackSize != null
+    ? (ocrPackQty && ocrPackQty > 1 ? `${ocrPackQty} × ${ocrPackSize} ${ocrPackUOM}` : `${ocrPackSize} ${ocrPackUOM}`)
+    : newChain.map(l => `${Number(l.per)} ${canonicalUom(l.unit)}`).join(' × ')
   const pricingLabel = offer.pricing.mode === 'RATE'
     ? `$${Number(offer.pricing.rate).toFixed(2)} / ${offer.pricing.rateUnit}`
-    : `$${Number(offer.pricing.purchasePrice).toFixed(2)} / ${newChain[0]?.unit ?? 'pack'}`
+    : `$${Number(offer.pricing.purchasePrice).toFixed(2)} / ${countUnit}`
 
   const recipeCount = item?.recipeIngredients?.length ?? 0
   const stock = item ? Number(item.stockOnHand ?? 0) : 0

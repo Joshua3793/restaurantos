@@ -818,14 +818,15 @@ export function InvoiceReviewDrawer({
   // changing the item's dimension, packChain, stock, or recipes. After the write
   // the session is silently refreshed so hasDimensionConflict re-evaluates to false
   // and the line falls through to the normal PACK approval path.
-  const bridgeAndReceiveAsCount = useCallback(async (item: ScanItem) => {
+  const bridgeAndReceiveAsCount = useCallback(async (item: ScanItem, measure?: { qty: number; unit: string }) => {
     const md = item.matchedItem
     if (!md?.id) return
-    // Pull the per-each measure from the scan item. For a per_weight (RATE) line
-    // the rateUOM is the unit; for a per_case (PACK) line the pack UOM is the unit.
-    // The quantity is the pack size (how much mass/volume is in one each).
-    const rawQty  = item.invoicePackSize != null ? Number(item.invoicePackSize) : null
-    const rawUnit = (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null
+    // Per-each measure: prefer the user's explicit override (the editable resolver),
+    // else derive from the scan item. For a per_weight (RATE) line the rateUOM is
+    // the unit; for a per_case (PACK) line the pack UOM is the unit; the quantity
+    // is how much mass/volume is in one each.
+    const rawQty  = measure ? measure.qty : (item.invoicePackSize != null ? Number(item.invoicePackSize) : null)
+    const rawUnit = measure ? measure.unit.toLowerCase() : (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null
     if (!(rawQty != null && rawQty > 0) || !rawUnit) return
 
     await fetch(`/api/inventory/${md.id}`, {
