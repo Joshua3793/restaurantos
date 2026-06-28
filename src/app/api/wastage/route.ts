@@ -2,14 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
 
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')
   const itemId    = searchParams.get('itemId')
   const reason    = searchParams.get('reason')
   const rcId      = searchParams.get('rcId')
+  const isDefault = searchParams.get('isDefault') === 'true'
+
+  const allowed = await resolveScopedRcIds(user)
 
   const logs = await prisma.wastageLog.findMany({
     where: {
@@ -19,8 +31,9 @@ export async function GET(req: NextRequest) {
         itemId    ? { inventoryItemId: itemId }            : {},
         reason    ? { reason }                             : {},
         // revenueCenterId is NOT NULL on WastageLog (legacy nulls backfilled to the default
-        // RC), so the filter is just the concrete rcId — no null rows to union in.
-        rcId      ? { revenueCenterId: rcId }              : {},
+        // RC). scopedRcWhere narrows to the selected rcId (if any) AND the user's scope;
+        // it fails closed for an out-of-scope rcId and lists everything in scope otherwise.
+        scopedRcWhere(allowed, rcId, isDefault),
       ],
     },
     include: { inventoryItem: true },
@@ -30,12 +43,25 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date } = body
 
   const revenueCenterId: string | null = body.revenueCenterId ?? null
   if (!revenueCenterId) {
     return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
+
+  try { await assertRcWritable(user, revenueCenterId) }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
   }
 
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })

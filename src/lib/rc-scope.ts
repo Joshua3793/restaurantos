@@ -1,6 +1,7 @@
 import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { User } from '@prisma/client'
+import { AuthError } from '@/lib/auth'
 
 /**
  * Resolves the set of leaf RevenueCenter ids a user may read.
@@ -68,4 +69,18 @@ export function scopedRcWhere(
   }
   // no explicit RC → everything in scope (or all, if unrestricted)
   return allowed === null ? {} : { revenueCenterId: { in: [...allowed] } }
+}
+
+/**
+ * Throws AuthError(403) if the user may not write to `rcId`.
+ * Writes MUST target a leaf revenue center — a missing rcId (e.g. a write that
+ * named only a location) is rejected. ADMIN / unscoped users pass any real rcId.
+ */
+export async function assertRcWritable(user: User, rcId: string | null | undefined): Promise<void> {
+  if (!rcId) {
+    throw new AuthError(403, 'A revenue center must be selected (writes cannot target a location).')
+  }
+  if (!(await isRcInScope(user, rcId))) {
+    throw new AuthError(403, 'Revenue center is outside your access.')
+  }
 }
