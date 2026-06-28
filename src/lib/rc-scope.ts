@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { User } from '@prisma/client'
 
 /**
- * Resolves the set of leaf RevenueCenter ids a user may read/write.
+ * Resolves the set of leaf RevenueCenter ids a user may read.
  * Returns `null` to mean "NO RESTRICTION" (all revenue centers) — this is the
  * backward-compatible default for ADMINs and any user with zero scope rows, so
  * the app keeps working before any assignments exist. A scope assignment only
@@ -55,16 +55,17 @@ export function scopedRcWhere(
   rcId: string | null,
   isDefault: boolean,
 ): Record<string, unknown> {
+  // Fail closed: an explicitly selected RC outside the user's scope matches nothing.
+  if (rcId && allowed !== null && !allowed.has(rcId)) {
+    return { revenueCenterId: { in: [] } }
+  }
   if (rcId && isDefault) {
-    const base: Record<string, unknown> = {
-      OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }],
-    }
-    return allowed === null
-      ? base
-      : { AND: [base, { revenueCenterId: { in: [...allowed, rcId] } }] }
+    // default RC also surfaces shared (null) rows
+    return { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
   }
   if (rcId) {
     return { revenueCenterId: rcId }
   }
+  // no explicit RC → everything in scope (or all, if unrestricted)
   return allowed === null ? {} : { revenueCenterId: { in: [...allowed] } }
 }
