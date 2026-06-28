@@ -33,7 +33,7 @@ const InvoiceUploadModal = dynamic(
 )
 
 export default function InvoicesPage() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -42,6 +42,12 @@ export default function InvoicesPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
   const [view, setView] = useState<'inbox' | 'history'>('inbox')
+
+  // Upload writes into the active RC; block it when a Location/"All" is selected.
+  const handleUploadClick = () => {
+    if (isReadOnly) return
+    setShowUpload(true)
+  }
 
   // Track previous statuses to detect PROCESSING → REVIEW / APPROVING → APPROVED transitions
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
@@ -196,13 +202,19 @@ export default function InvoicesPage() {
     <div className="hidden sm:block"><InboxSubNav /></div>
     <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
 
+      {isReadOnly && (
+        <div className="mb-3 rounded-lg border border-line bg-bg px-3 py-2 text-[12.5px] text-ink-3">
+          Select a revenue center to upload or approve invoices.
+        </div>
+      )}
+
       {/* ── Mobile: unified inbox feed ── */}
       <div className="block sm:hidden">
         <MobileInbox
           sessions={sessions}
           signals={signals}
           onSelectSession={setSelectedSessionId}
-          onUploadClick={() => setShowUpload(true)}
+          onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
           onSignalAct={handleSignalAct}
         />
@@ -253,14 +265,14 @@ export default function InvoicesPage() {
         <InboxViewV2
           sessions={sessions}
           onSelectSession={setSelectedSessionId}
-          onUploadClick={() => setShowUpload(true)}
+          onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
         />
       ) : (
         <InvoiceListV2
           sessions={sessions}
           onSelect={setSelectedSessionId}
-          onUploadClick={() => setShowUpload(true)}
+          onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
           onDelete={handleDelete}
           onBulkDelete={handleBulkDelete}

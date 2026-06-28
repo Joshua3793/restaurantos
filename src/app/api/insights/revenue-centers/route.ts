@@ -20,7 +20,7 @@ export async function GET() {
   const weekStart = startOfWeek(new Date())
 
   const [rcs, sales, scanItems, allocCounts] = await Promise.all([
-    prisma.revenueCenter.findMany({ select: { id: true, isActive: true, targetFoodCostPct: true } }),
+    prisma.revenueCenter.findMany({ select: { id: true, isActive: true, targetCostPct: true, targetFoodCostPct: true } }),
     prisma.salesEntry.findMany({
       where: { date: { gte: weekStart } },
       select: { revenueCenterId: true, totalRevenue: true, foodSalesPct: true },
@@ -69,17 +69,17 @@ export async function GET() {
   const allocatedWTD = rcs.reduce((sum, rc) => sum + (centers[rc.id]?.spendWTD ?? 0), 0)
 
   // Spend-weighted blended target over active centers that have a target.
-  const withTarget = activeCenters.filter(rc => rc.targetFoodCostPct != null)
+  const withTarget = activeCenters.filter(rc => (rc.targetCostPct ?? rc.targetFoodCostPct) != null)
   let blendedTargetPct: number | null = null
   if (withTarget.length) {
     const weightSum = withTarget.reduce((s, rc) => s + (centers[rc.id]?.spendWTD ?? 0), 0)
     if (weightSum > 0) {
       blendedTargetPct = withTarget.reduce(
-        (s, rc) => s + Number(rc.targetFoodCostPct) * (centers[rc.id]?.spendWTD ?? 0), 0,
+        (s, rc) => s + Number(rc.targetCostPct ?? rc.targetFoodCostPct) * (centers[rc.id]?.spendWTD ?? 0), 0,
       ) / weightSum
     } else {
       // No spend yet — fall back to a simple average.
-      blendedTargetPct = withTarget.reduce((s, rc) => s + Number(rc.targetFoodCostPct), 0) / withTarget.length
+      blendedTargetPct = withTarget.reduce((s, rc) => s + Number(rc.targetCostPct ?? rc.targetFoodCostPct), 0) / withTarget.length
     }
   }
 

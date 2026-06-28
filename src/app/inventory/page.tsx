@@ -188,7 +188,7 @@ export default function InventoryPage() {
 
 function InventoryPageInner() {
   const searchParams = useSearchParams()
-  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { revenueCenters, activeRcId, activeRc, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { show: showToast, dismiss: dismissToast } = useToast()
   const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
@@ -763,7 +763,9 @@ function InventoryPageInner() {
         </button>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 bg-ink text-paper px-3 h-9 rounded-[9px] text-[13px] font-medium"
+          disabled={isReadOnly}
+          title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+          className="flex items-center gap-1.5 bg-ink text-paper px-3 h-9 rounded-[9px] text-[13px] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <span className="text-gold font-semibold">+</span> Add
         </button>
@@ -797,7 +799,9 @@ function InventoryPageInner() {
           </button>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-[7px] bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors"
+            disabled={isReadOnly}
+            title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+            className="flex items-center gap-[7px] bg-ink text-paper px-4 py-[9px] rounded-[9px] text-[13px] font-medium hover:bg-[#18181b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink"
           >
             <span className="text-gold font-semibold text-[14px]">+</span> Add Item
           </button>

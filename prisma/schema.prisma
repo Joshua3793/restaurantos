@@ -31,6 +31,7 @@ model User {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   chatConversations ChatConversation[]
+  scopes            UserScope[]
 }
 
 model StorageArea {
@@ -544,6 +545,24 @@ model PrepSettings {
   updatedAt  DateTime @updatedAt
 }
 
+model Location {
+  id              String          @id @default(cuid())
+  name            String
+  color           String
+  type            String          @default("restaurant") // restaurant | catering | other
+  isDefault       Boolean         @default(false)        // primary business (distinct from RevenueCenter.isDefault)
+  description     String?
+  isActive        Boolean         @default(true)
+  managerName     String?
+  notes           String?
+  schedulingMode  String          @default("FIXED")
+  prepLeadMinutes Int?
+  serviceSchedule Json?
+  createdAt       DateTime        @default(now())
+  revenueCenters  RevenueCenter[]
+  userScopes      UserScope[]
+}
+
 model RevenueCenter {
   id                String            @id @default(cuid())
   name              String
@@ -555,7 +574,10 @@ model RevenueCenter {
   managerName       String?
   notes             String?
   targetFoodCostPct Decimal?
-  type              String            @default("other")
+  targetCostPct     Decimal?
+  type              String            @default("FOOD")
+  locationId        String
+  location          Location          @relation(fields: [locationId], references: [id], onDelete: Restrict)
   schedulingMode    String            @default("FIXED")
   prepLeadMinutes   Int?
   serviceSchedule   Json?
@@ -576,6 +598,27 @@ model RevenueCenter {
   prepLogs          PrepLog[]         @relation("PrepLogRC")
   itemMemberships   ItemRevenueCenter[]
   prepTasks         PrepTask[]        @relation("PrepTaskRC")
+  userScopes        UserScope[]
+}
+
+model UserScope {
+  id              String         @id @default(cuid())
+  userId          String
+  locationId      String?
+  revenueCenterId String?
+  createdAt       DateTime       @default(now())
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location        Location?      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  revenueCenter   RevenueCenter? @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
+
+  // NOTE: this @@unique does NOT block duplicate rows when a column is NULL
+  // (Postgres treats NULLs as distinct, and every row has exactly one of
+  // locationId/revenueCenterId set). Real uniqueness is enforced by a raw
+  // "UserScope_user_node_unique" index with NULLS NOT DISTINCT (Postgres 15+),
+  // applied out-of-band via scripts/apply-userscope-index.ts — Prisma can't
+  // express NULLS NOT DISTINCT. Kept here to keep the column tuple indexed.
+  @@unique([userId, locationId, revenueCenterId])
+  @@index([userId])
 }
 
 model StockAllocation {

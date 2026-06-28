@@ -7,10 +7,16 @@ import {
 import { formatCurrency } from '@/lib/utils'
 import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { getVocab } from '@/lib/rc-vocab'
 import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 
 export default function SalesTab() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind } = useRc()
+  // Type-driven cost label: RC type → "Food cost %" / "Pour cost %"; Location/all → "Cost %".
+  const costPctLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'Cost %'
+  const costNounLower = activeKind === 'rc'
+    ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toLowerCase()
+    : 'cost'
   const [range, setRange] = useState<DateRange>(() => rangeForPreset('last30'))
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
@@ -78,7 +84,7 @@ export default function SalesTab() {
                   <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Sold</th>
                   <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Revenue</th>
                   <th className="py-2 pr-3 text-xs font-semibold text-ink-3 text-right">Menu Price</th>
-                  <th className="py-2 text-xs font-semibold text-ink-3 text-right">Food Cost %</th>
+                  <th className="py-2 text-xs font-semibold text-ink-3 text-right">{costPctLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -109,7 +115,7 @@ export default function SalesTab() {
         <Card>
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle size={16} className="text-gold" />
-            <SectionHeader title="Food Cost Alerts" subtitle="Items where food cost % exceeds 35% — review pricing or recipe costs" />
+            <SectionHeader title={`${costPctLabel.replace(/ %$/, '')} Alerts`} subtitle={`Items where ${costNounLower} % exceeds 35% — review pricing or recipe costs`} />
           </div>
           <div className="space-y-2">
             {foodCostAlerts.map(a => (
@@ -117,7 +123,7 @@ export default function SalesTab() {
                 <span className="text-sm font-medium text-ink-2">{a.name}</span>
                 <div className="flex items-center gap-3 text-xs">
                   <span className="text-ink-3">{a.qty} sold</span>
-                  <span className="font-bold text-red">{a.foodCostPct?.toFixed(1)}% food cost</span>
+                  <span className="font-bold text-red">{a.foodCostPct?.toFixed(1)}% {costNounLower}</span>
                 </div>
               </div>
             ))}

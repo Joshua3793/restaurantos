@@ -1,27 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
 
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
-  const where = rcId
-    ? (isDefault
-        ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-        : { revenueCenterId: rcId })
-    : {}
+  const allowed = await resolveScopedRcIds(user)
+  // scopedRcWhere reproduces the default-RC null-union shape and narrows to the
+  // user's scope (failing closed for an out-of-scope rcId). Wrapped in AND so the
+  // updateMany below can add its own status/createdAt conditions alongside it.
+  const scopeWhere = scopedRcWhere(allowed, rcId, isDefault)
 
   // Auto-recover sessions stuck in PROCESSING for >5 min (Vercel hard-kill leaves no ERROR)
   const staleThreshold = new Date(Date.now() - 5 * 60 * 1000)
   await prisma.invoiceSession.updateMany({
-    where: { ...where, status: 'PROCESSING', createdAt: { lt: staleThreshold } },
+    where: { AND: [scopeWhere, { status: 'PROCESSING', createdAt: { lt: staleThreshold } }] },
     data: { status: 'ERROR', errorMessage: 'Processing timed out. Tap retry to try again.' },
   })
 
   const sessions = await prisma.invoiceSession.findMany({
-    where,
+    where: { AND: [scopeWhere] },
     orderBy: { createdAt: 'desc' },
     include: {
       files: { select: { id: true, fileName: true, ocrStatus: true }, orderBy: { createdAt: 'asc' } },
@@ -93,6 +102,13 @@ export async function DELETE(req: NextRequest) {
 
 // POST /api/invoices/sessions — create a new session
 export async function POST(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { supplierName, supplierId, revenueCenterId } = await req.json().catch(() => ({}))
 
   // Every invoice gets an RC so it is always visible to per-RC reporting.
@@ -106,6 +122,13 @@ export async function POST(req: NextRequest) {
       select: { id: true },
     })
     rcId = defaultRc?.id ?? null
+  }
+
+  // Guard the RC the session is created against (explicit or default fallback).
+  try { await assertRcWritable(user, rcId) }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
   }
 
   const session = await prisma.invoiceSession.create({

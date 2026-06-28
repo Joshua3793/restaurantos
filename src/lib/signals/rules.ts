@@ -65,8 +65,8 @@ async function ruleIngredientPriceSpike(): Promise<SignalCandidate[]> {
 
 // ── Rule 2: Recipe drift > target by > 3pp ─────────────────────────────────
 async function ruleRecipeDrift(): Promise<SignalCandidate[]> {
-  const defaultRc = await prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { targetFoodCostPct: true } })
-  const targetPct = defaultRc?.targetFoodCostPct ? Number(defaultRc.targetFoodCostPct) : 27
+  const defaultRc = await prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { targetCostPct: true, targetFoodCostPct: true } })
+  const targetPct = Number(defaultRc?.targetCostPct ?? defaultRc?.targetFoodCostPct ?? 27)
 
   // Recipes with explicit menu prices (MENU type) where we can compute food-cost
   const recipes = await prisma.recipe.findMany({

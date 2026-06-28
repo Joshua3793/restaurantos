@@ -873,7 +873,7 @@ export default function SalesPage() {
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
-  const { activeRcId, activeRc, revenueCenters } = useRc()
+  const { activeRcId, activeRc, revenueCenters, isReadOnly } = useRc()
 
   const [startDate, endDate] = getRange(rangeMode, customStart, customEnd)
 
@@ -998,8 +998,8 @@ export default function SalesPage() {
           <p className="text-sm text-ink-3 mt-0.5">Daily sales records · inventory consumption tracking</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { setImportError(null); setShowImport(true) }} disabled={!activeRcId}
-            title={!activeRcId ? 'Select a revenue center (not "All") to import sales.' : undefined}
+          <button onClick={() => { setImportError(null); setShowImport(true) }} disabled={isReadOnly}
+            title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
             className="flex items-center gap-2 border border-line bg-white text-ink-2 px-3 py-2 rounded-lg text-sm hover:bg-bg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white">
             <Upload size={15} /> Import
           </button>
@@ -1048,7 +1048,7 @@ export default function SalesPage() {
             <h3 className="font-semibold text-blue-text text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
             <p className="text-xs text-gold leading-relaxed mb-3">
               Add each service day — total revenue, covers, and which menu items sold. This powers the food cost % calculation in your dashboard and analytics.
-              You can also <button onClick={() => setShowImport(true)} disabled={!activeRcId} className="underline font-medium disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed">import from Toast POS</button> if you have a ProductMix export.
+              You can also <button onClick={() => setShowImport(true)} disabled={isReadOnly} title={isReadOnly ? 'Select a revenue center to make changes' : undefined} className="underline font-medium disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed">import from Toast POS</button> if you have a ProductMix export.
             </p>
             <button onClick={() => setShowAdd(true)}
               className="inline-flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-4 py-2 rounded-lg text-sm font-medium hover:bg-ink-2 transition-colors">

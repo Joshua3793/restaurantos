@@ -1,0 +1,105 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { RC_COLORS } from '@/lib/rc-colors'
+import { buildScheduleFields } from '@/lib/rc-schedule'
+import { Prisma, User } from '@prisma/client'
+
+export const dynamic = 'force-dynamic'
+
+const LOCATION_TYPES = ['restaurant', 'catering', 'other'] as const
+
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
+  const loc = await prisma.location.findUnique({
+    where: { id: params.id },
+    include: { revenueCenters: true },
+  })
+  if (!loc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(loc)
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  let user: User
+  try { user = await requireSession('ADMIN') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+  void user
+
+  const body = await req.json().catch(() => ({}))
+  const { name, color, type, isDefault, isActive, description, managerName, notes } = body
+
+  const existing = await prisma.location.findUnique({ where: { id: params.id } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const resolvedColor = color !== undefined
+    ? (RC_COLORS.includes(color) ? color : existing.color)
+    : undefined
+  const resolvedType = type !== undefined
+    ? (LOCATION_TYPES.includes(type) ? type : existing.type)
+    : undefined
+
+  const sendsSchedule = 'schedulingMode' in body || 'prepLeadMinutes' in body || 'serviceSchedule' in body
+  let scheduleFields: ReturnType<typeof buildScheduleFields> | null = null
+  if (sendsSchedule) {
+    try { scheduleFields = buildScheduleFields(body) }
+    catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+  }
+
+  const loc = await prisma.$transaction(async (tx) => {
+    if (isDefault) {
+      await tx.location.updateMany({ data: { isDefault: false } })
+    }
+    return tx.location.update({
+      where: { id: params.id },
+      data: {
+        ...(name?.trim()                ? { name: name.trim() }                          : {}),
+        ...(resolvedColor !== undefined ? { color: resolvedColor }                       : {}),
+        ...(resolvedType !== undefined  ? { type: resolvedType }                         : {}),
+        ...(isDefault !== undefined     ? { isDefault: !!isDefault }                     : {}),
+        ...(isActive  !== undefined     ? { isActive:  !!isActive }                      : {}),
+        ...(description !== undefined   ? { description: description || null }           : {}),
+        ...(managerName !== undefined   ? { managerName: managerName || null }           : {}),
+        ...(notes !== undefined         ? { notes: notes || null }                       : {}),
+        ...(scheduleFields ? {
+          schedulingMode:  scheduleFields.schedulingMode,
+          prepLeadMinutes: scheduleFields.prepLeadMinutes,
+          serviceSchedule: scheduleFields.serviceSchedule ?? Prisma.JsonNull,
+        } : {}),
+      },
+    })
+  })
+
+  return NextResponse.json(loc)
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession('ADMIN') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
+  const loc = await prisma.location.findUnique({ where: { id: params.id } })
+  if (!loc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (loc.isDefault) {
+    return NextResponse.json({ error: 'Cannot delete the default location' }, { status: 400 })
+  }
+
+  const rcCount = await prisma.revenueCenter.count({ where: { locationId: params.id } })
+  if (rcCount > 0) {
+    return NextResponse.json({
+      error: 'Cannot delete: this location still has revenue centers.',
+    }, { status: 400 })
+  }
+
+  await prisma.location.delete({ where: { id: params.id } })
+  return NextResponse.json({ ok: true })
+}

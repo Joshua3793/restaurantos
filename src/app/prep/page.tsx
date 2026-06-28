@@ -37,7 +37,7 @@ const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsMo
 
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
-  const { activeRc, activeRcId } = useRc()
+  const { activeRc, activeRcId, isReadOnly } = useRc()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
@@ -973,7 +973,9 @@ export default function PrepPage() {
               )}
             </div>
             <button onClick={() => setShowAdd(true)}
-              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2" title="Add item">
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : 'Add item'}
+              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <Plus size={16} />
             </button>
           </div>
@@ -1096,7 +1098,9 @@ export default function PrepPage() {
               <Settings size={15} className="text-ink-3" />
             </button>
             <button onClick={() => setShowAdd(true)}
-              className="inline-flex items-center gap-[7px] px-4 py-2.5 rounded-[9px] border border-ink bg-ink text-paper text-[13px] font-medium hover:bg-[#18181b] transition-colors whitespace-nowrap">
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+              className="inline-flex items-center gap-[7px] px-4 py-2.5 rounded-[9px] border border-ink bg-ink text-paper text-[13px] font-medium hover:bg-[#18181b] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink">
               <span className="text-gold font-semibold text-base leading-none">+</span>
               Add item
             </button>
