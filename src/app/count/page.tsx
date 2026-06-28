@@ -321,7 +321,7 @@ export default function CountPage() {
     areas: [] as string[], // stores storageArea IDs
   })
 
-  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { revenueCenters, activeRcId, activeRc, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { user } = useUser()
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
@@ -1244,7 +1244,9 @@ export default function CountPage() {
               )}
             </div>
             <button onClick={() => setView('new')}
-              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2" title="Start count">
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : 'Start count'}
+              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <Plus size={16} />
             </button>
           </div>
@@ -1274,7 +1276,9 @@ export default function CountPage() {
             </button>
             <button
               onClick={() => setView('new')}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap"
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink"
             >
               <span className="text-gold font-semibold text-base leading-none">+</span>
               Start count

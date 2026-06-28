@@ -74,6 +74,13 @@ export async function POST(req: NextRequest) {
       if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
       throw e
     }
+  } else {
+    // A scoped user (resolveScopedRcIds !== null) may not create the legacy
+    // all-items count — they must target one of their revenue centers.
+    const allowed = await resolveScopedRcIds(user)
+    if (allowed !== null) {
+      return NextResponse.json({ error: 'A revenue center must be selected.' }, { status: 403 })
+    }
   }
 
   const areaIds: string[] = areaFilter

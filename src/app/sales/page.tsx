@@ -873,7 +873,7 @@ export default function SalesPage() {
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
-  const { activeRcId, activeRc, revenueCenters } = useRc()
+  const { activeRcId, activeRc, revenueCenters, isReadOnly } = useRc()
 
   const [startDate, endDate] = getRange(rangeMode, customStart, customEnd)
 
@@ -998,8 +998,8 @@ export default function SalesPage() {
           <p className="text-sm text-ink-3 mt-0.5">Daily sales records · inventory consumption tracking</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { setImportError(null); setShowImport(true) }} disabled={!activeRcId}
-            title={!activeRcId ? 'Select a revenue center (not "All") to import sales.' : undefined}
+          <button onClick={() => { setImportError(null); setShowImport(true) }} disabled={isReadOnly}
+            title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
             className="flex items-center gap-2 border border-line bg-white text-ink-2 px-3 py-2 rounded-lg text-sm hover:bg-bg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white">
             <Upload size={15} /> Import
           </button>
