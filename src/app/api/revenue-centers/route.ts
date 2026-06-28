@@ -12,9 +12,17 @@ export async function GET() {
     // Bootstrap an empty DB: a RevenueCenter now requires a Location, so wrap
     // the default RC in a default Location.
     const defaultRc = await prisma.$transaction(async (tx) => {
-      const loc = await tx.location.create({
-        data: { name: 'Main Kitchen', color: 'blue', isDefault: true },
-      })
+      // Attach to an existing Location if one exists (prefer the default), so we
+      // never create a SECOND isDefault Location. Only flag a freshly-created
+      // Location as default when none exists at all.
+      let loc =
+        (await tx.location.findFirst({ where: { isDefault: true } })) ??
+        (await tx.location.findFirst())
+      if (!loc) {
+        loc = await tx.location.create({
+          data: { name: 'Main Kitchen', color: 'blue', isDefault: true },
+        })
+      }
       return tx.revenueCenter.create({
         data: { name: 'Main Kitchen', color: 'blue', isDefault: true, locationId: loc.id },
       })
