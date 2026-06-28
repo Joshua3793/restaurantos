@@ -8,6 +8,7 @@ import {
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
+import { startOfWeek } from '@/lib/dates'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -112,13 +113,14 @@ export default function PassPage() {
     const load = async () => {
       try {
         const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''
-        // Food-cost KPIs are month-to-date (the rolling-7d/WTD windows are often empty
-        // early in the week). fcFrom/fcTo window only the food-cost block — the wastage
-        // card stays rolling-7d.
+        // Food-cost KPIs are week-to-date (Monday → today), matching the cost-chrome
+        // strip. fcFrom/fcTo window only the food-cost block — the wastage card stays
+        // rolling-7d.
         const now = new Date()
         const pad = (n: number) => String(n).padStart(2, '0')
-        const fcFrom = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
-        const fcTo   = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+        const fmtLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+        const fcFrom = fmtLocal(startOfWeek(now))
+        const fcTo   = fmtLocal(now)
         const fcQs = `${qs ? `${qs}&` : '?'}fcFrom=${fcFrom}&fcTo=${fcTo}`
         const cogsQs = `?startDate=${fcFrom}&endDate=${fcTo}${activeRcId ? `&rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''}`
         const [d, c, k, p, s, a, fv, ie, cg] = await Promise.all([
@@ -264,12 +266,12 @@ export default function PassPage() {
 
         <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-3">
           <FoodCostHero
-            label="PURCHASE COST · MTD" sub="invoices ÷ food sales"
+            label="PURCHASE COST · WTD" sub="invoices ÷ food sales"
             pct={dashboard?.purchaseFoodCostPct ?? chrome?.foodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
           />
           <FoodCostHero
-            label="ACTUAL FOOD COST · MTD" sub="COGS ÷ food sales"
+            label="ACTUAL FOOD COST · WTD" sub="COGS ÷ food sales"
             pct={cogs?.actualFoodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
             title={
@@ -313,7 +315,7 @@ export default function PassPage() {
             }
           />
           <FoodCostHero
-            label="THEORETICAL FOOD COST · MTD" sub="from recipe costs"
+            label="THEORETICAL FOOD COST · WTD" sub="from recipe costs"
             pct={dashboard?.theoreticalFoodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
             footer={dashboard ? (
