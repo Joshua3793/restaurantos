@@ -454,11 +454,19 @@ export async function buildPrepMap(
 export async function getTheoreticalStockMap(
   rcId: string | null | undefined,
   itemIds?: string[],
+  // When provided (a scoped user's allowed RC set), the "All RCs" aggregate is
+  // limited to these revenue centers instead of every RC. Ignored when an
+  // explicit rcId is given. `null`/undefined = no restriction (all RCs).
+  allowedRcIds?: Set<string> | null,
 ): Promise<Map<string, number>> {
   // "All RCs" = the SUM of every revenue center's theoretical map. This makes
   // ALL = ΣRC true by construction (each RC floored at 0 independently).
+  // For a scoped user, "All" is the sum of only their allowed RCs.
   if (!rcId) {
-    const rcs = await prisma.revenueCenter.findMany({ select: { id: true } })
+    const rcs = await prisma.revenueCenter.findMany({
+      where: allowedRcIds ? { id: { in: [...allowedRcIds] } } : undefined,
+      select: { id: true },
+    })
     const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, itemIds)))
     const sum = new Map<string, number>()
     for (const m of perRc) for (const [id, q] of m) sum.set(id, (sum.get(id) ?? 0) + q)

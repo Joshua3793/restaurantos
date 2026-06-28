@@ -145,23 +145,63 @@ export async function GET(req: NextRequest) {
   // "All Revenue Centers": total physical stock = stockOnHand (Cafe pool) + all RC allocations
   // Exclude default-RC allocations: the default RC's stock already lives in stockOnHand, so
   // summing its allocation on top would double-count it.
+  //
+  // Scope: for a scoped user (allowed !== null) "All" must mean "aggregate of MY RCs", not
+  // every RC. We therefore (a) only sum non-default allocations in allowed RCs, (b) include
+  // the default RC's stockOnHand pool only when the default RC is itself in scope, (c) list
+  // only items that are members of / allocated to an allowed RC, and (d) pass the allowed set
+  // into getTheoreticalStockMap so the per-RC sum is limited the same way.
+  // allowed === null (ADMIN / unscoped) leaves every clause untouched — behavior unchanged.
+  const defaultRc = allowed !== null
+    ? await prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { id: true } })
+    : null
+  const defaultRcInScope = allowed === null || (defaultRc !== null && allowed.has(defaultRc.id))
+
+  // Restrict the listed items to those with membership or a non-default allocation in an
+  // allowed RC (mirrors the per-RC view, which lists items via StockAllocation). When the
+  // default RC is in scope, its pool items (everything) are visible too.
+  let scopedItemFilter: Record<string, unknown> = {}
+  if (allowed !== null) {
+    if (defaultRcInScope) {
+      // default RC in scope → all items visible (default pool spans the whole catalogue)
+      scopedItemFilter = {}
+    } else if (allowed.size === 0) {
+      scopedItemFilter = { id: { in: [] } }
+    } else {
+      const allowedIds = [...allowed]
+      scopedItemFilter = {
+        OR: [
+          { stockAllocations: { some: { revenueCenterId: { in: allowedIds } } } },
+          { revenueCenters: { some: { revenueCenterId: { in: allowedIds } } } },
+        ],
+      }
+    }
+  }
+
   const rawItems = await prisma.inventoryItem.findMany({
-    where: itemWhere,
+    where: { AND: [itemWhere, scopedItemFilter] },
     include: {
       ...itemInclude,
-      stockAllocations: { where: { revenueCenter: { isDefault: false } }, select: { quantity: true } },
+      stockAllocations: {
+        where: allowed === null
+          ? { revenueCenter: { isDefault: false } }
+          : { revenueCenter: { isDefault: false }, revenueCenterId: { in: [...allowed] } },
+        select: { quantity: true },
+      },
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
   const items = rawItems.map(({ stockAllocations, ...item }) => {
-    const rawStockOnHand = Number(item.stockOnHand)  // actual last-counted value — used for countedStock anchor
+    // The default RC's stockOnHand pool only counts toward the aggregate when that RC is in
+    // scope; otherwise a scoped user (who can't see the default RC) sees only their allocations.
+    const rawStockOnHand = defaultRcInScope ? Number(item.stockOnHand) : 0
     const allocTotal = stockAllocations.reduce((s, a) => s + Number(a.quantity), 0)
     // stockOnHand is inflated for display (pooled total across all RCs), but we pre-attach
     // countedStock from the raw value so attachTheoreticalFields sees the true last-counted figure.
     return { ...item, stockOnHand: rawStockOnHand + allocTotal, countedStock: rawStockOnHand }
   })
   const itemIds = items.map(i => i.id)
-  const theoMap = await getTheoreticalStockMap(null, itemIds)
+  const theoMap = await getTheoreticalStockMap(null, itemIds, allowed)
   return NextResponse.json(attachTheoreticalFields(items, theoMap), {
     headers: { 'Cache-Control': 'no-store' },
   })
