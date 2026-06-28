@@ -611,6 +611,12 @@ model UserScope {
   location        Location?      @relation(fields: [locationId], references: [id], onDelete: Cascade)
   revenueCenter   RevenueCenter? @relation(fields: [revenueCenterId], references: [id], onDelete: Cascade)
 
+  // NOTE: this @@unique does NOT block duplicate rows when a column is NULL
+  // (Postgres treats NULLs as distinct, and every row has exactly one of
+  // locationId/revenueCenterId set). Real uniqueness is enforced by a raw
+  // "UserScope_user_node_unique" index with NULLS NOT DISTINCT (Postgres 15+),
+  // applied out-of-band via scripts/apply-userscope-index.ts — Prisma can't
+  // express NULLS NOT DISTINCT. Kept here to keep the column tuple indexed.
   @@unique([userId, locationId, revenueCenterId])
   @@index([userId])
 }
