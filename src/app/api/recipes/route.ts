@@ -4,8 +4,17 @@ import { computeRecipeCost, linkedRecipeUnitCost, resyncPrepRecipe } from '@/lib
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
 
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const type = searchParams.get('type')
   const categoryId = searchParams.get('categoryId')
@@ -13,22 +22,35 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search')
   const rcId = searchParams.get('rcId') || ''
 
+  const allowed = await resolveScopedRcIds(user)
+
   // MENU: strict per-RC (unchanged). PREP: shared (null) + the active RC shown together.
-  const rcFilter = !rcId
-    ? {}
-    : type === 'MENU'
-      ? { revenueCenterId: rcId }
-      : type === 'PREP'
-        ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-        : {}
+  // scopedRcWhere reproduces these shapes AND narrows to the user's scope (fails
+  // closed for an out-of-scope rcId). For PREP we always union shared (null) rows:
+  // passing isDefault=true gives the null-union shape, and the no-rcId PREP case is
+  // widened to "shared OR in-scope" so shared prep stays visible to scoped users.
+  let rcFilter: Record<string, unknown>
+  if (type === 'MENU') {
+    rcFilter = scopedRcWhere(allowed, rcId || null, false)
+  } else if (type === 'PREP') {
+    rcFilter = rcId
+      ? scopedRcWhere(allowed, rcId, true)
+      : (allowed === null
+          ? {}
+          : { OR: [{ revenueCenterId: null }, { revenueCenterId: { in: [...allowed] } }] })
+  } else {
+    rcFilter = scopedRcWhere(allowed, rcId || null, false)
+  }
 
   const recipes = await prisma.recipe.findMany({
     where: {
-      ...(type ? { type } : {}),
-      ...(categoryId ? { categoryId } : {}),
-      ...(isActiveParam !== null ? { isActive: isActiveParam === 'true' } : {}),
-      ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
-      ...rcFilter,
+      AND: [
+        type ? { type } : {},
+        categoryId ? { categoryId } : {},
+        isActiveParam !== null ? { isActive: isActiveParam === 'true' } : {},
+        search ? { name: { contains: search, mode: 'insensitive' as const } } : {},
+        rcFilter,
+      ],
     },
     include: {
       category: true,
@@ -103,6 +125,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const {
     name, type, categoryId, baseYieldQty, yieldUnit,
@@ -111,6 +140,15 @@ export async function POST(req: NextRequest) {
 
   if (!name || !type || !categoryId || !baseYieldQty || !yieldUnit) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  }
+
+  // Recipes may be Shared (revenueCenterId null) — only guard when one is set.
+  if (revenueCenterId) {
+    try { await assertRcWritable(user, revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
   }
 
   // Validate + normalize units against the UOM backbone.

@@ -5,6 +5,8 @@ import {
   validateChainItem, withPpb, asChainItem, dimensionOf, type ChainItem,
 } from '@/lib/item-model'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveScopedRcIds } from '@/lib/rc-scope'
 
 /** Attach theoreticalStock, countedStock, lastCountDate to each item row. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,6 +38,13 @@ function attachTheoreticalFields<T extends Record<string, any>>(
 }
 
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const search      = searchParams.get('search') || ''
   const category    = searchParams.get('category') || ''
@@ -47,6 +56,17 @@ export async function GET(req: NextRequest) {
   // Non-stocked (recipe-only) items are hidden from the operational list by default;
   // the inventory page passes includeNonStocked=true to reveal them.
   const includeNonStocked = searchParams.get('includeNonStocked') === 'true'
+
+  // Inventory items carry no revenueCenterId column (RC association lives in
+  // StockAllocation / ItemRevenueCenter), so scopedRcWhere does not apply to the
+  // item where-clause. Instead fail closed at the RC boundary: a scoped user that
+  // explicitly requests an rcId outside their scope gets nothing (empty list)
+  // rather than another RC's allocation/default-pool data. allowed===null
+  // (ADMIN / unscoped) keeps every path behaving exactly as before.
+  const allowed = await resolveScopedRcIds(user)
+  if (rcId && allowed !== null && !allowed.has(rcId)) {
+    return NextResponse.json([], { headers: { 'Cache-Control': 'no-store' } })
+  }
 
   const itemWhere = {
     AND: [

@@ -15,6 +15,7 @@ import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import { lookupDensity } from '@/lib/density'
 import { densityCrossedPpb } from '@/lib/invoice/density-bridge'
 import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
 
 // Give background work up to 60s after the response is sent
 export const maxDuration = 60
@@ -816,6 +817,38 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   if (session.status !== 'REVIEW') {
     return NextResponse.json({ error: 'Session is not in REVIEW state' }, { status: 400 })
+  }
+
+  // ── RC write-scope guard ────────────────────────────────────────────────
+  // Approval fans stock/allocation out across every RC the invoice touches: the
+  // session's RC (defaulting to the default RC when null — matching doApprove's
+  // effectiveSessionRcId), each line's RC override, and every rcSplit[].rcId.
+  // Collect ALL distinct rc ids and assert the user may write each one BEFORE
+  // claiming the session, so a forbidden write never leaves it stuck in APPROVING.
+  const rcIdsToGuard = new Set<string>()
+  if (session.revenueCenterId) {
+    rcIdsToGuard.add(session.revenueCenterId)
+  } else {
+    const defaultRc = await prisma.revenueCenter.findFirst({
+      where: { isDefault: true },
+      select: { id: true },
+    })
+    if (defaultRc) rcIdsToGuard.add(defaultRc.id)
+  }
+  for (const si of session.scanItems) {
+    if (si.revenueCenterId) rcIdsToGuard.add(si.revenueCenterId)
+    const split = si.rcSplit
+    if (Array.isArray(split)) {
+      for (const e of split as Array<{ rcId?: unknown }>) {
+        if (e && typeof e.rcId === 'string' && e.rcId) rcIdsToGuard.add(e.rcId)
+      }
+    }
+  }
+  try {
+    for (const rcId of rcIdsToGuard) await assertRcWritable(currentUser, rcId)
+  } catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
   }
 
   // ── Duplicate gate ──────────────────────────────────────────────────────

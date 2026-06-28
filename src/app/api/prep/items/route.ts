@@ -4,6 +4,8 @@ import { computePriority, computeSuggestedQty, PREP_PRIORITY_ORDER } from '@/lib
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveScopedRcIds, assertRcWritable } from '@/lib/rc-scope'
 
 const recipeInclude = {
   select: {
@@ -27,6 +29,13 @@ const recipeInclude = {
 
 export async function GET(req: NextRequest) {
   try {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const activeOnly = searchParams.get('active') !== 'false'
 
@@ -34,8 +43,16 @@ export async function GET(req: NextRequest) {
   today.setHours(0, 0, 0, 0)
   const tomorrow = new Date(today.getTime() + 86_400_000)
 
+  // Prep items have no rcId query param — scope to the user's RCs (always
+  // including shared (null) prep). allowed===null (ADMIN / unscoped) → no filter,
+  // so the list behaves exactly as before.
+  const allowed = await resolveScopedRcIds(user)
+  const scopeWhere = allowed === null
+    ? {}
+    : { OR: [{ revenueCenterId: null }, { revenueCenterId: { in: [...allowed] } }] }
+
   const items = await prisma.prepItem.findMany({
-    where: activeOnly ? { isActive: true } : undefined,
+    where: { AND: [activeOnly ? { isActive: true } : {}, scopeWhere] },
     include: {
       linkedRecipe: recipeInclude,
       linkedInventoryItem: {
@@ -195,6 +212,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const {
     name, linkedRecipeId, linkedInventoryItemId,
@@ -204,6 +228,15 @@ export async function POST(req: NextRequest) {
   } = body
 
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
+
+  // Prep items may be Shared (revenueCenterId null) — only guard when one is set.
+  if (revenueCenterId) {
+    try { await assertRcWritable(user, revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
 
   let resolvedUnit: string
   try {
