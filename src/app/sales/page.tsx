@@ -1048,7 +1048,7 @@ export default function SalesPage() {
             <h3 className="font-semibold text-blue-text text-sm mb-1">Record your daily sales to unlock food cost tracking</h3>
             <p className="text-xs text-gold leading-relaxed mb-3">
               Add each service day — total revenue, covers, and which menu items sold. This powers the food cost % calculation in your dashboard and analytics.
-              You can also <button onClick={() => setShowImport(true)} disabled={!activeRcId} className="underline font-medium disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed">import from Toast POS</button> if you have a ProductMix export.
+              You can also <button onClick={() => setShowImport(true)} disabled={isReadOnly} title={isReadOnly ? 'Select a revenue center to make changes' : undefined} className="underline font-medium disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed">import from Toast POS</button> if you have a ProductMix export.
             </p>
             <button onClick={() => setShowAdd(true)}
               className="inline-flex items-center gap-2 bg-ink text-paper [&_svg]:text-gold px-4 py-2 rounded-lg text-sm font-medium hover:bg-ink-2 transition-colors">
