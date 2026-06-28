@@ -6,6 +6,7 @@ import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/compo
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { MENU_YIELD_UNITS } from '@/lib/uom'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { getVocab } from '@/lib/rc-vocab'
 import { useDrawer } from '@/contexts/DrawerContext'
 
 export default function MenuPage() {
@@ -18,7 +19,9 @@ export default function MenuPage() {
 
 function MenuPageInner() {
   const searchParams = useSearchParams()
-  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind } = useRc()
+  // Type-driven cost label: RC type → "Food cost %" / "Pour cost %"; Location/all → "Cost %".
+  const costPctLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'Cost %'
   const { setDrawerOpen } = useDrawer()
   const [recipes, setRecipes]             = useState<Recipe[]>([])
   const [categories, setCategories]       = useState<RecipeCategory[]>([])
@@ -302,7 +305,7 @@ function MenuPageInner() {
       {/* ── SHOWING ROW ── */}
       <div className="flex items-center justify-between -mt-1">
         <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase">
-          {displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} · {sortMode === 'az' ? 'A–Z' : sortMode === 'cost' ? 'Cost' : 'Food cost'}
+          {displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} · {sortMode === 'az' ? 'A–Z' : sortMode === 'cost' ? 'Cost' : costPctLabel.replace(/ %$/, '')}
           {activeCatId && <> · {typeCats.find(c => c.id === activeCatId)?.name}</>}
           {!activeCatId && <> · click any row to edit</>}
         </p>
@@ -452,7 +455,7 @@ function MenuPageInner() {
                 )}
               </button>
               <span className="flex-1">Name</span>
-              <span className="hidden sm:block pr-20">Base cost · Price · Food cost %</span>
+              <span className="hidden sm:block pr-20">Base cost · Price · {costPctLabel}</span>
             </div>
             {displayRecipes.map(recipe => (
               <RecipeCard

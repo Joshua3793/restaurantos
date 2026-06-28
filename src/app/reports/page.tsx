@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { TrendingUp, ArrowRight, BarChart3 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { getVocab } from '@/lib/rc-vocab'
 import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
 import { ReportsSubnav } from './ReportsSubnav'
@@ -41,7 +42,7 @@ interface RecipeDriftRow {
 }
 
 export default function ReportsPage() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind } = useRc()
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
@@ -75,6 +76,11 @@ export default function ReportsPage() {
   const target = chrome?.targetPct ?? 27
   // Food-cost % is now range-driven (purchases / food sales over the selected window).
   const rangeFoodCostPct = dashboard?.purchaseFoodCostPct ?? null
+  // Type-driven cost noun: RC carries a FOOD/DRINK type → "food cost" / "pour
+  // cost"; a Location or "all" view spans types → generic "cost".
+  const costNoun = activeKind === 'rc'
+    ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toLowerCase()
+    : 'cost'
   const drift = useMemo<RecipeDriftRow[]>(() => {
     return recipes
       .filter(r => r.menuPrice !== null && r.totalCost > 0)
@@ -96,7 +102,7 @@ export default function ReportsPage() {
       <PageHead
         crumbs={<><BarChart3 size={12} /> INSIGHTS / REPORTS</>}
         title="Reports"
-        sub={chrome ? <>{range.label} food cost <b>{rangeFoodCostPct?.toFixed(1) ?? '—'}%</b> vs target <b>{target.toFixed(1)}%</b> · on hand <b>{formatCurrency(chrome.onHand)}</b></> : <>Loading…</>}
+        sub={chrome ? <>{range.label} {costNoun} <b>{rangeFoodCostPct?.toFixed(1) ?? '—'}%</b> vs target <b>{target.toFixed(1)}%</b> · on hand <b>{formatCurrency(chrome.onHand)}</b></> : <>Loading…</>}
       />
 
       <ReportsSubnav />

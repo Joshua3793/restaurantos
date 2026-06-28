@@ -74,17 +74,17 @@ export function LocationDashboard({ locationId }: { locationId: string }) {
         <div className="font-mono text-[11px] text-ink-3">Loading…</div>
       )}
 
-      {!loading && data && data.revenueCenters.length === 0 && (
+      {!loading && data && (data.revenueCenters?.length ?? 0) === 0 && (
         <div className="bg-paper border border-line rounded-[12px] p-6 text-center">
           <p className="text-[13px] text-ink-3">No revenue centers in scope for this location yet.</p>
         </div>
       )}
 
-      {!loading && data && data.revenueCenters.length > 0 && (
+      {!loading && data && (data.revenueCenters?.length ?? 0) > 0 && (
         <>
           {/* Per-RC cards */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.revenueCenters.map(rc => {
+            {data.revenueCenters?.map(rc => {
               const vocab = getVocab(rc.type)
               const overTarget = rc.costPct != null && rc.targetCostPct != null && rc.costPct > rc.targetCostPct
               return (

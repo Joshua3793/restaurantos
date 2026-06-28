@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { getVocab } from '@/lib/rc-vocab'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
 import { SpineAuditDrawer } from './SpineAuditDrawer'
@@ -28,7 +29,7 @@ interface ChromeData {
 }
 
 export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: boolean; desktopOnly?: boolean }) {
-  const { activeRcId } = useRc()
+  const { activeRcId, activeRc, activeKind } = useRc()
   const [data, setData] = useState<ChromeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [auditOpen, setAuditOpen] = useState(false)
@@ -61,6 +62,11 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
 
   const v7d = data?.variance7d ?? null
 
+  // Type-driven cost label: an RC carries a FOOD/DRINK type → "Food cost %" /
+  // "Pour cost %"; a Location or "all" view spans types → generic "COGS %".
+  // The number is unchanged — this is the WTD purchases ÷ sales ratio.
+  const costLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'COGS %'
+
   return (
     <div className={`${(onSpine && !desktopOnly) ? 'flex' : 'hidden'} md:flex md:fixed md:top-0 md:inset-x-0 md:z-50 md:h-11 bg-ink text-paper px-4 md:px-8 py-[10px] md:py-0 items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
       {/* Brand — detached from the collapsible nav so it stays pinned in the top bar (desktop) */}
@@ -83,10 +89,10 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
         <>
           <div className="hidden md:block w-px h-[14px] bg-ink-2" />
           <CCItem
-            label="Purchases ÷ sales · WTD"
+            label={`${costLabel} · WTD`}
             value={loading ? '…' : fmtPct(fcPct)}
             valueClass={fcClass}
-            title="Approved invoice spend this week ÷ food sales this week. Purchases are lumpy — a big delivery early in the week spikes this. It is NOT true plate cost; see Reports for theoretical food cost %."
+            title="Approved invoice spend this week ÷ sales this week. Purchases are lumpy — a big delivery early in the week spikes this. It is NOT true plate cost; see Reports for theoretical cost %."
           />
           <CCDivider />
           <CCItem

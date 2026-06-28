@@ -95,8 +95,8 @@ export async function GET(req: NextRequest) {
       select: { approvedAt: true, supplierName: true, total: true },
     }),
     rcId
-      ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { targetFoodCostPct: true } })
-      : Promise.resolve<{ targetFoodCostPct: { toString: () => string } | null } | null>(null),
+      ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { targetCostPct: true, targetFoodCostPct: true } })
+      : Promise.resolve<{ targetCostPct: { toString: () => string } | null; targetFoodCostPct: { toString: () => string } | null } | null>(null),
   ])
 
   // ── On hand: RC-aware inventory value (mirrors the inventory page) ─────
@@ -150,14 +150,16 @@ export async function GET(req: NextRequest) {
   // ── Target ────────────────────────────────────────────────────────────
   // Per-RC if filtered; otherwise use the default RC target if defined; fallback 27.0
   let targetPct: number = 27.0
-  if (targetRC?.targetFoodCostPct != null) {
-    targetPct = Number(targetRC.targetFoodCostPct)
+  if (targetRC?.targetCostPct != null || targetRC?.targetFoodCostPct != null) {
+    targetPct = Number(targetRC.targetCostPct ?? targetRC.targetFoodCostPct)
   } else {
     const defaultRc = await prisma.revenueCenter.findFirst({
       where: { isDefault: true },
-      select: { targetFoodCostPct: true },
+      select: { targetCostPct: true, targetFoodCostPct: true },
     })
-    if (defaultRc?.targetFoodCostPct != null) targetPct = Number(defaultRc.targetFoodCostPct)
+    if (defaultRc?.targetCostPct != null || defaultRc?.targetFoodCostPct != null) {
+      targetPct = Number(defaultRc.targetCostPct ?? defaultRc.targetFoodCostPct)
+    }
   }
 
   return NextResponse.json({
