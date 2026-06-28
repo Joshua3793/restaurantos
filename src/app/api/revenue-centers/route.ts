@@ -9,8 +9,15 @@ export async function GET() {
   let rcs = await prisma.revenueCenter.findMany({ orderBy: { createdAt: 'asc' } })
 
   if (rcs.length === 0) {
-    const defaultRc = await prisma.revenueCenter.create({
-      data: { name: 'Main Kitchen', color: 'blue', isDefault: true },
+    // Bootstrap an empty DB: a RevenueCenter now requires a Location, so wrap
+    // the default RC in a default Location.
+    const defaultRc = await prisma.$transaction(async (tx) => {
+      const loc = await tx.location.create({
+        data: { name: 'Main Kitchen', color: 'blue', isDefault: true },
+      })
+      return tx.revenueCenter.create({
+        data: { name: 'Main Kitchen', color: 'blue', isDefault: true, locationId: loc.id },
+      })
     })
     rcs = [defaultRc]
   }
@@ -37,10 +44,22 @@ export async function POST(req: NextRequest) {
     if (isDefault) {
       await tx.revenueCenter.updateMany({ data: { isDefault: false } })
     }
+    // A RevenueCenter requires a Location. Until the two-tier picker lands
+    // (Task 7+), attach new RCs to the default Location (or any Location if no
+    // default is flagged); create one if none exist yet.
+    let loc =
+      (await tx.location.findFirst({ where: { isDefault: true } })) ??
+      (await tx.location.findFirst())
+    if (!loc) {
+      loc = await tx.location.create({
+        data: { name: name.trim(), color: resolvedColor, isDefault: true },
+      })
+    }
     return tx.revenueCenter.create({
       data: {
         name: name.trim(),
         color: resolvedColor,
+        locationId: loc.id,
         isDefault: !!isDefault,
         isActive:  isActive !== undefined ? !!isActive : true,
         type:      resolvedType,

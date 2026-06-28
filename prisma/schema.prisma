@@ -576,8 +576,8 @@ model RevenueCenter {
   targetFoodCostPct Decimal?
   targetCostPct     Decimal?
   type              String            @default("FOOD")
-  locationId        String?
-  location          Location?         @relation(fields: [locationId], references: [id])
+  locationId        String
+  location          Location          @relation(fields: [locationId], references: [id])
   schedulingMode    String            @default("FIXED")
   prepLeadMinutes   Int?
   serviceSchedule   Json?
