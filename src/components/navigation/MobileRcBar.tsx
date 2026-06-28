@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { ChevronDown, Check, LayoutGrid, MapPin } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
@@ -11,7 +12,10 @@ export function MobileRcBar() {
     activeKind, activeRcId, activeRc, activeLocationId, activeLocation,
     setActiveRcId, setActiveLocation, setActiveAll,
   } = useRc()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
+  // Picking a location shows its read-only aggregate dashboard.
+  const pickLocation = (id: string) => { setActiveLocation(id); router.push('/location') }
 
   if (revenueCenters.length === 0 && locations.length === 0) return null
 
@@ -69,7 +73,7 @@ export function MobileRcBar() {
                 <div key={loc.id}>
                   {/* Location header row (selectable) */}
                   <button
-                    onClick={() => { setActiveLocation(loc.id); setOpen(false) }}
+                    onClick={() => { pickLocation(loc.id); setOpen(false) }}
                     className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-bg transition-colors"
                   >
                     <MapPin size={16} className="shrink-0" style={{ color: rcHex(loc.color) }} />

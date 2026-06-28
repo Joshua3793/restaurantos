@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ChevronDown, Check, Settings2, LayoutGrid, MapPin } from 'lucide-react'
 import { useRc, type Location } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
@@ -27,6 +28,7 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
     activeKind, activeRcId, activeRc, activeLocationId, activeLocation,
     setActiveRcId, setActiveLocation, setActiveAll,
   } = useRc()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -56,7 +58,7 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
       activeRcId={activeRcId}
       activeLocationId={activeLocationId}
       onPickAll={() => { setActiveAll(); setOpen(false) }}
-      onPickLocation={(id) => { setActiveLocation(id); setOpen(false) }}
+      onPickLocation={(id) => { setActiveLocation(id); setOpen(false); router.push('/location') }}
       onPickRc={(id) => { setActiveRcId(id); setOpen(false) }}
       onManage={() => setOpen(false)}
     />
