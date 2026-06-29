@@ -41,9 +41,11 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/toast/revenue-centers — map/clear Toast RC GUIDs → app RevenueCenters.
- * Body: { mappings: [{ toastGuid, revenueCenterId|null }] }. Many GUIDs may point
- * at one RevenueCenter. ADMIN-only.
+ * POST /api/toast/revenue-centers — map/clear Toast RC GUIDs → an app
+ * RevenueCenter OR a Location. Body:
+ *   { mappings: [{ toastGuid, revenueCenterId?|null, locationId?|null }] }.
+ * A GUID targets either a leaf RC or a location (or neither = cleared); both
+ * non-null → 400. Many GUIDs may point at one target. ADMIN-only.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -55,7 +57,9 @@ export async function POST(req: NextRequest) {
     throw e
   }
 
-  let body: { mappings?: { toastGuid: string; revenueCenterId: string | null }[] }
+  let body: {
+    mappings?: { toastGuid: string; revenueCenterId?: string | null; locationId?: string | null }[]
+  }
   try {
     body = await req.json()
   } catch {
@@ -69,9 +73,10 @@ export async function POST(req: NextRequest) {
     await setRevenueCenterMappings(body.mappings)
     return NextResponse.json({ ok: true, updated: body.mappings.length })
   } catch (e) {
+    // Validation failures (both-set, unknown id, menu+location) surface as 400.
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
+      { status: 400 },
     )
   }
 }

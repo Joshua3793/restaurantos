@@ -114,13 +114,54 @@ export interface DiscoveredRC {
   orderCount: number
   /** App RevenueCenter this GUID is mapped to, if any. */
   mappedTo: { id: string; name: string } | null
+  /** Raw current target: which kind + which id (preserved across kinds). */
+  revenueCenterId: string | null
+  locationId: string | null
+}
+
+export interface RCDiscoveryLocation {
+  id: string
+  name: string
+  defaultRevenueCenterId: string | null
+  revenueCenters: { id: string; name: string; type: string }[]
 }
 
 export interface RCDiscoveryResult {
   discovered: DiscoveredRC[]
-  /** All app revenue centers (mapping targets). */
+  /** All app revenue centers (flat list; back-compat for current consumers). */
   revenueCenters: { id: string; name: string }[]
+  /** Locations as mapping targets, each grouping its leaf revenue centers. */
+  locations: RCDiscoveryLocation[]
   windowDays: number
+}
+
+/** Shared: load flat RCs + location-grouped targets (mapping destinations). */
+async function loadMappingTargets(): Promise<{
+  revenueCenters: { id: string; name: string }[]
+  locations: RCDiscoveryLocation[]
+}> {
+  const [rcs, locations] = await Promise.all([
+    prisma.revenueCenter.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.location.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        defaultRevenueCenterId: true,
+        revenueCenters: {
+          where: { isActive: true },
+          select: { id: true, name: true, type: true },
+          orderBy: { name: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    }),
+  ])
+  return { revenueCenters: rcs, locations }
 }
 
 /**
@@ -151,16 +192,12 @@ export async function discoverRevenueCenters(windowDays = 14): Promise<RCDiscove
     ),
   )
 
-  const [maps, rcs] = await Promise.all([
+  const [maps, targets] = await Promise.all([
     prisma.toastRevenueCenterMap.findMany({
       where: { NOT: { toastGuid: { startsWith: MENU_ROUTE_PREFIX } } },
       include: { revenueCenter: { select: { id: true, name: true } } },
     }),
-    prisma.revenueCenter.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    }),
+    loadMappingTargets(),
   ])
 
   const discovered: DiscoveredRC[] = maps
@@ -168,10 +205,12 @@ export async function discoverRevenueCenters(windowDays = 14): Promise<RCDiscove
       toastGuid: m.toastGuid,
       orderCount: counts.get(m.toastGuid) ?? m.orderCountSeen,
       mappedTo: m.revenueCenter ? { id: m.revenueCenter.id, name: m.revenueCenter.name } : null,
+      revenueCenterId: m.revenueCenterId,
+      locationId: m.locationId,
     }))
     .sort((a, b) => b.orderCount - a.orderCount)
 
-  return { discovered, revenueCenters: rcs, windowDays }
+  return { discovered, revenueCenters: targets.revenueCenters, locations: targets.locations, windowDays }
 }
 
 /**
@@ -179,25 +218,23 @@ export async function discoverRevenueCenters(windowDays = 14): Promise<RCDiscove
  * `discoverRevenueCenters` to refresh order counts / pick up new GUIDs.
  */
 export async function listRevenueCenterMappings(): Promise<RCDiscoveryResult> {
-  const [maps, rcs] = await Promise.all([
+  const [maps, targets] = await Promise.all([
     prisma.toastRevenueCenterMap.findMany({
       where: { NOT: { toastGuid: { startsWith: MENU_ROUTE_PREFIX } } },
       include: { revenueCenter: { select: { id: true, name: true } } },
     }),
-    prisma.revenueCenter.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    }),
+    loadMappingTargets(),
   ])
   const discovered: DiscoveredRC[] = maps
     .map((m) => ({
       toastGuid: m.toastGuid,
       orderCount: m.orderCountSeen,
       mappedTo: m.revenueCenter ? { id: m.revenueCenter.id, name: m.revenueCenter.name } : null,
+      revenueCenterId: m.revenueCenterId,
+      locationId: m.locationId,
     }))
     .sort((a, b) => b.orderCount - a.orderCount)
-  return { discovered, revenueCenters: rcs, windowDays: 0 }
+  return { discovered, revenueCenters: targets.revenueCenters, locations: targets.locations, windowDays: 0 }
 }
 
 // ── Menu → revenue-center routing ────────────────────────────────────────────
@@ -238,19 +275,57 @@ export async function setMenuRoutes(
 }
 
 /**
- * Map (or clear) Toast revenue-center GUIDs → app RevenueCenter via
- * `ToastRevenueCenterMap`. Many GUIDs may point at one RevenueCenter.
- * `revenueCenterId: null` clears that GUID's mapping (keeps the discovery row).
+ * Map (or clear) Toast revenue-center GUIDs → an app RevenueCenter OR a Location
+ * via `ToastRevenueCenterMap`. A GUID targets EITHER a leaf RC OR a location OR
+ * nothing (both null = cleared). Both columns are always set on persist so
+ * switching target kind clears the other. Many GUIDs may point at one target.
+ * Sync resolves a location target via the location's `defaultRevenueCenterId`.
+ *
+ * Validation: both-set rejected; unknown rc/location id rejected; `menu:`
+ * sentinel rows must target a revenue center (a location target is rejected).
  */
 export async function setRevenueCenterMappings(
-  mappings: { toastGuid: string; revenueCenterId: string | null }[],
+  mappings: { toastGuid: string; revenueCenterId?: string | null; locationId?: string | null }[],
 ): Promise<void> {
+  // Normalize + validate shape.
+  const normalized = mappings.map((m) => ({
+    toastGuid: m.toastGuid,
+    revenueCenterId: m.revenueCenterId ?? null,
+    locationId: m.locationId ?? null,
+  }))
+
+  for (const m of normalized) {
+    if (m.revenueCenterId && m.locationId) {
+      throw new Error('a mapping targets either a revenue center or a location, not both')
+    }
+    if (m.locationId && m.toastGuid.startsWith(MENU_ROUTE_PREFIX)) {
+      throw new Error('menu routes must target a revenue center, not a location')
+    }
+  }
+
+  // Validate referenced ids exist.
+  const rcIds = [...new Set(normalized.map((m) => m.revenueCenterId).filter((v): v is string => !!v))]
+  const locIds = [...new Set(normalized.map((m) => m.locationId).filter((v): v is string => !!v))]
+  const [foundRcs, foundLocs] = await Promise.all([
+    rcIds.length
+      ? prisma.revenueCenter.findMany({ where: { id: { in: rcIds } }, select: { id: true } })
+      : Promise.resolve([]),
+    locIds.length
+      ? prisma.location.findMany({ where: { id: { in: locIds } }, select: { id: true } })
+      : Promise.resolve([]),
+  ])
+  const foundRcSet = new Set(foundRcs.map((r) => r.id))
+  const foundLocSet = new Set(foundLocs.map((l) => l.id))
+  for (const id of rcIds) if (!foundRcSet.has(id)) throw new Error(`unknown revenue center: ${id}`)
+  for (const id of locIds) if (!foundLocSet.has(id)) throw new Error(`unknown location: ${id}`)
+
   await prisma.$transaction(
-    mappings.map((m) =>
+    normalized.map((m) =>
       prisma.toastRevenueCenterMap.upsert({
         where: { toastGuid: m.toastGuid },
-        update: { revenueCenterId: m.revenueCenterId },
-        create: { toastGuid: m.toastGuid, revenueCenterId: m.revenueCenterId },
+        // Set BOTH columns so switching target kind clears the stale one.
+        update: { revenueCenterId: m.revenueCenterId, locationId: m.locationId },
+        create: { toastGuid: m.toastGuid, revenueCenterId: m.revenueCenterId, locationId: m.locationId },
       }),
     ),
   )
