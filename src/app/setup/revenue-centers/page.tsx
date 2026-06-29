@@ -427,16 +427,23 @@ const EMPTY_RC_FORM: RcFormData = {
 function RcFormModal({
   locationId,
   locationName,
+  locations,
   initial,
   onClose,
   onSaved,
 }: {
   locationId: string
   locationName: string
+  locations: ApiLocation[]
   initial: ApiRevenueCenter | null
   onClose: () => void
   onSaved: () => void
 }) {
+  // Location the RC belongs to. Edit mode defaults to the RC's current location;
+  // create mode defaults to the location the modal was opened under.
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(
+    initial?.locationId ?? locationId
+  )
   const [form, setForm] = useState<RcFormData>(
     initial
       ? {
@@ -467,8 +474,9 @@ function RcFormModal({
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
     // CRITICAL: create must include locationId or POST /api/revenue-centers 400s.
+    // On edit, a changed locationId re-parents the RC to a different location.
     const payload: Record<string, unknown> = {
-      locationId,
+      locationId: selectedLocationId,
       name: form.name.trim(),
       color: form.color,
       type: form.type,
@@ -509,6 +517,21 @@ function RcFormModal({
                 placeholder="e.g. Bar, Dining Room, Catering..."
                 className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
+            </div>
+
+            {/* Location — change to move (re-parent) this revenue center */}
+            <div>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Location</label>
+              <select
+                value={selectedLocationId}
+                onChange={e => setSelectedLocationId(e.target.value)}
+                className="w-full border border-line rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+              >
+                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              {initial && selectedLocationId !== initial.locationId && (
+                <p className="text-[11px] text-ink-4 mt-1">Moving keeps all sales, stock, and history.</p>
+              )}
             </div>
 
             {/* Type FOOD | DRINK */}
@@ -920,6 +943,7 @@ export default function LocationsAndRevenueCentersPage() {
         <RcFormModal
           locationId={rcForm.locationId}
           locationName={rcForm.locationName}
+          locations={locations}
           initial={rcForm.initial}
           onClose={() => setRcForm(null)}
           onSaved={refreshAll}
