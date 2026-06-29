@@ -35,6 +35,7 @@ interface ApiLocation {
   description: string | null
   managerName: string | null
   notes: string | null
+  defaultRevenueCenterId: string | null
   schedulingMode: string             // 'FIXED' | 'ON_DEMAND'
   prepLeadMinutes: number | null
   serviceSchedule: ServiceSchedule | null
@@ -144,6 +145,7 @@ interface LocationFormData {
   description: string
   managerName: string
   notes: string
+  defaultRevenueCenterId: string
   schedulingMode: 'FIXED' | 'ON_DEMAND'
   prepLeadH: string
   prepLeadM: string
@@ -152,7 +154,7 @@ interface LocationFormData {
 
 const EMPTY_LOCATION_FORM: LocationFormData = {
   name: '', color: 'blue', type: 'restaurant', isDefault: false, isActive: true,
-  description: '', managerName: '', notes: '',
+  description: '', managerName: '', notes: '', defaultRevenueCenterId: '',
   schedulingMode: 'FIXED', prepLeadH: '', prepLeadM: '', schedule: {},
 }
 
@@ -176,6 +178,7 @@ function LocationFormModal({
           description:    initial.description ?? '',
           managerName:    initial.managerName ?? '',
           notes:          initial.notes ?? '',
+          defaultRevenueCenterId: initial.defaultRevenueCenterId ?? '',
           schedulingMode: initial.schedulingMode === 'ON_DEMAND' ? 'ON_DEMAND' : 'FIXED',
           prepLeadH:      initial.prepLeadMinutes != null ? String(Math.floor(initial.prepLeadMinutes / 60)) : '',
           prepLeadM:      initial.prepLeadMinutes != null ? String(initial.prepLeadMinutes % 60) : '',
@@ -197,7 +200,7 @@ function LocationFormModal({
       form.prepLeadH === '' && form.prepLeadM === ''
         ? null
         : (parseInt(form.prepLeadH || '0', 10) * 60) + parseInt(form.prepLeadM || '0', 10)
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: form.name.trim(),
       color: form.color,
       type: form.type,
@@ -210,6 +213,8 @@ function LocationFormModal({
       prepLeadMinutes,
       serviceSchedule: form.schedulingMode === 'ON_DEMAND' ? null : form.schedule,
     }
+    // Default RC only applies once the location has child RCs (edit flow).
+    if (initial) payload.defaultRevenueCenterId = form.defaultRevenueCenterId || null
     const res = await fetch(
       initial ? `/api/locations/${initial.id}` : '/api/locations',
       { method: initial ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
@@ -297,6 +302,30 @@ function LocationFormModal({
                 className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold resize-none"
               />
             </div>
+
+            {/* Default revenue center — only meaningful once the location has child RCs */}
+            {initial && (
+              <div>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Default revenue center</label>
+                {initial.revenueCenters.length === 0 ? (
+                  <p className="text-xs text-ink-4">Add a revenue center first.</p>
+                ) : (
+                  <>
+                    <select
+                      value={form.defaultRevenueCenterId}
+                      onChange={e => f('defaultRevenueCenterId', e.target.value)}
+                      className="w-full border border-line rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                    >
+                      <option value="">None</option>
+                      {initial.revenueCenters.map(rc => (
+                        <option key={rc.id} value={rc.id}>{rc.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-ink-4 mt-1">Toast sales not matched to a specific menu route go here.</p>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Scheduling — lives on the Location */}
             <div className="pt-2 border-t border-line space-y-3">
@@ -676,6 +705,9 @@ function LocationCard({
   const todayWindows = loc.schedulingMode === 'FIXED' ? (loc.serviceSchedule?.[String(todayIdx)] ?? []) : []
   const prepLeadLabel = loc.prepLeadMinutes != null && loc.prepLeadMinutes > 0
     ? fmtDuration(loc.prepLeadMinutes * 60_000) : null
+  const defaultRcName = loc.defaultRevenueCenterId
+    ? loc.revenueCenters.find(rc => rc.id === loc.defaultRevenueCenterId)?.name ?? null
+    : null
 
   return (
     <div className={`bg-white border rounded-2xl overflow-hidden transition-all ${loc.isActive ? 'border-line' : 'border-line opacity-60'}`}>
@@ -708,6 +740,9 @@ function LocationCard({
             <div className="flex flex-wrap gap-3 mt-2">
               {loc.managerName && (
                 <span className="flex items-center gap-1 text-xs text-ink-3"><User size={11} /> {loc.managerName}</span>
+              )}
+              {defaultRcName && (
+                <span className="flex items-center gap-1 text-xs text-ink-3"><Target size={11} /> Default: {defaultRcName}</span>
               )}
             </div>
 
