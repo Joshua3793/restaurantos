@@ -44,10 +44,16 @@ export async function POST(req: NextRequest) {
   void user
 
   const body = await req.json().catch(() => ({}))
-  const { name, color, type, isDefault, isActive, description, managerName, notes } = body
+  const { name, color, type, isDefault, isActive, description, managerName, notes, defaultRevenueCenterId } = body
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
+  }
+
+  // A brand-new location has no revenue centers yet, so a non-null default
+  // can't belong to it. The default is set later via PATCH once RCs exist.
+  if (defaultRevenueCenterId) {
+    return NextResponse.json({ error: 'default revenue center must belong to this location' }, { status: 400 })
   }
 
   const resolvedColor = RC_COLORS.includes(color) ? color : 'blue'

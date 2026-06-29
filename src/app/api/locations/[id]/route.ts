@@ -34,10 +34,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   void user
 
   const body = await req.json().catch(() => ({}))
-  const { name, color, type, isDefault, isActive, description, managerName, notes } = body
+  const { name, color, type, isDefault, isActive, description, managerName, notes, defaultRevenueCenterId } = body
 
   const existing = await prisma.location.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Validate the default RC belongs to this location (null clears it).
+  if (defaultRevenueCenterId !== undefined && defaultRevenueCenterId !== null) {
+    const rc = await prisma.revenueCenter.findUnique({ where: { id: defaultRevenueCenterId } })
+    if (!rc || rc.locationId !== params.id) {
+      return NextResponse.json({ error: 'default revenue center must belong to this location' }, { status: 400 })
+    }
+  }
 
   const resolvedColor = color !== undefined
     ? (RC_COLORS.includes(color) ? color : existing.color)
@@ -68,6 +76,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ...(description !== undefined   ? { description: description || null }           : {}),
         ...(managerName !== undefined   ? { managerName: managerName || null }           : {}),
         ...(notes !== undefined         ? { notes: notes || null }                       : {}),
+        ...(defaultRevenueCenterId !== undefined ? { defaultRevenueCenterId: defaultRevenueCenterId || null } : {}),
         ...(scheduleFields ? {
           schedulingMode:  scheduleFields.schedulingMode,
           prepLeadMinutes: scheduleFields.prepLeadMinutes,
