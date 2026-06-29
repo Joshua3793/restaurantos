@@ -559,8 +559,11 @@ model Location {
   prepLeadMinutes Int?
   serviceSchedule Json?
   createdAt       DateTime        @default(now())
+  defaultRevenueCenterId String?
+  defaultRevenueCenter   RevenueCenter? @relation("LocationDefaultRC", fields: [defaultRevenueCenterId], references: [id], onDelete: SetNull)
   revenueCenters  RevenueCenter[]
   userScopes      UserScope[]
+  toastMaps       ToastRevenueCenterMap[] @relation("ToastLocationMap")
 }
 
 model RevenueCenter {
@@ -599,6 +602,7 @@ model RevenueCenter {
   itemMemberships   ItemRevenueCenter[]
   prepTasks         PrepTask[]        @relation("PrepTaskRC")
   userScopes        UserScope[]
+  defaultForLocations Location[]      @relation("LocationDefaultRC")
 }
 
 model UserScope {
@@ -802,6 +806,8 @@ model ToastRevenueCenterMap {
   revenueCenterId String?        // null until an admin labels it
   orderCountSeen  Int            @default(0) // last-known volume from discovery (display aid)
   lastSeenAt      DateTime       @default(now())
+  locationId      String?
+  location        Location?      @relation("ToastLocationMap", fields: [locationId], references: [id], onDelete: SetNull)
   revenueCenter   RevenueCenter? @relation("ToastRCMap", fields: [revenueCenterId], references: [id], onDelete: SetNull)
 }
 
