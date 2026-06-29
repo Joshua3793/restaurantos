@@ -6,8 +6,12 @@ import { Role } from '@prisma/client'
 
 const VALID_ROLES: Role[] = ['ADMIN', 'MANAGER', 'STAFF']
 
-// PATCH — update role or name (ADMIN only)
-// Body: { role?: Role, name?: string }
+// PATCH — update role, name, and/or active status (ADMIN only)
+// Body: { role?: Role, name?: string, isActive?: boolean }
+//
+// Every change is written to BOTH stores so they never diverge:
+//   - Prisma User row  → read by requireSession() (API auth)
+//   - Supabase user_metadata → read by middleware (page auth)
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   let admin
   try { admin = await requireSession('ADMIN') }
@@ -21,15 +25,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const body = await req.json().catch(() => ({}))
-  const { role, name } = body as { role?: string; name?: string }
+  const { role, name, isActive } = body as { role?: string; name?: string; isActive?: boolean }
 
   if (role && !VALID_ROLES.includes(role as Role)) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
   }
 
-  const updateData: { role?: Role; name?: string | null } = {}
+  const updateData: { role?: Role; name?: string | null; isActive?: boolean } = {}
   if (role) updateData.role = role as Role
   if (name !== undefined) updateData.name = name.trim() || null
+  if (typeof isActive === 'boolean') updateData.isActive = isActive
+
+  if (Object.keys(updateData).length === 0) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+  }
 
   const user = await prisma.user.update({
     where: { id: params.id },
@@ -38,20 +47,30 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  // Sync role to Supabase user_metadata so middleware picks it up immediately
-  if (role) {
+  // Sync the gating fields to Supabase user_metadata so middleware picks them up
+  // on the user's next request. Only send keys that changed.
+  const metadata: { role?: string; isActive?: boolean } = {}
+  if (role) metadata.role = role
+  if (typeof isActive === 'boolean') metadata.isActive = isActive
+  if (Object.keys(metadata).length > 0) {
     const supabaseAdmin = createAdminClient()
-    await supabaseAdmin.auth.admin.updateUserById(params.id, {
-      user_metadata: { role },
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(params.id, {
+      user_metadata: metadata,
     })
+    if (error) {
+      return NextResponse.json({ error: `Saved, but failed to sync auth: ${error.message}` }, { status: 502 })
+    }
   }
 
-  return NextResponse.json({ id: user.id, email: user.email, name: user.name, role: user.role })
+  return NextResponse.json({
+    id: user.id, email: user.email, name: user.name, role: user.role, isActive: user.isActive,
+  })
 }
 
-// DELETE — deactivate a user (ADMIN only)
-// Sets isActive: false in Prisma and user_metadata.isActive: false in Supabase.
-// Middleware will redirect them to /login on their next request.
+// DELETE — permanently remove a user (ADMIN only)
+// Hard-deletes the Supabase Auth account AND the Prisma row. Chat history is
+// preserved: ChatConversation.userId is onDelete: SetNull. This is irreversible —
+// to merely revoke access, PATCH { isActive: false } instead.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   let admin
   try { admin = await requireSession('ADMIN') }
@@ -61,19 +80,19 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   }
 
   if (admin.id === params.id) {
-    return NextResponse.json({ error: 'Cannot deactivate your own account' }, { status: 400 })
+    return NextResponse.json({ error: 'Cannot remove your own account' }, { status: 400 })
   }
 
-  await prisma.user.update({
-    where: { id: params.id },
-    data: { isActive: false },
-  }).catch(() => null)
-
-  // Mark isActive: false in Supabase user_metadata — middleware checks this on every request
+  // Delete the Supabase Auth account first so the email is freed for future
+  // invites even if the Prisma delete is a no-op (row already gone).
   const supabaseAdmin = createAdminClient()
-  await supabaseAdmin.auth.admin.updateUserById(params.id, {
-    user_metadata: { isActive: false },
-  })
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(params.id)
+  // "user not found" is fine — we still want the Prisma row gone.
+  if (error && !/not found/i.test(error.message)) {
+    return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+
+  await prisma.user.delete({ where: { id: params.id } }).catch(() => null)
 
   return NextResponse.json({ ok: true })
 }

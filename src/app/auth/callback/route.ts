@@ -63,6 +63,14 @@ export async function GET(request: NextRequest) {
     }).catch(() => {
       // User row may not exist yet — safe to ignore
     })
+    // Self-heal the gating metadata middleware reads, so a user who accepts an
+    // invite is never left blocked by a stale isActive:false flag.
+    if (authUser.user_metadata?.isActive !== true) {
+      const { createAdminClient } = await import('@/lib/supabase/admin')
+      await createAdminClient()
+        .auth.admin.updateUserById(authUser.id, { user_metadata: { isActive: true } })
+        .catch(() => {})
+    }
   }
 
   // Invites and password recoveries both need the user to set a password.
