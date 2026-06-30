@@ -1,16 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 // GET /api/stock-transfers?itemId=&rcId= — list transfers
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const itemId = searchParams.get('itemId')
   const rcId   = searchParams.get('rcId')
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   const transfers = await prisma.stockTransfer.findMany({
     where: {
       ...(itemId ? { inventoryItemId: itemId } : {}),
-      ...(rcId ? { OR: [{ fromRcId: rcId }, { toRcId: rcId }] } : {}),
+      ...(locRcIds
+        ? { OR: [{ fromRcId: { in: locRcIds } }, { toRcId: { in: locRcIds } }] }
+        : rcId ? { OR: [{ fromRcId: rcId }, { toRcId: rcId }] } : {}),
     },
     include: {
       fromRc: { select: { id: true, name: true, color: true } },

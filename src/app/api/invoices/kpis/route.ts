@@ -2,21 +2,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { invoiceSpendByRc, type RcSpendResult } from '@/lib/invoice-spend'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   // Session-scoped RC filter for the secondary counts (alerts / review / exceptions).
   // Default RC also sees legacy null-RC sessions; non-default RC sees only its own.
-  const rcWhere = rcId
-    ? (isDefault
-        ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-        : { revenueCenterId: rcId })
-    : {}
+  const rcWhere = locRcIds
+    ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+    : rcId
+      ? (isDefault
+          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+          : { revenueCenterId: rcId })
+      : {}
 
   const now = new Date()
 
@@ -47,7 +60,7 @@ export async function GET(req: NextRequest) {
     prisma.priceAlert.count({
       where: {
         acknowledged: false,
-        ...(rcId ? { session: rcWhere } : {}),
+        ...(rcId || locRcIds ? { session: rcWhere } : {}),
       },
     }),
     prisma.invoiceSession.count({

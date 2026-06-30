@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,11 +16,14 @@ const ymd = (d: Date) =>
 // safe/out-of-range and group by day without extra lookups.
 export async function GET(req: NextRequest) {
   try {
+    const user = await requireSession()
     const { searchParams } = new URL(req.url)
     const rcId = searchParams.get('rcId')
     const from = searchParams.get('from') // 'YYYY-MM-DD' inclusive
     const to = searchParams.get('to') // 'YYYY-MM-DD' inclusive
     const unitId = searchParams.get('unitId')
+    const locationId = searchParams.get('locationId')
+    const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
     const readings = await prisma.tempReading.findMany({
       where: {
@@ -26,9 +31,11 @@ export async function GET(req: NextRequest) {
         ...(from || to
           ? { logDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
           : {}),
-        unit: rcId
-          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-          : undefined,
+        unit: locRcIds
+          ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+          : rcId
+            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
+            : undefined,
       },
       orderBy: [{ logDate: 'desc' }, { time: 'asc' }],
       include: {
@@ -54,6 +61,7 @@ export async function GET(req: NextRequest) {
       })),
     )
   } catch (err) {
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[temps/readings GET]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
