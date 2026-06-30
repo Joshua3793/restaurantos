@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
+import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
@@ -13,14 +13,10 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
-  const allowed = await resolveScopedRcIds(user)
-  // scopedRcWhere reproduces the default-RC null-union shape and narrows to the
-  // user's scope (failing closed for an out-of-scope rcId). Wrapped in AND so the
-  // updateMany below can add its own status/createdAt conditions alongside it.
-  const scopeWhere = scopedRcWhere(allowed, rcId, isDefault)
+  // Wrapped in AND below so the updateMany can add its own status/createdAt
+  // conditions alongside the scope fragment.
+  const scopeWhere = await scopeWhereFromParams(user, searchParams, { nullable: true })
 
   // Auto-recover sessions stuck in PROCESSING for >5 min (Vercel hard-kill leaves no ERROR)
   const staleThreshold = new Date(Date.now() - 5 * 60 * 1000)

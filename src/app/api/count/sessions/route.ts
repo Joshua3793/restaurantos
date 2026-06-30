@@ -4,7 +4,7 @@ import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, c
 import { resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
+import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -16,10 +16,8 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
-  const allowed = await resolveScopedRcIds(user)
+  const scopeWhere = await scopeWhereFromParams(user, searchParams, { nullable: true })
 
   const sessions = await prisma.countSession.findMany({
     where: {
@@ -27,10 +25,7 @@ export async function GET(req: NextRequest) {
         // QUICK sessions back single-item quick-counts — keep them out of the
         // count-history list (snapshot/variance reports read them directly).
         { type: { not: 'QUICK' } },
-        // scopedRcWhere reproduces the default-RC null-union pattern when a default
-        // rcId is selected, narrows to the selected rcId otherwise, and limits to
-        // the user's scope (failing closed for an out-of-scope rcId).
-        scopedRcWhere(allowed, rcId, isDefault),
+        scopeWhere,
       ],
     },
     orderBy: { startedAt: 'desc' },

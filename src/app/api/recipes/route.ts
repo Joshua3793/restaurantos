@@ -5,7 +5,7 @@ import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
+import { resolveScopedRcIds, scopedRcWhere, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 
 export async function GET(req: NextRequest) {
   let user
@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
   const isActiveParam = searchParams.get('isActive')
   const search = searchParams.get('search')
   const rcId = searchParams.get('rcId') || ''
+  const locationId = searchParams.get('locationId')
 
   const allowed = await resolveScopedRcIds(user)
 
@@ -30,7 +31,13 @@ export async function GET(req: NextRequest) {
   // passing isDefault=true gives the null-union shape, and the no-rcId PREP case is
   // widened to "shared OR in-scope" so shared prep stays visible to scoped users.
   let rcFilter: Record<string, unknown>
-  if (type === 'MENU') {
+  if (locationId) {
+    // Location lens: every active child RC of the location, intersected with scope.
+    // PREP also surfaces shared (null) recipes; MENU is strict per-RC.
+    const ids = await resolveLocationRcIds(user, locationId)
+    const base = { revenueCenterId: { in: ids } }
+    rcFilter = type === 'PREP' ? { OR: [base, { revenueCenterId: null }] } : base
+  } else if (type === 'MENU') {
     rcFilter = scopedRcWhere(allowed, rcId || null, false)
   } else if (type === 'PREP') {
     rcFilter = rcId
