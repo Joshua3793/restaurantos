@@ -109,6 +109,7 @@ function MenuPageInner() {
   }
 
   const handleToggle = async (id: string) => {
+    setRecipes(prev => prev.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r))
     await fetch(`/api/recipes/${id}/toggle`, { method: 'PATCH' })
     loadRecipes()
   }
@@ -149,21 +150,25 @@ function MenuPageInner() {
 
   const handleBulkDeactivate = async () => {
     const toDeactivate = displayRecipes.filter(r => selectedIds.has(r.id) && r.isActive)
+    const ids = new Set(toDeactivate.map(r => r.id))
+    setRecipes(prev => prev.map(r => ids.has(r.id) ? { ...r, isActive: false } : r))
+    setSelectedIds(new Set())
+    setBulkConfirm(null)
     await Promise.all(toDeactivate.map(r =>
       fetch(`/api/recipes/${r.id}/toggle`, { method: 'PATCH' })
     ))
-    setSelectedIds(new Set())
-    setBulkConfirm(null)
     await loadRecipes()
   }
 
   const handleBulkDelete = async () => {
-    await Promise.all([...selectedIds].map(id =>
-      fetch(`/api/recipes/${id}`, { method: 'DELETE' })
-    ))
-    if (selectedIds.has(selectedRecipeId ?? '')) setSelectedRecipeId(null)
+    const ids = new Set(selectedIds)
+    setRecipes(prev => prev.filter(r => !ids.has(r.id)))
+    if (ids.has(selectedRecipeId ?? '')) setSelectedRecipeId(null)
     setSelectedIds(new Set())
     setBulkConfirm(null)
+    await Promise.all([...ids].map(id =>
+      fetch(`/api/recipes/${id}`, { method: 'DELETE' })
+    ))
     await loadRecipes()
     await loadCategories()
   }
