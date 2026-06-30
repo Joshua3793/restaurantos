@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Send, AlertCircle, CheckCircle, Ban, RotateCcw, Trash2, Shield, MapPin, X } from 'lucide-react'
+import { Users, Send, AlertCircle, CheckCircle, Ban, RotateCcw, Trash2, Shield, MapPin, X, Loader2 } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { rcHex } from '@/lib/rc-colors'
 
@@ -251,6 +251,7 @@ export default function UsersSettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [locations, setLocations] = useState<ScopeLocationLite[]>([])
   const [scopeUser, setScopeUser] = useState<TeamUser | null>(null)
+  const [busyUserId, setBusyUserId] = useState<string | null>(null)
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -315,29 +316,39 @@ export default function UsersSettingsPage() {
   }
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
-    const res = await fetch(`/api/settings/users/${userId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: newRole }),
-    })
-    if (res.ok) {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
-    } else {
-      // Reload to get accurate state from server
-      loadUsers()
+    setBusyUserId(userId)
+    try {
+      const res = await fetch(`/api/settings/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      })
+      if (res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
+      } else {
+        // Reload to get accurate state from server
+        loadUsers()
+      }
+    } finally {
+      setBusyUserId(null)
     }
   }
 
   const setActive = async (userId: string, isActive: boolean) => {
-    const res = await fetch(`/api/settings/users/${userId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive }),
-    })
-    if (res.ok) {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, isActive } : u))
-    } else {
-      loadUsers()
+    setBusyUserId(userId)
+    try {
+      const res = await fetch(`/api/settings/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive }),
+      })
+      if (res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, isActive } : u))
+      } else {
+        loadUsers()
+      }
+    } finally {
+      setBusyUserId(null)
     }
   }
 
@@ -350,11 +361,16 @@ export default function UsersSettingsPage() {
 
   const handleRemove = async (userId: string, label: string) => {
     if (!confirm(`Permanently remove ${label}? This deletes their account and cannot be undone. To revoke access without deleting, use Deactivate instead.`)) return
-    const res = await fetch(`/api/settings/users/${userId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setUsers(prev => prev.filter(u => u.id !== userId))
-    } else {
-      loadUsers()
+    setBusyUserId(userId)
+    try {
+      const res = await fetch(`/api/settings/users/${userId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setUsers(prev => prev.filter(u => u.id !== userId))
+      } else {
+        loadUsers()
+      }
+    } finally {
+      setBusyUserId(null)
     }
   }
 
@@ -449,6 +465,7 @@ export default function UsersSettingsPage() {
           <div className="divide-y divide-line">
             {users.map(u => {
               const isMe = u.id === currentUser?.id
+              const isBusy = busyUserId === u.id
               return (
                 <div key={u.id} className={`flex items-center gap-3 px-5 py-3.5 ${!u.isActive ? 'opacity-50' : ''}`}>
                   {/* Avatar */}
@@ -497,7 +514,7 @@ export default function UsersSettingsPage() {
                     <select
                       value={u.role}
                       onChange={e => handleRoleChange(u.id, e.target.value as UserRole)}
-                      disabled={!u.isActive}
+                      disabled={!u.isActive || isBusy}
                       className={`text-xs font-medium px-2 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gold ${ROLE_COLORS[u.role]} disabled:cursor-default`}
                     >
                       <option value="STAFF">Staff</option>
@@ -507,6 +524,7 @@ export default function UsersSettingsPage() {
                   )}
 
                   {/* Manage RC access */}
+                  {isBusy && <Loader2 size={14} className="animate-spin text-ink-4" />}
                   <button
                     onClick={() => setScopeUser(u)}
                     title="Manage revenue-center access"
@@ -520,7 +538,8 @@ export default function UsersSettingsPage() {
                     <button
                       onClick={() => handleDeactivate(u.id)}
                       title="Deactivate — revoke access, keep the account"
-                      className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all"
+                      disabled={isBusy}
+                      className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all disabled:opacity-40 disabled:cursor-default"
                     >
                       <Ban size={14} />
                     </button>
@@ -530,14 +549,16 @@ export default function UsersSettingsPage() {
                       <button
                         onClick={() => handleReactivate(u.id)}
                         title="Reactivate — restore access"
-                        className="p-1.5 rounded-lg text-ink-4 hover:text-green hover:bg-green-soft transition-all"
+                        disabled={isBusy}
+                        className="p-1.5 rounded-lg text-ink-4 hover:text-green hover:bg-green-soft transition-all disabled:opacity-40 disabled:cursor-default"
                       >
                         <RotateCcw size={14} />
                       </button>
                       <button
                         onClick={() => handleRemove(u.id, u.name ?? u.email)}
                         title="Remove permanently — delete the account"
-                        className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all"
+                        disabled={isBusy}
+                        className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all disabled:opacity-40 disabled:cursor-default"
                       >
                         <Trash2 size={14} />
                       </button>
