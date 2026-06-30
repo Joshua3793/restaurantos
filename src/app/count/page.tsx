@@ -713,7 +713,7 @@ export default function CountPage() {
         const s = body?.currentLine
         if (s) {
           setActive(prev => prev ? { ...prev, lines: prev.lines!.map(l => l.id === line.id
-            ? { ...l, countedQty: s.countedQty, selectedUom: s.selectedUom, skipped: s.skipped, entries: s.entries ?? null, variancePct: s.variancePct, varianceCost: s.varianceCost, updatedAt: s.updatedAt }
+            ? { ...l, countedQty: s.countedQty, selectedUom: s.selectedUom, skipped: s.skipped, carriedForward: s.carriedForward, entries: s.entries ?? null, variancePct: s.variancePct, varianceCost: s.varianceCost, updatedAt: s.updatedAt }
             : l) } : prev)
         }
         setToast('This item was just counted on another device.')
@@ -759,14 +759,17 @@ export default function CountPage() {
   const runBulkConfirm = async () => {
     setBulkBusy(true)
     const targets = bulkEligible.filter(l => bulkSelected.has(l.id))
-    for (const line of targets) {
-      // Sequential: each confirmSameAsLast awaits its PATCH and falls back to the
-      // offline queue on failure, so one bad line never aborts the batch.
-      await confirmSameAsLast(line, true)
+    try {
+      for (const line of targets) {
+        // Sequential: each confirmSameAsLast awaits its PATCH and falls back to the
+        // offline queue on failure, so one bad line never aborts the batch.
+        await confirmSameAsLast(line, true)
+      }
+    } finally {
+      setBulkBusy(false)
+      setShowBulkConfirm(false)
+      setBulkSelected(new Set())
     }
-    setBulkBusy(false)
-    setShowBulkConfirm(false)
-    setBulkSelected(new Set())
   }
 
   const changeUom = async (line: Line, newUom: string) => {
