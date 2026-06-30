@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Send, AlertCircle, CheckCircle, Trash2, Shield, MapPin, X } from 'lucide-react'
+import { Users, Send, AlertCircle, CheckCircle, Ban, RotateCcw, Trash2, Shield, MapPin, X } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { rcHex } from '@/lib/rc-colors'
 
@@ -293,7 +293,13 @@ export default function UsersSettingsPage() {
       })
       const data = await res.json()
       if (res.ok) {
-        setInviteResult({ ok: true, message: `Invite sent to ${inviteEmail}` })
+        const message =
+          data.status === 'reactivated'
+            ? `${inviteEmail} was already a member — reactivated with ${ROLE_LABELS[inviteRole]} access`
+            : data.status === 'reinvited'
+              ? `Re-sent invite to ${inviteEmail}`
+              : `Invite sent to ${inviteEmail}`
+        setInviteResult({ ok: true, message })
         setInviteEmail('')
         setInviteName('')
         setInviteRole('STAFF')
@@ -322,11 +328,31 @@ export default function UsersSettingsPage() {
     }
   }
 
-  const handleDeactivate = async (userId: string) => {
-    if (!confirm('Deactivate this user? They will be signed out immediately.')) return
+  const setActive = async (userId: string, isActive: boolean) => {
+    const res = await fetch(`/api/settings/users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive }),
+    })
+    if (res.ok) {
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, isActive } : u))
+    } else {
+      loadUsers()
+    }
+  }
+
+  const handleDeactivate = (userId: string) => {
+    if (!confirm('Deactivate this user? They lose access immediately but can be reactivated later.')) return
+    setActive(userId, false)
+  }
+
+  const handleReactivate = (userId: string) => setActive(userId, true)
+
+  const handleRemove = async (userId: string, label: string) => {
+    if (!confirm(`Permanently remove ${label}? This deletes their account and cannot be undone. To revoke access without deleting, use Deactivate instead.`)) return
     const res = await fetch(`/api/settings/users/${userId}`, { method: 'DELETE' })
     if (res.ok) {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, isActive: false } : u))
+      setUsers(prev => prev.filter(u => u.id !== userId))
     } else {
       loadUsers()
     }
@@ -489,15 +515,33 @@ export default function UsersSettingsPage() {
                     <Shield size={14} />
                   </button>
 
-                  {/* Deactivate button */}
+                  {/* Lifecycle actions */}
                   {!isMe && u.isActive && (
                     <button
                       onClick={() => handleDeactivate(u.id)}
-                      title="Deactivate user"
+                      title="Deactivate — revoke access, keep the account"
                       className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all"
                     >
-                      <Trash2 size={14} />
+                      <Ban size={14} />
                     </button>
+                  )}
+                  {!isMe && !u.isActive && (
+                    <>
+                      <button
+                        onClick={() => handleReactivate(u.id)}
+                        title="Reactivate — restore access"
+                        className="p-1.5 rounded-lg text-ink-4 hover:text-green hover:bg-green-soft transition-all"
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleRemove(u.id, u.name ?? u.email)}
+                        title="Remove permanently — delete the account"
+                        className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
                   )}
                 </div>
               )
