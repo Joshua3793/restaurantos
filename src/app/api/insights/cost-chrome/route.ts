@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,8 @@ export const dynamic = 'force-dynamic'
  * no RC = global pool + all non-default allocations).
  */
 export async function GET(req: NextRequest) {
-  try { await requireSession() }
+  let user
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
@@ -28,6 +30,8 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const rcId = searchParams.get('rcId') || undefined
+  const locationId = searchParams.get('locationId') || undefined
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   const now = new Date()
   // Week-to-date: start of Monday this week (00:00 local)
@@ -35,8 +39,13 @@ export async function GET(req: NextRequest) {
   const sevenDaysAgo = new Date(now); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
   const fourteenDaysAgo = new Date(now); fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  const salesFilter = rcId ? { revenueCenterId: rcId } : {}
-  const purchaseSessionFilter = rcId ? { revenueCenterId: rcId } : {}
+  // SalesEntry NOT NULL → plain `in`. InvoiceSession NULLABLE → also surface null rows.
+  const salesFilter = locRcIds
+    ? { revenueCenterId: { in: locRcIds } }
+    : rcId ? { revenueCenterId: rcId } : {}
+  const purchaseSessionFilter = locRcIds
+    ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+    : rcId ? { revenueCenterId: rcId } : {}
 
   const [
     inventory,
