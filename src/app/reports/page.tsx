@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { TrendingUp, ArrowRight, BarChart3 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
 import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
@@ -51,14 +52,17 @@ export default function ReportsPage() {
 
   // cost-chrome (target + live on-hand) and recipes are point-in-time — fetch on RC change only.
   useEffect(() => {
+    const chromeParams = new URLSearchParams()
+    setScopeParams(chromeParams, { activeKind, activeRcId, activeRc, activeLocationId })
+    const chromeQs = chromeParams.toString()
     Promise.all([
-      fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+      fetch(`/api/insights/cost-chrome${chromeQs ? `?${chromeQs}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
       fetch(`/api/recipes?type=MENU`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
     ]).then(([c, r]) => {
       if (c) setChrome(c)
       if (Array.isArray(r)) setRecipes(r)
     })
-  }, [activeRcId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId])
 
   // dashboard is range-driven — refetch when the RC or the selected range changes.
   useEffect(() => {
@@ -66,13 +70,13 @@ export default function ReportsPage() {
     // boundaries to match how sales dates are stored (date-only → UTC midnight).
     const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const params = new URLSearchParams()
-    if (activeRcId) { params.set('rcId', activeRcId); params.set('isDefault', String(activeRc?.isDefault ?? false)) }
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     params.set('from', ymd(range.from))
     params.set('to', ymd(range.to))
     fetch(`/api/reports/dashboard?${params.toString()}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setDashboard(d) })
-  }, [activeRcId, activeRc, range])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, range])
 
   const target = chrome?.targetPct ?? 27
   // Food-cost % is now range-driven (purchases / food sales over the selected window).

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { ChefHat, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
 
 interface DailySummary {
@@ -56,7 +57,7 @@ function completionColor(rate: number) {
 }
 
 export default function PrepTab() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [range,   setRange]   = useState<DateRange>(() => rangeForPreset('last30'))
   const [report,  setReport]  = useState<PrepReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -67,13 +68,13 @@ export default function PrepTab() {
     setLoading(true)
     setError(null)
     const params = new URLSearchParams({ startDate: ymd(range.from), endDate: ymd(range.to) })
-    if (activeRcId) params.set('rcId', activeRcId)
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     fetch(`/api/reports/prep?${params}`)
       .then(r => r.json())
       .then(data => { if (!cancelled) { setReport(data); setLoading(false) } })
       .catch(() => { if (!cancelled) { setError('Failed to load prep report'); setLoading(false) } })
     return () => { cancelled = true }
-  }, [range, activeRcId, activeRc])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
 
   return (
     <div className="space-y-6">

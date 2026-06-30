@@ -7,6 +7,7 @@ import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { PREP_YIELD_UNITS } from '@/lib/uom'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 
 export default function RecipesPage() {
   return (
@@ -19,7 +20,7 @@ export default function RecipesPage() {
 function RecipesInner() {
   const searchParams = useSearchParams()
   const { setDrawerOpen } = useDrawer()
-  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [recipes, setRecipes]               = useState<Recipe[]>([])
   const [categories, setCategories]         = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]       = useState<string | null>(null)
@@ -52,10 +53,10 @@ function RecipesInner() {
     const params = new URLSearchParams({ type })
     if (!showInactive) params.set('isActive', 'true')
     if (search) params.set('search', search)
-    if (activeRcId) params.set('rcId', activeRcId)
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/recipes?${params}`).then(r => r.json())
     setRecipes(Array.isArray(data) ? data : [])
-  }, [showInactive, search, activeRcId])
+  }, [showInactive, search, activeRcId, activeKind, activeLocationId])
 
   const baseRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
   const displayRecipes = [...baseRecipes].sort((a, b) => {

@@ -11,6 +11,7 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useUser } from '@/contexts/UserContext'
 import { rcHex } from '@/lib/rc-colors'
@@ -321,7 +322,7 @@ export default function CountPage() {
     areas: [] as string[], // stores storageArea IDs
   })
 
-  const { revenueCenters, activeRcId, activeRc, isReadOnly } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { user } = useUser()
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
@@ -336,13 +337,10 @@ export default function CountPage() {
   // ── Loaders ───────────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
     const params = new URLSearchParams()
-    if (activeRcId) {
-      params.set('rcId', activeRcId)
-      if (activeRc?.isDefault) params.set('isDefault', 'true')
-    }
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/count/sessions?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setSessions(Array.isArray(data) ? data : [])
-  }, [activeRcId, activeRc])
+  }, [activeRcId, activeRc, activeKind, activeLocationId])
 
   const loadSession = useCallback(async (id: string): Promise<Session | null> => {
     try {
@@ -360,13 +358,10 @@ export default function CountPage() {
 
   const loadCountAreas = useCallback(async () => {
     const params = new URLSearchParams()
-    if (activeRcId) {
-      params.set('rcId', activeRcId)
-      if (activeRc?.isDefault) params.set('isDefault', 'true')
-    }
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/count/areas?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setCountAreas(Array.isArray(data) ? data : [])
-  }, [activeRcId, activeRc])
+  }, [activeRcId, activeRc, activeKind, activeLocationId])
 
   useEffect(() => { loadSessions(); loadCountAreas() }, [loadSessions, loadCountAreas])
   useEffect(() => {

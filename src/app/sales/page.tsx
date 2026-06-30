@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { rcHex } from '@/lib/rc-colors'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -874,7 +875,7 @@ export default function SalesPage() {
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
-  const { activeRcId, activeRc, revenueCenters, isReadOnly } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, isReadOnly } = useRc()
 
   const [startDate, endDate] = getRange(rangeMode, customStart, customEnd)
 
@@ -882,10 +883,7 @@ export default function SalesPage() {
     setLoading(true)
     setLoadError(null)
     const params = new URLSearchParams({ startDate, endDate })
-    if (activeRcId) {
-      params.set('rcId', activeRcId)
-      if (activeRc?.isDefault) params.set('isDefault', 'true')
-    }
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     // A request that throws OR stalls used to leave the page stuck on "Loading…"
     // forever (setLoading(false) was never reached). Abort after 20s and always
     // clear loading in finally, surfacing a retryable error instead of hanging.
@@ -907,7 +905,7 @@ export default function SalesPage() {
       clearTimeout(timer)
       setLoading(false)
     }
-  }, [startDate, endDate, activeRcId, activeRc])
+  }, [startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId])
 
   useEffect(() => { fetchSales() }, [fetchSales])
 
