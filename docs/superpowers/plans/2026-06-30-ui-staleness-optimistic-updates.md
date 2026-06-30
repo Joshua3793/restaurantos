@@ -56,6 +56,21 @@ No new files. All changes are localized edits to existing client components and 
 
 ---
 
+## Execution tracker
+- [x] Task 1 — invoice approve optimistic APPROVING (c40e75a)
+- [x] Task 2 — invoice retry optimistic PROCESSING (6eb93c8)
+- [x] Task 3 — sales await refetch before close (a9f4c2f)
+- [x] Task 4 — wastage saving state + await refetch (ca9e21c; also fixed missing `return` in fetchLogs)
+- [x] Task 5 — inventory edit parent-list patch (062d28e)
+- [x] Task 6 — RC pull/par optimistic (9769f3f)
+- [x] Task 7 — primary-offer star optimistic (b589422)
+- [x] Task 8 — recipes/menu toggle + bulk (39ad179)
+- [ ] Task 9 — prep transient saving indicator (DEFERRED — prep status changes are ALREADY optimistic; this is spinner-only polish)
+- [~] Task 10 — recipe rename/substitute (in final batch)
+- [ ] Task 11 — settings role/deactivate transient (DEFERRED — role change/deactivate ALREADY optimistic; spinner-only polish)
+- [x] Task 12 — count finalize failure surfacing (NO CHANGE NEEDED — handleFinalize already calls setToast on both failure branches)
+- [~] Task 13 — optimistic delete removal (in final batch)
+
 ## P0 — Reported Bug
 
 ### Task 1: Invoice approve — optimistic `APPROVING` row status
