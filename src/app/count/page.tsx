@@ -2713,6 +2713,28 @@ export default function CountPage() {
           </div>
         </div>
 
+        {/* ── No-movement (zero-velocity) filter ─────────────────────────────── */}
+        {(active.lines?.some(l => l.noMovement && l.countedQty === null && !l.skipped) ?? false) && (
+          <div className="-mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 py-2 flex items-center gap-2">
+            <button
+              onClick={() => {
+                setStatusFilter(statusFilter === 'nomovement' ? 'all' : 'nomovement')
+                setBulkSelected(new Set())
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-full font-mono text-[11px] font-medium border transition-colors ${
+                statusFilter === 'nomovement'
+                  ? 'border-gold bg-gold-soft text-gold-2'
+                  : 'border-line text-ink-3 hover:border-line-2'
+              }`}
+            >
+              <Copy size={12} /> No movement · {active.lines?.filter(l => l.noMovement && l.countedQty === null && !l.skipped).length ?? 0}
+            </button>
+            {statusFilter === 'nomovement' && (
+              <span className="font-mono text-[10.5px] text-ink-4">items unchanged since last count</span>
+            )}
+          </div>
+        )}
+
         {/* ════════════════════════════════════════
             DESKTOP LAYOUT — sidebar + items
         ════════════════════════════════════════ */}
