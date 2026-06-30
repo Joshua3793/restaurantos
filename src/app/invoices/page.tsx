@@ -266,8 +266,7 @@ export default function InvoicesPage() {
 
       <InvoiceKpiStripV2
         refreshKey={kpiRefreshKey}
-        activeRcId={activeRcId}
-        isDefault={activeRc?.isDefault ?? false}
+        scope={{ activeKind, activeRcId, activeRc, activeLocationId }}
       />
 
       {view === 'inbox' ? (

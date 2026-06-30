@@ -7,6 +7,7 @@ import {
   SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock, MoreHorizontal,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { prepDeadline, fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
@@ -37,7 +38,7 @@ const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsMo
 
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
-  const { activeRc, activeRcId, isReadOnly } = useRc()
+  const { activeRc, activeRcId, activeKind, activeLocationId, isReadOnly } = useRc()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
@@ -113,13 +114,15 @@ export default function PrepPage() {
   }, [])
 
   const loadTasks = useCallback(async () => {
-    if (!activeRcId) { setTaskLibrary([]); setTaskTodayIds(new Set()); return }
-    const res = await fetch(`/api/prep/tasks?rcId=${activeRcId}&date=${encodeURIComponent(todayDateStr)}`)
+    if (!activeRcId && !activeLocationId) { setTaskLibrary([]); setTaskTodayIds(new Set()); return }
+    const params = new URLSearchParams({ date: todayDateStr })
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
+    const res = await fetch(`/api/prep/tasks?${params}`)
     if (!res.ok) return
     const data: { library: PrepTask[]; today: PrepTaskTodayLog[] } = await res.json()
     setTaskLibrary(data.library)
     setTaskTodayIds(new Set(data.today.map(t => t.prepTaskId)))
-  }, [activeRcId, todayDateStr])
+  }, [activeRcId, activeLocationId, activeKind, activeRc, todayDateStr])
 
   useEffect(() => { loadTasks() }, [loadTasks])
 

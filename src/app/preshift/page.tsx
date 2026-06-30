@@ -7,6 +7,7 @@ import {
   Thermometer, UtensilsCrossed, RotateCcw, ArrowRight, ArrowLeft, X, Pencil,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { nextServiceStart, currentWindow, fmtDuration } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
@@ -75,7 +76,7 @@ const LINE_FALLBACK: CheckItem[] = [
 
 export default function PreshiftPage() {
   const router = useRouter()
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
 
   const [prepItems, setPrepItems] = useState<PrepItem[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -136,12 +137,14 @@ export default function PreshiftPage() {
   useEffect(() => {
     let cancelled = false
     const today = ymd(new Date())
-    fetch(`/api/temps/units?rcId=${activeRcId ?? ''}&date=${today}`, { cache: 'no-store' })
+    const p = new URLSearchParams({ date: today })
+    setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
+    fetch(`/api/temps/units?${p.toString()}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : [])
       .then(d => { if (!cancelled && Array.isArray(d)) setTempUnits(d) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [activeRcId])
+  }, [activeKind, activeRcId, activeRc, activeLocationId])
 
   // ── Build the line-check items from prep ──────────────────────────────────
   const lineItems = useMemo<CheckItem[]>(() => {
