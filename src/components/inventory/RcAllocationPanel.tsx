@@ -95,6 +95,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
       setPullError(d.error || 'Pull failed')
       return
     }
+    setAllocations(prev => prev.map(a => a.revenueCenterId === rcId ? { ...a, quantity: a.quantity + parseFloat(pullQty) } : a))
     setPullRcId(null)
     setPullQty('')
     setPullNotes('')
@@ -133,6 +134,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
       setParError(d.error || 'Save failed')
       return
     }
+    setAllocations(prev => prev.map(a => a.revenueCenterId === rcId ? { ...a, parLevel: parseFloat(editParLevel) || 0, reorderQty: parseFloat(editReorderQty) || 0 } : a))
     setEditParRcId(null)
     setEditParLevel('')
     setEditReorderQty('')
