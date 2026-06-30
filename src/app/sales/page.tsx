@@ -987,12 +987,12 @@ export default function SalesPage() {
   const handleSave = async (data: Parameters<SaleFormProps['onSave']>[0]) => {
     if (editSale) {
       await fetch(`/api/sales/${editSale.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-      setEditSale(null)
     } else {
       await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-      setShowAdd(false)
     }
-    fetchSales()
+    await fetchSales()
+    setEditSale(null)
+    setShowAdd(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -1005,8 +1005,8 @@ export default function SalesPage() {
   const handleImport = async (row: Parameters<Parameters<typeof ImportModal>[0]['onImport']>[0]) => {
     if (!activeRcId) { setImportError('Select a revenue center (not "All") to import sales.'); return }
     await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...row, revenueCenterId: activeRcId }) })
+    await fetchSales()
     setShowImport(false)
-    fetchSales()
   }
 
   return (
