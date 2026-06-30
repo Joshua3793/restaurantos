@@ -175,6 +175,7 @@ export default function InvoicesPage() {
   }, [])
 
   const handleDelete = useCallback(async (id: string, _status: SessionStatus): Promise<void> => {
+    setSessions(prev => prev.filter(s => s.id !== id))
     await fetch(`/api/invoices/sessions/${id}`, { method: 'DELETE' })
     fetchSessions()
     setKpiRefreshKey(k => k + 1)
@@ -182,6 +183,8 @@ export default function InvoicesPage() {
   }, [selectedSessionId, fetchSessions])
 
   const handleBulkDelete = useCallback(async (ids: string[]): Promise<void> => {
+    const idSet = new Set(ids)
+    setSessions(prev => prev.filter(s => !idSet.has(s.id)))
     await fetch('/api/invoices/sessions', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },

@@ -538,11 +538,13 @@ export default function PrepPage() {
 
   async function handleDelete(itemId: string) {
     try {
+      setItems(prev => prev.filter(i => i.id !== itemId))
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
       if (selected?.id === itemId) setSelected(null)
       load()
     } catch {
       setActionError('Delete failed — try again.')
+      load()
     }
   }
 

@@ -996,6 +996,7 @@ export default function SalesPage() {
   }
 
   const handleDelete = async (id: string) => {
+    setSales(prev => prev.filter(s => s.id !== id))
     await fetch(`/api/sales/${id}`, { method: 'DELETE' })
     setDeleteId(null)
     if (selectedSale?.id === id) setSelectedSale(null)

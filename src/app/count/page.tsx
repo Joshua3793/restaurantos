@@ -947,7 +947,9 @@ export default function CountPage() {
   const handleDeleteSession = async () => {
     if (!deleteTarget) return
     setDeleting(true)
-    await fetch(`/api/count/sessions/${deleteTarget.id}`, { method: 'DELETE' })
+    const id = deleteTarget.id
+    setSessions(prev => prev.filter(s => s.id !== id))
+    await fetch(`/api/count/sessions/${id}`, { method: 'DELETE' })
     setDeleteTarget(null)
     setDeleting(false)
     await loadSessions()
