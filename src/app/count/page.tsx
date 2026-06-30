@@ -4,8 +4,8 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react'
 import {
-  AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown,
-  Circle, ClipboardList, Copy, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Trash2, WifiOff, X,
+  AlertCircle, ArrowLeft, Check, CheckCircle2, CheckSquare, ChevronDown, ChevronUp, ChevronsUpDown,
+  Circle, ClipboardList, Copy, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Square, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
@@ -2046,6 +2046,17 @@ export default function CountPage() {
           <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
             onClick={() => setOpenId(isOpen ? null : line.id)}
           >
+            {statusFilter === 'nomovement' && line.noMovement && line.countedQty === null && (
+              <button
+                onClick={e => { e.stopPropagation(); toggleBulk(line.id) }}
+                className="shrink-0"
+                title="Select for bulk confirm"
+              >
+                {bulkSelected.has(line.id)
+                  ? <CheckSquare size={18} className="text-gold-2" />
+                  : <Square size={18} className="text-line-2" />}
+              </button>
+            )}
             <Circle size={16} className="text-line-2 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-[13.5px] font-medium text-ink truncate">{line.inventoryItem.itemName}</div>
@@ -2284,6 +2295,17 @@ export default function CountPage() {
             className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
             onClick={() => setOpenId(isOpen ? null : line.id)}
           >
+            {statusFilter === 'nomovement' && line.noMovement && line.countedQty === null && (
+              <button
+                onClick={e => { e.stopPropagation(); toggleBulk(line.id) }}
+                className="shrink-0"
+                title="Select for bulk confirm"
+              >
+                {bulkSelected.has(line.id)
+                  ? <CheckSquare size={20} className="text-gold-2" />
+                  : <Square size={20} className="text-line-2" />}
+              </button>
+            )}
             <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
@@ -2589,6 +2611,39 @@ export default function CountPage() {
           </button>
         </div>
 
+        {showBulkConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/40" onClick={() => !bulkBusy && setShowBulkConfirm(false)} />
+            <div className="relative bg-paper w-full max-w-sm rounded-2xl border border-line p-5 shadow-xl">
+              <h3 className="text-[15px] font-semibold text-ink">Confirm unchanged</h3>
+              <p className="text-[13px] text-ink-2 mt-2 leading-relaxed">
+                Record <b>{bulkSelected.size}</b> item{bulkSelected.size === 1 ? '' : 's'} as unchanged
+                since the last count — total value{' '}
+                <b className="font-mono">{formatCurrency(bulkSelectedValue())}</b>.
+              </p>
+              <p className="font-mono text-[10.5px] text-ink-4 mt-2">
+                These will be flagged as carried-forward, not physically counted.
+              </p>
+              <div className="flex gap-2 mt-5">
+                <button
+                  disabled={bulkBusy}
+                  onClick={() => setShowBulkConfirm(false)}
+                  className="flex-1 h-11 border border-line rounded-[10px] text-[13px] text-ink-2 font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={bulkBusy}
+                  onClick={runBulkConfirm}
+                  className="flex-1 h-11 bg-ink text-paper rounded-[10px] text-[13px] font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {bulkBusy ? 'Confirming…' : <><Check size={15} className="text-gold" /> Confirm</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Add Item Modal ─────────────────────────────────────────────────── */}
         {showAddItem && (
           <div
@@ -2732,6 +2787,25 @@ export default function CountPage() {
             {statusFilter === 'nomovement' && (
               <span className="font-mono text-[10.5px] text-ink-4">items unchanged since last count</span>
             )}
+          </div>
+        )}
+
+        {statusFilter === 'nomovement' && bulkEligible.length > 0 && (
+          <div className="sticky bottom-0 z-20 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 py-3 bg-paper border-t border-line flex items-center gap-3">
+            <button
+              onClick={bulkSelected.size === bulkEligible.length ? bulkSelectNone : bulkSelectAll}
+              className="font-mono text-[11px] text-ink-3 hover:text-ink-2 underline underline-offset-2"
+            >
+              {bulkSelected.size === bulkEligible.length ? 'Select none' : `Select all ${bulkEligible.length}`}
+            </button>
+            <div className="flex-1" />
+            <button
+              disabled={bulkSelected.size === 0}
+              onClick={() => setShowBulkConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-4 h-10 bg-ink text-paper rounded-[10px] font-medium text-[13px] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-ink-2 transition-colors"
+            >
+              <Copy size={14} className="text-gold" /> Confirm {bulkSelected.size || ''} unchanged
+            </button>
           </div>
         )}
 
