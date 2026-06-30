@@ -193,6 +193,9 @@ export default function InvoicesPage() {
   }, [selectedSessionId, fetchSessions])
 
   const handleRetry = useCallback(async (id: string) => {
+    // Show PROCESSING immediately; this also engages the fast (3s) poll so the
+    // row updates promptly when OCR finishes, instead of waiting up to 15s.
+    setSessions(prev => prev.map(s => (s.id === id ? { ...s, status: 'PROCESSING' } : s)))
     fetch(`/api/invoices/sessions/${id}/process`, { method: 'POST' }).catch(() => {})
     await fetchSessions()
   }, [fetchSessions])
