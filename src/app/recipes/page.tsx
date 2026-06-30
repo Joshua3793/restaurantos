@@ -44,10 +44,10 @@ function RecipesInner() {
 
   const loadCategories = useCallback(async () => {
     const p = new URLSearchParams({ type })
-    if (activeRcId) p.set('rcId', activeRcId)
+    setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/recipes/categories?${p}`).then(r => r.json())
     setCategories(Array.isArray(data) ? data : [])
-  }, [activeRcId])
+  }, [activeRcId, activeKind, activeRc, activeLocationId])
 
   const loadRecipes = useCallback(async () => {
     const params = new URLSearchParams({ type })
