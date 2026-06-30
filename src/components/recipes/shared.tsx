@@ -939,13 +939,19 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
 
   const patchRecipe = async (data: Record<string, unknown>) => {
     setSaving(true)
+    const snapshot = recipe
+    setRecipe(prev => (prev ? { ...prev, ...(data as Partial<Recipe>) } : prev))
     try {
       const res = await fetch(`/api/recipes/${recipeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
       if (res.ok) {
         const updated = await res.json()
         setRecipe(updated)
         dirtyRef.current = true
+      } else {
+        setRecipe(snapshot)
       }
+    } catch {
+      setRecipe(snapshot)
     } finally {
       setSaving(false)
     }
@@ -1043,7 +1049,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
   }, [recipeId])
 
   const substituteIngredient = useCallback(async (ingId: string, item: IngredientSearchResult) => {
-    // Optimistic: update name, type, and zero the cost (server will recalculate)
+    // Optimistic: update name/type; keep prior lineCost as placeholder until load() reconciles
     setRecipe(prev => {
       if (!prev) return prev
       const updatedIngredients = prev.ingredients.map(ing => {
@@ -1056,7 +1062,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           linkedRecipeId: item.type === 'recipe' ? item.id : null,
           pricePerBaseUnit: item.pricePerBaseUnit,
           ingredientBaseUnit: item.unit,
-          lineCost: 0,
+          lineCost: ing.lineCost,
         }
       })
       const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
