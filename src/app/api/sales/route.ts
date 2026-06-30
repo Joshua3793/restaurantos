@@ -23,7 +23,6 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')
   const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
   const allowed = await resolveScopedRcIds(user)
 
@@ -36,9 +35,11 @@ export async function GET(req: NextRequest) {
       AND: [
         Object.keys(dateWhere).length ? { date: dateWhere } : {},
         // revenueCenterId is NOT NULL on SalesEntry (legacy nulls backfilled to the
-        // default RC). scopedRcWhere narrows to the selected rcId (if any) AND the
-        // user's scope; it fails closed for an out-of-scope rcId.
-        scopedRcWhere(allowed, rcId, isDefault),
+        // default RC), so there are no shared/null rows to union in — pass
+        // isDefault=false. The default-RC null-union (`{revenueCenterId: null}`) is
+        // INVALID on a required column: Prisma throws PrismaClientValidationError →
+        // 500. scopedRcWhere still narrows to rcId AND the user's scope (fail-closed).
+        scopedRcWhere(allowed, rcId, false),
       ],
     },
     orderBy: { date: 'desc' },

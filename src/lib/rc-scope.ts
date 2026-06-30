@@ -49,7 +49,12 @@ export async function isRcInScope(user: User, rcId: string): Promise<boolean> {
  *
  * @param allowed   result of resolveScopedRcIds (null = no restriction)
  * @param rcId      the explicitly selected RC (or null = "all in scope")
- * @param isDefault whether the selected RC is the default stock-pool RC
+ * @param isDefault whether the selected RC is the default stock-pool RC.
+ *                  ⚠️ Only pass `true` for models whose `revenueCenterId` column
+ *                  is NULLABLE (e.g. CountSession, InvoiceSession, Recipe). It emits
+ *                  `{ revenueCenterId: null }` to surface shared rows, which Prisma
+ *                  REJECTS on a required column (PrismaClientValidationError → 500).
+ *                  For NOT NULL models (SalesEntry, WastageLog) pass `false`.
  */
 export function scopedRcWhere(
   allowed: Set<string> | null,

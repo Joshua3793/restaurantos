@@ -19,7 +19,6 @@ export async function GET(req: NextRequest) {
   const itemId    = searchParams.get('itemId')
   const reason    = searchParams.get('reason')
   const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
   const allowed = await resolveScopedRcIds(user)
 
@@ -30,10 +29,11 @@ export async function GET(req: NextRequest) {
         endDate   ? { date: { lte: new Date(endDate) } }  : {},
         itemId    ? { inventoryItemId: itemId }            : {},
         reason    ? { reason }                             : {},
-        // revenueCenterId is NOT NULL on WastageLog (legacy nulls backfilled to the default
-        // RC). scopedRcWhere narrows to the selected rcId (if any) AND the user's scope;
-        // it fails closed for an out-of-scope rcId and lists everything in scope otherwise.
-        scopedRcWhere(allowed, rcId, isDefault),
+        // revenueCenterId is NOT NULL on WastageLog (legacy nulls backfilled to the
+        // default RC), so there are no shared/null rows to union in — pass
+        // isDefault=false. The default-RC null-union (`{revenueCenterId: null}`) is
+        // INVALID on a required column: Prisma throws PrismaClientValidationError → 500.
+        scopedRcWhere(allowed, rcId, false),
       ],
     },
     include: { inventoryItem: true },
