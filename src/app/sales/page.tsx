@@ -857,6 +857,7 @@ export default function SalesPage() {
   const [sales,         setSales]         = useState<Sale[]>([])
   const [menuRecipes,   setMenuRecipes]   = useState<RecipeSummary[]>([])
   const [loading,       setLoading]       = useState(true)
+  const [loadError,     setLoadError]     = useState<string | null>(null)
   const [rangeMode,     setRangeMode]     = useState<RangeMode>('week')
   const [customStart,   setCustomStart]   = useState('')
   const [customEnd,     setCustomEnd]     = useState('')
@@ -879,14 +880,33 @@ export default function SalesPage() {
 
   const fetchSales = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     const params = new URLSearchParams({ startDate, endDate })
     if (activeRcId) {
       params.set('rcId', activeRcId)
       if (activeRc?.isDefault) params.set('isDefault', 'true')
     }
-    const data = await fetch(`/api/sales?${params}`).then(r => r.json())
-    setSales(Array.isArray(data) ? data : [])
-    setLoading(false)
+    // A request that throws OR stalls used to leave the page stuck on "Loading…"
+    // forever (setLoading(false) was never reached). Abort after 20s and always
+    // clear loading in finally, surfacing a retryable error instead of hanging.
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 20_000)
+    try {
+      const res = await fetch(`/api/sales?${params}`, { signal: ctrl.signal })
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      const data = await res.json()
+      setSales(Array.isArray(data) ? data : [])
+    } catch (err) {
+      setSales([])
+      setLoadError(
+        err instanceof DOMException && err.name === 'AbortError'
+          ? 'Sales took too long to load — check your connection and try again.'
+          : 'Couldn’t load sales. Please try again.'
+      )
+    } finally {
+      clearTimeout(timer)
+      setLoading(false)
+    }
   }, [startDate, endDate, activeRcId, activeRc])
 
   useEffect(() => { fetchSales() }, [fetchSales])
@@ -1038,8 +1058,20 @@ export default function SalesPage() {
         )}
       </div>
 
+      {/* Load error — a failed/stalled fetch no longer bricks the page on "Loading…" */}
+      {!loading && loadError && (
+        <div className="flex items-center gap-2 bg-red-soft border border-red-soft rounded-xl px-3 py-2 text-sm text-red-text">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span className="flex-1">{loadError}</span>
+          <button onClick={() => fetchSales()}
+            className="px-3 py-1 rounded-lg bg-ink text-paper [&_svg]:text-gold text-xs font-medium hover:bg-ink-2">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Onboarding card — shown when no sales have ever been recorded */}
-      {!loading && sales.length === 0 && rangeMode === 'week' && (
+      {!loading && !loadError && sales.length === 0 && rangeMode === 'week' && (
         <div className="bg-gold/10 border border-blue-soft rounded-xl p-5 flex gap-4 items-start">
           <div className="w-10 h-10 rounded-xl bg-gold/15 flex items-center justify-center shrink-0">
             <BarChart2 size={20} className="text-gold" />
@@ -1151,7 +1183,10 @@ export default function SalesPage() {
                       {loading && (
                         <tr><td colSpan={5} className="text-center py-12 text-ink-4">Loading…</td></tr>
                       )}
-                      {!loading && displayed.length === 0 && (
+                      {!loading && loadError && (
+                        <tr><td colSpan={5} className="text-center py-12 text-ink-4">Couldn’t load sales — use Retry above.</td></tr>
+                      )}
+                      {!loading && !loadError && displayed.length === 0 && (
                         <tr>
                           <td colSpan={5} className="text-center py-12">
                             <div className="text-ink-4 mb-3">No sales recorded for this period</div>
@@ -1220,7 +1255,10 @@ export default function SalesPage() {
               {granularity !== 'day' && (
                 <div className="bg-white rounded-xl border border-line shadow-sm overflow-hidden">
                   {loading && <div className="py-12 text-center text-ink-4">Loading…</div>}
-                  {!loading && periodRows.length === 0 && (
+                  {!loading && loadError && (
+                    <div className="py-12 text-center text-ink-4">Couldn’t load sales — use Retry above.</div>
+                  )}
+                  {!loading && !loadError && periodRows.length === 0 && (
                     <div className="py-12 text-center text-ink-4">No sales data for this period</div>
                   )}
                   {periodRows.map(period => {
