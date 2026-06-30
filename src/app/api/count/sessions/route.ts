@@ -3,23 +3,35 @@ import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, computeExpected } from '@/lib/count-expected'
 import { resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
 
+  const allowed = await resolveScopedRcIds(user)
+
   const sessions = await prisma.countSession.findMany({
     where: {
-      // QUICK sessions back single-item quick-counts — keep them out of the
-      // count-history list (snapshot/variance reports read them directly).
-      type: { not: 'QUICK' },
-      ...(rcId
-        ? (isDefault
-            ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-            : { revenueCenterId: rcId })
-        : {}),
+      AND: [
+        // QUICK sessions back single-item quick-counts — keep them out of the
+        // count-history list (snapshot/variance reports read them directly).
+        { type: { not: 'QUICK' } },
+        // scopedRcWhere reproduces the default-RC null-union pattern when a default
+        // rcId is selected, narrows to the selected rcId otherwise, and limits to
+        // the user's scope (failing closed for an out-of-scope rcId).
+        scopedRcWhere(allowed, rcId, isDefault),
+      ],
     },
     orderBy: { startedAt: 'desc' },
     include: { lines: { select: { countedQty: true, skipped: true } } },
@@ -42,9 +54,34 @@ export async function GET(req: NextRequest) {
 
 // ── POST /api/count/sessions ──────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const {
     label, type = 'FULL', areaFilter, countedBy, sessionDate, revenueCenterId,
   } = await req.json()
+
+  // An RC-scoped count must target an RC the user may write. An unscoped count
+  // (no revenueCenterId — legacy "all items") is left to ADMIN/unscoped callers:
+  // resolveScopedRcIds returns null for them, so a scoped user gets no broad reads.
+  if (revenueCenterId) {
+    try { await assertRcWritable(user, revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  } else {
+    // A scoped user (resolveScopedRcIds !== null) may not create the legacy
+    // all-items count — they must target one of their revenue centers.
+    const allowed = await resolveScopedRcIds(user)
+    if (allowed !== null) {
+      return NextResponse.json({ error: 'A revenue center must be selected.' }, { status: 403 })
+    }
+  }
 
   const areaIds: string[] = areaFilter
     ? areaFilter.split(',').map((s: string) => s.trim()).filter(Boolean)

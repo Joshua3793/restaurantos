@@ -16,10 +16,19 @@ interface DiscoveredRC {
   toastGuid: string
   orderCount: number
   mappedTo: { id: string; name: string } | null
+  revenueCenterId: string | null
+  locationId: string | null
+}
+interface RcLocation {
+  id: string
+  name: string
+  defaultRevenueCenterId: string | null
+  revenueCenters: { id: string; name: string; type: string }[]
 }
 interface RcData {
   discovered: DiscoveredRC[]
   revenueCenters: { id: string; name: string }[]
+  locations: RcLocation[]
 }
 interface MenuRoutesData {
   menus: { menu: string; revenueCenterId: string | null }[]
@@ -69,6 +78,11 @@ type Filter = 'food-unmapped' | 'unmapped' | 'mapped' | 'all'
 // yyyy-mm-dd → yyyymmdd int
 const toInt = (d: string) => Number(d.replace(/-/g, ''))
 
+// Encode a discovered row's current target into the <select> value space.
+// Location target wins over RC (a row is one or the other).
+const encodeTarget = (d: { locationId: string | null; revenueCenterId: string | null }) =>
+  d.locationId ? `loc:${d.locationId}` : d.revenueCenterId ? `rc:${d.revenueCenterId}` : ''
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ToastSetupPage() {
@@ -76,12 +90,15 @@ export default function ToastSetupPage() {
   const [connLoading, setConnLoading] = useState(true)
 
   const [rc, setRc] = useState<RcData | null>(null)
-  const [rcEdits, setRcEdits] = useState<Record<string, string>>({}) // toastGuid → revenueCenterId|''
+  // toastGuid → encoded target: 'rc:<id>' | 'loc:<id>' | '' (unmapped)
+  const [rcEdits, setRcEdits] = useState<Record<string, string>>({})
   const [rcSaving, setRcSaving] = useState(false)
+  const [rcError, setRcError] = useState<string | null>(null)
 
   const [mr, setMr] = useState<MenuRoutesData | null>(null)
   const [mrEdits, setMrEdits] = useState<Record<string, string>>({}) // menu → revenueCenterId|''
   const [mrSaving, setMrSaving] = useState(false)
+  const [mrError, setMrError] = useState<string | null>(null)
 
   const [items, setItems] = useState<ItemsData | null>(null)
   const [itemsLoading, setItemsLoading] = useState(true)
@@ -118,7 +135,7 @@ export default function ToastSetupPage() {
       if (res.ok) {
         const data: RcData = await res.json()
         setRc(data)
-        setRcEdits(Object.fromEntries(data.discovered.map((d) => [d.toastGuid, d.mappedTo?.id ?? ''])))
+        setRcEdits(Object.fromEntries(data.discovered.map((d) => [d.toastGuid, encodeTarget(d)])))
       }
     } catch { /* non-fatal */ }
   }, [])
@@ -153,12 +170,20 @@ export default function ToastSetupPage() {
 
   const saveMr = async () => {
     setMrSaving(true)
+    setMrError(null)
     try {
       const mappings = Object.entries(mrEdits).map(([menu, id]) => ({ menu, revenueCenterId: id || null }))
-      await fetch('/api/toast/menu-routing', {
+      const res = await fetch('/api/toast/menu-routing', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings }),
       })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setMrError(data.error || 'Save failed')
+        return
+      }
       await loadMr()
+    } catch {
+      setMrError('Request failed')
     } finally {
       setMrSaving(false)
     }
@@ -200,12 +225,25 @@ export default function ToastSetupPage() {
 
   const saveRc = async () => {
     setRcSaving(true)
+    setRcError(null)
     try {
-      const mappings = Object.entries(rcEdits).map(([toastGuid, id]) => ({ toastGuid, revenueCenterId: id || null }))
-      await fetch('/api/toast/revenue-centers', {
+      const mappings = Object.entries(rcEdits).map(([toastGuid, val]) => {
+        // val is '' | 'rc:<id>' | 'loc:<id>'. Send exactly one of rc/location.
+        if (val.startsWith('loc:')) return { toastGuid, locationId: val.slice(4), revenueCenterId: null }
+        if (val.startsWith('rc:')) return { toastGuid, revenueCenterId: val.slice(3), locationId: null }
+        return { toastGuid, revenueCenterId: null, locationId: null }
+      })
+      const res = await fetch('/api/toast/revenue-centers', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings }),
       })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setRcError(data.error || 'Save failed')
+        return
+      }
       await loadRc()
+    } catch {
+      setRcError('Request failed')
     } finally {
       setRcSaving(false)
     }
@@ -265,7 +303,7 @@ export default function ToastSetupPage() {
         <div>
           <h1 className="text-2xl font-bold text-ink">Toast Integration</h1>
           <p className="text-sm text-ink-3 mt-0.5">
-            Connect Toast sales → map menu items to recipes. CAFE only; CATERING stays manual.
+            Map each Toast revenue center to a location (sales split by menu) or a specific revenue center. Map menus to revenue centers to override per item.
           </p>
         </div>
         <button
@@ -280,11 +318,12 @@ export default function ToastSetupPage() {
 
       <RcCard
         rc={rc} edits={rcEdits} setEdits={setRcEdits}
-        onSave={saveRc} saving={rcSaving} onRediscover={() => loadRc(true)}
+        onSave={saveRc} saving={rcSaving} error={rcError} onRediscover={() => loadRc(true)}
       />
 
       <MenuRoutingCard
-        mr={mr} edits={mrEdits} setEdits={setMrEdits} onSave={saveMr} saving={mrSaving}
+        mr={mr} locations={rc?.locations ?? null}
+        edits={mrEdits} setEdits={setMrEdits} onSave={saveMr} saving={mrSaving} error={mrError}
       />
 
       {/* Menu sync */}
@@ -431,16 +470,17 @@ function ConnCard({ conn, loading }: { conn: ConnTest | null; loading: boolean }
 }
 
 function RcCard({
-  rc, edits, setEdits, onSave, saving, onRediscover,
+  rc, edits, setEdits, onSave, saving, error, onRediscover,
 }: {
   rc: RcData | null
   edits: Record<string, string>
   setEdits: (fn: (prev: Record<string, string>) => Record<string, string>) => void
   onSave: () => void
   saving: boolean
+  error: string | null
   onRediscover: () => void
 }) {
-  const dirty = rc?.discovered.some((d) => (edits[d.toastGuid] ?? '') !== (d.mappedTo?.id ?? '')) ?? false
+  const dirty = rc?.discovered.some((d) => (edits[d.toastGuid] ?? '') !== encodeTarget(d)) ?? false
   return (
     <div className="bg-white border border-line rounded-2xl p-4">
       <div className="flex items-center justify-between gap-3">
@@ -450,7 +490,7 @@ function RcCard({
         </button>
       </div>
       <p className="text-xs text-ink-3 mt-0.5">
-        Toast revenue centers found in recent orders. Map each to an app revenue center (Toast names aren’t available via API — identify by order volume).
+        Toast revenue centers found in recent orders. Map each to a whole location (sales split by menu; unrouted lines fall to the location’s default revenue center) or to one specific revenue center. Toast names aren’t available via API — identify by order volume.
       </p>
       {!rc ? (
         <p className="text-xs text-ink-4 mt-3">Loading…</p>
@@ -458,20 +498,42 @@ function RcCard({
         <p className="text-xs text-ink-4 mt-3">None discovered yet — click Rediscover.</p>
       ) : (
         <div className="mt-3 space-y-2">
-          {rc.discovered.map((d) => (
-            <div key={d.toastGuid} className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-[11px] text-ink-4 truncate flex-1 min-w-[160px]">{d.toastGuid}</span>
-              <span className="text-[11px] text-ink-4 tabular-nums">{d.orderCount} orders</span>
-              <select
-                value={edits[d.toastGuid] ?? ''}
-                onChange={(e) => setEdits((p) => ({ ...p, [d.toastGuid]: e.target.value }))}
-                className="border border-line rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gold"
-              >
-                <option value="">— Unmapped —</option>
-                {rc.revenueCenters.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </div>
-          ))}
+          {rc.discovered.map((d) => {
+            const val = edits[d.toastGuid] ?? ''
+            const selectedLoc = val.startsWith('loc:') ? rc.locations.find((l) => l.id === val.slice(4)) : null
+            const defaultRcName = selectedLoc
+              ? selectedLoc.revenueCenters.find((r) => r.id === selectedLoc.defaultRevenueCenterId)?.name
+              : null
+            return (
+              <div key={d.toastGuid} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-[11px] text-ink-4 truncate flex-1 min-w-[160px]">{d.toastGuid}</span>
+                  <span className="text-[11px] text-ink-4 tabular-nums">{d.orderCount} orders</span>
+                  <select
+                    value={val}
+                    onChange={(e) => setEdits((p) => ({ ...p, [d.toastGuid]: e.target.value }))}
+                    className="border border-line rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gold"
+                  >
+                    <option value="">— Unmapped —</option>
+                    {rc.locations.map((loc) => (
+                      <optgroup key={loc.id} label={loc.name}>
+                        <option value={`loc:${loc.id}`}>{loc.name} — whole location (split by menu)</option>
+                        {loc.revenueCenters.map((r) => (
+                          <option key={r.id} value={`rc:${r.id}`}>{loc.name} › {r.name}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                {selectedLoc && (
+                  <span className="text-[11px] text-ink-4 self-end">
+                    lines split by menu; unrouted → {defaultRcName ?? 'location default'}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+          {error && <p className="text-xs text-red-text">{error}</p>}
           <div className="flex justify-end">
             <button
               onClick={onSave} disabled={!dirty || saving}
@@ -487,21 +549,33 @@ function RcCard({
 }
 
 function MenuRoutingCard({
-  mr, edits, setEdits, onSave, saving,
+  mr, locations, edits, setEdits, onSave, saving, error,
 }: {
   mr: MenuRoutesData | null
+  locations: RcLocation[] | null
   edits: Record<string, string>
   setEdits: (fn: (prev: Record<string, string>) => Record<string, string>) => void
   onSave: () => void
   saving: boolean
+  error: string | null
 }) {
   const dirty = mr?.menus.some((m) => (edits[m.menu] ?? '') !== (m.revenueCenterId ?? '')) ?? false
+  // Menus must target a leaf RC (the API rejects a location). Group leaf RCs by
+  // location for clarity; fall back to the flat list if locations aren't loaded.
+  const renderRcOptions = () =>
+    locations && locations.length
+      ? locations.map((loc) => (
+          <optgroup key={loc.id} label={loc.name}>
+            {loc.revenueCenters.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </optgroup>
+        ))
+      : (mr?.revenueCenters ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)
   return (
     <div className="bg-white border border-line rounded-2xl p-4">
       <h3 className="text-sm font-semibold text-ink flex items-center gap-1.5"><Building2 size={14} /> Menu → revenue center</h3>
       <p className="text-xs text-ink-3 mt-0.5">
-        Route each Toast menu to a revenue center. Items are attributed by their menu (e.g. BAR → BAR, CATERING → CATERING),
-        overriding the order’s revenue center. Leave “— Use order RC —” to fall back to the per-order mapping above.
+        Route each Toast menu to a revenue center. Items are attributed by their menu (e.g. a BAR menu → the BAR revenue center),
+        overriding the order’s mapped target. Leave “— Use order target —” to fall back to the per-order mapping above.
       </p>
       {!mr ? (
         <p className="text-xs text-ink-4 mt-3">Loading…</p>
@@ -517,13 +591,14 @@ function MenuRoutingCard({
                 onChange={(e) => setEdits((p) => ({ ...p, [m.menu]: e.target.value }))}
                 className="border border-line rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gold"
               >
-                <option value="">— Use order RC —</option>
-                {mr.revenueCenters.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                <option value="">— Use order target —</option>
+                {renderRcOptions()}
               </select>
             </div>
           ))}
+          {error && <p className="text-xs text-red-text">{error}</p>}
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-ink-4">Don’t see a BAR center? Create it in Setup → Revenue centers, then it appears here.</span>
+            <span className="text-[11px] text-ink-4">Create revenue centers under a location in Setup → Revenue centers.</span>
             <button
               onClick={onSave} disabled={!dirty || saving}
               className="bg-ink text-paper px-3 py-1.5 rounded-xl text-xs font-semibold hover:bg-ink-2 disabled:opacity-40"
@@ -560,7 +635,7 @@ function SyncCard({
         <div>
           <h3 className="text-sm font-semibold text-ink flex items-center gap-1.5"><CalendarClock size={14} /> Sales sync</h3>
           <p className="text-xs text-ink-3 mt-0.5">
-            Pulls a day’s Toast orders → CAFE sales. Runs nightly; trigger manually or backfill a range here.
+            Pulls a day’s Toast orders → sales, routed by the mappings above. Runs nightly; trigger manually or backfill a range here.
           </p>
         </div>
         <button

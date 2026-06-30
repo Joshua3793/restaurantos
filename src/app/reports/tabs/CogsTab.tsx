@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/utils'
 import { SectionHeader, Card, LoadingState } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { getVocab } from '@/lib/rc-vocab'
 import { rcHex } from '@/lib/rc-colors'
 import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
 
@@ -44,7 +45,11 @@ function InventoryCard({ label, bound, rcName }: { label: string; bound: InvBoun
 }
 
 export default function CogsTab() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind } = useRc()
+  // Type-driven cost noun: RC type → "food cost" / "pour cost"; Location/all → "cost".
+  const costNounLower = activeKind === 'rc'
+    ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toLowerCase()
+    : 'cost'
   const [range, setRange] = useState<DateRange>(() => rangeForPreset('thisWeek'))
   const [data, setData] = useState<CogsResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -102,7 +107,7 @@ export default function CogsTab() {
               <div className="text-xs font-semibold text-gold mb-1">= COGS</div>
               <div className="text-2xl font-bold text-gold">{formatCurrency(data.cogs)}</div>
               {data.foodSales > 0 && (
-                <div className={`text-lg font-bold mt-1 ${fcColor(data.foodCostPct)}`}>{data.foodCostPct.toFixed(1)}% food cost</div>
+                <div className={`text-lg font-bold mt-1 ${fcColor(data.foodCostPct)}`}>{data.foodCostPct.toFixed(1)}% {costNounLower}</div>
               )}
             </Card>
           </div>

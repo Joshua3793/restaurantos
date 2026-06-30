@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Send, AlertCircle, CheckCircle, Ban, RotateCcw, Trash2 } from 'lucide-react'
+import { Users, Send, AlertCircle, CheckCircle, Ban, RotateCcw, Trash2, Shield, MapPin, X } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
+import { rcHex } from '@/lib/rc-colors'
 
 type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF'
 
@@ -13,6 +14,15 @@ interface TeamUser {
   isActive: boolean
   createdAt: string
 }
+
+interface ScopeRcLite { id: string; name: string; color: string; type: string }
+interface ScopeLocationLite {
+  id: string
+  name: string
+  color: string
+  revenueCenters: ScopeRcLite[]
+}
+interface UserScopeRow { id: string; locationId: string | null; revenueCenterId: string | null }
 
 const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: 'Admin',
@@ -26,11 +36,221 @@ const ROLE_COLORS: Record<UserRole, string> = {
   STAFF: 'bg-bg-2 text-ink-3',
 }
 
+/* ──────────────────────────  Per-user scope editor  ─────────────────────────── */
+
+function ScopeModal({
+  user,
+  locations,
+  onClose,
+}: {
+  user: TeamUser
+  locations: ScopeLocationLite[]
+  onClose: () => void
+}) {
+  // Selected sets — assigning a whole location vs. individual RCs.
+  const [locSel, setLocSel] = useState<Set<string>>(new Set())
+  const [rcSel, setRcSel]   = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [error, setError]     = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/settings/user-scopes?userId=${user.id}`)
+        if (!res.ok) throw new Error(`Failed to load scopes (${res.status})`)
+        const rows: UserScopeRow[] = await res.json()
+        if (cancelled) return
+        setLocSel(new Set(rows.filter(r => r.locationId).map(r => r.locationId as string)))
+        setRcSel(new Set(rows.filter(r => r.revenueCenterId).map(r => r.revenueCenterId as string)))
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load scopes')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user.id])
+
+  const toggleLoc = (id: string) => {
+    setLocSel(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else {
+        next.add(id)
+        // Assigning the whole location supersedes its individual RC picks.
+        const loc = locations.find(l => l.id === id)
+        if (loc) setRcSel(r => {
+          const nr = new Set(r)
+          loc.revenueCenters.forEach(rc => nr.delete(rc.id))
+          return nr
+        })
+      }
+      return next
+    })
+  }
+
+  const toggleRc = (id: string) => {
+    setRcSel(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Effective-access preview (computed client-side):
+  //  - ADMIN → all (admin)
+  //  - no scopes → all (unscoped)
+  //  - else union of (each assigned location's RCs) + (each assigned RC)
+  const allRcs = locations.flatMap(l => l.revenueCenters)
+  let effective: { label: string; rcNames: string[] }
+  if (user.role === 'ADMIN') {
+    effective = { label: 'All revenue centers (admin)', rcNames: [] }
+  } else if (locSel.size === 0 && rcSel.size === 0) {
+    effective = { label: 'All revenue centers (unscoped)', rcNames: [] }
+  } else {
+    const names = new Set<string>()
+    locations.forEach(l => { if (locSel.has(l.id)) l.revenueCenters.forEach(rc => names.add(rc.name)) })
+    allRcs.forEach(rc => { if (rcSel.has(rc.id)) names.add(rc.name) })
+    effective = { label: '', rcNames: [...names].sort() }
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError('')
+    const scopes = [
+      ...[...locSel].map(locationId => ({ locationId })),
+      ...[...rcSel].map(revenueCenterId => ({ revenueCenterId })),
+    ]
+    const res = await fetch('/api/settings/user-scopes', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, scopes }),
+    })
+    setSaving(false)
+    if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Failed to save'); return }
+    onClose()
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
+      <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+          <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-line flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-ink">Revenue-center access</h3>
+              <p className="text-xs text-ink-4 mt-0.5">{user.name ?? user.email}</p>
+            </div>
+            <button onClick={onClose} className="p-1.5 text-ink-4 hover:text-ink-2 rounded-lg">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {user.role === 'ADMIN' && (
+              <div className="flex items-start gap-2 p-3 bg-blue-soft rounded-xl text-xs text-blue-text">
+                <Shield size={14} className="mt-0.5 shrink-0" />
+                <span>Admins always have access to every location and revenue center. Scope assignments are ignored for admins.</span>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="text-sm text-ink-4 py-6 text-center">Loading…</div>
+            ) : locations.length === 0 ? (
+              <div className="text-sm text-ink-4 py-6 text-center">No locations defined yet.</div>
+            ) : (
+              <div className="space-y-3">
+                {locations.map(loc => {
+                  const locOn = locSel.has(loc.id)
+                  return (
+                    <div key={loc.id} className="border border-line rounded-xl p-3">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={locOn}
+                          disabled={user.role === 'ADMIN'}
+                          onChange={() => toggleLoc(loc.id)}
+                          className="rounded border-line-2"
+                        />
+                        <span className="w-6 h-6 rounded-lg shrink-0 flex items-center justify-center text-white"
+                          style={{ backgroundColor: rcHex(loc.color) }}>
+                          <MapPin size={12} />
+                        </span>
+                        <span className="text-sm font-medium text-ink">{loc.name}</span>
+                        <span className="text-[11px] text-ink-4">whole location</span>
+                      </label>
+
+                      {loc.revenueCenters.length > 0 && (
+                        <div className="mt-2 pl-8 space-y-1.5">
+                          {loc.revenueCenters.map(rc => (
+                            <label key={rc.id} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={locOn || rcSel.has(rc.id)}
+                                disabled={locOn || user.role === 'ADMIN'}
+                                onChange={() => toggleRc(rc.id)}
+                                className="rounded border-line-2"
+                              />
+                              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: rcHex(rc.color) }} />
+                              <span className="text-sm text-ink-2">{rc.name}</span>
+                              <span className="text-[10px] uppercase tracking-wide text-ink-4">
+                                {rc.type === 'DRINK' ? 'Drink' : 'Food'}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Effective access preview */}
+            <div className="p-3 bg-bg rounded-xl border border-line">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-4 mb-1.5">Effective access</p>
+              {effective.label ? (
+                <p className="text-sm text-ink-2">{effective.label}</p>
+              ) : effective.rcNames.length === 0 ? (
+                <p className="text-sm text-ink-4">No revenue centers selected.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {effective.rcNames.map(n => (
+                    <span key={n} className="text-xs bg-white border border-line rounded-full px-2 py-0.5 text-ink-2">{n}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {error && <p className="text-xs text-red">{error}</p>}
+
+            <div className="flex gap-2 pt-1 pb-[env(safe-area-inset-bottom)]">
+              <button onClick={handleSave} disabled={saving || loading || user.role === 'ADMIN'}
+                className="flex-1 py-2.5 bg-ink text-white text-sm font-medium rounded-xl hover:bg-ink disabled:opacity-50">
+                {saving ? 'Saving…' : 'Save Access'}
+              </button>
+              <button onClick={onClose}
+                className="px-4 py-2 border border-line rounded-xl text-sm text-ink-3 hover:bg-bg">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function UsersSettingsPage() {
   const { user: currentUser } = useUser()
   const [users, setUsers] = useState<TeamUser[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [locations, setLocations] = useState<ScopeLocationLite[]>([])
+  const [scopeUser, setScopeUser] = useState<TeamUser | null>(null)
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -53,6 +273,13 @@ export default function UsersSettingsPage() {
   }, [])
 
   useEffect(() => { loadUsers() }, [loadUsers])
+
+  useEffect(() => {
+    fetch('/api/locations')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ScopeLocationLite[]) => setLocations(Array.isArray(data) ? data : []))
+      .catch(() => { /* non-fatal: scope modal shows "no locations" */ })
+  }, [])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -279,6 +506,15 @@ export default function UsersSettingsPage() {
                     </select>
                   )}
 
+                  {/* Manage RC access */}
+                  <button
+                    onClick={() => setScopeUser(u)}
+                    title="Manage revenue-center access"
+                    className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-all"
+                  >
+                    <Shield size={14} />
+                  </button>
+
                   {/* Lifecycle actions */}
                   {!isMe && u.isActive && (
                     <button
@@ -313,6 +549,14 @@ export default function UsersSettingsPage() {
           </div>
         )}
       </div>
+
+      {scopeUser && (
+        <ScopeModal
+          user={scopeUser}
+          locations={locations}
+          onClose={() => setScopeUser(null)}
+        />
+      )}
     </div>
   )
 }

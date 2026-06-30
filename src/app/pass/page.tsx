@@ -6,6 +6,7 @@ import {
   ArrowRight, ClipboardList,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { getVocab } from '@/lib/rc-vocab'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
@@ -82,8 +83,13 @@ interface AttnItem {
 
 export default function PassPage() {
   const { user } = useUser()
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind } = useRc()
   const isDefaultActive = activeRc?.isDefault ?? false
+  // Type-driven cost noun: an RC carries a FOOD/DRINK type → "FOOD COST" /
+  // "POUR COST"; a Location or "all" view spans types → generic "COST".
+  const costNoun = activeKind === 'rc'
+    ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toUpperCase()
+    : 'COST'
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [chrome, setChrome] = useState<CostChromeData | null>(null)
   const [inboxKpis, setInboxKpis] = useState<KPIs | null>(null)
@@ -271,7 +277,7 @@ export default function PassPage() {
             target={chrome?.targetPct ?? 27}
           />
           <FoodCostHero
-            label="ACTUAL FOOD COST · WTD" sub="COGS ÷ food sales"
+            label={`ACTUAL ${costNoun} · WTD`} sub="COGS ÷ food sales"
             pct={cogs?.actualFoodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
             title={
@@ -315,7 +321,7 @@ export default function PassPage() {
             }
           />
           <FoodCostHero
-            label="THEORETICAL FOOD COST · WTD" sub="from recipe costs"
+            label={`THEORETICAL ${costNoun} · WTD`} sub="from recipe costs"
             pct={dashboard?.theoreticalFoodCostPct ?? null}
             target={chrome?.targetPct ?? 27}
             footer={dashboard ? (

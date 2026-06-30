@@ -12,10 +12,14 @@
  * from the same line items). Service charges (rare for the café; catering is
  * excluded) are not included.
  *
- * Revenue-center routing is driven entirely by `ToastRevenueCenterMap`: orders
- * whose Toast RC GUID maps to an app RevenueCenter are aggregated into that RC's
- * entry. Unmapped GUIDs are skipped (and counted). Since all café RCs map to
- * CAFE and nothing maps to CATERING, catering stays manual automatically.
+ * Revenue-center routing is driven entirely by `ToastRevenueCenterMap`: each row
+ * targets EITHER a leaf RC (`revenueCenterId`) OR a whole location (`locationId`).
+ * A leaf-targeted order's lines all aggregate into that RC. A location-targeted
+ * order splits by menu — `menu:<NAME>` sentinel rows route individual lines to
+ * leaf RCs (taking precedence), and any line without a menu route falls back to
+ * the location's `defaultRevenueCenterId`. Unmapped GUIDs (or location targets
+ * with no default RC) are skipped for un-menu-routed lines, and orders that route
+ * nothing are counted.
  */
 
 import { prisma } from '@/lib/prisma'
@@ -87,19 +91,37 @@ export interface DaySyncResult {
 
 /** Sync a single business day. Idempotent — re-running upserts the same rows. */
 export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> {
-  // Load mappings up front.
-  const [rcMaps, itemMaps, rcNames] = await Promise.all([
-    prisma.toastRevenueCenterMap.findMany({ where: { revenueCenterId: { not: null } } }),
+  // Load mappings up front. A mapped row targets a leaf RC (revenueCenterId) OR a
+  // whole location (locationId), so load any row that has either.
+  const [rcMaps, itemMaps, rcNames, locations] = await Promise.all([
+    prisma.toastRevenueCenterMap.findMany({
+      where: { OR: [{ revenueCenterId: { not: null } }, { locationId: { not: null } }] },
+    }),
     prisma.toastItemMap.findMany({ select: { toastItemGuid: true, recipeId: true, toastGroup: true, toastMenu: true } }),
     prisma.revenueCenter.findMany({ select: { id: true, name: true } }),
+    prisma.location.findMany({ select: { id: true, defaultRevenueCenterId: true } }),
   ])
-  // Real Toast RC GUID → app RC (uuid keys), used as the per-order fallback.
-  // Sentinel rows (`menu:<NAME>`) route a Toast MENU → app RC and take precedence
+
+  // Sentinel rows (`menu:<NAME>`) route a Toast MENU → leaf RC and take precedence
   // per line item (e.g. BAR → BAR, CATERING → CATERING). See MENU_ROUTE_PREFIX.
-  const rcByGuid = new Map(rcMaps.filter((m) => !m.toastGuid.startsWith(MENU_ROUTE_PREFIX)).map((m) => [m.toastGuid, m.revenueCenterId!]))
   const menuRoutes = new Map(
-    rcMaps.filter((m) => m.toastGuid.startsWith(MENU_ROUTE_PREFIX)).map((m) => [m.toastGuid.slice(MENU_ROUTE_PREFIX.length), m.revenueCenterId!]),
+    rcMaps
+      .filter((m) => m.toastGuid.startsWith(MENU_ROUTE_PREFIX) && m.revenueCenterId)
+      .map((m) => [m.toastGuid.slice(MENU_ROUTE_PREFIX.length), m.revenueCenterId!]),
   )
+
+  // Non-menu rows are real Toast RC GUIDs and supply the per-order target, which is
+  // either a leaf RC or a whole location (resolved to its default RC per order).
+  type OrderTarget = { kind: 'rc'; rcId: string } | { kind: 'location'; locationId: string }
+  const orderTargetByGuid = new Map<string, OrderTarget>()
+  for (const m of rcMaps) {
+    if (m.toastGuid.startsWith(MENU_ROUTE_PREFIX)) continue
+    if (m.revenueCenterId) orderTargetByGuid.set(m.toastGuid, { kind: 'rc', rcId: m.revenueCenterId })
+    else if (m.locationId) orderTargetByGuid.set(m.toastGuid, { kind: 'location', locationId: m.locationId })
+  }
+
+  // Location → its default leaf RC (the fallback for un-menu-routed lines).
+  const locationDefaultRc = new Map(locations.map((l) => [l.id, l.defaultRevenueCenterId]))
   const itemByGuid = new Map(itemMaps.map((i) => [i.toastItemGuid, i]))
   const rcNameById = new Map(rcNames.map((r) => [r.id, r.name]))
 
@@ -126,7 +148,13 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   for (const order of orders) {
     if (order.voided || order.deleted || order.excessFood) continue
     const rcGuid = order.revenueCenter?.guid
-    const orderRc = rcGuid ? rcByGuid.get(rcGuid) : undefined
+    // Resolve the order-level target: a leaf RC directly, or a location's default
+    // RC. Stays undefined when unmapped, or a location has no default RC set — in
+    // both cases un-menu-routed lines are skipped (same as an unmapped order).
+    const target = rcGuid ? orderTargetByGuid.get(rcGuid) : undefined
+    let orderRc: string | undefined
+    if (target?.kind === 'rc') orderRc = target.rcId
+    else if (target?.kind === 'location') orderRc = locationDefaultRc.get(target.locationId) ?? undefined
 
     // Per-LINE-ITEM routing: each selection goes to its menu's RC if that menu is
     // mapped (menuRoutes), else the order's RC. One order can split across RCs

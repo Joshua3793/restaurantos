@@ -1,18 +1,34 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { ChevronDown, Check, Settings2, LayoutGrid } from 'lucide-react'
-import { useRc } from '@/contexts/RevenueCenterContext'
+import { useRouter } from 'next/navigation'
+import { ChevronDown, Check, Settings2, LayoutGrid, MapPin } from 'lucide-react'
+import { useRc, type Location } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 
+/** FOOD/DRINK affordance — subtle emoji + label. */
+function RcTypeDot({ type }: { type: string }) {
+  const drink = type === 'DRINK'
+  return (
+    <span className="text-[10px] shrink-0" title={drink ? 'Drink' : 'Food'}>
+      {drink ? '🍸' : '🍴'}
+    </span>
+  )
+}
+
 /**
- * Revenue-center switcher.
+ * Two-tier revenue-center switcher (Location → RevenueCenter + "All").
  *  - default: full-width pill for the sidebar.
  *  - compact: small inline pill for the always-visible top bar, so the active
- *    RC stays visible even when the nav is collapsed.
+ *    node stays visible even when the nav is collapsed.
  */
 export function RcSelector({ compact = false }: { compact?: boolean }) {
-  const { revenueCenters, activeRcId, activeRc, setActiveRcId } = useRc()
+  const {
+    locations, revenueCenters,
+    activeKind, activeRcId, activeRc, activeLocationId, activeLocation,
+    setActiveRcId, setActiveLocation, setActiveAll,
+  } = useRc()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -24,10 +40,29 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  if (revenueCenters.length === 0) return null
+  if (revenueCenters.length === 0 && locations.length === 0) return null
 
-  const isAll = activeRcId === null
-  const hex = activeRc ? rcHex(activeRc.color) : '#6b7280'
+  const isAll = activeKind === 'all'
+  const isLoc = activeKind === 'location'
+  const hex = isLoc && activeLocation
+    ? rcHex(activeLocation.color)
+    : activeRc ? rcHex(activeRc.color) : '#6b7280'
+  const label = isAll
+    ? 'All Revenue Centers'
+    : isLoc ? activeLocation?.name : activeRc?.name
+
+  const menu = (
+    <RcMenu
+      locations={locations}
+      activeKind={activeKind}
+      activeRcId={activeRcId}
+      activeLocationId={activeLocationId}
+      onPickAll={() => { setActiveAll(); setOpen(false) }}
+      onPickLocation={(id) => { setActiveLocation(id); setOpen(false); router.push('/location') }}
+      onPickRc={(id) => { setActiveRcId(id); setOpen(false) }}
+      onManage={() => setOpen(false)}
+    />
+  )
 
   // ── Compact (top bar) ─────────────────────────────────────────────────────
   if (compact) {
@@ -35,28 +70,24 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
       <div ref={ref} className="relative shrink-0">
         <button
           onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-md hover:bg-white/5 transition-colors max-w-[180px]"
+          className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-md hover:bg-white/5 transition-colors max-w-[200px]"
           title="Active revenue center"
         >
           {isAll
             ? <LayoutGrid size={13} className="text-ink-4 shrink-0" />
-            : <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: hex }} />
+            : isLoc
+              ? <MapPin size={13} className="shrink-0" style={{ color: hex }} />
+              : <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: hex }} />
           }
           <span className="text-[13px] font-medium tracking-[-0.005em] truncate" style={{ color: isAll ? '#d4d4d8' : hex }}>
-            {isAll ? 'All RCs' : activeRc?.name}
+            {isAll ? 'All RCs' : label}
           </span>
           <ChevronDown size={13} className="text-ink-3 shrink-0" />
         </button>
 
         {open && (
-          <div className="absolute left-0 top-full mt-2 min-w-[220px] bg-ink border border-ink-2 rounded-xl shadow-xl z-50 overflow-hidden">
-            <RcMenu
-              revenueCenters={revenueCenters}
-              activeRcId={activeRcId}
-              isAll={isAll}
-              onPick={(id) => { setActiveRcId(id); setOpen(false) }}
-              onManage={() => setOpen(false)}
-            />
+          <div className="absolute left-0 top-full mt-2 min-w-[240px] max-h-[70vh] overflow-y-auto bg-ink border border-ink-2 rounded-xl shadow-xl z-50">
+            {menu}
           </div>
         )}
       </div>
@@ -76,61 +107,81 @@ export function RcSelector({ compact = false }: { compact?: boolean }) {
       >
         {isAll
           ? <LayoutGrid size={13} className="text-ink-4 shrink-0" />
-          : null
+          : isLoc
+            ? <MapPin size={13} className="shrink-0" style={{ color: hex }} />
+            : null
         }
         <span className="flex-1 text-sm font-medium truncate" style={{ color: isAll ? '#d1d5db' : hex }}>
-          {isAll ? 'All Revenue Centers' : activeRc?.name}
+          {label}
         </span>
         <ChevronDown size={14} className="text-ink-4 shrink-0" />
       </button>
 
       {open && (
-        <div className="absolute left-3 right-3 top-full mt-1 bg-ink border border-ink-2 rounded-xl shadow-xl z-50 overflow-hidden">
-          <RcMenu
-            revenueCenters={revenueCenters}
-            activeRcId={activeRcId}
-            isAll={isAll}
-            onPick={(id) => { setActiveRcId(id); setOpen(false) }}
-            onManage={() => setOpen(false)}
-          />
+        <div className="absolute left-3 right-3 top-full mt-1 max-h-[70vh] overflow-y-auto bg-ink border border-ink-2 rounded-xl shadow-xl z-50">
+          {menu}
         </div>
       )}
     </div>
   )
 }
 
-// Shared dropdown body for both variants.
+// Shared two-tier dropdown body for both variants.
 function RcMenu({
-  revenueCenters, activeRcId, isAll, onPick, onManage,
+  locations, activeKind, activeRcId, activeLocationId,
+  onPickAll, onPickLocation, onPickRc, onManage,
 }: {
-  revenueCenters: { id: string; name: string; color: string }[]
+  locations: Location[]
+  activeKind: 'location' | 'rc' | 'all'
   activeRcId: string | null
-  isAll: boolean
-  onPick: (id: string | null) => void
+  activeLocationId: string | null
+  onPickAll: () => void
+  onPickLocation: (id: string) => void
+  onPickRc: (id: string) => void
   onManage: () => void
 }) {
   return (
     <>
       <button
-        onClick={() => onPick(null)}
+        onClick={onPickAll}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-ink-2 transition-colors text-left"
       >
         <LayoutGrid size={10} className="text-ink-4 shrink-0" />
         <span className="flex-1 text-sm text-ink-4 truncate">All Revenue Centers</span>
-        {isAll && <Check size={14} className="text-blue" />}
+        {activeKind === 'all' && <Check size={14} className="text-blue" />}
       </button>
       <div className="border-t border-ink-2" />
-      {revenueCenters.map(rc => (
-        <button
-          key={rc.id}
-          onClick={() => onPick(rc.id)}
-          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-ink-2 transition-colors text-left"
-        >
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
-          <span className="flex-1 text-sm text-ink-4 truncate">{rc.name}</span>
-          {rc.id === activeRcId && <Check size={14} className="text-blue" />}
-        </button>
-      ))}
+
+      {locations.map(loc => {
+        const lhex = rcHex(loc.color)
+        return (
+          <div key={loc.id}>
+            {/* Location header row (selectable) */}
+            <button
+              onClick={() => onPickLocation(loc.id)}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-ink-2 transition-colors text-left"
+            >
+              <MapPin size={12} className="shrink-0" style={{ color: lhex }} />
+              <span className="flex-1 text-sm font-medium text-ink-4 truncate">{loc.name}</span>
+              {activeKind === 'location' && loc.id === activeLocationId && <Check size={14} className="text-blue" />}
+            </button>
+            {/* Nested RCs */}
+            {loc.revenueCenters.map(rc => (
+              <button
+                key={rc.id}
+                onClick={() => onPickRc(rc.id)}
+                className="w-full flex items-center gap-2 pl-9 pr-3 py-2 hover:bg-ink-2 transition-colors text-left"
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: rcHex(rc.color) }} />
+                <span className="flex-1 text-sm text-ink-4 truncate">{rc.name}</span>
+                <RcTypeDot type={rc.type} />
+                {activeKind === 'rc' && rc.id === activeRcId && <Check size={14} className="text-blue" />}
+              </button>
+            ))}
+          </div>
+        )
+      })}
+
       <div className="border-t border-ink-2 p-1">
         <Link
           href="/revenue-centers"

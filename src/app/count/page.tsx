@@ -321,7 +321,7 @@ export default function CountPage() {
     areas: [] as string[], // stores storageArea IDs
   })
 
-  const { revenueCenters, activeRcId, activeRc } = useRc()
+  const { revenueCenters, activeRcId, activeRc, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { user } = useUser()
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
@@ -1244,7 +1244,9 @@ export default function CountPage() {
               )}
             </div>
             <button onClick={() => setView('new')}
-              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2" title="Start count">
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : 'Start count'}
+              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <Plus size={16} />
             </button>
           </div>
@@ -1274,7 +1276,9 @@ export default function CountPage() {
             </button>
             <button
               onClick={() => setView('new')}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap"
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink"
             >
               <span className="text-gold font-semibold text-base leading-none">+</span>
               Start count
@@ -1289,7 +1293,9 @@ export default function CountPage() {
             <p className="text-[13.5px] text-ink-3 mb-6">Regular stock counts keep your inventory accurate and food costs on target.</p>
             <button
               onClick={() => setView('new')}
-              className="inline-flex items-center gap-2 bg-ink text-paper px-5 py-2.5 rounded-[9px] text-[13px] font-medium hover:bg-ink-2 transition-colors"
+              disabled={isReadOnly}
+              title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+              className="inline-flex items-center gap-2 bg-ink text-paper px-5 py-2.5 rounded-[9px] text-[13px] font-medium hover:bg-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink"
             >
               <span className="text-gold font-semibold">+</span> Start First Count
             </button>
@@ -1320,7 +1326,7 @@ export default function CountPage() {
                   <div className="font-mono text-[10.5px] text-ink-4 mt-2">{inProgressSess.countedBy} · {fmtDate(inProgressSess.sessionDate)}</div>
                 </button>
               ) : (
-                <button onClick={() => setView('new')} className="w-full text-left bg-ink text-paper rounded-xl p-4 active:opacity-90 flex items-center justify-between gap-3">
+                <button onClick={() => setView('new')} disabled={isReadOnly} title={isReadOnly ? 'Select a revenue center to make changes' : undefined} className="w-full text-left bg-ink text-paper rounded-xl p-4 active:opacity-90 flex items-center justify-between gap-3 disabled:opacity-50 disabled:cursor-not-allowed">
                   <div className="min-w-0">
                     <span className="font-mono text-[10.5px] text-gold tracking-[0.04em]">START A COUNT</span>
                     <p className="text-[17px] font-semibold tracking-[-0.02em] mt-1">Count your stock</p>
@@ -1791,7 +1797,9 @@ export default function CountPage() {
                 </div>
                 <button
                   onClick={() => setView('new')}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper [&_svg]:text-gold text-[13px] font-medium hover:bg-ink-2 transition-colors shrink-0 whitespace-nowrap"
+                  disabled={isReadOnly}
+                  title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-[9px] bg-ink text-paper [&_svg]:text-gold text-[13px] font-medium hover:bg-ink-2 transition-colors shrink-0 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink"
                 >
                   <span className="text-gold-soft font-semibold">+</span>
                   Start count now
