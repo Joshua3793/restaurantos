@@ -66,10 +66,12 @@ No new files. All changes are localized edits to existing client components and 
 - [x] Task 7 — primary-offer star optimistic (b589422)
 - [x] Task 8 — recipes/menu toggle + bulk (39ad179)
 - [ ] Task 9 — prep transient saving indicator (DEFERRED — prep status changes are ALREADY optimistic; this is spinner-only polish)
-- [~] Task 10 — recipe rename/substitute (in final batch)
+- [x] Task 10 — recipe rename/substitute (f4e02df)
 - [ ] Task 11 — settings role/deactivate transient (DEFERRED — role change/deactivate ALREADY optimistic; spinner-only polish)
 - [x] Task 12 — count finalize failure surfacing (NO CHANGE NEEDED — handleFinalize already calls setToast on both failure branches)
-- [~] Task 13 — optimistic delete removal (in final batch)
+- [x] Task 13 — optimistic delete removal (bb1d473)
+
+### Status: rebased onto main (post PR #27 + ae19333), conflict-free. `tsc --noEmit` clean. `next build` compiles + type-validates OK (page-data-collection step hits an environmental Next 14 worker chunk-path bug on untouched routes — not from these edits).
 
 ## P0 — Reported Bug
 
