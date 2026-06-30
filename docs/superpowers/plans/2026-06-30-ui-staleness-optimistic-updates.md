@@ -65,9 +65,9 @@ No new files. All changes are localized edits to existing client components and 
 - [x] Task 6 — RC pull/par optimistic (9769f3f)
 - [x] Task 7 — primary-offer star optimistic (b589422)
 - [x] Task 8 — recipes/menu toggle + bulk (39ad179)
-- [ ] Task 9 — prep transient saving indicator (DEFERRED — prep status changes are ALREADY optimistic; this is spinner-only polish)
+- [x] Task 9 — prep transient saving indicator (1306ac9 — row dims while save in flight via savingIds threaded through RowHandlers)
 - [x] Task 10 — recipe rename/substitute (f4e02df)
-- [ ] Task 11 — settings role/deactivate transient (DEFERRED — role change/deactivate ALREADY optimistic; spinner-only polish)
+- [x] Task 11 — settings role/deactivate transient (ed7594b — per-row busyUserId disables controls + Loader2 spinner)
 - [x] Task 12 — count finalize failure surfacing (NO CHANGE NEEDED — handleFinalize already calls setToast on both failure branches)
 - [x] Task 13 — optimistic delete removal (bb1d473)
 
