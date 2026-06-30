@@ -50,6 +50,7 @@ export default function WastagePage() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [showAdd, setShowAdd] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     inventoryItemId: '',
     qtyWasted: '',
@@ -69,7 +70,7 @@ export default function WastagePage() {
       params.set('rcId', activeRcId)
       if (activeRc?.isDefault) params.set('isDefault', 'true')
     }
-    fetch(`/api/wastage?${params}`).then(r => r.json()).then(setLogs)
+    return fetch(`/api/wastage?${params}`).then(r => r.json()).then(setLogs)
   }, [reasonFilter, startDate, endDate, activeRcId, activeRc])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
@@ -84,14 +85,23 @@ export default function WastagePage() {
       return
     }
     setError(null)
-    await fetch('/api/wastage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, revenueCenterId: activeRcId }),
-    })
-    setShowAdd(false)
-    setForm({ inventoryItemId: '', qtyWasted: '', unit: 'g', reason: 'UNKNOWN', loggedBy: '', notes: '', date: new Date().toISOString().slice(0, 10) })
-    fetchLogs()
+    setSaving(true)
+    try {
+      const res = await fetch('/api/wastage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, revenueCenterId: activeRcId }),
+      })
+      if (!res.ok) {
+        setError('Failed to log wastage. Please try again.')
+        return
+      }
+      await fetchLogs()
+      setShowAdd(false)
+      setForm({ inventoryItemId: '', qtyWasted: '', unit: 'g', reason: 'UNKNOWN', loggedBy: '', notes: '', date: new Date().toISOString().slice(0, 10) })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const totalCost = logs.reduce((sum, l) => sum + parseFloat(String(l.costImpact)), 0)
@@ -357,10 +367,10 @@ export default function WastagePage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={!activeRcId}
+                  disabled={!activeRcId || saving}
                   className="flex-1 bg-red text-white rounded-lg py-2 text-sm hover:bg-red disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Log Wastage
+                  {saving ? 'Saving…' : 'Log Wastage'}
                 </button>
               </div>
             </form>
