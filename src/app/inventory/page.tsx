@@ -1585,7 +1585,12 @@ function InventoryPageInner() {
         <InventoryItemDrawer
           itemId={selected.id}
           onClose={() => setSelected(null)}
-          onUpdated={fetchItems}
+          onUpdated={(updatedItem) => {
+            if (updatedItem) {
+              setItems(prev => prev.map(i => i.id === updatedItem.id ? { ...i, ...(updatedItem as Partial<InventoryItem>) } : i))
+            }
+            fetchItems()
+          }}
         />
       )}
 

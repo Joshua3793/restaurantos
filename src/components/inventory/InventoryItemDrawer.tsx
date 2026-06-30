@@ -134,7 +134,7 @@ function buildEditForm(item: InventoryItem): EditForm {
 interface Props {
   itemId: string
   onClose: () => void
-  onUpdated?: () => void
+  onUpdated?: (updatedItem?: InventoryItem) => void
   zClassName?: string
   initialEditMode?: boolean
 }
@@ -317,10 +317,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       return
     }
     const updated = await res.json()
-    setItem(normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea }))
+    const next = normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
+    setItem(next)
     setEditMode(false)
     setSaving(false)
-    onUpdated?.()
+    onUpdated?.(next)
   }
 
   return (
