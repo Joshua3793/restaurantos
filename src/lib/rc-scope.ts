@@ -77,6 +77,51 @@ export function scopedRcWhere(
 }
 
 /**
+ * Resolves a LOCATION to the set of active child RevenueCenter ids the caller
+ * may read. Intersects the location's children with the user's resolved scope
+ * (null scope = no restriction). Returns [] for an empty / fully out-of-scope
+ * location — an empty `{ in: [] }` fails closed (matches nothing).
+ */
+export async function resolveLocationRcIds(user: User, locationId: string): Promise<string[]> {
+  const allowed = await resolveScopedRcIds(user)
+  const rcs = await prisma.revenueCenter.findMany({
+    where: { locationId, isActive: true },
+    select: { id: true },
+  })
+  const ids = rcs.map(rc => rc.id)
+  return allowed === null ? ids : ids.filter(id => allowed.has(id))
+}
+
+/**
+ * Builds the Prisma `revenueCenterId` where-fragment from a request's scope
+ * params, supporting BOTH a single `rcId` and a whole-LOCATION `locationId`.
+ *  - locationId present → filter to every active child RC of the location
+ *    (intersected with scope). `nullable: true` also surfaces shared null rows.
+ *  - else → delegate to scopedRcWhere (single-RC, or all-in-scope when no rcId).
+ *
+ * @param opts.nullable pass true ONLY for models whose revenueCenterId column is
+ *   NULLABLE (CountSession, InvoiceSession, Recipe…). For NOT NULL models
+ *   (SalesEntry, WastageLog) pass false — a `{ revenueCenterId: null }` union
+ *   throws on a required column.
+ */
+export async function scopeWhereFromParams(
+  user: User,
+  searchParams: URLSearchParams,
+  opts: { nullable: boolean },
+): Promise<Record<string, unknown>> {
+  const rcId = searchParams.get('rcId')
+  const locationId = searchParams.get('locationId')
+  const isDefault = searchParams.get('isDefault') === 'true'
+  if (locationId) {
+    const ids = await resolveLocationRcIds(user, locationId)
+    const base = { revenueCenterId: { in: ids } }
+    return opts.nullable ? { OR: [base, { revenueCenterId: null }] } : base
+  }
+  const allowed = await resolveScopedRcIds(user)
+  return scopedRcWhere(allowed, rcId, opts.nullable && isDefault)
+}
+
+/**
  * Throws AuthError(403) if the user may not write to `rcId`.
  * Writes MUST target a leaf revenue center — a missing rcId (e.g. a write that
  * named only a location) is rejected. ADMIN / unscoped users pass any real rcId.
