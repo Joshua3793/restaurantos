@@ -12,10 +12,13 @@ export interface RowHandlers {
   /** One-tap "Done" on an in-progress row: pops the yield prompt directly (no full drawer). */
   onQuickDone: (item: PrepItemRich) => void
   onPriorityChange: (id: string, priority: string) => void
+  /** Item ids whose mutation is in flight — row dims while saving. */
+  savingIds?: Set<string>
 }
 
 export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
   const { item, urgency: u } = row
+  const saving = h.savingIds?.has(row.id) ?? false
   const stock = (
     <>{row.onHand === 0 ? <span className="z">0</span> : fmtQty(row.onHand)} / {fmtQty(row.par)} <small>{row.unit}</small></>
   )
@@ -53,7 +56,7 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
     : u === 'critical' ? '#dc2626'
     : u === 'low' ? '#d97706'
     : '#16a34a'
-  const rowStyle = { boxShadow: `inset 3px 0 0 ${accent}` } as React.CSSProperties
+  const rowStyle = { boxShadow: `inset 3px 0 0 ${accent}`, ...(saving ? { opacity: 0.55, transition: 'opacity 120ms' } : {}) } as React.CSSProperties
   if (h.view === 'todo' && row.status === 'in-progress') {
     (rowStyle as Record<string, string>)['--pw'] = `${Math.max(8, row.pct)}%`
   }

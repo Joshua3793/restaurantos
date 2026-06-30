@@ -42,6 +42,13 @@ export default function PrepPage() {
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
   const [selected,     setSelected]     = useState<PrepItemRich | null>(null)
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
+  const markSaving = (id: string, on: boolean) =>
+    setSavingIds(prev => {
+      const next = new Set(prev)
+      if (on) next.add(id); else next.delete(id)
+      return next
+    })
   const [editing,      setEditing]      = useState<PrepItemRich | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -469,11 +476,13 @@ export default function PrepPage() {
             },
       }
     }))
+    markSaving(itemId, true)
 
     if (!navigator.onLine) {
       enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty, revenueCenterId: item.revenueCenterId ?? activeRcId })
       setPendingCount(n => n + 1)
       pendingItems.current.delete(itemId)
+      markSaving(itemId, false)
       return
     }
 
@@ -504,6 +513,7 @@ export default function PrepPage() {
       load()
     } finally {
       pendingItems.current.delete(itemId)
+      markSaving(itemId, false)
     }
   }
 
@@ -516,10 +526,12 @@ export default function PrepPage() {
         priority: (priority as PrepItemRich['priority']) || item.priority,
       }
     }))
+    markSaving(itemId, true)
 
     if (!navigator.onLine) {
       enqueueMutation({ type: 'priority', itemId, priority })
       setPendingCount(n => n + 1)
+      markSaving(itemId, false)
       return
     }
 
@@ -533,6 +545,8 @@ export default function PrepPage() {
     } catch {
       setActionError('Priority update failed — try again.')
       load()
+    } finally {
+      markSaving(itemId, false)
     }
   }
 
@@ -554,10 +568,12 @@ export default function PrepPage() {
     setItems(prev => prev.map(i =>
       i.id === itemId ? { ...i, isOnList: newValue } : i
     ))
+    markSaving(itemId, true)
 
     if (!navigator.onLine) {
       enqueueMutation({ type: 'isOnList_toggle', itemId, isOnList: newValue })
       setPendingCount(n => n + 1)
+      markSaving(itemId, false)
       return
     }
 
@@ -581,6 +597,8 @@ export default function PrepPage() {
     } catch {
       setActionError('Could not update list — try again.')
       load()
+    } finally {
+      markSaving(itemId, false)
     }
   }
 
@@ -1191,7 +1209,7 @@ export default function PrepPage() {
               groupBy={smartPrepView}
               items={filteredSmart}
               todayItems={filteredToday}
-              handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange }}
+              handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange, savingIds }}
               onAddAll={handleAddIds}
               tasksSlot={viewMode === 'smartprep'
                 ? <PrepTaskLibrary
