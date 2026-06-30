@@ -5,7 +5,7 @@ import React, {
 } from 'react'
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown,
-  Circle, ClipboardList, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Trash2, WifiOff, X,
+  Circle, ClipboardList, Copy, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { formatCurrency, formatUnitPrice, BASE_UNITS, PURCHASE_UNITS } from '@/lib/utils'
@@ -2191,6 +2191,15 @@ export default function CountPage() {
               })()}
 
               <div className="flex gap-2">
+                {line.noMovement && line.countedQty === null && (
+                  <button
+                    onClick={() => confirmSameAsLast(line)}
+                    className="px-3 h-11 border border-gold bg-gold-soft text-gold-2 rounded-[9px] font-medium text-[13px] hover:bg-[#fde68a] transition-colors flex items-center gap-1.5"
+                    title="No movement since last count — record unchanged"
+                  >
+                    <Copy size={14} /> Same as last
+                  </button>
+                )}
                 <button
                   onClick={() => confirmLine(line, inputQty, extraEntries.length > 0 ? [{ qty: inputQty, unit: line.selectedUom }, ...extraEntries] : undefined)}
                   className="flex-1 h-11 bg-ink text-paper rounded-[9px] font-medium text-[13px] hover:bg-ink-2 transition-colors flex items-center justify-center gap-1.5"
@@ -2431,6 +2440,14 @@ export default function CountPage() {
                   </div>
                 )}
 
+                {line.noMovement && line.countedQty === null && (
+                  <button
+                    onClick={() => confirmSameAsLast(line)}
+                    className="w-full h-12 border border-gold bg-gold-soft text-gold-2 rounded-[12px] font-semibold text-[15px] flex items-center justify-center gap-2 mt-4"
+                  >
+                    <Copy size={17} /> Same as last
+                  </button>
+                )}
                 <button onClick={() => confirmLine(line, effectiveQty, mHasExtras ? [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries] : undefined)}
                   className="w-full h-12 bg-ink text-paper rounded-[12px] font-semibold text-[15px] flex items-center justify-center gap-2 mt-4">
                   <Check size={17} className="text-gold" /> Save count
