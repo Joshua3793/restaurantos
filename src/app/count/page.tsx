@@ -53,6 +53,8 @@ interface Line {
   selectedUom: string
   entries?: { unit: string; qty: number }[] | null   // mixed-unit count (authoritative when present)
   skipped: boolean
+  noMovement?: boolean
+  carriedForward?: boolean
   variancePct: number | null
   varianceCost: number | null
   priceAtCount: number
@@ -284,10 +286,15 @@ export default function CountPage() {
   const [extraEntries,  setExtraEntries]  = useState<{ qty: number; unit: string }[]>([])
   const [catFilter,     setCatFilter]     = useState<string | null>(null)
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
-  const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped'>('all')
+  const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped' | 'nomovement'>('all')
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
   const [searchQuery,   setSearchQuery]   = useState('')
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
+
+  // ── Bulk "Same as last" (zero-velocity confirm) ─────────────────────────────
+  const [bulkSelected,    setBulkSelected]    = useState<Set<string>>(new Set())
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
+  const [bulkBusy,        setBulkBusy]        = useState(false)
 
   // ── Review screen: interactive table controls ──────────────────────────────
   const [reviewSearch, setReviewSearch] = useState('')
@@ -504,6 +511,7 @@ export default function CountPage() {
       if (statusFilter === 'uncounted') { if (l.countedQty !== null || l.skipped) return false }
       if (statusFilter === 'counted')   { if (l.countedQty === null || l.skipped) return false }
       if (statusFilter === 'skipped')   { if (!l.skipped) return false }
+      if (statusFilter === 'nomovement') { if (!l.noMovement || l.countedQty !== null || l.skipped) return false }
       if (q && !l.inventoryItem.itemName.toLowerCase().includes(q) && !l.inventoryItem.category.toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => a.sortOrder - b.sortOrder)
@@ -637,7 +645,8 @@ export default function CountPage() {
     })
   }
 
-  const confirmLine = async (line: Line, qty: number, entries?: { unit: string; qty: number }[]) => {
+  const confirmLine = async (line: Line, qty: number, entries?: { unit: string; qty: number }[], opts?: { carried?: boolean; silent?: boolean }) => {
+    const carried = opts?.carried === true
     // Mixed-unit: when entries provided (>1 row), they're authoritative. We mirror the
     // server's storage choice — countedQty = summed base, selectedUom = baseUnit — so
     // collapsed-card readers stay correct.
@@ -646,26 +655,28 @@ export default function CountPage() {
       ? countEntriesToBase(entries!, line.inventoryItem)
       // qty is in line.selectedUom — convert to baseUnit for variance (expectedQty is in baseUnit)
       : convertCountQtyToBase(qty, line.selectedUom, line.inventoryItem)
-    const vPct  = Number(line.expectedQty) > 0 ? ((qtyBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100 : 0
+    const vPct  = carried ? 0 : (Number(line.expectedQty) > 0 ? ((qtyBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100 : 0)
     // Value the in-progress variance at the LIVE derived spine price; priceAtCount is only
     // the fallback (and remains the authoritative snapshot for finalized/historical lines).
     const livePpb = Number(line.inventoryItem.pricePerBaseUnit ?? line.priceAtCount)
-    const vCost = (qtyBase - Number(line.expectedQty)) * livePpb
+    const vCost = carried ? 0 : (qtyBase - Number(line.expectedQty)) * livePpb
     const optimistic = mixed
       ? { countedQty: qtyBase, selectedUom: line.inventoryItem.baseUnit, entries }
       : { countedQty: qty, selectedUom: line.selectedUom, entries: null }
     const applyCount = (l: Line): Line =>
-      l.id === line.id ? { ...l, ...optimistic, skipped: false, variancePct: vPct, varianceCost: vCost } : l
+      l.id === line.id ? { ...l, ...optimistic, skipped: false, carriedForward: carried, variancePct: vPct, varianceCost: vCost } : l
     setActive(prev => ({ ...prev!, lines: prev!.lines!.map(applyCount) }))
     setOpenId(null)
     // Auto-advance to next uncounted
-    const next = filteredLines.find(l => l.id !== line.id && l.countedQty === null && !l.skipped)
-    if (next) {
-      setTimeout(() => {
-        setOpenId(next.id)
-        const prefix = typeof window !== 'undefined' && window.innerWidth < 640 ? 'm-' : 'd-'
-        cardRefs.current[`${prefix}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 120)
+    if (!opts?.silent) {
+      const next = filteredLines.find(l => l.id !== line.id && l.countedQty === null && !l.skipped)
+      if (next) {
+        setTimeout(() => {
+          setOpenId(next.id)
+          const prefix = typeof window !== 'undefined' && window.innerWidth < 640 ? 'm-' : 'd-'
+          cardRefs.current[`${prefix}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 120)
+      }
     }
     // Durable save — used when offline AND when an online save fails. A PATCH that
     // fails while navigator.onLine is still true (flaky walk-in-cooler wifi never
@@ -675,7 +686,7 @@ export default function CountPage() {
     // after counting / sync wipes my work, making me recount" bug. Queue + cache it
     // so the offline flush retries it on the next reconnect.
     const queueCount = () => {
-      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty, ...(mixed ? { entries } : {}) })
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty, ...(mixed ? { entries } : {}), ...(carried ? { carried: true } : {}) })
       setPendingCount(c => c + 1)
       if (active) saveCountSessionCache(active.id, { ...active, lines: active.lines!.map(applyCount) })
     }
@@ -689,7 +700,7 @@ export default function CountPage() {
         body: JSON.stringify(
           mixed
             ? { entries, expectedUpdatedAt: line.updatedAt }
-            : { countedQty: qty, expectedUpdatedAt: line.updatedAt },
+            : { countedQty: qty, expectedUpdatedAt: line.updatedAt, ...(carried ? { carriedForward: true } : {}) },
         ),
       })
       if (res.status === 409) {
@@ -716,6 +727,46 @@ export default function CountPage() {
       // Network dropped mid-save while still "online" — queue so the count survives.
       queueCount()
     }
+  }
+
+  // "Same as last" — record the line's expected qty (== last count for a no-movement
+  // item) as the count, flagged carried-forward with zero variance. Reuses confirmLine
+  // so it inherits the offline queue + 409 merge.
+  const confirmSameAsLast = (line: Line, silent = false) => {
+    const qty = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
+    return confirmLine(line, qty, undefined, { carried: true, silent })
+  }
+
+  // Eligible lines currently visible under the No-movement filter (uncounted only).
+  const bulkEligible = filteredLines.filter(l => l.noMovement && l.countedQty === null && !l.skipped)
+
+  // Total $ value of the selected lines, valued at the live spine price.
+  const bulkSelectedValue = () =>
+    bulkEligible
+      .filter(l => bulkSelected.has(l.id))
+      .reduce((sum, l) => sum + Number(l.expectedQty) * Number(l.inventoryItem.pricePerBaseUnit ?? l.priceAtCount), 0)
+
+  const toggleBulk = (id: string) =>
+    setBulkSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+
+  const bulkSelectAll = () => setBulkSelected(new Set(bulkEligible.map(l => l.id)))
+  const bulkSelectNone = () => setBulkSelected(new Set())
+
+  const runBulkConfirm = async () => {
+    setBulkBusy(true)
+    const targets = bulkEligible.filter(l => bulkSelected.has(l.id))
+    for (const line of targets) {
+      // Sequential: each confirmSameAsLast awaits its PATCH and falls back to the
+      // offline queue on failure, so one bad line never aborts the batch.
+      await confirmSameAsLast(line, true)
+    }
+    setBulkBusy(false)
+    setShowBulkConfirm(false)
+    setBulkSelected(new Set())
   }
 
   const changeUom = async (line: Line, newUom: string) => {
