@@ -241,6 +241,8 @@ model CountLine {
   // authoritative; countedQty/selectedUom remain as the single-unit fallback + display.
   entries         Json?
   skipped         Boolean       @default(false)
+  noMovement      Boolean       @default(false)
+  carriedForward  Boolean       @default(false)
   variancePct     Decimal?
   varianceCost    Decimal?
   priceAtCount    Decimal
