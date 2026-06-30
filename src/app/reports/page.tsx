@@ -8,6 +8,7 @@ import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
 import { ReportsSubnav } from './ReportsSubnav'
 import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
+import { LocationDashboard } from '@/components/locations/LocationDashboard'
 
 interface ChromeData {
   foodCostPct: number | null
@@ -42,7 +43,7 @@ interface RecipeDriftRow {
 }
 
 export default function ReportsPage() {
-  const { activeRcId, activeRc, activeKind } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
@@ -99,6 +100,11 @@ export default function ReportsPage() {
 
   return (
     <div>
+      {activeKind === 'location' && activeLocationId && (
+        <div className="mb-6">
+          <LocationDashboard locationId={activeLocationId} />
+        </div>
+      )}
       <PageHead
         crumbs={<><BarChart3 size={12} /> INSIGHTS / REPORTS</>}
         title="Reports"
