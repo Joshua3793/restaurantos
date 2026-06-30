@@ -19,7 +19,7 @@ import { useNativeScan } from '@/hooks/useNativeScan'
 const InvoiceDrawer = dynamic<{
   sessionId: string | null
   onClose: () => void
-  onApproveOrReject: () => void
+  onApproveOrReject: (optimistic?: { id: string; status: SessionStatus }) => void
   onNavigate?: (id: string) => void
   allSessions?: SessionSummary[]
 }>(
@@ -153,7 +153,12 @@ export default function InvoicesPage() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [fetchSessions])
 
-  const handleApproveOrReject = useCallback(() => {
+  const handleApproveOrReject = useCallback((optimistic?: { id: string; status: SessionStatus }) => {
+    if (optimistic) {
+      setSessions(prev =>
+        prev.map(s => (s.id === optimistic.id ? { ...s, status: optimistic.status } : s)),
+      )
+    }
     fetchSessions()
     setKpiRefreshKey(k => k + 1)
   }, [fetchSessions])

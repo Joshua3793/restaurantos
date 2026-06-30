@@ -15,7 +15,7 @@ import { ImageViewerV2, type BBox } from './ImageViewer'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { AdoptFormatModal } from './AdoptFormatModal'
-import type { Session, ScanItem, SessionSummary } from '@/components/invoices/types'
+import type { Session, ScanItem, SessionSummary, SessionStatus } from '@/components/invoices/types'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import {
@@ -239,7 +239,7 @@ export function InvoiceReviewDrawer({
 }: {
   sessionId: string | null
   onClose: () => void
-  onApproveOrReject: () => void
+  onApproveOrReject: (optimistic?: { id: string; status: SessionStatus }) => void
   onNavigate?: (id: string) => void
   allSessions?: SessionSummary[]
 }) {
@@ -719,7 +719,9 @@ export function InvoiceReviewDrawer({
         return
       }
       setApproved(true)
-      onApproveOrReject()
+      // Optimistically flip the list row to APPROVING so the user sees the
+      // transient state immediately AND the parent's fast (3s) poll engages.
+      onApproveOrReject({ id: session.id, status: 'APPROVING' })
       if (result.queued) onClose()
     } catch {
       alert('Network error — please try again.')
