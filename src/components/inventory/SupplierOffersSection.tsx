@@ -45,6 +45,7 @@ export function SupplierOffersSection({ itemId, baseUnit, onRepriced }: { itemId
 
   const setPrimary = async (offerId: string) => {
     setSaving(true)
+    setOffers(prev => prev ? prev.map(o => ({ ...o, isPrimary: o.id === offerId })) : prev)
     const res = await fetch(`/api/inventory/${itemId}/suppliers`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
