@@ -2015,6 +2015,9 @@ export default function CountPage() {
                     <span className={varColor(vPct)}>· {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%</span>
                   )}
                   {lastQty != null && <span className="text-ink-4">· last {lastQty.toFixed(2)}</span>}
+                  {line.carriedForward && (
+                    <span className="px-1.5 py-0.5 rounded-[5px] bg-gold-soft text-gold-2 text-[9.5px] font-medium tracking-wide">carried</span>
+                  )}
                 </div>
               </div>
               <CategoryBadge category={line.inventoryItem.category} />
@@ -2331,6 +2334,9 @@ export default function CountPage() {
                   <div className={`font-mono text-[11px] mt-0.5 ${varColor(line.variancePct)}`}>
                     {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(1)}%
                   </div>
+                )}
+                {line.carriedForward && (
+                  <span className="px-1.5 py-0.5 rounded-[5px] bg-gold-soft text-gold-2 text-[9.5px] font-medium tracking-wide">carried</span>
                 )}
               </div>
             ) : (
