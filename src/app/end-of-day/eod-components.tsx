@@ -1,50 +1,69 @@
 'use client'
 import Link from 'next/link'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { TrendingUp, AlertTriangle, RotateCw, Check, RotateCcw } from 'lucide-react'
+import { TrendingUp, AlertTriangle, RotateCw, Check, RotateCcw, ClipboardList, Truck } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
 import { SafetyTempsSummary } from '@/components/preshift/SafetyTempsSummary'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import type { EodSummary, EodCloseState, EodCheckItemDTO } from './page'
+import type { PrepItemRich } from '@/components/prep/types'
 
 const card = 'bg-paper border border-line rounded-[12px] overflow-hidden'
 const cardHead = 'flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2'
 const railCard = 'bg-paper border border-line rounded-[12px] p-[18px] mb-4'
 
-// Placeholder metrics — no data source yet (labour/forecast). Rendered with an
-// explicit "est" tag so they read as estimates, never live numbers. Wired in a later phase.
+// Placeholder target — no target-setting UI yet. Wired in a later phase.
 export const PH_TARGET_PCT = 27
-export const PH_LABOUR_PCT = 31.4
 
 // ── KPI row ──────────────────────────────────────────────────────────────────
-export function EodKpiRow({ data, target, labourPct }: { data: EodSummary | null; target: number; labourPct: number }) {
+export function EodKpiRow({ data, target, closeState }: { data: EodSummary | null; target: number; closeState: EodCloseState | null }) {
   const fc = data?.foodCostPct ?? null
   const over = fc != null && fc > target
+
+  // Net-sales sub: forecast delta when available, else covers.
+  let netSub = data ? `${data.covers} covers` : ''
+  let netSubClass = ''
+  if (data && data.netSalesForecast != null && data.netSalesForecast !== 0) {
+    const pct = ((data.netSales - data.netSalesForecast) / data.netSalesForecast) * 100
+    netSub = `forecast ${formatCurrency(data.netSalesForecast)} · ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
+    netSubClass = pct >= 0 ? 'text-green-text' : 'text-red-text'
+  }
+
+  // Labour: derived from the manually-entered close-out labour cost.
+  const labourCost = closeState?.close.labourCost ?? null
+  let labourValue = '—'
+  let labourSub = 'enter labour $ →'
+  if (labourCost != null && data && data.foodSales > 0) {
+    const labourPct = (labourCost / data.foodSales) * 100
+    labourValue = `${labourPct.toFixed(1)}%`
+    labourSub = data.foodCostPct != null ? `prime cost ${(data.foodCostPct + labourPct).toFixed(1)}%` : ''
+  }
+
   return (
     <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-4">
       <Kpi label="NET SALES · TODAY" value={data ? formatCurrency(data.netSales) : '—'}
-        sub={data ? `${data.covers} covers` : ''} hero />
+        sub={netSub} subClass={netSubClass} hero />
       <Kpi label="FOOD COST · TODAY" value={fc != null ? `${fc.toFixed(1)}%` : '—'}
         sub={`target ${target.toFixed(1)}`} valueClass={over ? 'text-red-text' : ''} accent="bg-red" />
       <Kpi label="AVG SPEND" value={data?.avgSpend != null ? formatCurrency(data.avgSpend) : '—'}
         sub="per cover" />
-      {/* PLACEHOLDER — no labour data source yet */}
-      <Kpi label="LABOUR" value={`${labourPct.toFixed(1)}%`} sub="est · not yet wired" placeholder />
+      <Kpi label="LABOUR" value={labourValue} sub={labourSub} />
     </div>
   )
 }
 
-function Kpi({ label, value, sub, valueClass = '', accent, hero, placeholder }:
-  { label: string; value: string; sub: string; valueClass?: string; accent?: string; hero?: boolean; placeholder?: boolean }) {
+function Kpi({ label, value, sub, valueClass = '', subClass = '', accent, hero }:
+  { label: string; value: string; sub: string; valueClass?: string; subClass?: string; accent?: string; hero?: boolean }) {
   return (
-    <div className={`relative flex flex-col justify-between min-h-[110px] rounded-[12px] p-5 border ${hero ? 'bg-ink text-paper border-ink' : 'bg-paper border-line'} ${placeholder ? 'opacity-70' : ''}`}>
+    <div className={`relative flex flex-col justify-between min-h-[110px] rounded-[12px] p-5 border ${hero ? 'bg-ink text-paper border-ink' : 'bg-paper border-line'}`}>
       {accent && <div className={`absolute top-0 left-0 w-8 h-0.5 ${accent}`} />}
       <div>
         <div className="font-mono text-[10.5px] tracking-[0.01em] uppercase text-ink-3">{label}</div>
         <div className={`text-[30px] font-semibold tracking-[-0.04em] leading-none mt-2 ${hero ? '' : valueClass || 'text-ink'}`}>{value}</div>
       </div>
-      <div className="font-mono text-[11px] text-ink-3">{sub}</div>
+      <div className={`font-mono text-[11px] ${subClass || 'text-ink-3'}`}>{sub}</div>
     </div>
   )
 }
@@ -276,18 +295,221 @@ export function LoopStrip() {
   )
 }
 
+// ── Sets up tomorrow · prep-for-tomorrow + order suggestions ───────────────────
+interface OrderLine {
+  id: string
+  name: string
+  onHand: number
+  par: number
+  unit: string
+  suggestedQty: number
+  unitPrice: number
+  lineCost: number
+}
+interface OrderSupplierGroup {
+  supplierId: string | null
+  supplierName: string
+  lines: OrderLine[]
+  subtotal: number
+}
+interface EodOrdersDTO {
+  rcId: string
+  suppliers: OrderSupplierGroup[]
+  lineCount: number
+  total: number
+}
+
+export function SetsUpTomorrow({ rcId }: { rcId: string }) {
+  return (
+    <div className="mt-1">
+      <BandLabel title="Sets up tomorrow" note="SUGGESTED FROM PAR + DEPLETION" />
+      <PrepForTomorrowCard rcId={rcId} />
+      <OrderSuggestionsCard rcId={rcId} />
+    </div>
+  )
+}
+
+function PrepForTomorrowCard({ rcId }: { rcId: string }) {
+  const [items, setItems] = useState<PrepItemRich[] | null>(null)
+  const [queuing, setQueuing] = useState(false)
+  const [justQueued, setJustQueued] = useState(false)
+
+  const load = useCallback(() => {
+    fetch('/api/prep/items', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: PrepItemRich[] | null) => { if (Array.isArray(d)) setItems(d) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { setItems(null); load() }, [rcId, load])
+
+  const targets = (items ?? [])
+    .filter(i => i.priority !== 'LATER' && !i.isOnList && (i.revenueCenterId === rcId || i.revenueCenterId == null))
+    .sort((a, b) => (a.priority === b.priority ? 0 : a.priority === '911' ? -1 : 1))
+
+  async function queueAll() {
+    if (targets.length === 0 || queuing) return
+    setQueuing(true)
+    try {
+      await Promise.all(targets.map(i =>
+        fetch(`/api/prep/items/${i.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isOnList: true }),
+        })
+      ))
+      setJustQueued(true)
+      load()
+      setTimeout(() => setJustQueued(false), 2500)
+    } finally {
+      setQueuing(false)
+    }
+  }
+
+  return (
+    <div className={`${card} mb-3`}>
+      <div className={cardHead}>
+        <h3 className="text-[13px] font-semibold flex items-center gap-2">
+          <ClipboardList size={13} className="text-ink-3" /> Prep for tomorrow
+        </h3>
+        <span className={`font-mono text-[10px] ${justQueued ? 'text-green-text' : 'text-ink-3'}`}>
+          {justQueued ? 'Queued → Prep board' : items === null ? '…' : `${targets.length} suggested`}
+        </span>
+      </div>
+      {items === null ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Loading prep suggestions…</div>
+      ) : targets.length === 0 ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Nothing below par — prep&apos;s in good shape.</div>
+      ) : (
+        <>
+          <div className="divide-y divide-line">
+            {targets.map(it => (
+              <div key={it.id} className="grid grid-cols-[1fr_auto] gap-3 px-[18px] py-2.5 items-center">
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2">
+                    <span className="text-[13px] text-ink font-medium truncate">{it.name}</span>
+                    <span className={`font-mono text-[9px] uppercase tracking-wide px-[7px] py-0.5 rounded-full font-semibold shrink-0 ${it.priority === '911' ? 'bg-red-soft text-red-text' : 'bg-gold-soft text-gold-2'}`}>
+                      {it.priority === '911' ? 'priority' : 'needed'}
+                    </span>
+                  </span>
+                  <span className="block font-mono text-[10.5px] text-ink-3 mt-px">on hand {it.onHand} / par {it.parLevel}</span>
+                </span>
+                <span className="font-mono text-[13px] font-semibold text-ink tabular-nums text-right shrink-0">
+                  {it.suggestedQty}<small className="text-ink-3 font-normal ml-1">{it.unit}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="px-[18px] py-3 border-t border-line bg-bg-2">
+            <button
+              onClick={queueAll}
+              disabled={queuing}
+              className="w-full py-2 rounded-[9px] text-[13px] font-semibold bg-ink text-paper hover:bg-[#18181b] transition-colors disabled:opacity-60"
+            >
+              Queue {targets.length} to board
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function OrderSuggestionsCard({ rcId }: { rcId: string }) {
+  const [data, setData] = useState<EodOrdersDTO | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    setData(null)
+    fetch(`/api/eod/orders?rcId=${rcId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: EodOrdersDTO | null) => { if (d) setData(d) })
+      .catch(() => {})
+  }, [rcId])
+
+  function copyOrderList() {
+    if (!data || data.suppliers.length === 0) return
+    const text = data.suppliers.map(sup => {
+      const lines = sup.lines.map(l => `  ${l.suggestedQty} ${l.unit}  ${l.name}`).join('\n')
+      return `${sup.supplierName}\n${lines}`
+    }).join('\n\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {})
+  }
+
+  return (
+    <div className={`${card} mb-3`}>
+      <div className={cardHead}>
+        <h3 className="text-[13px] font-semibold flex items-center gap-2">
+          <Truck size={13} className="text-ink-3" /> Order suggestions <span className="text-ink-3 font-normal">· below par</span>
+        </h3>
+        <Link href="/inventory" className="font-mono text-[10px] text-gold-2 border-b border-dashed border-current">SUPPLIERS →</Link>
+      </div>
+      {data === null ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Loading order suggestions…</div>
+      ) : data.suppliers.length === 0 ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Everything at or above par.</div>
+      ) : (
+        <>
+          {data.suppliers.map(sup => (
+            <div key={sup.supplierId ?? sup.supplierName}>
+              <div className="flex items-center gap-2 px-[18px] py-2 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 uppercase tracking-wide">
+                <span className="w-[7px] h-[7px] rounded-full bg-ink-4" />
+                {sup.supplierName}
+                <span className="ml-auto text-ink-2 font-semibold normal-case tracking-normal">{formatCurrency(sup.subtotal)}</span>
+              </div>
+              <div className="divide-y divide-line">
+                {sup.lines.map(l => (
+                  <div key={l.id} className="grid grid-cols-[1fr_auto_auto] gap-3 px-[18px] py-2.5 items-center">
+                    <span className="min-w-0">
+                      <span className="block text-[13px] text-ink font-medium truncate">{l.name}</span>
+                      <span className="block font-mono text-[10.5px] text-ink-3 mt-px">on hand {l.onHand} / par {l.par} {l.unit}</span>
+                    </span>
+                    <span className="font-mono text-[13px] font-semibold text-ink tabular-nums text-right shrink-0">
+                      {l.suggestedQty}<small className="text-ink-3 font-normal ml-1">{l.unit}</small>
+                    </span>
+                    <span className="font-mono text-[12.5px] font-semibold text-ink-2 tabular-nums text-right shrink-0">{formatCurrency(l.lineCost)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center gap-3.5 px-[18px] py-3.5 bg-bg-2 border-t border-line">
+            <span className="text-[12.5px] text-ink-3">
+              <b className="text-ink font-semibold">{data.lineCount}</b> lines · <b className="text-ink font-semibold">{data.suppliers.length}</b> suppliers
+            </span>
+            <span className="ml-auto font-mono text-[16px] font-semibold text-ink tabular-nums">{formatCurrency(data.total)}</span>
+            <button
+              onClick={copyOrderList}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[12.5px] font-semibold transition-colors ${copied ? 'bg-green text-white' : 'bg-ink text-paper hover:bg-[#18181b]'}`}
+            >
+              {copied ? <Check size={13} /> : <ClipboardList size={13} />} {copied ? 'Copied' : 'Copy order list'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Right rail · close ─────────────────────────────────────────────────────────
 const GATE_C = 2 * Math.PI * 44
 
-export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHandover, onSignOff, onReopen }: {
+export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHandover, onSaveClose, onSignOff, onReopen }: {
   data: EodSummary | null
   closeState: EodCloseState | null
   isRcScoped: boolean
   signoffError: string | null
   onSaveHandover: (text: string) => void
+  onSaveClose: (fields: { labourCost?: number | null; grossSales?: number | null; compsVoids?: number | null; discounts?: number | null }) => void
   onSignOff: () => void
   onReopen: () => void
 }) {
+  const locked = closeState?.close.status === 'CLOSED'
+  const close = closeState?.close
+
   return (
     <aside>
       <GateCard
@@ -298,12 +520,17 @@ export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHa
         onReopen={onReopen}
       />
 
-      {/* Day summary — net sales + food cost are LIVE; the rest are placeholders */}
+      {/* Day summary — net sales + food cost are LIVE (derived); the rest are manual entries */}
       <div className={railCard}>
         <h4 className="text-[12px] font-semibold text-ink mb-2.5 flex items-center justify-between">Day summary <span className="font-mono text-[10px] text-ink-3 font-normal">closes loop</span></h4>
-        <SumRow l="Gross sales" v="—" note="est" />
-        <SumRow l="Comps & voids" v="—" note="est" />
-        <SumRow l="Discounts" v="—" note="est" />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Gross sales" value={close?.grossSales ?? null}
+          onChange={v => onSaveClose({ grossSales: v })} disabled={!isRcScoped || locked} />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Comps & voids" value={close?.compsVoids ?? null}
+          onChange={v => onSaveClose({ compsVoids: v })} disabled={!isRcScoped || locked} />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Discounts" value={close?.discounts ?? null}
+          onChange={v => onSaveClose({ discounts: v })} disabled={!isRcScoped || locked} />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Labour cost" value={close?.labourCost ?? null}
+          onChange={v => onSaveClose({ labourCost: v })} disabled={!isRcScoped || locked} />
         <SumRow l="Net sales" v={data ? formatCurrency(data.netSales) : '—'} />
         <div className="flex items-center justify-between pt-2 mt-1 border-t border-line">
           <span className="text-[12px] text-ink font-medium">Food cost</span>
@@ -434,6 +661,35 @@ function SumRow({ l, v, note }: { l: string; v: string; note?: string }) {
     <div className="flex items-center justify-between py-1">
       <span className="text-[12px] text-ink-3">{l}</span>
       <span className="font-mono text-[12px] text-ink tabular-nums">{note && <span className="text-ink-4 mr-1">{note}</span>}{v}</span>
+    </div>
+  )
+}
+
+// Editable manual close-out number (gross sales / comps / discounts / labour). Uncontrolled
+// (defaultValue keyed on the close id, not the live value) so typing isn't fought by the
+// debounced refetch — same pattern as HandoverCard's textarea.
+function EditSumRow({ rowKey, label, value, onChange, disabled }: {
+  rowKey: string
+  label: string
+  value: number | null
+  onChange: (v: number | null) => void
+  disabled: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className="text-[12px] text-ink-3">{label}</span>
+      <span className="flex items-center gap-1 font-mono text-[12px] text-ink">
+        <span className={disabled ? 'text-ink-4' : 'text-ink-3'}>$</span>
+        <input
+          type="number"
+          key={rowKey}
+          defaultValue={value ?? ''}
+          disabled={disabled}
+          onChange={e => onChange(e.target.value === '' ? null : Number(e.target.value))}
+          placeholder="—"
+          className={`w-[84px] text-right tabular-nums bg-transparent outline-none rounded-[6px] px-1.5 py-0.5 border ${disabled ? 'border-transparent text-ink-3 cursor-default' : 'border-line focus:border-ink-3'}`}
+        />
+      </span>
     </div>
   )
 }

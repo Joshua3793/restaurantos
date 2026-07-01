@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { netSalesForecast } from '@/lib/eod-forecast'
+import { businessDateLocal } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
@@ -124,10 +126,16 @@ export async function GET(req: NextRequest) {
     newPrice: Number(p.newPrice),
   }))
 
+  // Net-sales forecast: only meaningful for a specific RC (summing per-RC forecasts
+  // across "all"/location scope isn't meaningful for MVP), so only compute when a
+  // single rcId is selected.
+  const forecast = rcId ? await netSalesForecast(rcId, businessDateLocal()) : { forecast: null, basis: 0 }
+
   return NextResponse.json({
     date: win.gte.toISOString().slice(0, 10),
     netSales, foodSales, covers,
     foodCostDollars, foodCostPct, avgSpend,
     topSellers, slowMovers, wasteFlags, priceFlags,
+    netSalesForecast: forecast.forecast, forecastBasis: forecast.basis,
   }, { headers: { 'Cache-Control': 'no-store' } })
 }

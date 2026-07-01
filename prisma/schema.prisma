@@ -876,6 +876,10 @@ model EodClose {
   businessDate    String          // 'YYYY-MM-DD' local day
   status          String          @default("DRAFT") // 'DRAFT' | 'CLOSED'
   handoverNote    String?
+  labourCost      Decimal?
+  grossSales      Decimal?
+  compsVoids      Decimal?
+  discounts       Decimal?
   signedOffBy     String?
   signedOffByName String?
   signedOffAt     DateTime?
