@@ -12,13 +12,13 @@ import { EodKpiRow, DayInReview, CloseRail, LoopStrip, PH_TARGET_PCT, PH_LABOUR_
 export interface EodSummary {
   date: string
   netSales: number
-  foodSales: number
+  foodSales: number // reserved for later phase — not read in MVP
   covers: number
   foodCostDollars: number
   foodCostPct: number | null
   avgSpend: number | null
-  topSellers: Array<{ id: string; name: string; menuPrice: number | null; units: number }>
-  slowMovers: Array<{ id: string; name: string; menuPrice: number | null; units: number }>
+  topSellers: Array<{ id: string; name: string; menuPrice: number | null; units: number }> // menuPrice reserved for later phase — not read in MVP
+  slowMovers: Array<{ id: string; name: string; menuPrice: number | null; units: number }> // menuPrice reserved for later phase — not read in MVP
   wasteFlags: Array<{ id: string; name: string; meta: string; loggedBy: string; cost: number }>
   priceFlags: Array<{ id: string; name: string; pct: number | null }>
 }

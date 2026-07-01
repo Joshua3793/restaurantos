@@ -6,6 +6,7 @@ import type { EodSummary } from './page'
 
 const card = 'bg-paper border border-line rounded-[12px] overflow-hidden'
 const cardHead = 'flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2'
+const railCard = 'bg-paper border border-line rounded-[12px] p-[18px] mb-4'
 
 // Placeholder metrics — no data source yet (labour/forecast). Rendered with an
 // explicit "est" tag so they read as estimates, never live numbers. Wired in a later phase.
@@ -36,10 +37,10 @@ function Kpi({ label, value, sub, valueClass = '', accent, hero, placeholder }:
     <div className={`relative flex flex-col justify-between min-h-[110px] rounded-[12px] p-5 border ${hero ? 'bg-ink text-paper border-ink' : 'bg-paper border-line'} ${placeholder ? 'opacity-70' : ''}`}>
       {accent && <div className={`absolute top-0 left-0 w-8 h-0.5 ${accent}`} />}
       <div>
-        <div className={`font-mono text-[10.5px] tracking-[0.01em] uppercase ${hero ? 'text-zinc-500' : 'text-ink-3'}`}>{label}</div>
+        <div className="font-mono text-[10.5px] tracking-[0.01em] uppercase text-ink-3">{label}</div>
         <div className={`text-[30px] font-semibold tracking-[-0.04em] leading-none mt-2 ${hero ? '' : valueClass || 'text-ink'}`}>{value}</div>
       </div>
-      <div className={`font-mono text-[11px] ${hero ? 'text-zinc-500' : 'text-ink-3'}`}>{sub}</div>
+      <div className="font-mono text-[11px] text-ink-3">{sub}</div>
     </div>
   )
 }
@@ -152,14 +153,13 @@ export function LoopStrip() {
   return (
     <div className="mt-5 flex flex-col md:flex-row md:items-center gap-3 px-[18px] py-3.5 bg-ink text-paper rounded-[12px]">
       <span className="font-mono text-[10px] text-gold shrink-0"><RotateCw size={11} className="inline mb-0.5" /> THE LOOP</span>
-      <span className="text-[12.5px] text-zinc-300">You&apos;re at <b className="text-paper">06 · TRUTH</b> — service is counted. Sign-off writes today&apos;s actuals back into <b className="text-paper">01 · IN</b>, so tomorrow&apos;s Pass opens with real numbers.</span>
+      <span className="text-[12.5px] text-ink-4">You&apos;re at <b className="text-paper">06 · TRUTH</b> — service is counted. Sign-off writes today&apos;s actuals back into <b className="text-paper">01 · IN</b>, so tomorrow&apos;s Pass opens with real numbers.</span>
     </div>
   )
 }
 
 // ── Right rail · close ─────────────────────────────────────────────────────────
 export function CloseRail({ data }: { data: EodSummary | null }) {
-  const railCard = 'bg-paper border border-line rounded-[12px] p-[18px] mb-4'
   return (
     <aside>
       {/* Gate — Phase 2 (sign-off + checklist). Static preview. */}
