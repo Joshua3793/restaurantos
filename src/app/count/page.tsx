@@ -2049,7 +2049,7 @@ export default function CountPage() {
           <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
             onClick={() => setOpenId(isOpen ? null : line.id)}
           >
-            {statusFilter === 'nomovement' && line.noMovement && line.countedQty === null && (
+            {statusFilter === 'nomovement' && line.noMovement && line.countedQty === null && !line.skipped && (
               <button
                 onClick={e => { e.stopPropagation(); toggleBulk(line.id) }}
                 className="shrink-0"
@@ -2298,7 +2298,7 @@ export default function CountPage() {
             className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
             onClick={() => setOpenId(isOpen ? null : line.id)}
           >
-            {statusFilter === 'nomovement' && line.noMovement && line.countedQty === null && (
+            {statusFilter === 'nomovement' && line.noMovement && line.countedQty === null && !line.skipped && (
               <button
                 onClick={e => { e.stopPropagation(); toggleBulk(line.id) }}
                 className="shrink-0"
