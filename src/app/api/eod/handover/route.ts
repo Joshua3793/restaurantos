@@ -5,7 +5,11 @@ import { businessDateLocal } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
-// Latest CLOSED close BEFORE today for the RC, with a non-empty handover note.
+// The most recent CLOSED close BEFORE today for the RC — the artifact the next
+// morning's Pass opens with ("From last night's close" band). Returns the close
+// regardless of whether a handover note was written: the reconciled snapshot
+// (netSales/covers/foodCostPct) and sign-off time are useful on their own, and
+// the note is just one optional field of the payload.
 export async function GET(req: NextRequest) {
   try {
     await requireSession('MANAGER')
@@ -13,11 +17,17 @@ export async function GET(req: NextRequest) {
     if (!rcId) return NextResponse.json(null)
     const today = businessDateLocal()
     const close = await prisma.eodClose.findFirst({
-      where: { revenueCenterId: rcId, status: 'CLOSED', businessDate: { lt: today }, NOT: { handoverNote: null } },
+      where: { revenueCenterId: rcId, status: 'CLOSED', businessDate: { lt: today } },
       orderBy: { businessDate: 'desc' },
-      select: { handoverNote: true, signedOffByName: true, businessDate: true },
+      select: {
+        handoverNote: true,
+        signedOffByName: true,
+        signedOffAt: true,
+        businessDate: true,
+        snapshot: true,
+      },
     })
-    if (!close || !close.handoverNote?.trim()) return NextResponse.json(null)
+    if (!close) return NextResponse.json(null)
     return NextResponse.json(close, { headers: { 'Cache-Control': 'no-store' } })
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
