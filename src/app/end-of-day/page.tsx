@@ -10,7 +10,7 @@ import { SubNav } from '@/components/layout/SubNav'
 import { formatCurrency } from '@/lib/utils'
 import type { TempUnit } from '@/components/temps/temp-utils'
 import {
-  EodKpiRow, DayInReview, CloseRail, CloseDown, RcPicker, LoopStrip, PH_TARGET_PCT, PH_LABOUR_PCT,
+  EodKpiRow, DayInReview, CloseRail, CloseDown, RcPicker, LoopStrip, SetsUpTomorrow, PH_TARGET_PCT, PH_LABOUR_PCT,
 } from './eod-components'
 
 export interface EodSummary {
@@ -226,6 +226,7 @@ export default function EndOfDayPage() {
             ) : (
               <RcPicker revenueCenters={revenueCenters} onPick={setActiveRcId} />
             )}
+            {isRcScoped && <SetsUpTomorrow rcId={activeRcId!} />}
             <LoopStrip />
           </div>
           <CloseRail

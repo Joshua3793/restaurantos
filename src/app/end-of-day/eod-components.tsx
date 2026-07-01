@@ -1,12 +1,14 @@
 'use client'
 import Link from 'next/link'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { TrendingUp, AlertTriangle, RotateCw, Check, RotateCcw } from 'lucide-react'
+import { TrendingUp, AlertTriangle, RotateCw, Check, RotateCcw, ClipboardList, Truck } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
 import { SafetyTempsSummary } from '@/components/preshift/SafetyTempsSummary'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import type { EodSummary, EodCloseState, EodCheckItemDTO } from './page'
+import type { PrepItemRich } from '@/components/prep/types'
 
 const card = 'bg-paper border border-line rounded-[12px] overflow-hidden'
 const cardHead = 'flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2'
@@ -272,6 +274,205 @@ export function LoopStrip() {
     <div className="mt-5 flex flex-col md:flex-row md:items-center gap-3 px-[18px] py-3.5 bg-ink text-paper rounded-[12px]">
       <span className="font-mono text-[10px] text-gold shrink-0"><RotateCw size={11} className="inline mb-0.5" /> THE LOOP</span>
       <span className="text-[12.5px] text-ink-4">You&apos;re at <b className="text-paper">06 · TRUTH</b> — service is counted. Sign-off writes today&apos;s actuals back into <b className="text-paper">01 · IN</b>, so tomorrow&apos;s Pass opens with real numbers.</span>
+    </div>
+  )
+}
+
+// ── Sets up tomorrow · prep-for-tomorrow + order suggestions ───────────────────
+interface OrderLine {
+  id: string
+  name: string
+  onHand: number
+  par: number
+  unit: string
+  suggestedQty: number
+  unitPrice: number
+  lineCost: number
+}
+interface OrderSupplierGroup {
+  supplierId: string | null
+  supplierName: string
+  lines: OrderLine[]
+  subtotal: number
+}
+interface EodOrdersDTO {
+  rcId: string
+  suppliers: OrderSupplierGroup[]
+  lineCount: number
+  total: number
+}
+
+export function SetsUpTomorrow({ rcId }: { rcId: string }) {
+  return (
+    <div className="mt-1">
+      <BandLabel title="Sets up tomorrow" note="SUGGESTED FROM PAR + DEPLETION" />
+      <PrepForTomorrowCard rcId={rcId} />
+      <OrderSuggestionsCard rcId={rcId} />
+    </div>
+  )
+}
+
+function PrepForTomorrowCard({ rcId }: { rcId: string }) {
+  const [items, setItems] = useState<PrepItemRich[] | null>(null)
+  const [queuing, setQueuing] = useState(false)
+  const [justQueued, setJustQueued] = useState(false)
+
+  const load = useCallback(() => {
+    fetch('/api/prep/items', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: PrepItemRich[] | null) => { if (Array.isArray(d)) setItems(d) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { setItems(null); load() }, [rcId, load])
+
+  const targets = (items ?? [])
+    .filter(i => i.priority !== 'LATER' && !i.isOnList)
+    .sort((a, b) => (a.priority === b.priority ? 0 : a.priority === '911' ? -1 : 1))
+
+  async function queueAll() {
+    if (targets.length === 0 || queuing) return
+    setQueuing(true)
+    try {
+      await Promise.all(targets.map(i =>
+        fetch(`/api/prep/items/${i.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isOnList: true }),
+        })
+      ))
+      setJustQueued(true)
+      load()
+      setTimeout(() => setJustQueued(false), 2500)
+    } finally {
+      setQueuing(false)
+    }
+  }
+
+  return (
+    <div className={`${card} mb-3`}>
+      <div className={cardHead}>
+        <h3 className="text-[13px] font-semibold flex items-center gap-2">
+          <ClipboardList size={13} className="text-ink-3" /> Prep for tomorrow
+        </h3>
+        <span className={`font-mono text-[10px] ${justQueued ? 'text-green-text' : 'text-ink-3'}`}>
+          {justQueued ? 'Queued → Prep board' : items === null ? '…' : `${targets.length} suggested`}
+        </span>
+      </div>
+      {items === null ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Loading prep suggestions…</div>
+      ) : targets.length === 0 ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Nothing below par — prep&apos;s in good shape.</div>
+      ) : (
+        <>
+          <div className="divide-y divide-line">
+            {targets.map(it => (
+              <div key={it.id} className="grid grid-cols-[1fr_auto] gap-3 px-[18px] py-2.5 items-center">
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2">
+                    <span className="text-[13px] text-ink font-medium truncate">{it.name}</span>
+                    <span className={`font-mono text-[9px] uppercase tracking-wide px-[7px] py-0.5 rounded-full font-semibold shrink-0 ${it.priority === '911' ? 'bg-red-soft text-red-text' : 'bg-gold-soft text-gold-2'}`}>
+                      {it.priority === '911' ? 'priority' : 'needed'}
+                    </span>
+                  </span>
+                  <span className="block font-mono text-[10.5px] text-ink-3 mt-px">on hand {it.onHand} / par {it.parLevel}</span>
+                </span>
+                <span className="font-mono text-[13px] font-semibold text-ink tabular-nums text-right shrink-0">
+                  {it.suggestedQty}<small className="text-ink-3 font-normal ml-1">{it.unit}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="px-[18px] py-3 border-t border-line bg-bg-2">
+            <button
+              onClick={queueAll}
+              disabled={queuing}
+              className="w-full py-2 rounded-[9px] text-[13px] font-semibold bg-ink text-paper hover:bg-[#18181b] transition-colors disabled:opacity-60"
+            >
+              Queue {targets.length} to board
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function OrderSuggestionsCard({ rcId }: { rcId: string }) {
+  const [data, setData] = useState<EodOrdersDTO | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    setData(null)
+    fetch(`/api/eod/orders?rcId=${rcId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: EodOrdersDTO | null) => { if (d) setData(d) })
+      .catch(() => {})
+  }, [rcId])
+
+  function copyOrderList() {
+    if (!data || data.suppliers.length === 0) return
+    const text = data.suppliers.map(sup => {
+      const lines = sup.lines.map(l => `  ${l.suggestedQty} ${l.unit}  ${l.name}`).join('\n')
+      return `${sup.supplierName}\n${lines}`
+    }).join('\n\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {})
+  }
+
+  return (
+    <div className={`${card} mb-3`}>
+      <div className={cardHead}>
+        <h3 className="text-[13px] font-semibold flex items-center gap-2">
+          <Truck size={13} className="text-ink-3" /> Order suggestions <span className="text-ink-3 font-normal">· below par</span>
+        </h3>
+        <Link href="/inventory" className="font-mono text-[10px] text-gold-2 border-b border-dashed border-current">SUPPLIERS →</Link>
+      </div>
+      {data === null ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Loading order suggestions…</div>
+      ) : data.suppliers.length === 0 ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Everything at or above par.</div>
+      ) : (
+        <>
+          {data.suppliers.map(sup => (
+            <div key={sup.supplierId ?? sup.supplierName}>
+              <div className="flex items-center gap-2 px-[18px] py-2 bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 uppercase tracking-wide">
+                <span className="w-[7px] h-[7px] rounded-full bg-ink-4" />
+                {sup.supplierName}
+                <span className="ml-auto text-ink-2 font-semibold normal-case tracking-normal">{formatCurrency(sup.subtotal)}</span>
+              </div>
+              <div className="divide-y divide-line">
+                {sup.lines.map(l => (
+                  <div key={l.id} className="grid grid-cols-[1fr_auto_auto] gap-3 px-[18px] py-2.5 items-center">
+                    <span className="min-w-0">
+                      <span className="block text-[13px] text-ink font-medium truncate">{l.name}</span>
+                      <span className="block font-mono text-[10.5px] text-ink-3 mt-px">on hand {l.onHand} / par {l.par} {l.unit}</span>
+                    </span>
+                    <span className="font-mono text-[13px] font-semibold text-ink tabular-nums text-right shrink-0">
+                      {l.suggestedQty}<small className="text-ink-3 font-normal ml-1">{l.unit}</small>
+                    </span>
+                    <span className="font-mono text-[12.5px] font-semibold text-ink-2 tabular-nums text-right shrink-0">{formatCurrency(l.lineCost)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center gap-3.5 px-[18px] py-3.5 bg-bg-2 border-t border-line">
+            <span className="text-[12.5px] text-ink-3">
+              <b className="text-ink font-semibold">{data.lineCount}</b> lines · <b className="text-ink font-semibold">{data.suppliers.length}</b> suppliers
+            </span>
+            <span className="ml-auto font-mono text-[16px] font-semibold text-ink tabular-nums">{formatCurrency(data.total)}</span>
+            <button
+              onClick={copyOrderList}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[12.5px] font-semibold transition-colors ${copied ? 'bg-green text-white' : 'bg-ink text-paper hover:bg-[#18181b]'}`}
+            >
+              {copied ? <Check size={13} /> : <ClipboardList size={13} />} {copied ? 'Copied' : 'Copy order list'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
