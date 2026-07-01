@@ -8,7 +8,7 @@ const PUBLIC_PREFIXES = ['/login', '/auth']
 const ADMIN_PREFIXES = ['/settings', '/setup']
 
 // Routes that require MANAGER or ADMIN role
-const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals']
+const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals', '/end-of-day']
 
 // v2 redesign: 301 redirects from old URLs to new IA.
 // Order: longest match first.
