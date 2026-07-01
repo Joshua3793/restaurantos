@@ -152,6 +152,13 @@ All new routes `requireSession('MANAGER')`; `/end-of-day` and `/setup/*` are alr
 - Prep-for-tomorrow queue → prep board, below-par order drafting, 86 board writes (Phase 3).
 - Forecast baselines, comps/discounts via Toast sync, labour input, print/email-owner report (Phase 4).
 
+## Known follow-ups (from final review — not blockers, deferred)
+
+- **Render the frozen snapshot on closed days.** Sign-off stores `EodClose.snapshot`, but the closed page still shows the live `/api/eod/summary` feed. If sales/invoices are backdated into a closed day, on-screen numbers drift from the captured record. Follow-up: when `status === 'CLOSED'`, render `close.snapshot` in the KPI/day-summary instead of live data.
+- **Empty-checklist RC shows "Ready" with 0/0.** An RC with no active items (never seeded, or all soft-deleted) gates as ready immediately (a manager could sign off with zero checks). Consider requiring ≥1 active item, or a distinct empty state.
+- **Seed is food-centric for all RC types.** The default 17 items (grill/fryer, proteins-to-thaw) are seeded to every RC including DRINK/BAR. Admins prune per-RC via the editor (by design), but a `type`-aware default seed would be a nicer out-of-box state.
+- **Temps-TZ invariant not enforced end-to-end.** `businessDateLocal()` pins Pacific, but the pre-existing temps subsystem writes `TempReading.logDate` browser-local (client) / server-wall-clock (fallback). Agrees in practice (staff log on-site) but isn't code-enforced now that a hard sign-off gate depends on it.
+
 ## Verification
 
 No automated test suite — `npm run build` is the correctness check. Preview-server checks: tick/untick items update the gate; blocker + temps-not-ready block sign-off; sign-off writes `CLOSED` + snapshot and redirects to Pass; reopen returns to `DRAFT`; handover saved and appears on Pass; admin editor add/edit/reorder/soft-delete round-trips; no-RC scope shows the RC picker.
