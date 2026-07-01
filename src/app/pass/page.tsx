@@ -10,6 +10,7 @@ import { getVocab } from '@/lib/rc-vocab'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
+import { currentWindow, nextServiceStart, fmtDuration } from '@/lib/service-hours'
 import { setScopeParams } from '@/lib/scope-params'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
@@ -329,10 +330,24 @@ export default function PassPage() {
   const greeting = greetingFor(new Date())
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
 
-  const cutoff = nextServiceCutoff(new Date())
-  const remainingMs = cutoff.getTime() - Date.now()
-  const remainingH = Math.floor(remainingMs / 3_600_000)
-  const remainingM = Math.floor((remainingMs % 3_600_000) / 60_000)
+  // Service window from the active RC's real schedule (not a hard-coded dinner
+  // service). In-progress window → time to close; otherwise the next upcoming
+  // window → time to open. Null for ON_DEMAND, no schedule, or all/location scope.
+  const serviceClause = useMemo<React.ReactNode>(() => {
+    if (activeKind !== 'rc' || !activeRc) return null
+    const now = new Date()
+    const cur = currentWindow(activeRc, now)
+    if (cur) {
+      const left = fmtDuration(cur.end.getTime() - now.getTime())
+      return <>In <b>{cur.window.label}</b> service · <b>{left}</b> to close</>
+    }
+    const next = nextServiceStart(activeRc, now)
+    if (next) {
+      const until = fmtDuration(next.start.getTime() - now.getTime())
+      return <><b>{next.label}</b> service in <b>{until}</b></>
+    }
+    return null
+  }, [activeKind, activeRc])
 
   // ── Loop handoff: reconciled "yesterday" + carries from the close ──────────
   const snap = lastClose?.snapshot ?? null
@@ -373,11 +388,11 @@ export default function PassPage() {
             {snap!.netSales != null && <> · <b>{formatCurrency(snap!.netSales)}</b> net</>}
             {snap!.foodCostPct != null && <> · food cost <b className={snap!.foodCostPct > (chrome?.targetPct ?? 27) ? 'text-red-text' : 'text-green-text'}>{snap!.foodCostPct.toFixed(1)}%</b></>}
             {closeTime && <> — closed <b>{closeTime}</b>{lastClose!.signedOffByName && <> by {lastClose!.signedOffByName}</>}</>}
-            . {greeting === 'morning' ? 'Dinner' : 'Tomorrow'} service in <b>{remainingH}h {remainingM}m</b>
+            {serviceClause && <>. {serviceClause}</>}
             {carryCount > 0 && <> · <b className="text-gold-2">{carryCount} {carryCount === 1 ? 'carry' : 'carries'}</b> from the close</>}
           </> : <>
-            {greeting === 'morning' ? 'Dinner' : 'Tomorrow'} service in <b>{remainingH}h {remainingM}m</b>
-            {dashboard && <> · weekly food sales <b>{formatCurrency(dashboard.weeklyRevenue)}</b></>}
+            {serviceClause}
+            {dashboard && <>{serviceClause && <> · </>}weekly food sales <b>{formatCurrency(dashboard.weeklyRevenue)}</b></>}
             {attn.length > 0 && <> · <b className="text-red-text">{attn.length} {attn.length === 1 ? 'thing' : 'things'}</b> need you</>}
           </>}
           actions={
@@ -883,17 +898,6 @@ function greetingFor(d: Date): 'morning' | 'afternoon' | 'evening' {
   if (h < 12) return 'morning'
   if (h < 18) return 'afternoon'
   return 'evening'
-}
-
-function nextServiceCutoff(d: Date): Date {
-  const cutoff = new Date(d)
-  if (d.getHours() < 17) {
-    cutoff.setHours(17, 0, 0, 0)
-  } else {
-    cutoff.setDate(d.getDate() + 1)
-    cutoff.setHours(11, 0, 0, 0)
-  }
-  return cutoff
 }
 
 function fmtCrumbDate(d: Date): string {
