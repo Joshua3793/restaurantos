@@ -248,9 +248,14 @@ Run: `head -3 src/components/temps/temp-utils.ts` and `grep -n "use client" src/
 ```ts
 import { prisma } from '@/lib/prisma'
 
-// Local 'YYYY-MM-DD' — matches TempReading.logDate convention.
+// Restaurant-local (Pacific) 'YYYY-MM-DD'. MUST NOT use server wall-clock — on
+// Vercel that's UTC, which rolls to "tomorrow" during evening Pacific service and
+// breaks the temps gate. Matches src/lib/toast/sales-sync.ts + client TempReading.logDate.
+const RESTAURANT_TZ = 'America/Los_Angeles'
 export function businessDateLocal(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: RESTAURANT_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d)
 }
 
 // Temp safety: a reading is in-range when within [safeMin, safeMax] (either bound
