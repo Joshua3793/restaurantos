@@ -59,7 +59,8 @@ export async function GET(req: NextRequest) {
 function parseOptionalNumber(v: unknown): number | null | undefined {
   if (v === undefined) return undefined
   if (v === null || v === '') return null
-  return Number(v)
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 export async function PATCH(req: NextRequest) {

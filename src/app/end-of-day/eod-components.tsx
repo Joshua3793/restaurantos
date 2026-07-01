@@ -344,7 +344,7 @@ function PrepForTomorrowCard({ rcId }: { rcId: string }) {
   useEffect(() => { setItems(null); load() }, [rcId, load])
 
   const targets = (items ?? [])
-    .filter(i => i.priority !== 'LATER' && !i.isOnList)
+    .filter(i => i.priority !== 'LATER' && !i.isOnList && (i.revenueCenterId === rcId || i.revenueCenterId == null))
     .sort((a, b) => (a.priority === b.priority ? 0 : a.priority === '911' ? -1 : 1))
 
   async function queueAll() {

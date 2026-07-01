@@ -19,6 +19,8 @@ function formatNumber(n: number | null | undefined) {
   return new Intl.NumberFormat('en-CA').format(n)
 }
 
+const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
 interface EodEmailBody {
   rcName?: string
   date?: string
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
   <!-- Header -->
   <div style="background:#1e3a5f;border-radius:16px;padding:28px 32px;margin-bottom:20px">
     <div style="font-size:11px;color:#93c5fd;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">End-of-Day Report</div>
-    <div style="font-size:22px;font-weight:700;color:#fff">${rcName ?? 'Service'}</div>
+    <div style="font-size:22px;font-weight:700;color:#fff">${esc(rcName ?? 'Service')}</div>
     <div style="font-size:13px;color:#93c5fd;margin-top:4px">${date ?? ''}</div>
   </div>
 
@@ -121,7 +123,7 @@ export async function POST(req: NextRequest) {
   <!-- Handover note -->
   <div style="background:#fff;border-radius:12px;padding:20px;border:1px solid #e5e7eb;margin-bottom:16px">
     <div style="font-size:13px;font-weight:700;color:#111827;margin-bottom:8px">Handover Note</div>
-    <div style="font-size:14px;color:#374151;white-space:pre-wrap">${handoverNote}</div>
+    <div style="font-size:14px;color:#374151;white-space:pre-wrap">${esc(handoverNote)}</div>
   </div>` : ''}
 
   <!-- Footer -->
