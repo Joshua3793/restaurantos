@@ -10,7 +10,7 @@ import { SubNav } from '@/components/layout/SubNav'
 import { formatCurrency } from '@/lib/utils'
 import type { TempUnit } from '@/components/temps/temp-utils'
 import {
-  EodKpiRow, DayInReview, CloseRail, CloseDown, RcPicker, LoopStrip, SetsUpTomorrow, PH_TARGET_PCT, PH_LABOUR_PCT,
+  EodKpiRow, DayInReview, CloseRail, CloseDown, RcPicker, LoopStrip, SetsUpTomorrow, PH_TARGET_PCT,
 } from './eod-components'
 
 export interface EodSummary {
@@ -25,6 +25,8 @@ export interface EodSummary {
   slowMovers: Array<{ id: string; name: string; menuPrice: number | null; units: number }> // menuPrice reserved for later phase — not read in MVP
   wasteFlags: Array<{ id: string; name: string; meta: string; loggedBy: string; cost: number }>
   priceFlags: Array<{ id: string; name: string; pct: number | null }>
+  netSalesForecast: number | null
+  forecastBasis: number
 }
 
 export interface EodCheckItemDTO {
@@ -56,6 +58,10 @@ export interface EodCloseState {
     signedOffByName: string | null
     signedOffAt: string | null
     snapshot: unknown
+    labourCost: number | null
+    grossSales: number | null
+    compsVoids: number | null
+    discounts: number | null
   }
   progress: EodProgressDTO
 }
@@ -131,6 +137,22 @@ export default function EndOfDayPage() {
       }).catch(() => {})
     }, 600)
   }, [activeRcId])
+
+  const closeFieldsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveCloseFields = useCallback((fields: { labourCost?: number | null; grossSales?: number | null; compsVoids?: number | null; discounts?: number | null }) => {
+    if (!activeRcId) return
+    setCloseState(prev => prev ? { ...prev, close: { ...prev.close, ...fields } } : prev)
+    if (closeFieldsTimer.current) clearTimeout(closeFieldsTimer.current)
+    closeFieldsTimer.current = setTimeout(() => {
+      fetch('/api/eod/close', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rcId: activeRcId, ...fields }),
+      })
+        .then(() => loadClose())
+        .catch(() => {})
+    }, 600)
+  }, [activeRcId, loadClose])
 
   const signOff = useCallback(() => {
     if (!activeRcId) return
@@ -215,7 +237,7 @@ export default function EndOfDayPage() {
 
         <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
           <div>
-            <EodKpiRow data={data} target={PH_TARGET_PCT} labourPct={PH_LABOUR_PCT} />
+            <EodKpiRow data={data} target={PH_TARGET_PCT} closeState={closeState} />
             <DayInReview data={data} target={PH_TARGET_PCT} />
             {isRcScoped ? (
               <CloseDown
@@ -235,6 +257,7 @@ export default function EndOfDayPage() {
             isRcScoped={isRcScoped}
             signoffError={signoffError}
             onSaveHandover={saveHandover}
+            onSaveClose={saveCloseFields}
             onSignOff={signOff}
             onReopen={reopen}
           />

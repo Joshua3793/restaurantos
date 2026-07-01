@@ -14,39 +14,56 @@ const card = 'bg-paper border border-line rounded-[12px] overflow-hidden'
 const cardHead = 'flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2'
 const railCard = 'bg-paper border border-line rounded-[12px] p-[18px] mb-4'
 
-// Placeholder metrics — no data source yet (labour/forecast). Rendered with an
-// explicit "est" tag so they read as estimates, never live numbers. Wired in a later phase.
+// Placeholder target — no target-setting UI yet. Wired in a later phase.
 export const PH_TARGET_PCT = 27
-export const PH_LABOUR_PCT = 31.4
 
 // ── KPI row ──────────────────────────────────────────────────────────────────
-export function EodKpiRow({ data, target, labourPct }: { data: EodSummary | null; target: number; labourPct: number }) {
+export function EodKpiRow({ data, target, closeState }: { data: EodSummary | null; target: number; closeState: EodCloseState | null }) {
   const fc = data?.foodCostPct ?? null
   const over = fc != null && fc > target
+
+  // Net-sales sub: forecast delta when available, else covers.
+  let netSub = data ? `${data.covers} covers` : ''
+  let netSubClass = ''
+  if (data && data.netSalesForecast != null && data.netSalesForecast !== 0) {
+    const pct = ((data.netSales - data.netSalesForecast) / data.netSalesForecast) * 100
+    netSub = `forecast ${formatCurrency(data.netSalesForecast)} · ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
+    netSubClass = pct >= 0 ? 'text-green-text' : 'text-red-text'
+  }
+
+  // Labour: derived from the manually-entered close-out labour cost.
+  const labourCost = closeState?.close.labourCost ?? null
+  let labourValue = '—'
+  let labourSub = 'enter labour $ →'
+  if (labourCost != null && data && data.foodSales > 0) {
+    const labourPct = (labourCost / data.foodSales) * 100
+    labourValue = `${labourPct.toFixed(1)}%`
+    labourSub = data.foodCostPct != null ? `prime cost ${(data.foodCostPct + labourPct).toFixed(1)}%` : ''
+  }
+
   return (
     <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-4">
       <Kpi label="NET SALES · TODAY" value={data ? formatCurrency(data.netSales) : '—'}
-        sub={data ? `${data.covers} covers` : ''} hero />
+        sub={netSub} subClass={netSubClass} hero />
       <Kpi label="FOOD COST · TODAY" value={fc != null ? `${fc.toFixed(1)}%` : '—'}
         sub={`target ${target.toFixed(1)}`} valueClass={over ? 'text-red-text' : ''} accent="bg-red" />
       <Kpi label="AVG SPEND" value={data?.avgSpend != null ? formatCurrency(data.avgSpend) : '—'}
         sub="per cover" />
-      {/* PLACEHOLDER — no labour data source yet */}
-      <Kpi label="LABOUR" value={`${labourPct.toFixed(1)}%`} sub="est · not yet wired" placeholder />
+      <Kpi label="LABOUR" value={labourValue} sub={labourSub} />
     </div>
   )
 }
 
-function Kpi({ label, value, sub, valueClass = '', accent, hero, placeholder }:
-  { label: string; value: string; sub: string; valueClass?: string; accent?: string; hero?: boolean; placeholder?: boolean }) {
+function Kpi({ label, value, sub, valueClass = '', subClass = '', accent, hero }:
+  { label: string; value: string; sub: string; valueClass?: string; subClass?: string; accent?: string; hero?: boolean }) {
   return (
-    <div className={`relative flex flex-col justify-between min-h-[110px] rounded-[12px] p-5 border ${hero ? 'bg-ink text-paper border-ink' : 'bg-paper border-line'} ${placeholder ? 'opacity-70' : ''}`}>
+    <div className={`relative flex flex-col justify-between min-h-[110px] rounded-[12px] p-5 border ${hero ? 'bg-ink text-paper border-ink' : 'bg-paper border-line'}`}>
       {accent && <div className={`absolute top-0 left-0 w-8 h-0.5 ${accent}`} />}
       <div>
         <div className="font-mono text-[10.5px] tracking-[0.01em] uppercase text-ink-3">{label}</div>
         <div className={`text-[30px] font-semibold tracking-[-0.04em] leading-none mt-2 ${hero ? '' : valueClass || 'text-ink'}`}>{value}</div>
       </div>
-      <div className="font-mono text-[11px] text-ink-3">{sub}</div>
+      <div className={`font-mono text-[11px] ${subClass || 'text-ink-3'}`}>{sub}</div>
     </div>
   )
 }
@@ -480,15 +497,19 @@ function OrderSuggestionsCard({ rcId }: { rcId: string }) {
 // ── Right rail · close ─────────────────────────────────────────────────────────
 const GATE_C = 2 * Math.PI * 44
 
-export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHandover, onSignOff, onReopen }: {
+export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHandover, onSaveClose, onSignOff, onReopen }: {
   data: EodSummary | null
   closeState: EodCloseState | null
   isRcScoped: boolean
   signoffError: string | null
   onSaveHandover: (text: string) => void
+  onSaveClose: (fields: { labourCost?: number | null; grossSales?: number | null; compsVoids?: number | null; discounts?: number | null }) => void
   onSignOff: () => void
   onReopen: () => void
 }) {
+  const locked = closeState?.close.status === 'CLOSED'
+  const close = closeState?.close
+
   return (
     <aside>
       <GateCard
@@ -499,12 +520,17 @@ export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHa
         onReopen={onReopen}
       />
 
-      {/* Day summary — net sales + food cost are LIVE; the rest are placeholders */}
+      {/* Day summary — net sales + food cost are LIVE (derived); the rest are manual entries */}
       <div className={railCard}>
         <h4 className="text-[12px] font-semibold text-ink mb-2.5 flex items-center justify-between">Day summary <span className="font-mono text-[10px] text-ink-3 font-normal">closes loop</span></h4>
-        <SumRow l="Gross sales" v="—" note="est" />
-        <SumRow l="Comps & voids" v="—" note="est" />
-        <SumRow l="Discounts" v="—" note="est" />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Gross sales" value={close?.grossSales ?? null}
+          onChange={v => onSaveClose({ grossSales: v })} disabled={!isRcScoped || locked} />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Comps & voids" value={close?.compsVoids ?? null}
+          onChange={v => onSaveClose({ compsVoids: v })} disabled={!isRcScoped || locked} />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Discounts" value={close?.discounts ?? null}
+          onChange={v => onSaveClose({ discounts: v })} disabled={!isRcScoped || locked} />
+        <EditSumRow rowKey={close?.id ?? 'none'} label="Labour cost" value={close?.labourCost ?? null}
+          onChange={v => onSaveClose({ labourCost: v })} disabled={!isRcScoped || locked} />
         <SumRow l="Net sales" v={data ? formatCurrency(data.netSales) : '—'} />
         <div className="flex items-center justify-between pt-2 mt-1 border-t border-line">
           <span className="text-[12px] text-ink font-medium">Food cost</span>
@@ -635,6 +661,35 @@ function SumRow({ l, v, note }: { l: string; v: string; note?: string }) {
     <div className="flex items-center justify-between py-1">
       <span className="text-[12px] text-ink-3">{l}</span>
       <span className="font-mono text-[12px] text-ink tabular-nums">{note && <span className="text-ink-4 mr-1">{note}</span>}{v}</span>
+    </div>
+  )
+}
+
+// Editable manual close-out number (gross sales / comps / discounts / labour). Uncontrolled
+// (defaultValue keyed on the close id, not the live value) so typing isn't fought by the
+// debounced refetch — same pattern as HandoverCard's textarea.
+function EditSumRow({ rowKey, label, value, onChange, disabled }: {
+  rowKey: string
+  label: string
+  value: number | null
+  onChange: (v: number | null) => void
+  disabled: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className="text-[12px] text-ink-3">{label}</span>
+      <span className="flex items-center gap-1 font-mono text-[12px] text-ink">
+        <span className={disabled ? 'text-ink-4' : 'text-ink-3'}>$</span>
+        <input
+          type="number"
+          key={rowKey}
+          defaultValue={value ?? ''}
+          disabled={disabled}
+          onChange={e => onChange(e.target.value === '' ? null : Number(e.target.value))}
+          placeholder="—"
+          className={`w-[84px] text-right tabular-nums bg-transparent outline-none rounded-[6px] px-1.5 py-0.5 border ${disabled ? 'border-transparent text-ink-3 cursor-default' : 'border-line focus:border-ink-3'}`}
+        />
+      </span>
     </div>
   )
 }
