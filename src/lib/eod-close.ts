@@ -53,7 +53,7 @@ export function computeProgress(
   const checklistDone = items.filter(i => doneItemIds.has(i.id)).length
   const checklistBlockersOpen = items.filter(i => i.isBlocker && !doneItemIds.has(i.id)).length
   const hasTempUnits = temps.total > 0
-  const done = checklistDone + (temps.ready ? 1 : 0)
+  const done = checklistDone + (hasTempUnits && temps.ready ? 1 : 0)
   const total = items.length + (hasTempUnits ? 1 : 0)
   const blockers = checklistBlockersOpen + (hasTempUnits && !temps.ready ? 1 : 0)
   const ready = checklistDone === items.length && temps.ready
