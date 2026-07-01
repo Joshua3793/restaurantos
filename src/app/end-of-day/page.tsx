@@ -1,13 +1,17 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Clock, Printer, ArrowLeft } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { PageHead } from '@/components/layout/PageHead'
 import { SubNav } from '@/components/layout/SubNav'
 import { formatCurrency } from '@/lib/utils'
-import { EodKpiRow, DayInReview, CloseRail, LoopStrip, PH_TARGET_PCT, PH_LABOUR_PCT } from './eod-components'
+import type { TempUnit } from '@/components/temps/temp-utils'
+import {
+  EodKpiRow, DayInReview, CloseRail, CloseDown, RcPicker, LoopStrip, PH_TARGET_PCT, PH_LABOUR_PCT,
+} from './eod-components'
 
 export interface EodSummary {
   date: string
@@ -23,9 +27,48 @@ export interface EodSummary {
   priceFlags: Array<{ id: string; name: string; pct: number | null }>
 }
 
+export interface EodCheckItemDTO {
+  id: string
+  section: string
+  title: string
+  meta: string | null
+  sortOrder: number
+  isBlocker: boolean
+}
+
+export interface EodProgressDTO {
+  done: number
+  total: number
+  blockers: number
+  ready: boolean
+  tempsReady: boolean
+  hasTempUnits: boolean
+}
+
+export interface EodCloseState {
+  date: string
+  items: EodCheckItemDTO[]
+  doneItemIds: string[]
+  close: {
+    id: string
+    status: 'DRAFT' | 'CLOSED'
+    handoverNote: string | null
+    signedOffByName: string | null
+    signedOffAt: string | null
+    snapshot: unknown
+  }
+  progress: EodProgressDTO
+}
+
 export default function EndOfDayPage() {
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const router = useRouter()
+  const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, setActiveRcId } = useRc()
   const [data, setData] = useState<EodSummary | null>(null)
+  const [closeState, setCloseState] = useState<EodCloseState | null>(null)
+  const [tempUnits, setTempUnits] = useState<TempUnit[]>([])
+  const [signoffError, setSignoffError] = useState<string | null>(null)
+
+  const isRcScoped = activeKind === 'rc' && !!activeRcId
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -36,6 +79,93 @@ export default function EndOfDayPage() {
       .then(d => { if (d) setData(d) })
       .catch(() => {})
   }, [activeRcId, activeRc, activeKind, activeLocationId])
+
+  const loadClose = useCallback(() => {
+    if (!isRcScoped) { setCloseState(null); setTempUnits([]); return }
+    fetch(`/api/eod/close?rcId=${activeRcId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: EodCloseState | null) => {
+        if (!d) return
+        setCloseState(d)
+        setSignoffError(null)
+        return fetch(`/api/temps/units?rcId=${activeRcId}&date=${d.date}`, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : [])
+          .then(units => { if (Array.isArray(units)) setTempUnits(units) })
+      })
+      .catch(() => {})
+  }, [isRcScoped, activeRcId])
+
+  useEffect(() => { loadClose() }, [loadClose])
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  const toggleItem = useCallback((itemId: string, done: boolean) => {
+    if (!activeRcId) return
+    // Optimistic doneItemIds update; progress + authoritative doneItemIds come back from the API.
+    setCloseState(prev => prev ? {
+      ...prev,
+      doneItemIds: done ? [...new Set([...prev.doneItemIds, itemId])] : prev.doneItemIds.filter(id => id !== itemId),
+    } : prev)
+    fetch('/api/eod/close/entry', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rcId: activeRcId, itemId, done }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { progress: EodProgressDTO; doneItemIds: string[] } | null) => {
+        if (!d) return
+        setCloseState(prev => prev ? { ...prev, progress: d.progress, doneItemIds: d.doneItemIds } : prev)
+      })
+      .catch(() => {})
+  }, [activeRcId])
+
+  const handoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveHandover = useCallback((text: string) => {
+    if (!activeRcId) return
+    setCloseState(prev => prev ? { ...prev, close: { ...prev.close, handoverNote: text } } : prev)
+    if (handoverTimer.current) clearTimeout(handoverTimer.current)
+    handoverTimer.current = setTimeout(() => {
+      fetch('/api/eod/close', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rcId: activeRcId, handoverNote: text }),
+      }).catch(() => {})
+    }, 600)
+  }, [activeRcId])
+
+  const signOff = useCallback(() => {
+    if (!activeRcId) return
+    setSignoffError(null)
+    fetch('/api/eod/close/signoff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rcId: activeRcId }),
+    })
+      .then(async r => {
+        const body = await r.json().catch(() => null)
+        if (r.ok) {
+          router.push('/pass')
+          return
+        }
+        if (r.status === 409 && body) {
+          setSignoffError(body.error ?? 'Not ready to close')
+          setCloseState(prev => prev ? { ...prev, progress: body.progress } : prev)
+        } else {
+          setSignoffError(body?.error ?? 'Failed to sign off')
+        }
+      })
+      .catch(() => setSignoffError('Failed to sign off'))
+  }, [activeRcId, router])
+
+  const reopen = useCallback(() => {
+    if (!activeRcId) return
+    fetch('/api/eod/close/reopen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rcId: activeRcId }),
+    })
+      .then(r => { if (r.ok) loadClose() })
+      .catch(() => {})
+  }, [activeRcId, loadClose])
 
   const fcPct = data?.foodCostPct ?? null
   const over = fcPct != null && fcPct > PH_TARGET_PCT
@@ -51,10 +181,12 @@ export default function EndOfDayPage() {
       />
       <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
 
-        {/* Cost-chrome strip — checklist/blockers are Phase 2 placeholders */}
+        {/* Cost-chrome strip */}
         <div className="hidden md:flex items-center gap-4 mb-5 px-4 py-2.5 bg-paper border border-line rounded-[10px] font-mono text-[11px]">
           <span className="text-ink-3">Close checklist</span>
-          <span className="text-ink-3 tabular-nums" title="Checklist ships in Phase 2">0 / 20 <span className="text-ink-4">est</span></span>
+          <span className="text-ink-3 tabular-nums">
+            {closeState ? `${closeState.progress.done} / ${closeState.progress.total}` : '— / —'}
+          </span>
           <span className="w-px h-3.5 bg-line" />
           <span className="text-ink-3">Food cost · today</span>
           <span className={`tabular-nums font-semibold ${over ? 'text-red-text' : 'text-ink'}`}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</span>
@@ -85,9 +217,26 @@ export default function EndOfDayPage() {
           <div>
             <EodKpiRow data={data} target={PH_TARGET_PCT} labourPct={PH_LABOUR_PCT} />
             <DayInReview data={data} target={PH_TARGET_PCT} />
+            {isRcScoped ? (
+              <CloseDown
+                closeState={closeState}
+                tempUnits={tempUnits}
+                onToggleItem={toggleItem}
+              />
+            ) : (
+              <RcPicker revenueCenters={revenueCenters} onPick={setActiveRcId} />
+            )}
             <LoopStrip />
           </div>
-          <CloseRail data={data} />
+          <CloseRail
+            data={data}
+            closeState={closeState}
+            isRcScoped={isRcScoped}
+            signoffError={signoffError}
+            onSaveHandover={saveHandover}
+            onSignOff={signOff}
+            onReopen={reopen}
+          />
         </div>
       </div>
     </>
