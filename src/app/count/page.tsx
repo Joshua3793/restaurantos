@@ -823,7 +823,7 @@ export default function CountPage() {
   const unskipLine = async (line: Line) => {
     setActive(prev => ({
       ...prev!, lines: prev!.lines!.map(l =>
-        l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null } : l
+        l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null, carriedForward: false } : l
       ),
     }))
     setOpenId(line.id)
@@ -844,7 +844,7 @@ export default function CountPage() {
   const clearLine = async (line: Line) => {
     setActive(prev => ({
       ...prev!, lines: prev!.lines!.map(l =>
-        l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null } : l
+        l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null, carriedForward: false } : l
       ),
     }))
     setOpenId(null)
