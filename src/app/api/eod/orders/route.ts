@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
-import { PRICING_SELECT, asChainItem, basePerUnit } from '@/lib/item-model'
+import { PRICING_SELECT, asChainItem, basePerPurchase } from '@/lib/item-model'
+import { convertBaseToCountUom } from '@/lib/count-uom'
 
 export const dynamic = 'force-dynamic'
 
@@ -137,46 +138,48 @@ export async function GET(req: NextRequest) {
       countUnit: row.countUnit,
     })
     const countUnit = row.countUnit || row.baseUnit
-    const basePerCount = basePerUnit(ci, countUnit) || 1
+    // Item facts in the exact shape convertBaseToCountUom/displayStock expects.
+    const dims = {
+      dimension: row.dimension,
+      baseUnit: row.baseUnit,
+      packChain: row.packChain,
+      countUnit,
+    }
 
-    // effStock is in base units; convert to count units (same unit family as
-    // parLevel/reorderQty, which are stored in the RC's count-unit terms).
+    // On-hand in COUNT/DISPLAY units, replicating inventory/page.tsx's
+    // `displayStock(i)` = convertBaseToCountUom(effStock(i), countUnit, dims).
+    // parLevel/reorderQty are ALSO stored in count units, so both sides of the
+    // below-par comparison are in the same unit. Crucially this uses
+    // convertBaseToCountUom (resolveUnitBase) — which returns 1 for a COUNT
+    // item whose baseUnit is "each" — NOT basePerUnit, which would divide by
+    // the leaf-pack `per` and understate on-hand by that factor.
     const effStockBase = theoMap.has(row.id) ? theoMap.get(row.id)! : row.rcQuantity
-    const onHandCount = effStockBase / basePerCount
+    const onHandCount = convertBaseToCountUom(effStockBase, countUnit, dims)
 
     if (!(onHandCount < row.parLevel)) continue // not below par
 
-    const top = ci.packChain[0]?.unit
-    const basePerPurchaseUnit = top ? basePerUnit(ci, top) : basePerCount
-    const countPerPurchase = (basePerPurchaseUnit / basePerCount) || 1
+    // countPerPurchase = count units in ONE purchase (top-of-chain) unit,
+    // = convertBaseToCountUom(basePerPurchase(chain), countUnit) — same
+    // conversion, applied to the base units contained in one purchase unit.
+    const basePerPurchaseUnits = basePerPurchase(ci.packChain)
+    const countPerPurchase = convertBaseToCountUom(basePerPurchaseUnits, countUnit, dims) || 1
 
-    let suggestedQty: number
-    let unitPrice: number
-    let unitLabel: string
-
-    if (row.reorderQty != null) {
-      // reorderQty is expressed in purchase units (matches the Order Guide's
-      // suggestedQty(), which returns String(item.reorderQty) directly as a
-      // purchase-unit qty).
-      suggestedQty = Number(row.reorderQty)
-      unitPrice = Number(row.purchasePrice)
-      unitLabel = top || countUnit
-    } else {
-      const neededCount = row.parLevel - onHandCount
-      const purchaseQty = Math.ceil(neededCount / countPerPurchase)
-      suggestedQty = purchaseQty
-      unitPrice = Number(row.purchasePrice)
-      unitLabel = top || countUnit
-    }
+    // suggestedQty is expressed in PURCHASE units (matches the Order Guide).
+    // reorderQty, when set, is already a purchase-unit qty; otherwise convert
+    // the count-unit shortfall (par - onHand) to purchase units and ceil.
+    const suggestedQty = row.reorderQty != null
+      ? Number(row.reorderQty)
+      : Math.ceil((row.parLevel - onHandCount) / countPerPurchase)
+    const unitPrice = Number(row.purchasePrice) // price per purchase (top-of-chain) unit
 
     const line: Line = {
       id: row.id,
       name: row.itemName,
-      onHand: onHandCount,
-      par: row.parLevel,
-      unit: unitLabel,
-      suggestedQty,
-      unitPrice,
+      onHand: onHandCount,   // count units
+      par: row.parLevel,     // count units
+      unit: countUnit,       // count unit — for the "on hand X / par Y {unit}" display
+      suggestedQty,          // purchase units
+      unitPrice,             // per purchase unit
       lineCost: suggestedQty * unitPrice,
     }
 
