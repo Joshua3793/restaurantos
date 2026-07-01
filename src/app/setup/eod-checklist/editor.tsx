@@ -172,13 +172,13 @@ export function ItemFormModal({
               <label className="block text-xs font-medium text-ink-3 mb-1">Section *</label>
               <input
                 autoFocus
-                list="eod-section-options"
+                list="eod-section-options-edit"
                 value={form.section}
                 onChange={e => f('section', e.target.value)}
                 placeholder="e.g. Kitchen, Bar, Front of House..."
                 className="w-full border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
               />
-              <datalist id="eod-section-options">
+              <datalist id="eod-section-options-edit">
                 {sections.map(s => <option key={s} value={s} />)}
               </datalist>
             </div>
@@ -260,13 +260,13 @@ export function QuickAddForm({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div className="sm:col-span-1">
           <input
-            list="eod-section-options"
+            list="eod-section-options-add"
             value={form.section}
             onChange={e => f('section', e.target.value)}
             placeholder="Section"
             className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
           />
-          <datalist id="eod-section-options">
+          <datalist id="eod-section-options-add">
             {sections.map(s => <option key={s} value={s} />)}
           </datalist>
         </div>
