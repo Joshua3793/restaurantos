@@ -164,9 +164,21 @@ export async function POST(req: NextRequest) {
 
           const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
 
+          // Zero-velocity: a previously-counted item that NO movement map touched in
+          // its window. expected == baseStock == its last counted qty by construction,
+          // so "Same as last" can record it with an honest zero variance.
+          const moved =
+            consumptionMap.has(item.id) ||
+            purchaseMap.has(item.id) ||
+            wastageMap.has(item.id) ||
+            prepMap.consumption.has(item.id) ||
+            prepMap.output.has(item.id)
+          const noMovement = item.lastCountDate != null && !moved
+
           return {
             inventoryItemId: item.id,
             expectedQty:     expected,
+            noMovement,
             // Derive from the purchase format (self-heals legacy items whose
             // stored countUOM no longer matches their structure).
             selectedUom:     resolveCountUom({

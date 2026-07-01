@@ -50,11 +50,15 @@ item's own last count** — no consumption (sales→recipe depletion), no receip
 per-item `lastCountDate` window; we piggyback on that same query to emit a per-line
 boolean.
 
-- `noMovement` is **computed at fetch time**, not stored, and returned on each line
-  from the count session GET route. Deriving it from the same movement data that
-  produces `expectedQty` guarantees the two can never disagree: for a no-movement
-  item, `expectedQty == last counted qty` by construction, so "same as last" records
-  an honest zero-variance number.
+- `noMovement` is **computed at session creation and stored on the line** (a
+  `CountLine.noMovement` boolean), then returned by both the create response and the
+  session GET. It is derived in the same loop that already builds `expectedQty` from
+  the consumption/purchase/wastage/prep maps — an item is `noMovement` when it is
+  absent from all of those maps AND has a prior count (`lastCountDate != null`).
+  Computing both values from the same maps at the same instant guarantees they can
+  never disagree: for a no-movement item, `expectedQty == last counted qty` by
+  construction, so "same as last" records an honest zero-variance number.
+  (Storing it also avoids rebuilding the four movement maps on every session GET.)
 - **Never-counted items are ineligible.** An item with no prior finalized count has no
   "last" to carry forward (and its window is its entire history, so every movement —
   or the absence of a baseline — disqualifies the shortcut). These must be counted
@@ -76,12 +80,13 @@ sets `carriedForward = true`.
 
 ### 3. Schema — traceability
 
-One additive field on `CountLine`:
+Two additive fields on `CountLine`:
 
 ```prisma
 model CountLine {
   // ...existing fields...
-  carriedForward  Boolean  @default(false)
+  noMovement      Boolean  @default(false)  // zero movement since item's last count (set at creation)
+  carriedForward  Boolean  @default(false)  // count came from "Same as last"
 }
 ```
 

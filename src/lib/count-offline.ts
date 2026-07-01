@@ -10,6 +10,7 @@ export interface CountMutation {
   type:      'count' | 'skip'
   qty?:      number
   entries?:  { unit: string; qty: number }[]   // mixed-unit count (authoritative when present)
+  carried?:  boolean                            // "Same as last" — record unchanged, zero variance
 }
 
 // ── Session cache ──────────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
             ? { skipped: true }
             : m.entries && m.entries.length
               ? { entries: m.entries }
-              : { countedQty: m.qty },
+              : { countedQty: m.qty, ...(m.carried ? { carriedForward: true } : {}) },
         ),
       })
       // A 4xx/5xx is NOT a successful sync — keep it queued for retry. (fetch only
