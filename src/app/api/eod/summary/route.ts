@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   const win = todayWindow()
 
-  const [sales, waste, priceAlerts] = await Promise.all([
+  const [sales, waste, priceAlerts, purchases] = await Promise.all([
     prisma.salesEntry.findMany({
       where: { date: win, ...rcFilter },
       select: {
@@ -55,6 +55,8 @@ export async function GET(req: NextRequest) {
         inventoryItem: { select: { itemName: true } },
       },
     }),
+    // Intentionally GLOBAL (not RC/location-scoped): PriceAlert has no revenueCenterId,
+    // so — like the sibling reports/dashboard price-signal queries — it is deliberately unscoped.
     prisma.priceAlert.findMany({
       where: { createdAt: win },
       orderBy: { createdAt: 'desc' },
@@ -64,26 +66,26 @@ export async function GET(req: NextRequest) {
         inventoryItem: { select: { itemName: true } },
       },
     }),
+    // Food cost $ today = today's approved purchases (numerator basis used elsewhere).
+    prisma.invoiceScanItem.aggregate({
+      where: {
+        approved: true, splitToSessionId: null,
+        session: {
+          approvedAt: win,
+          // InvoiceSession.revenueCenterId is NULLABLE → location lens also surfaces null rows.
+          ...(locRcIds
+            ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+            : rcId ? { revenueCenterId: rcId } : {}),
+        },
+      },
+      _sum: { rawLineTotal: true },
+    }),
   ])
 
   // ── Headline numbers ──────────────────────────────────────────────────────
   const netSales = sales.reduce((s, e) => s + Number(e.totalRevenue), 0)
   const foodSales = sales.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
   const covers = sales.reduce((s, e) => s + (e.covers ?? 0), 0)
-  // Food cost $ today = today's approved purchases (numerator basis used elsewhere).
-  const purchases = await prisma.invoiceScanItem.aggregate({
-    where: {
-      approved: true, splitToSessionId: null,
-      session: {
-        approvedAt: win,
-        // InvoiceSession.revenueCenterId is NULLABLE → location lens also surfaces null rows.
-        ...(locRcIds
-          ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
-          : rcId ? { revenueCenterId: rcId } : {}),
-      },
-    },
-    _sum: { rawLineTotal: true },
-  })
   const foodCostDollars = Number(purchases._sum.rawLineTotal ?? 0)
   const foodCostPct = foodSales > 0 ? (foodCostDollars / foodSales) * 100 : null
   const avgSpend = covers > 0 ? netSales / covers : null
@@ -100,7 +102,10 @@ export async function GET(req: NextRequest) {
   }
   const movers = [...byRecipe.values()].filter(m => m.units > 0)
   const topSellers = [...movers].sort((a, b) => b.units - a.units).slice(0, 4)
-  const slowMovers = [...movers].sort((a, b) => a.units - b.units).slice(0, 4)
+  // Slow movers = lowest sellers NOT already shown as top sellers (may be empty on a
+  // small-menu day — that's correct; the UI handles an empty array).
+  const topIds = new Set(topSellers.map(m => m.id))
+  const slowMovers = [...movers].filter(m => !topIds.has(m.id)).sort((a, b) => a.units - b.units).slice(0, 4)
 
   const wasteFlags = waste.map(w => ({
     id: w.id,
