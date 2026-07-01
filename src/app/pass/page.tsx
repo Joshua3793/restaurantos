@@ -3,13 +3,14 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle, Mail, Activity, Zap, Clock,
-  ArrowRight, ClipboardList,
+  ArrowRight, ClipboardList, Truck, Moon, Check,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { getVocab } from '@/lib/rc-vocab'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
+import { currentWindow, nextServiceStart, fmtDuration } from '@/lib/service-hours'
 import { setScopeParams } from '@/lib/scope-params'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
@@ -68,10 +69,36 @@ interface CountSession {
   status: string
 }
 
-interface Handover {
-  handoverNote: string
+// The last close, read on the next morning's Pass — the "From last night's
+// close" band. `snapshot` holds the reconciled numbers written at sign-off.
+interface LastClose {
+  handoverNote: string | null
   signedOffByName: string | null
+  signedOffAt: string | null
   businessDate: string
+  snapshot: {
+    netSales?: number | null
+    covers?: number | null
+    foodCostPct?: number | null
+    foodCostDollars?: number | null
+  } | null
+}
+
+// Below-par order suggestions grouped by supplier (GET /api/eod/orders).
+interface OrderSuggestions {
+  suppliers: Array<{ supplierName: string; subtotal: number; lines: unknown[] }>
+  lineCount: number
+  total: number
+}
+
+interface BandTile {
+  key: string
+  dot: string
+  label: string
+  value: React.ReactNode
+  unit: string
+  meta: React.ReactNode
+  href: string
 }
 
 interface AttnItem {
@@ -119,21 +146,47 @@ export default function PassPage() {
     endingInventory?: { needsCount: boolean; sameAsOpening: boolean; sessionDate: string | null }
     rcCoverage?: { total: number; counted: number; uncounted: string[] } | null
   } | null>(null)
-  const [handover, setHandover] = useState<Handover | null>(null)
+  const [lastClose, setLastClose] = useState<LastClose | null>(null)
+  const [orders, setOrders] = useState<OrderSuggestions | null>(null)
+  const [bandDismissed, setBandDismissed] = useState(false)
 
-  // Last close's handover note — only meaningful when scoped to a single RC.
+  // Last night's close + below-par order drafts — the loop handoff. Both are
+  // per-RC (par/reorder live on the RC's StockAllocation; the close is per-RC),
+  // so they only load when scoped to a single revenue center.
   useEffect(() => {
     let cancelled = false
     if (activeKind !== 'rc' || !activeRcId) {
-      setHandover(null)
+      setLastClose(null)
+      setOrders(null)
       return
     }
     fetch(`/api/eod/handover?rcId=${activeRcId}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
-      .then(json => { if (!cancelled) setHandover(json) })
-      .catch(() => { if (!cancelled) setHandover(null) })
+      .then(json => { if (!cancelled) setLastClose(json) })
+      .catch(() => { if (!cancelled) setLastClose(null) })
+    fetch(`/api/eod/orders?rcId=${activeRcId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(json => { if (!cancelled) setOrders(json) })
+      .catch(() => { if (!cancelled) setOrders(null) })
     return () => { cancelled = true }
   }, [activeKind, activeRcId])
+
+  // "Acknowledge" collapses the band for this close (persisted per business date
+  // so it doesn't reappear on refresh, but returns the morning after the next close).
+  useEffect(() => {
+    if (!lastClose) { setBandDismissed(false); return }
+    try {
+      const key = `pass:band-ack:${activeRcId}:${lastClose.businessDate}`
+      setBandDismissed(localStorage.getItem(key) === '1')
+    } catch { setBandDismissed(false) }
+  }, [lastClose, activeRcId])
+
+  const dismissBand = () => {
+    setBandDismissed(true)
+    try {
+      if (lastClose) localStorage.setItem(`pass:band-ack:${activeRcId}:${lastClose.businessDate}`, '1')
+    } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -187,6 +240,22 @@ export default function PassPage() {
   // ── Attention queue (derived) ────────────────────────────────────────────
   const attn = useMemo<AttnItem[]>(() => {
     const items: AttnItem[] = []
+    // From the close: below-par items grouped by supplier → send-ready order drafts.
+    // Leads the queue when present — it carries the largest dollar figure.
+    if (orders && orders.lineCount > 0) {
+      const supN = orders.suppliers.length
+      items.push({
+        id: 'order-drafts',
+        kind: 'invoice',
+        icon: Truck,
+        iconTint: 'blue',
+        title: <><b>{orders.lineCount}</b> {orders.lineCount === 1 ? 'item' : 'items'} below par — order draft ready across {supN} {supN === 1 ? 'supplier' : 'suppliers'}</>,
+        meta: `FROM CLOSE · ${orders.suppliers.map(s => s.supplierName).slice(0, 3).join(' · ')}`,
+        cost: { value: formatCurrency(orders.total), sub: supN === 1 ? '1 supplier' : `${supN} suppliers`, tint: 'warn' },
+        ctaHref: '/inventory',
+        ctaLabel: 'Review & order',
+      })
+    }
     if (priceAlertCount > 0) {
       items.push({
         id: 'price-alerts',
@@ -247,7 +316,7 @@ export default function PassPage() {
       })
     }
     return items
-  }, [priceAlertCount, inboxKpis, prepItems, countSessions])
+  }, [orders, priceAlertCount, inboxKpis, prepItems, countSessions])
 
   const prepSummary = useMemo(() => {
     const active = prepItems.filter(p => p.onHand >= 0 || p.priority !== 'LATER')
@@ -261,10 +330,44 @@ export default function PassPage() {
   const greeting = greetingFor(new Date())
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
 
-  const cutoff = nextServiceCutoff(new Date())
-  const remainingMs = cutoff.getTime() - Date.now()
-  const remainingH = Math.floor(remainingMs / 3_600_000)
-  const remainingM = Math.floor((remainingMs % 3_600_000) / 60_000)
+  // Service window from the active RC's real schedule (not a hard-coded dinner
+  // service). In-progress window → time to close; otherwise the next upcoming
+  // window → time to open. Null for ON_DEMAND, no schedule, or all/location scope.
+  const serviceClause = useMemo<React.ReactNode>(() => {
+    if (activeKind !== 'rc' || !activeRc) return null
+    const now = new Date()
+    const cur = currentWindow(activeRc, now)
+    if (cur) {
+      const left = fmtDuration(cur.end.getTime() - now.getTime())
+      return <>In <b>{cur.window.label}</b> service · <b>{left}</b> to close</>
+    }
+    const next = nextServiceStart(activeRc, now)
+    if (next) {
+      const until = fmtDuration(next.start.getTime() - now.getTime())
+      return <><b>{next.label}</b> service in <b>{until}</b></>
+    }
+    return null
+  }, [activeKind, activeRc])
+
+  // ── Loop handoff: reconciled "yesterday" + carries from the close ──────────
+  const snap = lastClose?.snapshot ?? null
+  const hasReconciled = !!snap && (snap.netSales != null || snap.covers != null || snap.foodCostPct != null)
+  const closeTime = lastClose?.signedOffAt
+    ? new Date(lastClose.signedOffAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : null
+  const criticalPrep = prepItems.filter(p => p.priority === '911').length
+  const latestFinalizedCount = countSessions
+    .filter(s => s.status === 'FINALIZED' && s.finalizedAt)
+    .sort((a, b) => new Date(b.finalizedAt!).getTime() - new Date(a.finalizedAt!).getTime())[0]
+  const countDays = latestFinalizedCount
+    ? Math.floor((Date.now() - new Date(latestFinalizedCount.finalizedAt!).getTime()) / 86_400_000)
+    : null
+  // Carries = handoff buckets that still need a look this morning.
+  const carryCount =
+    (criticalPrep > 0 ? 1 : 0) +
+    (orders && orders.lineCount > 0 ? 1 : 0) +
+    (countDays != null && countDays > 4 ? 1 : 0)
+  const showBand = !!lastClose && !bandDismissed && (hasReconciled || !!lastClose.handoverNote?.trim() || carryCount > 0)
 
   return (
     <>
@@ -280,9 +383,16 @@ export default function PassPage() {
         <PageHead
           crumbs={<><Clock size={12} /> TODAY / PASS · {fmtCrumbDate(new Date())}</>}
           title={<>Good {greeting}, <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.</>}
-          sub={<>
-            {greeting === 'morning' ? 'Dinner' : 'Tomorrow'} service in <b>{remainingH}h {remainingM}m</b>
-            {dashboard && <> · weekly food sales <b>{formatCurrency(dashboard.weeklyRevenue)}</b></>}
+          sub={hasReconciled ? <>
+            Yesterday closed{snap!.covers != null && <> at <b>{snap!.covers} covers</b></>}
+            {snap!.netSales != null && <> · <b>{formatCurrency(snap!.netSales)}</b> net</>}
+            {snap!.foodCostPct != null && <> · food cost <b className={snap!.foodCostPct > (chrome?.targetPct ?? 27) ? 'text-red-text' : 'text-green-text'}>{snap!.foodCostPct.toFixed(1)}%</b></>}
+            {closeTime && <> — closed <b>{closeTime}</b>{lastClose!.signedOffByName && <> by {lastClose!.signedOffByName}</>}</>}
+            {serviceClause && <>. {serviceClause}</>}
+            {carryCount > 0 && <> · <b className="text-gold-2">{carryCount} {carryCount === 1 ? 'carry' : 'carries'}</b> from the close</>}
+          </> : <>
+            {serviceClause}
+            {dashboard && <>{serviceClause && <> · </>}weekly food sales <b>{formatCurrency(dashboard.weeklyRevenue)}</b></>}
             {attn.length > 0 && <> · <b className="text-red-text">{attn.length} {attn.length === 1 ? 'thing' : 'things'}</b> need you</>}
           </>}
           actions={
@@ -405,7 +515,18 @@ export default function PassPage() {
         <div className="grid gap-5 grid-cols-1 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5 min-w-0">
 
-            {handover && <HandoverCard handover={handover} />}
+            {showBand && (
+              <LastCloseBand
+                lastClose={lastClose!}
+                closeTime={closeTime}
+                criticalPrep={criticalPrep}
+                prepTotal={prepSummary.total}
+                orders={orders}
+                countDays={countDays}
+                countLabel={latestFinalizedCount?.label ?? null}
+                onDismiss={dismissBand}
+              />
+            )}
 
             <section className="bg-paper border border-line rounded-[12px] overflow-hidden">
               <header className="flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2">
@@ -555,17 +676,111 @@ function AttnRow({ item }: { item: AttnItem }) {
   )
 }
 
-function HandoverCard({ handover }: { handover: Handover }) {
+// ── "From last night's close" band ───────────────────────────────────────────
+// The loop handoff made physical: Pass opens as the second half of the close.
+// Header (who/when) → handover note → tiles that deep-link to where each carry
+// gets resolved (Prep, order guide, Count).
+function LastCloseBand({
+  lastClose, closeTime, criticalPrep, prepTotal, orders, countDays, countLabel, onDismiss,
+}: {
+  lastClose: LastClose
+  closeTime: string | null
+  criticalPrep: number
+  prepTotal: number
+  orders: OrderSuggestions | null
+  countDays: number | null
+  countLabel: string | null
+  onDismiss: () => void
+}) {
+  const note = lastClose.handoverNote?.trim()
+  const tiles: BandTile[] = [
+    {
+      key: 'prep',
+      dot: 'bg-gold',
+      label: 'Prep to build',
+      value: criticalPrep > 0 ? criticalPrep : prepTotal,
+      unit: criticalPrep > 0 ? 'critical' : 'on list',
+      meta: criticalPrep > 0
+        ? <><b className="text-ink-2">{criticalPrep}</b> depleted or empty — build first</>
+        : <>{prepTotal} {prepTotal === 1 ? 'card' : 'cards'} queued today</>,
+      href: '/prep',
+    },
+    {
+      key: 'orders',
+      dot: 'bg-blue',
+      label: 'Order draft',
+      value: orders && orders.lineCount > 0 ? orders.suppliers.length : 0,
+      unit: orders && orders.suppliers.length === 1 ? 'supplier' : 'suppliers',
+      meta: orders && orders.lineCount > 0
+        ? <><b className="text-ink-2">{formatCurrency(orders.total)}</b> · {orders.lineCount} {orders.lineCount === 1 ? 'line' : 'lines'} below par</>
+        : <>all above par — nothing to order</>,
+      href: '/inventory',
+    },
+    {
+      key: 'counts',
+      dot: 'bg-green',
+      label: 'Counts',
+      value: countDays == null ? '—' : countDays === 0 ? 'today' : `${countDays}d`,
+      unit: countDays == null ? 'none yet' : 'since last',
+      meta: countDays != null && countDays > 4
+        ? <><b className="text-red-text">drift widening</b> — count before service</>
+        : <>{countLabel ? `${countLabel} · ` : ''}fresh enough</>,
+      href: '/count',
+    },
+  ]
+
   return (
-    <section className="bg-paper border border-line rounded-[12px] p-5">
-      <h3 className="text-[15px] font-semibold tracking-[-0.015em] mb-2">
-        Handover from last close
-      </h3>
-      <p className="text-[13px] leading-[1.5] text-ink-2 tracking-[-0.005em] whitespace-pre-wrap">
-        {handover.handoverNote}
-      </p>
-      <div className="font-mono text-[10.5px] text-ink-3 mt-3 tracking-[0]">
-        {handover.signedOffByName ?? 'Unknown'} · {fmtCountDate(handover.businessDate)}
+    <section className="relative bg-paper border border-line rounded-[12px] overflow-hidden">
+      <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-gold" />
+      {/* Header */}
+      <header className="flex items-center gap-2.5 pl-5 pr-[18px] py-3 border-b border-line bg-gradient-to-r from-gold-soft to-transparent">
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.03em] text-gold-2">
+          <Moon size={13} /> From last night&apos;s close
+        </span>
+        <span className="font-mono text-[10.5px] text-ink-3">
+          {closeTime && <>· signed off {closeTime} </>}
+          {lastClose.signedOffByName && <>by {lastClose.signedOffByName} </>}
+          · {fmtCountDate(lastClose.businessDate)}
+        </span>
+        <button
+          onClick={onDismiss}
+          className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] text-ink-3 border border-line bg-paper rounded-full px-2.5 py-1 hover:text-ink hover:border-ink-3 transition-colors"
+        >
+          <Check size={11} /> Acknowledge
+        </button>
+      </header>
+
+      {/* Handover note */}
+      {note && (
+        <div className="grid grid-cols-[auto_1fr] gap-3 items-start px-5 py-3.5 border-b border-line">
+          <div className="w-[26px] h-[26px] rounded-lg bg-ink text-gold grid place-items-center shrink-0">
+            <Mail size={14} />
+          </div>
+          <div className="min-w-0">
+            <div className="font-mono text-[9.5px] uppercase tracking-[0.04em] text-ink-3 mb-1">Handover note → opener</div>
+            <p className="text-[14px] leading-[1.5] text-ink tracking-[-0.005em] font-medium whitespace-pre-wrap">{note}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tiles */}
+      <div className="grid grid-cols-3">
+        {tiles.map((t, i) => (
+          <Link
+            key={t.key}
+            href={t.href}
+            className={`group relative px-5 py-3.5 hover:bg-bg-2/50 transition-colors ${i < tiles.length - 1 ? 'border-r border-line' : ''}`}
+          >
+            <div className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.03em] text-ink-3 mb-2">
+              <span className={`w-[7px] h-[7px] rounded-full ${t.dot}`} /> {t.label}
+            </div>
+            <div className="text-[24px] font-semibold tracking-[-0.03em] leading-none">
+              {t.value} <span className="text-[13px] font-medium text-ink-3">{t.unit}</span>
+            </div>
+            <div className="font-mono text-[10px] text-ink-3 mt-1.5 leading-[1.4] [&_b]:font-semibold">{t.meta}</div>
+            <ArrowRight size={14} className="absolute right-3.5 top-3.5 text-ink-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </Link>
+        ))}
       </div>
     </section>
   )
@@ -683,17 +898,6 @@ function greetingFor(d: Date): 'morning' | 'afternoon' | 'evening' {
   if (h < 12) return 'morning'
   if (h < 18) return 'afternoon'
   return 'evening'
-}
-
-function nextServiceCutoff(d: Date): Date {
-  const cutoff = new Date(d)
-  if (d.getHours() < 17) {
-    cutoff.setHours(17, 0, 0, 0)
-  } else {
-    cutoff.setDate(d.getDate() + 1)
-    cutoff.setHours(11, 0, 0, 0)
-  }
-  return cutoff
 }
 
 function fmtCrumbDate(d: Date): string {
