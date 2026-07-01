@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
         update: {},
         select: {
           id: true, status: true, handoverNote: true, signedOffByName: true, signedOffAt: true, snapshot: true,
+          labourCost: true, grossSales: true, compsVoids: true, discounts: true,
           entries: { select: { itemId: true, done: true } },
         },
       }),
@@ -40,6 +41,10 @@ export async function GET(req: NextRequest) {
       close: {
         id: close.id, status: close.status, handoverNote: close.handoverNote,
         signedOffByName: close.signedOffByName, signedOffAt: close.signedOffAt, snapshot: close.snapshot,
+        labourCost: close.labourCost == null ? null : Number(close.labourCost),
+        grossSales: close.grossSales == null ? null : Number(close.grossSales),
+        compsVoids: close.compsVoids == null ? null : Number(close.compsVoids),
+        discounts: close.discounts == null ? null : Number(close.discounts),
       },
       progress,
     }, { headers: { 'Cache-Control': 'no-store' } })
@@ -50,6 +55,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// Parse an optional numeric close-out field: undefined = don't touch, null/'' = clear, else = set.
+function parseOptionalNumber(v: unknown): number | null | undefined {
+  if (v === undefined) return undefined
+  if (v === null || v === '') return null
+  return Number(v)
+}
+
 export async function PATCH(req: NextRequest) {
   try {
     await requireSession('MANAGER')
@@ -57,10 +69,25 @@ export async function PATCH(req: NextRequest) {
     const rcId = String(body.rcId ?? '')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     const date = businessDateLocal()
+
+    const labourCost = parseOptionalNumber(body.labourCost)
+    const grossSales = parseOptionalNumber(body.grossSales)
+    const compsVoids = parseOptionalNumber(body.compsVoids)
+    const discounts = parseOptionalNumber(body.discounts)
+    const handoverNote = body.handoverNote === undefined ? undefined : String(body.handoverNote ?? '')
+
+    const data = {
+      ...(handoverNote !== undefined ? { handoverNote } : {}),
+      ...(labourCost !== undefined ? { labourCost } : {}),
+      ...(grossSales !== undefined ? { grossSales } : {}),
+      ...(compsVoids !== undefined ? { compsVoids } : {}),
+      ...(discounts !== undefined ? { discounts } : {}),
+    }
+
     await prisma.eodClose.upsert({
       where: { revenueCenterId_businessDate: { revenueCenterId: rcId, businessDate: date } },
-      create: { revenueCenterId: rcId, businessDate: date, handoverNote: String(body.handoverNote ?? '') },
-      update: { handoverNote: String(body.handoverNote ?? '') },
+      create: { revenueCenterId: rcId, businessDate: date, ...data },
+      update: data,
     })
     return NextResponse.json({ ok: true })
   } catch (e) {
