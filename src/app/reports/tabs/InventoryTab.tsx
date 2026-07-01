@@ -10,7 +10,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 
 export default function InventoryTab() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [range, setRange] = useState<DateRange>(() => rangeForPreset('last30'))
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
@@ -18,13 +18,13 @@ export default function InventoryTab() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    const params = analyticsParams(range, activeRcId, activeRc); params.set('section', 'inventory')
+    const params = analyticsParams(range, { activeKind, activeRcId, activeRc, activeLocationId }); params.set('section', 'inventory')
     fetch(`/api/reports/analytics?${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled) setData(d) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [range, activeRcId, activeRc])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
 
   const picker = <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
 

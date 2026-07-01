@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 // GET /api/reports/prep?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&rcId=<id>
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const startStr = searchParams.get('startDate')
   const endStr   = searchParams.get('endDate')
   const rcId     = searchParams.get('rcId') || null
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   if (!startStr || !endStr) {
     return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })
@@ -17,9 +28,12 @@ export async function GET(req: NextRequest) {
   const end = new Date(endStr)
   end.setHours(23, 59, 59, 999)
 
-  // PrepLog.revenueCenterId is NOT NULL — scope to the active RC, or all when omitted.
+  // PrepLog.revenueCenterId is NOT NULL — scope to the location's RCs, the active RC, or all.
+  const rcWhere = locRcIds
+    ? { revenueCenterId: { in: locRcIds } }
+    : rcId ? { revenueCenterId: rcId } : {}
   const logs = await prisma.prepLog.findMany({
-    where: { logDate: { gte: start, lte: end }, ...(rcId ? { revenueCenterId: rcId } : {}) },
+    where: { logDate: { gte: start, lte: end }, ...rcWhere },
     include: { prepItem: { select: { name: true, category: true, unit: true } } },
     orderBy: { logDate: 'asc' },
   })

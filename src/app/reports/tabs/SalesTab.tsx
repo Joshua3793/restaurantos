@@ -11,7 +11,7 @@ import { getVocab } from '@/lib/rc-vocab'
 import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 
 export default function SalesTab() {
-  const { activeRcId, activeRc, activeKind } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   // Type-driven cost label: RC type → "Food cost %" / "Pour cost %"; Location/all → "Cost %".
   const costPctLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'Cost %'
   const costNounLower = activeKind === 'rc'
@@ -24,13 +24,13 @@ export default function SalesTab() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    const params = analyticsParams(range, activeRcId, activeRc); params.set('section', 'sales')
+    const params = analyticsParams(range, { activeKind, activeRcId, activeRc, activeLocationId }); params.set('section', 'sales')
     fetch(`/api/reports/analytics?${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled) setData(d) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [range, activeRcId, activeRc])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
 
   const picker = <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
 

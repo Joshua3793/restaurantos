@@ -4,12 +4,14 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { periodPurchases, periodSnapshotBounds, type SnapshotBound } from '@/lib/cogs'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
 // With ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD → COGS calculation
 export async function GET(req: NextRequest) {
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
@@ -75,6 +77,8 @@ export async function GET(req: NextRequest) {
 
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   // COGS pieces for ONE scope (a specific RC, or the default pool). Opening/closing
   // inventory = the FULL counts bounding the period by sessionDate; purchases = approved
@@ -107,7 +111,7 @@ export async function GET(req: NextRequest) {
   let sameBoundingCount = false
   let rcCoverage: { total: number; counted: number; uncounted: string[] } | null = null
 
-  if (rcId) {
+  if (rcId && !locRcIds) {
     const r = await cogsForScope({ rcId, isDefault })
     beginningValue = r.beginningValue; endingValue = r.endingValue
     totalPurchases = r.totalPurchases; invoiceCount = r.invoiceCount
@@ -116,12 +120,13 @@ export async function GET(req: NextRequest) {
     beginSession = r.opening; endSession = r.closing
     sameBoundingCount = r.sameBoundingCount
   } else {
-    // "All RCs" = Σ per-RC COGS, each revenue center bracketed by its OWN counts (the
-    // default RC reads the global pool). Mirrors getTheoreticalStockMap's ALL = ΣRC.
+    // "All RCs" (or a Location lens) = Σ per-RC COGS, each revenue center bracketed by its
+    // OWN counts (the default RC reads the global pool). Mirrors getTheoreticalStockMap's
+    // ALL = ΣRC. A location lens restricts the set to that location's child RCs.
     // An RC lacking an opening+closing bracket falls back to purchases-only for its
     // slice and is reported in rcCoverage.uncounted so the UI can caveat the total.
     const rcs = await prisma.revenueCenter.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(locRcIds ? { id: { in: locRcIds } } : {}) },
       select: { id: true, name: true, isDefault: true },
     })
     const parts = await Promise.all(
@@ -150,7 +155,9 @@ export async function GET(req: NextRequest) {
   // no null-RC rows left to union in.
   const salesWhere = {
     date: { gte: rangeStart, lte: rangeEnd },
-    ...(rcId ? { revenueCenterId: rcId } : {}),
+    // SalesEntry.revenueCenterId is NOT NULL → location lens aggregates across its child
+    // RCs with a plain `in`; else a single RC; else all.
+    ...(locRcIds ? { revenueCenterId: { in: locRcIds } } : rcId ? { revenueCenterId: rcId } : {}),
   }
   const salesEntries = await prisma.salesEntry.findMany({ where: salesWhere })
   const foodSales = salesEntries.reduce(

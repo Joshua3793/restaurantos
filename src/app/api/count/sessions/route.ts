@@ -4,7 +4,7 @@ import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, c
 import { resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
+import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -16,10 +16,8 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const rcId      = searchParams.get('rcId')
-  const isDefault = searchParams.get('isDefault') === 'true'
 
-  const allowed = await resolveScopedRcIds(user)
+  const scopeWhere = await scopeWhereFromParams(user, searchParams, { nullable: true })
 
   const sessions = await prisma.countSession.findMany({
     where: {
@@ -27,10 +25,7 @@ export async function GET(req: NextRequest) {
         // QUICK sessions back single-item quick-counts — keep them out of the
         // count-history list (snapshot/variance reports read them directly).
         { type: { not: 'QUICK' } },
-        // scopedRcWhere reproduces the default-RC null-union pattern when a default
-        // rcId is selected, narrows to the selected rcId otherwise, and limits to
-        // the user's scope (failing closed for an out-of-scope rcId).
-        scopedRcWhere(allowed, rcId, isDefault),
+        scopeWhere,
       ],
     },
     orderBy: { startedAt: 'desc' },
@@ -169,9 +164,21 @@ export async function POST(req: NextRequest) {
 
           const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
 
+          // Zero-velocity: a previously-counted item that NO movement map touched in
+          // its window. expected == baseStock == its last counted qty by construction,
+          // so "Same as last" can record it with an honest zero variance.
+          const moved =
+            consumptionMap.has(item.id) ||
+            purchaseMap.has(item.id) ||
+            wastageMap.has(item.id) ||
+            prepMap.consumption.has(item.id) ||
+            prepMap.output.has(item.id)
+          const noMovement = item.lastCountDate != null && !moved
+
           return {
             inventoryItemId: item.id,
             expectedQty:     expected,
+            noMovement,
             // Derive from the purchase format (self-heals legacy items whose
             // stored countUOM no longer matches their structure).
             selectedUom:     resolveCountUom({

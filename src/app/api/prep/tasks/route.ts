@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,19 +23,22 @@ function dayBounds(dateStr: string | null) {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireSession()
+    const user = await requireSession()
     const { searchParams } = new URL(req.url)
     const rcId = searchParams.get('rcId')
-    if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
+    const locationId = searchParams.get('locationId')
+    const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
+    if (!rcId && !locRcIds) return NextResponse.json({ error: 'rcId or locationId required' }, { status: 400 })
     const { start, end } = dayBounds(searchParams.get('date'))
 
+    const rcWhere = locRcIds ? { revenueCenterId: { in: locRcIds } } : { revenueCenterId: rcId! }
     const library = await prisma.prepTask.findMany({
-      where: { revenueCenterId: rcId, isActive: true },
+      where: { ...rcWhere, isActive: true },
       select: taskSelect,
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     })
     const today = await prisma.prepTaskLog.findMany({
-      where: { prepTask: { revenueCenterId: rcId, isActive: true }, logDate: { gte: start, lt: end } },
+      where: { prepTask: { ...rcWhere, isActive: true }, logDate: { gte: start, lt: end } },
       select: { id: true, prepTaskId: true, logDate: true },
     })
     return NextResponse.json({ library, today })

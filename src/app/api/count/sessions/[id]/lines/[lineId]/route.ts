@@ -10,7 +10,7 @@ export async function PATCH(
   { params }: { params: { id: string; lineId: string } }
 ) {
   const body = await req.json()
-  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt, entries } = body
+  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt, entries, carriedForward } = body
 
   const line = await prisma.countLine.findUnique({
     where: { id: params.lineId },
@@ -52,7 +52,7 @@ export async function PATCH(
   if (skipped === true) {
     data = { skipped: true, countedQty: line.expectedQty, variancePct: 0, varianceCost: 0, entries: Prisma.DbNull }
   } else if (skipped === false) {
-    data = { skipped: false, countedQty: null, variancePct: null, varianceCost: null, entries: Prisma.DbNull }
+    data = { skipped: false, countedQty: null, variancePct: null, varianceCost: null, carriedForward: false, entries: Prisma.DbNull }
   } else if (validEntries && validEntries.length > 0) {
     // Mixed-unit count: entries are authoritative. We store the summed base as
     // countedQty with selectedUom = baseUnit so every legacy reader that does
@@ -66,6 +66,7 @@ export async function PATCH(
       countedQty:   countedBase,
       selectedUom:  item.baseUnit,
       skipped:      false,
+      carriedForward: false,
       variancePct:  expected > 0 ? ((countedBase - expected) / expected) * 100 : 0,
       varianceCost: (countedBase - expected) * price,
       ...(notes !== undefined ? { notes } : {}),
@@ -81,9 +82,13 @@ export async function PATCH(
     data = {
       countedQty:   counted,
       skipped:      false,
+      carriedForward: carriedForward === true,
       entries:      Prisma.DbNull,  // single-unit path clears any prior mixed-unit entries
-      variancePct:  expected > 0 ? ((countedBase - expected) / expected) * 100 : 0,
-      varianceCost: (countedBase - expected) * price,
+      // A carried-forward "Same as last" count is unchanged by definition — pin
+      // variance to exactly 0 rather than letting base-unit round-trip rounding
+      // introduce a tiny non-zero figure.
+      variancePct:  carriedForward === true ? 0 : (expected > 0 ? ((countedBase - expected) / expected) * 100 : 0),
+      varianceCost: carriedForward === true ? 0 : (countedBase - expected) * price,
       ...(selectedUom !== undefined ? { selectedUom } : {}),
       ...(notes       !== undefined ? { notes }       : {}),
     }

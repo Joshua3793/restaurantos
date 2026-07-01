@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
   const isActive    = searchParams.get('isActive')
   const rcId        = searchParams.get('rcId') || ''
   const isDefault   = searchParams.get('isDefault') === 'true'
+  // Location lens: InventoryItem has no RC column and per-RC stock lives in
+  // StockAllocation. v1 shows the global catalog for a location (rcId stays '').
+  // locationId is accepted but does not narrow the catalog — documented simplification.
   // Non-stocked (recipe-only) items are hidden from the operational list by default;
   // the inventory page passes includeNonStocked=true to reveal them.
   const includeNonStocked = searchParams.get('includeNonStocked') === 'true'

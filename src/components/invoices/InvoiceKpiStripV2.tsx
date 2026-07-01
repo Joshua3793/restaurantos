@@ -2,11 +2,16 @@
 import { useEffect, useState } from 'react'
 import { KpiData } from './types'
 import { formatCurrency } from '@/lib/utils'
+import { setScopeParams } from '@/lib/scope-params'
 
 interface Props {
   refreshKey: number  // increment to trigger a refetch
-  activeRcId: string | null
-  isDefault: boolean
+  scope: {
+    activeKind: 'all' | 'location' | 'rc'
+    activeRcId: string | null
+    activeRc: { isDefault?: boolean } | null
+    activeLocationId: string | null
+  }
 }
 
 /**
@@ -21,21 +26,19 @@ interface Props {
  * Replaces the legacy InvoiceKpiStrip (gray-* tokens, 5-cell horizontal layout
  * including a sparkline that turned into clutter).
  */
-export function InvoiceKpiStripV2({ refreshKey, activeRcId, isDefault }: Props) {
+export function InvoiceKpiStripV2({ refreshKey, scope }: Props) {
   const [kpis, setKpis] = useState<KpiData | null>(null)
+  const { activeKind, activeRcId, activeRc, activeLocationId } = scope
 
   useEffect(() => {
     const p = new URLSearchParams()
-    if (activeRcId) {
-      p.set('rcId', activeRcId)
-      if (isDefault) p.set('isDefault', 'true')
-    }
+    setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     const qs = p.toString()
     fetch(`/api/invoices/kpis${qs ? `?${qs}` : ''}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(data => data && setKpis(data))
       .catch(() => {})
-  }, [refreshKey, activeRcId, isDefault])
+  }, [refreshKey, activeKind, activeRcId, activeRc, activeLocationId])
 
   return (
     <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>

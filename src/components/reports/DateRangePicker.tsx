@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import { CalendarRange } from 'lucide-react'
 import { startOfWeek, startOfMonth, startOfQuarter, endOfDay, lastWeekRange } from '@/lib/dates'
+import { setScopeParams } from '@/lib/scope-params'
 
 export interface DateRange {
   from: Date
@@ -39,20 +40,22 @@ function toInputValue(d: Date): string {
 }
 
 /**
- * Build report-analytics query params from a range + the active revenue center:
+ * Build report-analytics query params from a range + the active scope:
  * `from`/`to` as calendar days (the API parses them at UTC boundaries) plus
- * `rcId`/`isDefault` when an RC is selected. Shared by the analytics report tabs.
+ * the scope lens (`rcId`/`isDefault` for an RC, `locationId` for a Location,
+ * nothing for "All"). Shared by the analytics report tabs.
  */
 export function analyticsParams(
   range: DateRange,
-  activeRcId: string | null,
-  activeRc: { isDefault?: boolean } | null,
+  scope: {
+    activeKind: 'all' | 'location' | 'rc'
+    activeRcId: string | null
+    activeRc: { isDefault?: boolean } | null
+    activeLocationId: string | null
+  },
 ): URLSearchParams {
   const params = new URLSearchParams({ from: toInputValue(range.from), to: toInputValue(range.to) })
-  if (activeRcId) {
-    params.set('rcId', activeRcId)
-    if (activeRc?.isDefault) params.set('isDefault', 'true')
-  }
+  setScopeParams(params, scope)
   return params
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
+import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 
 const RECIPE_SELECT = {
   id: true, name: true, menuPrice: true,
@@ -22,9 +22,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get('startDate')
   const endDate   = searchParams.get('endDate')
-  const rcId      = searchParams.get('rcId')
-
-  const allowed = await resolveScopedRcIds(user)
+  const scopeWhere = await scopeWhereFromParams(user, searchParams, { nullable: false })
 
   const dateWhere: Record<string, unknown> = {}
   if (startDate) dateWhere.gte = new Date(startDate)
@@ -34,12 +32,7 @@ export async function GET(req: NextRequest) {
     where: {
       AND: [
         Object.keys(dateWhere).length ? { date: dateWhere } : {},
-        // revenueCenterId is NOT NULL on SalesEntry (legacy nulls backfilled to the
-        // default RC), so there are no shared/null rows to union in — pass
-        // isDefault=false. The default-RC null-union (`{revenueCenterId: null}`) is
-        // INVALID on a required column: Prisma throws PrismaClientValidationError →
-        // 500. scopedRcWhere still narrows to rcId AND the user's scope (fail-closed).
-        scopedRcWhere(allowed, rcId, false),
+        scopeWhere,
       ],
     },
     orderBy: { date: 'desc' },

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { useUser } from '@/contexts/UserContext'
 import { TempDesktop } from '@/components/temps/TempDesktop'
 import { TempMobile } from '@/components/temps/TempMobile'
@@ -11,7 +12,7 @@ import {
 } from '@/components/temps/temp-utils'
 
 export default function TempChartsPage() {
-  const { activeRc } = useRc()
+  const { activeRc, activeRcId, activeKind, activeLocationId } = useRc()
   const { user } = useUser()
   const rcId = activeRc?.id ?? null
   // New units are stamped with the active RC (the location you're managing).
@@ -37,7 +38,9 @@ export default function TempChartsPage() {
   // ── load today's units + readings ──
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/temps/units?rcId=${rcId ?? ''}&date=${TODAY}`)
+      const p = new URLSearchParams({ date: TODAY })
+      setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
+      const res = await fetch(`/api/temps/units?${p.toString()}`)
       const data = await res.json()
       setUnits(Array.isArray(data) ? data : [])
     } catch {
@@ -45,7 +48,7 @@ export default function TempChartsPage() {
     } finally {
       setLoading(false)
     }
-  }, [rcId, TODAY])
+  }, [activeKind, activeRcId, activeRc, activeLocationId, TODAY])
 
   useEffect(() => {
     setLoading(true)
@@ -65,7 +68,7 @@ export default function TempChartsPage() {
   const buildHistoryQS = useCallback((o?: HistWindow) => {
     const range = o?.range ?? histRange
     const qs = new URLSearchParams()
-    if (rcId) qs.set('rcId', rcId)
+    setScopeParams(qs, { activeKind, activeRcId, activeRc, activeLocationId })
     if (range === 'custom') {
       const from = o?.from ?? histFrom
       const to = o?.to ?? histTo
@@ -80,7 +83,7 @@ export default function TempChartsPage() {
       }
     }
     return qs
-  }, [rcId, histRange, histFrom, histTo])
+  }, [activeKind, activeRcId, activeRc, activeLocationId, histRange, histFrom, histTo])
 
   const loadHistory = useCallback(async (o?: HistWindow) => {
     setHistLoading(true)

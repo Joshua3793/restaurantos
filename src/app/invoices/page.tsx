@@ -11,6 +11,7 @@ import { Signal } from '@/lib/invoices/inbox-items'
 import { PageHead } from '@/components/layout/PageHead'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useNotifications } from '@/contexts/NotificationContext'
 import { isNative } from '@/lib/capacitor'
@@ -33,7 +34,7 @@ const InvoiceUploadModal = dynamic(
 )
 
 export default function InvoicesPage() {
-  const { activeRcId, activeRc, isReadOnly } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -60,10 +61,7 @@ export default function InvoicesPage() {
   const fetchSessions = useCallback(async () => {
     try {
       const p = new URLSearchParams()
-      if (activeRcId) {
-        p.set('rcId', activeRcId)
-        if (activeRc?.isDefault) p.set('isDefault', 'true')
-      }
+      setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
       const qs = p.toString()
       const data: SessionSummary[] = await fetch(`/api/invoices/sessions${qs ? `?${qs}` : ''}`).then(r => r.json())
 
@@ -109,7 +107,7 @@ export default function InvoicesPage() {
     } catch {
       // silent — keeps existing sessions on screen, polling continues
     }
-  }, [activeRcId, activeRc, push])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, push])
 
   const handleScanComplete = useCallback(() => {
     fetchSessions()
@@ -268,8 +266,7 @@ export default function InvoicesPage() {
 
       <InvoiceKpiStripV2
         refreshKey={kpiRefreshKey}
-        activeRcId={activeRcId}
-        isDefault={activeRc?.isDefault ?? false}
+        scope={{ activeKind, activeRcId, activeRc, activeLocationId }}
       />
 
       {view === 'inbox' ? (

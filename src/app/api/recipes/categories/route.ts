@@ -1,17 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const type  = searchParams.get('type') || ''
   const rcId  = searchParams.get('rcId') || ''
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
-  // MENU: strict per-RC. PREP: shared (null) + active RC shown together. No rcId = All RCs.
-  const rcFilter = !rcId
-    ? {} // All RCs: return all categories of this type
-    : type === 'MENU'
-      ? { revenueCenterId: rcId }
-      : { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } // PREP
+  // MENU: strict per-RC. PREP: shared (null) + RC shown together. Location = all child RCs.
+  const rcFilter = locRcIds
+    ? (type === 'MENU'
+        ? { revenueCenterId: { in: locRcIds } }
+        : { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] })
+    : !rcId
+      ? {} // All RCs: return all categories of this type
+      : type === 'MENU'
+        ? { revenueCenterId: rcId }
+        : { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } // PREP
 
   const cats = await prisma.recipeCategory.findMany({
     where: {

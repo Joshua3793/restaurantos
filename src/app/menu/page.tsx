@@ -6,6 +6,7 @@ import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/compo
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { MENU_YIELD_UNITS } from '@/lib/uom'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
 import { useDrawer } from '@/contexts/DrawerContext'
 
@@ -19,7 +20,7 @@ export default function MenuPage() {
 
 function MenuPageInner() {
   const searchParams = useSearchParams()
-  const { revenueCenters, activeRcId, activeRc, activeKind } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   // Type-driven cost label: RC type → "Food cost %" / "Pour cost %"; Location/all → "Cost %".
   const costPctLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'Cost %'
   const { setDrawerOpen } = useDrawer()
@@ -52,23 +53,23 @@ function MenuPageInner() {
 
   const loadCategories = useCallback(async () => {
     const p = new URLSearchParams({ type })
-    if (activeRcId) p.set('rcId', activeRcId)
+    setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/recipes/categories?${p}`).then(r => r.json())
     setCategories(Array.isArray(data) ? data : [])
-  }, [activeRcId])
+  }, [activeRcId, activeKind, activeRc, activeLocationId])
 
   const loadRecipes = useCallback(async () => {
     const params = new URLSearchParams({ type })
     if (!showInactive) params.set('isActive', 'true')
     if (search) params.set('search', search)
-    // Filter by active RC (skip filter when "All Revenue Centers" is selected)
-    if (activeRcId) params.set('rcId', activeRcId)
+    // Filter by the active scope lens (RC, Location, or unscoped for "All").
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/recipes?${params}`).then(r => r.json())
     setRecipes(Array.isArray(data) ? data : [])
     // Deep-link: ?item=id selects that recipe
     const itemId = searchParams.get('item')
     if (itemId) setSelectedRecipeId(itemId)
-  }, [showInactive, search, searchParams, activeRcId])
+  }, [showInactive, search, searchParams, activeRcId, activeKind, activeLocationId])
 
   const baseRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
   const displayRecipes = [...baseRecipes].sort((a, b) => {

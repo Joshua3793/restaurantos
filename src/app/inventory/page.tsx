@@ -14,6 +14,7 @@ import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { QuickCountSheet } from '@/components/inventory/QuickCountSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { rcHex } from '@/lib/rc-colors'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
@@ -188,7 +189,7 @@ export default function InventoryPage() {
 
 function InventoryPageInner() {
   const searchParams = useSearchParams()
-  const { revenueCenters, activeRcId, activeRc, isReadOnly } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { show: showToast, dismiss: dismissToast } = useToast()
   const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
@@ -247,10 +248,10 @@ function InventoryPageInner() {
     if (catFilter)      p.set('category', catFilter)
     if (supplierFilter) p.set('supplierId', supplierFilter)
     if (areaFilter)     p.set('storageAreaId', areaFilter)
-    if (activeRcId)     { p.set('rcId', activeRcId); if (activeRc?.isDefault) p.set('isDefault', 'true') }
+    setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     if (showNonStocked) p.set('includeNonStocked', 'true')
     fetch(`/api/inventory?${p}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
-  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, showNonStocked])
+  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, activeKind, activeLocationId, showNonStocked])
 
   useEffect(() => { fetchItems() }, [fetchItems])
 

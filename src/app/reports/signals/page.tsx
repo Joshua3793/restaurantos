@@ -7,6 +7,7 @@ import {
   ChefHat, RefreshCw, CheckCircle2, Zap,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -168,7 +169,7 @@ function buildSignals(
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SignalsPage() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [dash, setDash]               = useState<DashboardData | null>(null)
   const [inbox, setInbox]             = useState<InboxCounts | null>(null)
   const [highCostRecipes, setHighCost] = useState<Recipe[]>([])
@@ -178,10 +179,7 @@ export default function SignalsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const p = new URLSearchParams()
-    if (activeRcId) {
-      p.set('rcId', activeRcId)
-      if (activeRc?.isDefault) p.set('isDefault', 'true')
-    }
+    setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
 
     const [dashRes, inboxRes, recipesRes] = await Promise.allSettled([
       fetch(`/api/reports/dashboard?${p}`).then(r => r.ok ? r.json() : null),
@@ -205,7 +203,7 @@ export default function SignalsPage() {
 
     setLoading(false)
     setRefreshedAt(new Date())
-  }, [activeRcId, activeRc])
+  }, [activeRcId, activeRc, activeKind, activeLocationId])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 

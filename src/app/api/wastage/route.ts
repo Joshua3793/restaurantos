@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, scopedRcWhere, assertRcWritable } from '@/lib/rc-scope'
+import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 
 export async function GET(req: NextRequest) {
   let user
@@ -18,9 +18,7 @@ export async function GET(req: NextRequest) {
   const endDate   = searchParams.get('endDate')
   const itemId    = searchParams.get('itemId')
   const reason    = searchParams.get('reason')
-  const rcId      = searchParams.get('rcId')
-
-  const allowed = await resolveScopedRcIds(user)
+  const scopeWhere = await scopeWhereFromParams(user, searchParams, { nullable: false })
 
   const logs = await prisma.wastageLog.findMany({
     where: {
@@ -29,11 +27,7 @@ export async function GET(req: NextRequest) {
         endDate   ? { date: { lte: new Date(endDate) } }  : {},
         itemId    ? { inventoryItemId: itemId }            : {},
         reason    ? { reason }                             : {},
-        // revenueCenterId is NOT NULL on WastageLog (legacy nulls backfilled to the
-        // default RC), so there are no shared/null rows to union in — pass
-        // isDefault=false. The default-RC null-union (`{revenueCenterId: null}`) is
-        // INVALID on a required column: Prisma throws PrismaClientValidationError → 500.
-        scopedRcWhere(allowed, rcId, false),
+        scopeWhere,
       ],
     },
     include: { inventoryItem: true },

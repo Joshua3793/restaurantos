@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,14 +34,19 @@ function serializeUnit(u: {
 // Today view can load in a single request.
 export async function GET(req: NextRequest) {
   try {
+    const user = await requireSession()
     const { searchParams } = new URL(req.url)
     const rcId = searchParams.get('rcId')
     const date = searchParams.get('date')
+    const locationId = searchParams.get('locationId')
+    const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
     const units = await prisma.tempUnit.findMany({
       where: {
         isActive: true,
-        ...(rcId ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : {}),
+        ...(locRcIds
+          ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+          : rcId ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : {}),
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: date
@@ -51,6 +58,7 @@ export async function GET(req: NextRequest) {
       headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=30' },
     })
   } catch (err) {
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[temps/units GET]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { volatilityOf, stabilityOf, scanLinePricePerBase, offerPricePerBase } from '@/lib/supplier-offers'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 function startOf(daysAgo: number): Date {
   const d = new Date()
@@ -33,16 +34,18 @@ interface Ctx {
   prevWin: { gte: Date; lt: Date }
   rcId: string | null
   isDefault: boolean
-  rcEq: { revenueCenterId?: string }
+  // A location lens widens these from a single rcId to an `{ in: [...] }` set.
+  rcEq: { revenueCenterId?: string | { in: string[] } }
   sessionRc: Record<string, unknown>
-  countRc: { revenueCenterId: string | null } | Record<string, never>
+  countRc: { revenueCenterId: string | null | { in: string[] } } | Record<string, never>
 }
 
 // ── GET /api/reports/analytics?section=overview|sales|inventory|purchasing ──
 //   &from=YYYY-MM-DD&to=YYYY-MM-DD  (absolute range, preferred)  OR  &days=30 (legacy)
 //   &rcId=<id>&isDefault=true       (scope to a revenue center; omit for All)
 export async function GET(req: NextRequest) {
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
@@ -62,16 +65,30 @@ export async function GET(req: NextRequest) {
 
   const rcId      = searchParams.get('rcId') || null
   const isDefault = searchParams.get('isDefault') === 'true'
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
-  const ctx: Ctx = {
-    since, until, days,
-    win:     { gte: since, lte: until },
-    prevWin: { gte: prevSince, lt: since },
-    rcId, isDefault,
-    rcEq:      rcId ? { revenueCenterId: rcId } : {},
-    sessionRc: rcId ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId }) : {},
-    countRc:   rcId && !isDefault ? { revenueCenterId: rcId } : { revenueCenterId: null },
-  }
+  const ctx: Ctx = locRcIds
+    ? {
+        since, until, days,
+        win:     { gte: since, lte: until },
+        prevWin: { gte: prevSince, lt: since },
+        rcId: null, isDefault: false,
+        // Location lens: aggregate across all child RCs. NOT NULL models use a
+        // plain `in`; NULLABLE models (sessions) also surface shared null rows.
+        rcEq:      { revenueCenterId: { in: locRcIds } },
+        sessionRc: { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] },
+        countRc:   { revenueCenterId: { in: locRcIds } },
+      }
+    : {
+        since, until, days,
+        win:     { gte: since, lte: until },
+        prevWin: { gte: prevSince, lt: since },
+        rcId, isDefault,
+        rcEq:      rcId ? { revenueCenterId: rcId } : {},
+        sessionRc: rcId ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId }) : {},
+        countRc:   rcId && !isDefault ? { revenueCenterId: rcId } : { revenueCenterId: null },
+      }
 
   try {
     if (section === 'overview') return NextResponse.json(await getOverview(ctx))

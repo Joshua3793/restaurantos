@@ -1,6 +1,5 @@
 'use client'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { ChevronDown, Check, LayoutGrid, MapPin } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
@@ -12,10 +11,9 @@ export function MobileRcBar() {
     activeKind, activeRcId, activeRc, activeLocationId, activeLocation,
     setActiveRcId, setActiveLocation, setActiveAll,
   } = useRc()
-  const router = useRouter()
   const [open, setOpen] = useState(false)
-  // Picking a location shows its read-only aggregate dashboard.
-  const pickLocation = (id: string) => { setActiveLocation(id); router.push('/location') }
+  // Picking a location applies a read-only location lens to the current page.
+  const pickLocation = (id: string) => { setActiveLocation(id) }
 
   if (revenueCenters.length === 0 && locations.length === 0) return null
 

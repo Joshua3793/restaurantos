@@ -10,6 +10,7 @@ import { getVocab } from '@/lib/rc-vocab'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
+import { setScopeParams } from '@/lib/scope-params'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -83,8 +84,7 @@ interface AttnItem {
 
 export default function PassPage() {
   const { user } = useUser()
-  const { activeRcId, activeRc, activeKind } = useRc()
-  const isDefaultActive = activeRc?.isDefault ?? false
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   // Type-driven cost noun: an RC carries a FOOD/DRINK type → "FOOD COST" /
   // "POUR COST"; a Location or "all" view spans types → generic "COST".
   const costNoun = activeKind === 'rc'
@@ -118,7 +118,9 @@ export default function PassPage() {
     let cancelled = false
     const load = async () => {
       try {
-        const qs = activeRcId ? `?rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''
+        const scope = new URLSearchParams()
+        setScopeParams(scope, { activeKind, activeRcId, activeRc, activeLocationId })
+        const qs = scope.toString() ? `?${scope.toString()}` : ''
         // Food-cost KPIs are week-to-date (Monday → today), matching the cost-chrome
         // strip. fcFrom/fcTo window only the food-cost block — the wastage card stays
         // rolling-7d.
@@ -127,11 +129,15 @@ export default function PassPage() {
         const fmtLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
         const fcFrom = fmtLocal(startOfWeek(now))
         const fcTo   = fmtLocal(now)
-        const fcQs = `${qs ? `${qs}&` : '?'}fcFrom=${fcFrom}&fcTo=${fcTo}`
-        const cogsQs = `?startDate=${fcFrom}&endDate=${fcTo}${activeRcId ? `&rcId=${activeRcId}&isDefault=${isDefaultActive}` : ''}`
+        const fcParams = new URLSearchParams(scope)
+        fcParams.set('fcFrom', fcFrom); fcParams.set('fcTo', fcTo)
+        const fcQs = `?${fcParams.toString()}`
+        const cogsParams = new URLSearchParams(scope)
+        cogsParams.set('startDate', fcFrom); cogsParams.set('endDate', fcTo)
+        const cogsQs = `?${cogsParams.toString()}`
         const [d, c, k, p, s, a, fv, ie, cg] = await Promise.all([
           fetch(`/api/reports/dashboard${fcQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-          fetch(`/api/insights/cost-chrome${activeRcId ? `?rcId=${activeRcId}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch(`/api/insights/cost-chrome${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch('/api/prep/items', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
           fetch('/api/count/sessions', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
@@ -155,7 +161,7 @@ export default function PassPage() {
     load()
     const t = setInterval(load, 60_000)
     return () => { cancelled = true; clearInterval(t) }
-  }, [activeRcId, isDefaultActive])
+  }, [activeRcId, activeRc, activeKind, activeLocationId])
 
   // ── Attention queue (derived) ────────────────────────────────────────────
   const attn = useMemo<AttnItem[]>(() => {

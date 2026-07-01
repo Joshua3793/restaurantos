@@ -4,9 +4,11 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export async function GET(req: NextRequest) {
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
@@ -15,6 +17,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const rcId      = searchParams.get('rcId') || ''
   const isDefault = searchParams.get('isDefault') === 'true'
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   const now = new Date()
   const weekAgo  = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7)
@@ -51,8 +55,11 @@ export async function GET(req: NextRequest) {
     : hasRange ? { gte: periodStart!, lte: periodEnd! }
     : { gte: weekStart }
 
-  // Sales / wastage filter: if a specific RC is selected, filter by it; otherwise all
-  const rcFilter = rcId ? { revenueCenterId: rcId } : {}
+  // Sales / wastage filter: location lens aggregates across child RCs (NOT NULL → plain
+  // `in`); else a specific RC; otherwise all.
+  const rcFilter = locRcIds
+    ? { revenueCenterId: { in: locRcIds } }
+    : rcId ? { revenueCenterId: rcId } : {}
 
   const [inventoryRaw, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases, salesWTD, purchasesWTD] = await Promise.all([
     prisma.inventoryItem.findMany({
@@ -89,7 +96,13 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: { approvedAt: fcWin, ...(rcId ? { revenueCenterId: rcId } : {}) },
+        session: {
+          approvedAt: fcWin,
+          // InvoiceSession.revenueCenterId is NULLABLE → location lens also surfaces null rows.
+          ...(locRcIds
+            ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+            : rcId ? { revenueCenterId: rcId } : {}),
+        },
       },
       _sum: { rawLineTotal: true },
     }),

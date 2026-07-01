@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/utils'
 import { SectionHeader, Card, LoadingState } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
 import { rcHex } from '@/lib/rc-colors'
 import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
@@ -45,7 +46,7 @@ function InventoryCard({ label, bound, rcName }: { label: string; bound: InvBoun
 }
 
 export default function CogsTab() {
-  const { activeRcId, activeRc, activeKind } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   // Type-driven cost noun: RC type → "food cost" / "pour cost"; Location/all → "cost".
   const costNounLower = activeKind === 'rc'
     ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toLowerCase()
@@ -59,16 +60,13 @@ export default function CogsTab() {
     let cancelled = false
     setLoading(true)
     const params = new URLSearchParams({ startDate: ymd(range.from), endDate: ymd(range.to) })
-    if (activeRcId) {
-      params.set('rcId', activeRcId)
-      if (activeRc?.isDefault) params.set('isDefault', 'true')
-    }
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     fetch(`/api/reports/cogs?${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled && d) setData(d) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [range, activeRcId, activeRc])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
 
   const fcColor = (pct: number) => pct < 28 ? 'text-green-text' : pct < 35 ? 'text-gold' : 'text-red'
   const rcName = activeRc ? activeRc.name : 'All RCs'

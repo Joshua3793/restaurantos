@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,9 +12,18 @@ export const dynamic = 'force-dynamic'
 // onHandValue mirrors the session-create baseline: default RC (or no RC) uses
 // global stockOnHand; a non-default RC uses StockAllocation.quantity (fallback 0).
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const rcId      = searchParams.get('rcId')
   const isDefault = searchParams.get('isDefault') === 'true'
+  const locationId = searchParams.get('locationId')
+  const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
   const [areas, items] = await Promise.all([
     prisma.storageArea.findMany({ orderBy: { name: 'asc' } }),
@@ -81,9 +92,11 @@ export async function GET(req: NextRequest) {
   const sessions = await prisma.countSession.findMany({
     where: {
       status: { in: ['IN_PROGRESS', 'PENDING_REVIEW'] },
-      ...(rcId
-        ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId })
-        : {}),
+      ...(locRcIds
+        ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+        : rcId
+          ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId })
+          : {}),
     },
     orderBy: { startedAt: 'desc' },
     select: { id: true, areaFilter: true },

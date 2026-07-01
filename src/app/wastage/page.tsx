@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { formatCurrency, formatDate, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { setScopeParams } from '@/lib/scope-params'
 import { Plus, X, AlertTriangle } from 'lucide-react'
 
 // Lazy-load recharts — only renders when there are logs to display
@@ -42,7 +43,7 @@ const REASON_COLORS: Record<string, string> = {
 
 
 export default function WastagePage() {
-  const { activeRcId, activeRc } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [logs, setLogs] = useState<WastageLog[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [reasonFilter, setReasonFilter] = useState('')
@@ -66,12 +67,9 @@ export default function WastagePage() {
     if (reasonFilter) params.set('reason', reasonFilter)
     if (startDate) params.set('startDate', startDate)
     if (endDate) params.set('endDate', endDate)
-    if (activeRcId) {
-      params.set('rcId', activeRcId)
-      if (activeRc?.isDefault) params.set('isDefault', 'true')
-    }
+    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     return fetch(`/api/wastage?${params}`).then(r => r.json()).then(setLogs)
-  }, [reasonFilter, startDate, endDate, activeRcId, activeRc])
+  }, [reasonFilter, startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
   useEffect(() => {
