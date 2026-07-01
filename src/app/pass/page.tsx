@@ -68,6 +68,12 @@ interface CountSession {
   status: string
 }
 
+interface Handover {
+  handoverNote: string
+  signedOffByName: string | null
+  businessDate: string
+}
+
 interface AttnItem {
   id: string
   kind: 'price' | 'invoice' | 'variance' | 'count'
@@ -113,6 +119,21 @@ export default function PassPage() {
     endingInventory?: { needsCount: boolean; sameAsOpening: boolean; sessionDate: string | null }
     rcCoverage?: { total: number; counted: number; uncounted: string[] } | null
   } | null>(null)
+  const [handover, setHandover] = useState<Handover | null>(null)
+
+  // Last close's handover note — only meaningful when scoped to a single RC.
+  useEffect(() => {
+    let cancelled = false
+    if (activeKind !== 'rc' || !activeRcId) {
+      setHandover(null)
+      return
+    }
+    fetch(`/api/eod/handover?rcId=${activeRcId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(json => { if (!cancelled) setHandover(json) })
+      .catch(() => { if (!cancelled) setHandover(null) })
+    return () => { cancelled = true }
+  }, [activeKind, activeRcId])
 
   useEffect(() => {
     let cancelled = false
@@ -384,6 +405,8 @@ export default function PassPage() {
         <div className="grid gap-5 grid-cols-1 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5 min-w-0">
 
+            {handover && <HandoverCard handover={handover} />}
+
             <section className="bg-paper border border-line rounded-[12px] overflow-hidden">
               <header className="flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2">
                 <h3 className="text-[13px] font-semibold tracking-[-0.01em] flex items-center gap-2">
@@ -529,6 +552,22 @@ function AttnRow({ item }: { item: AttnItem }) {
         {item.ctaLabel}
       </button>
     </Link>
+  )
+}
+
+function HandoverCard({ handover }: { handover: Handover }) {
+  return (
+    <section className="bg-paper border border-line rounded-[12px] p-5">
+      <h3 className="text-[15px] font-semibold tracking-[-0.015em] mb-2">
+        Handover from last close
+      </h3>
+      <p className="text-[13px] leading-[1.5] text-ink-2 tracking-[-0.005em] whitespace-pre-wrap">
+        {handover.handoverNote}
+      </p>
+      <div className="font-mono text-[10.5px] text-ink-3 mt-3 tracking-[0]">
+        {handover.signedOffByName ?? 'Unknown'} · {fmtCountDate(handover.businessDate)}
+      </div>
+    </section>
   )
 }
 

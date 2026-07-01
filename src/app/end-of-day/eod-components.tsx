@@ -1,8 +1,12 @@
 'use client'
 import Link from 'next/link'
-import { TrendingUp, AlertTriangle, RotateCw } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { TrendingUp, AlertTriangle, RotateCw, Check, RotateCcw } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import type { EodSummary } from './page'
+import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
+import { SafetyTempsSummary } from '@/components/preshift/SafetyTempsSummary'
+import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
+import type { EodSummary, EodCloseState, EodCheckItemDTO } from './page'
 
 const card = 'bg-paper border border-line rounded-[12px] overflow-hidden'
 const cardHead = 'flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2'
@@ -148,6 +152,120 @@ function FlagsCard({ data }: { data: EodSummary | null }) {
   )
 }
 
+// ── Close-down checklist + safety temps ────────────────────────────────────────
+export function CloseDown({ closeState, tempUnits, onToggleItem }: {
+  closeState: EodCloseState | null
+  tempUnits: TempUnit[]
+  onToggleItem: (itemId: string, done: boolean) => void
+}) {
+  const router = useRouter()
+  const m = computeDayMetrics(tempUnits)
+  const locked = closeState?.close.status === 'CLOSED'
+
+  // Group items by section, preserving section order by first appearance.
+  const sections: { key: string; items: EodCheckItemDTO[] }[] = []
+  ;(closeState?.items ?? []).forEach(it => {
+    let sec = sections.find(s => s.key === it.section)
+    if (!sec) { sec = { key: it.section, items: [] }; sections.push(sec) }
+    sec.items.push(it)
+  })
+
+  const doneIds = new Set(closeState?.doneItemIds ?? [])
+
+  return (
+    <div className="mt-1">
+      <BandLabel title="Close-down" note={locked ? 'SIGNED OFF · READ-ONLY' : 'CHECKLIST · GATES SIGN-OFF'} />
+
+      <div className={`${card} mb-3`}>
+        <div className={cardHead}>
+          <h3 className="text-[13px] font-semibold">Safety &amp; temps</h3>
+          <span className="font-mono text-[10px] text-ink-3">{m.total === 0 ? 'no units' : `${m.logged} / ${m.total}`}</span>
+        </div>
+        <SafetyTempsSummary
+          logged={m.logged}
+          total={m.total}
+          flagged={m.flagged}
+          blocking={!(m.total === 0 || m.allClear)}
+          onLogTemps={() => router.push('/temps')}
+        />
+      </div>
+
+      {!closeState ? (
+        <div className={card}>
+          <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Loading close checklist…</div>
+        </div>
+      ) : sections.length === 0 ? (
+        <div className={card}>
+          <div className="p-6 text-center text-ink-3 font-mono text-[11px]">No close-down checks configured for this revenue centre.</div>
+        </div>
+      ) : sections.map(sec => (
+        <div key={sec.key} className={`${card} mb-3`}>
+          <div className={cardHead}>
+            <h3 className="text-[13px] font-semibold">{sec.key}</h3>
+            <span className="font-mono text-[10px] text-ink-3">
+              {sec.items.filter(it => doneIds.has(it.id)).length} / {sec.items.length}
+            </span>
+          </div>
+          <div className="divide-y divide-line">
+            {sec.items.map(it => {
+              const done = doneIds.has(it.id)
+              const blocking = it.isBlocker && !done
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => onToggleItem(it.id, !done)}
+                  className={`w-full flex items-center gap-3 px-[18px] py-2.5 text-left transition-colors ${locked ? 'cursor-default' : 'hover:bg-bg-2/40 cursor-pointer'} ${blocking ? 'bg-red-soft/30' : ''}`}
+                  style={blocking ? { boxShadow: 'inset 3px 0 0 #dc2626' } : undefined}
+                >
+                  <span className={`w-[20px] h-[20px] rounded-[6px] border-[1.5px] grid place-items-center shrink-0 transition-all ${done ? 'bg-green border-green text-white' : 'border-line-2 text-transparent'}`}>
+                    <Check size={12} strokeWidth={3} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block text-[13px] font-medium truncate ${done ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink'}`}>{it.title}</span>
+                    {it.meta && <span className="block font-mono text-[10.5px] text-ink-3 mt-px truncate">{it.meta}</span>}
+                  </span>
+                  {blocking && <span className="font-mono text-[10px] text-red-text font-semibold shrink-0">blocker</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── RC picker (close is per-revenue-centre) ─────────────────────────────────────
+export function RcPicker({ revenueCenters, onPick }: {
+  revenueCenters: RevenueCenter[]
+  onPick: (id: string) => void
+}) {
+  return (
+    <div className="mt-1">
+      <BandLabel title="Close-down" note="PICK A REVENUE CENTRE" />
+      <div className={card}>
+        <div className="p-6 text-center">
+          <p className="text-[13px] text-ink-2 mb-4">Close is per revenue centre — pick one to close:</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {revenueCenters.map(rc => (
+              <button
+                key={rc.id}
+                onClick={() => onPick(rc.id)}
+                className="inline-flex items-center gap-2 border border-line bg-paper text-ink-2 px-3.5 py-2 rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
+              >
+                <span className="w-2 h-2 rounded-full" style={{ background: rc.color }} />
+                {rc.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Loop strip (brand chrome, static) ─────────────────────────────────────────
 export function LoopStrip() {
   return (
@@ -159,20 +277,26 @@ export function LoopStrip() {
 }
 
 // ── Right rail · close ─────────────────────────────────────────────────────────
-export function CloseRail({ data }: { data: EodSummary | null }) {
+const GATE_C = 2 * Math.PI * 44
+
+export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHandover, onSignOff, onReopen }: {
+  data: EodSummary | null
+  closeState: EodCloseState | null
+  isRcScoped: boolean
+  signoffError: string | null
+  onSaveHandover: (text: string) => void
+  onSignOff: () => void
+  onReopen: () => void
+}) {
   return (
     <aside>
-      {/* Gate — Phase 2 (sign-off + checklist). Static preview. */}
-      <div className={`${railCard} text-center`}>
-        <div className="mx-auto w-24 h-24 rounded-full border-8 border-bg-2 flex items-center justify-center">
-          <span className="text-[22px] font-semibold text-ink-3">—</span>
-        </div>
-        <div className="text-[14px] font-semibold text-ink mt-3">Close the day</div>
-        <div className="text-[11.5px] text-ink-3 mt-1">Checklist &amp; sign-off arrive in Phase 2.</div>
-        <button disabled className="w-full mt-3 py-2.5 rounded-[9px] bg-bg-2 text-ink-4 text-[13px] font-medium cursor-not-allowed">
-          Close the day
-        </button>
-      </div>
+      <GateCard
+        closeState={closeState}
+        isRcScoped={isRcScoped}
+        signoffError={signoffError}
+        onSignOff={onSignOff}
+        onReopen={onReopen}
+      />
 
       {/* Day summary — net sales + food cost are LIVE; the rest are placeholders */}
       <div className={railCard}>
@@ -189,12 +313,119 @@ export function CloseRail({ data }: { data: EodSummary | null }) {
         </div>
       </div>
 
-      {/* Handover — Phase 2 (persists to tomorrow's Pass). Non-persistent in MVP. */}
-      <div className={railCard}>
-        <h4 className="text-[12px] font-semibold text-ink mb-2 flex items-center justify-between">Handover note <span className="font-mono text-[10px] text-ink-3 font-normal">to opener</span></h4>
-        <textarea disabled placeholder="Handover persistence arrives in Phase 2." className="w-full h-20 text-[12.5px] p-2.5 rounded-[8px] border border-line bg-bg-2/40 text-ink-3 resize-none" />
-      </div>
+      {/* Handover — live, persists to tomorrow's Pass via PATCH /api/eod/close */}
+      <HandoverCard closeState={closeState} isRcScoped={isRcScoped} onSave={onSaveHandover} />
     </aside>
+  )
+}
+
+function GateCard({ closeState, isRcScoped, signoffError, onSignOff, onReopen }: {
+  closeState: EodCloseState | null
+  isRcScoped: boolean
+  signoffError: string | null
+  onSignOff: () => void
+  onReopen: () => void
+}) {
+  if (!isRcScoped) {
+    return (
+      <div className={`${railCard} text-center`}>
+        <div className="mx-auto w-24 h-24 rounded-full border-8 border-bg-2 flex items-center justify-center">
+          <span className="text-[22px] font-semibold text-ink-3">—</span>
+        </div>
+        <div className="text-[14px] font-semibold text-ink mt-3">Close the day</div>
+        <div className="text-[11.5px] text-ink-3 mt-1">Pick a revenue centre to close.</div>
+      </div>
+    )
+  }
+
+  const progress = closeState?.progress ?? null
+  const total = progress?.total ?? 0
+  const done = progress?.done ?? 0
+  const pct = total > 0 ? Math.round((done / total) * 100) : 100
+  const ready = progress?.ready ?? true
+  const blockers = progress?.blockers ?? 0
+  const closed = closeState?.close.status === 'CLOSED'
+  const ringColor = closed || ready ? '#16a34a' : blockers > 0 ? '#dc2626' : '#d97706'
+  const offset = GATE_C * (1 - pct / 100)
+
+  let title: string
+  let sub: string
+  if (closed) {
+    title = 'Day closed'
+    const t = closeState?.close.signedOffAt ? new Date(closeState.close.signedOffAt) : null
+    const time = t ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : ''
+    sub = `signed off by ${closeState?.close.signedOffByName ?? 'unknown'}${time ? ` · ${time}` : ''}`
+  } else if (blockers > 0) {
+    title = 'Not ready to close'
+    sub = `${blockers} blocker${blockers > 1 ? 's' : ''} must clear`
+  } else if (!ready) {
+    title = 'Almost closed'
+    sub = `${total - done} check${total - done > 1 ? 's' : ''} left`
+  } else {
+    title = 'Ready to close'
+    sub = 'Every check is clear. Sign off the day.'
+  }
+
+  return (
+    <div className={`${railCard} text-center`}>
+      <div className="w-24 h-24 mx-auto grid place-items-center relative">
+        <svg viewBox="0 0 100 100" width="96" height="96" className="absolute inset-0 -rotate-90">
+          <circle cx="50" cy="50" r="44" fill="none" stroke="#f4f4f5" strokeWidth="8" />
+          <circle
+            id="ringFill"
+            cx="50" cy="50" r="44" fill="none" stroke={ringColor} strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={GATE_C.toFixed(2)} strokeDashoffset={offset.toFixed(2)}
+            style={{ transition: 'stroke-dashoffset .3s ease, stroke .3s' }}
+          />
+        </svg>
+        <span className="text-[22px] font-semibold text-ink tracking-[-0.03em]">{pct}<small className="text-[12px] text-ink-3">%</small></span>
+      </div>
+      <div className="text-[14px] font-semibold text-ink mt-3">{title}</div>
+      <div className="text-[11.5px] text-ink-3 mt-1">{sub}</div>
+      {signoffError && !closed && (
+        <div className="text-[11px] text-red-text font-medium mt-2">{signoffError}</div>
+      )}
+      {closed ? (
+        <button
+          onClick={onReopen}
+          className="w-full mt-3 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors"
+        >
+          <RotateCcw size={13} /> Reopen
+        </button>
+      ) : (
+        <button
+          onClick={onSignOff}
+          disabled={!ready}
+          className={`w-full mt-3 py-2.5 rounded-[9px] text-[13px] font-semibold transition-colors ${
+            ready ? 'bg-green text-white hover:bg-green-text' : 'bg-bg-2 text-ink-4 cursor-not-allowed'
+          }`}
+        >
+          Close the day
+        </button>
+      )}
+    </div>
+  )
+}
+
+function HandoverCard({ closeState, isRcScoped, onSave }: {
+  closeState: EodCloseState | null
+  isRcScoped: boolean
+  onSave: (text: string) => void
+}) {
+  const closed = closeState?.close.status === 'CLOSED'
+  const disabled = !isRcScoped || closed
+  return (
+    <div className={railCard}>
+      <h4 className="text-[12px] font-semibold text-ink mb-2 flex items-center justify-between">Handover note <span className="font-mono text-[10px] text-ink-3 font-normal">to opener</span></h4>
+      <textarea
+        disabled={disabled}
+        defaultValue={closeState?.close.handoverNote ?? ''}
+        key={closeState?.close.id ?? 'none'}
+        onChange={e => onSave(e.target.value)}
+        placeholder={isRcScoped ? "Anything tomorrow's opener should know? Deliveries, repairs, VIP bookings…" : 'Pick a revenue centre to leave a note.'}
+        className={`w-full h-20 text-[12.5px] p-2.5 rounded-[8px] border border-line resize-none outline-none ${disabled ? 'bg-bg-2/40 text-ink-3' : 'bg-bg text-ink focus:border-ink-3'}`}
+      />
+    </div>
   )
 }
 

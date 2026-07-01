@@ -605,6 +605,8 @@ model RevenueCenter {
   prepTasks         PrepTask[]        @relation("PrepTaskRC")
   userScopes        UserScope[]
   defaultForLocations Location[]      @relation("LocationDefaultRC")
+  eodCheckItems     EodCheckItem[]    @relation("EodCheckItemRC")
+  eodCloses         EodClose[]        @relation("EodCloseRC")
 }
 
 model UserScope {
@@ -849,4 +851,53 @@ model PrepTaskLog {
   prepTask   PrepTask @relation(fields: [prepTaskId], references: [id], onDelete: Cascade)
 
   @@unique([prepTaskId, logDate])
+}
+
+model EodCheckItem {
+  id              String         @id @default(uuid())
+  revenueCenterId String
+  section         String
+  title           String
+  meta            String?
+  sortOrder       Int            @default(0)
+  isBlocker       Boolean        @default(false)
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  revenueCenter   RevenueCenter  @relation("EodCheckItemRC", fields: [revenueCenterId], references: [id])
+  entries         EodCheckEntry[]
+
+  @@index([revenueCenterId, isActive])
+}
+
+model EodClose {
+  id              String          @id @default(uuid())
+  revenueCenterId String
+  businessDate    String          // 'YYYY-MM-DD' local day
+  status          String          @default("DRAFT") // 'DRAFT' | 'CLOSED'
+  handoverNote    String?
+  signedOffBy     String?
+  signedOffByName String?
+  signedOffAt     DateTime?
+  snapshot        Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  revenueCenter   RevenueCenter   @relation("EodCloseRC", fields: [revenueCenterId], references: [id])
+  entries         EodCheckEntry[]
+
+  @@unique([revenueCenterId, businessDate])
+  @@index([revenueCenterId, status])
+}
+
+model EodCheckEntry {
+  id            String       @id @default(uuid())
+  closeId       String
+  itemId        String
+  done          Boolean      @default(false)
+  updatedByName String?
+  updatedAt     DateTime     @updatedAt
+  close         EodClose     @relation(fields: [closeId], references: [id], onDelete: Cascade)
+  item          EodCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([closeId, itemId])
 }
