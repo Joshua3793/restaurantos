@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Clock, Printer, ArrowLeft } from 'lucide-react'
+import { Clock, Printer, ArrowLeft, Mail } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { PageHead } from '@/components/layout/PageHead'
@@ -189,6 +189,35 @@ export default function EndOfDayPage() {
       .catch(() => {})
   }, [activeRcId, loadClose])
 
+  const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
+  const emailOwner = useCallback(() => {
+    setEmailState('sending')
+    fetch('/api/eod/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rcName: activeRc?.name ?? undefined,
+        date: data?.date,
+        netSales: data?.netSales,
+        covers: data?.covers,
+        foodCostDollars: data?.foodCostDollars,
+        foodCostPct: data?.foodCostPct ?? null,
+        checklistDone: closeState?.progress.done,
+        checklistTotal: closeState?.progress.total,
+        closed: closeState?.close.status === 'CLOSED',
+        handoverNote: closeState?.close.handoverNote ?? null,
+      }),
+    })
+      .then(r => {
+        setEmailState(r.ok ? 'sent' : 'failed')
+        setTimeout(() => setEmailState('idle'), 2500)
+      })
+      .catch(() => {
+        setEmailState('failed')
+        setTimeout(() => setEmailState('idle'), 2500)
+      })
+  }, [activeRc, data, closeState])
+
   const fcPct = data?.foodCostPct ?? null
   const over = fcPct != null && fcPct > PH_TARGET_PCT
 
@@ -201,10 +230,10 @@ export default function EndOfDayPage() {
           { href: '/end-of-day', label: 'End-of-day', icon: <Clock size={14} /> },
         ]}
       />
-      <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
+      <div id="eod-report" className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
 
         {/* Cost-chrome strip */}
-        <div className="hidden md:flex items-center gap-4 mb-5 px-4 py-2.5 bg-paper border border-line rounded-[10px] font-mono text-[11px]">
+        <div className="eod-no-print hidden md:flex items-center gap-4 mb-5 px-4 py-2.5 bg-paper border border-line rounded-[10px] font-mono text-[11px]">
           <span className="text-ink-3">Close checklist</span>
           <span className="text-ink-3 tabular-nums">
             {closeState ? `${closeState.progress.done} / ${closeState.progress.total}` : '— / —'}
@@ -225,11 +254,19 @@ export default function EndOfDayPage() {
           sub={data ? <>{data.covers} covers · <b>{formatCurrency(data.netSales)}</b> net · food cost ran <b className={over ? 'text-red-text' : ''}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</b>. Review the day, then sign off to open tomorrow with real numbers.</> : <>Loading today&apos;s close…</>}
           actions={
             <>
-              <Link href="/pass" className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
+              <Link href="/pass" className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <ArrowLeft size={13} /> Back to Pass
               </Link>
-              <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
+              <button onClick={() => window.print()} className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <Printer size={13} /> Print report
+              </button>
+              <button
+                onClick={emailOwner}
+                disabled={emailState === 'sending'}
+                className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Mail size={13} />
+                {emailState === 'sending' ? 'Sending…' : emailState === 'sent' ? 'Sent ✓' : emailState === 'failed' ? 'Failed' : 'Email owner'}
               </button>
             </>
           }
@@ -263,6 +300,16 @@ export default function EndOfDayPage() {
           />
         </div>
       </div>
+
+      {/* Print styles — only #eod-report prints, chrome/actions hidden */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #eod-report, #eod-report * { visibility: visible; }
+          #eod-report { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+          .eod-no-print { display: none !important; }
+        }
+      `}</style>
     </>
   )
 }
