@@ -2797,7 +2797,7 @@ export default function CountPage() {
         )}
 
         {statusFilter === 'nomovement' && bulkEligible.length > 0 && (
-          <div className="sticky bottom-0 z-20 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 py-3 bg-paper border-t border-line flex items-center gap-3">
+          <div className="fixed inset-x-3 bottom-20 z-30 rounded-[14px] border border-line shadow-lg px-4 py-3 bg-paper flex items-center gap-3 md:sticky md:inset-x-auto md:bottom-0 md:z-20 md:rounded-none md:border-0 md:border-t md:shadow-none md:-mx-8 md:px-8">
             <button
               onClick={bulkSelected.size === bulkEligible.length ? bulkSelectNone : bulkSelectAll}
               className="font-mono text-[11px] text-ink-3 hover:text-ink-2 underline underline-offset-2"
@@ -3023,7 +3023,7 @@ export default function CountPage() {
         </div>
 
         {/* ── Mobile finalize bar — adaptive: jump-to-uncounted while counting, finalize when done ─ */}
-        <div className="md:hidden fixed bottom-20 inset-x-3 z-30">
+        <div className={`md:hidden fixed bottom-20 inset-x-3 z-30${statusFilter === 'nomovement' && bulkEligible.length > 0 ? ' hidden' : ''}`}>
           {counted < total ? (
             <div className="flex items-center gap-2.5">
               <button
