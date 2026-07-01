@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 export async function PATCH(req: NextRequest) {
   try {
-    await requireSession('MANAGER')
+    await requireSession('ADMIN')
     const body = await req.json()
     const ids: string[] = Array.isArray(body.ids) ? body.ids.map(String) : []
     if (!ids.length) return NextResponse.json({ error: 'ids required' }, { status: 400 })

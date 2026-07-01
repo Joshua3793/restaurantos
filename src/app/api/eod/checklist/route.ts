@@ -11,7 +11,7 @@ const itemSelect = {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireSession('MANAGER')
+    await requireSession('ADMIN')
     const rcId = new URL(req.url).searchParams.get('rcId')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     const items = await prisma.eodCheckItem.findMany({
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireSession('MANAGER')
+    await requireSession('ADMIN')
     const body = await req.json()
     const revenueCenterId = String(body.revenueCenterId ?? '')
     const section = String(body.section ?? '').trim()

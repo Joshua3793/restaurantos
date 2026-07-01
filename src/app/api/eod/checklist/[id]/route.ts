@@ -11,7 +11,7 @@ const itemSelect = {
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireSession('MANAGER')
+    await requireSession('ADMIN')
     const body = await req.json()
     const data: Record<string, unknown> = {}
     if (body.section !== undefined) data.section = String(body.section).trim()
@@ -29,7 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireSession('MANAGER')
+    await requireSession('ADMIN')
     await prisma.eodCheckItem.update({ where: { id: params.id }, data: { isActive: false } })
     return NextResponse.json({ ok: true })
   } catch (e) {
