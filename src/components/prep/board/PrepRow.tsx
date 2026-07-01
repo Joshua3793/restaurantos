@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import type { PrepItemRich } from '@/components/prep/types'
 import { BoardRow, dotClass, fmtQty } from './prep-board-utils'
 import { IcRecipe } from '@/components/prep/icons'
@@ -19,6 +20,7 @@ export interface RowHandlers {
 export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
   const { item, urgency: u } = row
   const saving = h.savingIds?.has(row.id) ?? false
+  const [priOpen, setPriOpen] = useState(false)
   const stock = (
     <>{row.onHand === 0 ? <span className="z">0</span> : fmtQty(row.onHand)} / {fmtQty(row.par)} <small>{row.unit}</small></>
   )
@@ -43,6 +45,42 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
     else if (row.status === 'done') act = <button className="act-btn act-ghost" onClick={() => h.onStatusChange(item, 'NOT_STARTED')}>↻ Reset</button>
     else act = <button className="act-btn act-ghost" onClick={() => h.onStatusChange(item, 'NOT_STARTED')}>↩ Restore</button>
   }
+
+  // Inline priority pill — smart view only; shows the effective priority and lets
+  // you override it without a full drawer trip (mirrors the mobile Smart Prep chip).
+  const eff = item.manualPriorityOverride ?? item.priority
+  const priChip = u === 'critical'
+    ? { label: 'Critical', cls: 'crit' }
+    : u === 'low'
+      ? { label: 'Needed', cls: 'low' }
+      : { label: 'On par', cls: 'par' }
+  const priorityPill = h.view === 'smart' ? (
+    <span className="r-pri" onClick={e => e.stopPropagation()}>
+      <button type="button" className={`pri-chip ${priChip.cls}`} title="Change priority"
+        onClick={() => setPriOpen(o => !o)}>
+        {row.overridden && <span className="ov">✎</span>}{priChip.label}
+      </button>
+      {priOpen && (
+        <>
+          <span className="pri-scrim" onClick={() => setPriOpen(false)} />
+          <span className="pri-menu" role="menu">
+            {([['911', 'Critical'], ['NEEDED_TODAY', 'Needed today'], ['LATER', 'Later']] as const).map(([p, label]) => (
+              <button key={p} role="menuitem" className={eff === p ? 'on' : ''}
+                onClick={() => { setPriOpen(false); h.onPriorityChange(row.id, p) }}>
+                {eff === p ? '✓ ' : ''}{label}
+              </button>
+            ))}
+            {row.overridden && (
+              <button role="menuitem" className="reset"
+                onClick={() => { setPriOpen(false); h.onPriorityChange(row.id, '') }}>
+                Reset to auto
+              </button>
+            )}
+          </span>
+        </>
+      )}
+    </span>
+  ) : null
 
   const cls = `row${h.view === 'todo' && row.status === 'in-progress' ? ' inprog' : ''}${h.view === 'todo' && row.status === 'done' ? ' done' : ''}${h.view === 'todo' && row.status === 'skipped' ? ' skipped' : ''}`
 
@@ -72,6 +110,7 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
       <span className="r-stock">{stock}</span>
       <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>
       <span className="r-act">
+        {priorityPill}
         {item.linkedRecipeId && <button className="r-recipe" onClick={() => h.onOpenRecipe(item)} title="View recipe"><IcRecipe /></button>}
         {act}
       </span>
