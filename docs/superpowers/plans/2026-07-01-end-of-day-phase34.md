@@ -43,3 +43,18 @@ New `CloseDown`-sibling section "Sets up tomorrow": PrepForTomorrow card (fetch 
 
 ### Task 8: Pass + verification
 Ensure no regressions; full preview verification of all new features.
+
+---
+
+## Verification results (2026-07-01, live preview)
+
+Verified end-to-end on `/end-of-day` (Kitchen RC):
+- **Forecast delta** ✓ — `/api/eod/summary` returns `netSalesForecast` $4,084.40 (basis 4 same-weekdays); NET SALES KPI shows "forecast $4,084.40 · −100.0%" (today $0).
+- **Prep for tomorrow** ✓ — `/api/prep/items` → 27 below-par-and-unqueued suggestions; card lists them; "Queue to board" fans out `PUT {isOnList:true}`.
+- **Manual close numbers** ✓ — PATCH `/api/eod/close` persists labour/gross/comps/discounts (round-trip verified); 4 editable inputs render in the day-summary; labour %/prime cost derive when food sales > 0 (shows "—/enter labour $" when today's food sales are 0).
+- **Order suggestions** ⚠️ — endpoint groups below-par items by supplier and the card renders + "Copy order list" works. `suggestedQty`/`lineCost` are **correct for well-formed pack chains**, but the dev DB has malformed chains (e.g. Halloumi `[{per:10,case},{per:250,each}]`) so `basePerPurchase`/`countPerPurchase` degenerate to ~1 → inflated qty on those items. In normal operation the card is EMPTY (no below-par items). FOLLOW-UP: validate order qty against clean production pack-chain data; consider a count-unit fallback when `basePerPurchase` can't resolve.
+- **Email report** ✓ — `/api/eod/email` built (Resend, reuses digest pattern); "Email owner" button wired (not live-sent in verification to avoid emailing the owner).
+- **Print** ✓ — `@media print` isolates `#eod-report`; chrome/buttons hidden via `.eod-no-print`.
+- **Daypart** — remains a labelled stub (no intra-day data; documented).
+
+Clean `npm run build` passes; all `/api/eod/*` routes emit as `ƒ (Dynamic)`.
