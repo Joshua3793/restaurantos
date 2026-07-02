@@ -279,7 +279,7 @@ export default function CountPage() {
 
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
-  const [inputQty,      setInputQty]      = useState(0)
+  const [inputQty,      setInputQty]      = useState<number | ''>('')
   const [caseQty,       setCaseQty]       = useState(0)  // unopened full cases, added to loose count
   // Mixed-unit counting: additional {qty, unit} rows for the open line, beyond the
   // primary inputQty + line.selectedUom row. Empty for a normal single-unit count.
@@ -447,7 +447,7 @@ export default function CountPage() {
       // Blind-count: only show prior counted value when re-editing. Don't pre-fill
       // with expected qty — that biases the user toward confirming theoretical stock
       // rather than counting what's actually on the shelf.
-      setInputQty(line.countedQty !== null ? Number(line.countedQty) : 0)
+      setInputQty(line.countedQty !== null ? Number(line.countedQty) : '')
       setCaseQty(0)
       // Rehydrate mixed-unit rows: if the line was saved with entries, treat the
       // first entry as the primary (inputQty/selectedUom) and the rest as extras.
@@ -775,7 +775,7 @@ export default function CountPage() {
   const changeUom = async (line: Line, newUom: string) => {
     // When the open card's UOM changes, convert the current inputQty to the new unit
     if (openId === line.id) {
-      const inBase = convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
+      const inBase = convertCountQtyToBase(Number(inputQty) || 0, line.selectedUom, line.inventoryItem)
       setInputQty(Math.round(convertBaseToCountUom(inBase, newUom, line.inventoryItem) * 1000) / 1000)
     }
     setActive(prev => ({
@@ -827,7 +827,7 @@ export default function CountPage() {
       ),
     }))
     setOpenId(line.id)
-    setInputQty(0)
+    setInputQty('')
     // Sync the bumped updatedAt from the response — without it the local token goes
     // stale and the very next count on this line 409s (which used to reset the count).
     try {
@@ -1963,10 +1963,10 @@ export default function CountPage() {
       // When the user has added extra units, the line's base is the sum of the primary
       // row (inputQty + selectedUom) plus every extra row.
       const dHasExtras = isOpen && extraEntries.length > 0
-      const dAllEntries = [{ qty: inputQty, unit: line.selectedUom }, ...extraEntries]
+      const dAllEntries = [{ qty: Number(inputQty) || 0, unit: line.selectedUom }, ...extraEntries]
       const inputBase = dHasExtras
         ? countEntriesToBase(dAllEntries, line.inventoryItem)
-        : convertCountQtyToBase(inputQty, line.selectedUom, line.inventoryItem)
+        : convertCountQtyToBase(Number(inputQty) || 0, line.selectedUom, line.inventoryItem)
       const liveVar = isOpen && Number(line.expectedQty) > 0
         ? ((inputBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
@@ -2126,7 +2126,7 @@ export default function CountPage() {
               {/* ± stepper */}
               <div className="flex items-center gap-2 mb-3">
                 <button
-                  onClick={() => setInputQty(v => Math.max(0, Math.round((v - 1) * 100) / 100))}
+                  onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
                   className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
                 >
                   <Minus size={20} className="text-ink-2" />
@@ -2134,12 +2134,12 @@ export default function CountPage() {
                 <input
                   type="number"
                   value={inputQty}
-                  onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
+                  onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                   className="flex-1 min-w-0 h-[66px] text-center text-[28px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-[9px] focus:outline-none text-ink"
                   min={0} step={0.1}
                 />
                 <button
-                  onClick={() => setInputQty(v => Math.round((v + 1) * 100) / 100)}
+                  onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
                   className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
                 >
                   <Plus size={20} className="text-ink-2" />
@@ -2215,7 +2215,7 @@ export default function CountPage() {
                   </button>
                 )}
                 <button
-                  onClick={() => confirmLine(line, inputQty, extraEntries.length > 0 ? [{ qty: inputQty, unit: line.selectedUom }, ...extraEntries] : undefined)}
+                  onClick={() => confirmLine(line, Number(inputQty) || 0, extraEntries.length > 0 ? [{ qty: Number(inputQty) || 0, unit: line.selectedUom }, ...extraEntries] : undefined)}
                   className="flex-1 h-11 bg-ink text-paper rounded-[9px] font-medium text-[13px] hover:bg-ink-2 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Check size={15} className="text-gold" /> Confirm count
@@ -2270,7 +2270,7 @@ export default function CountPage() {
       // two add coherently.
       const _selPer     = convertCountQtyToBase(1, line.selectedUom, item) || 1
       const _caseInSel  = _caseBase / _selPer
-      const effectiveQty = inputQty + (showCases ? caseQty * _caseInSel : 0)
+      const effectiveQty = (Number(inputQty) || 0) + (showCases ? caseQty * _caseInSel : 0)
       // Mixed-unit: extra rows the user added sum on top of the primary count.
       const mHasExtras  = extraEntries.length > 0
       const mAllEntries = [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries]
@@ -2363,7 +2363,7 @@ export default function CountPage() {
                 {unitLabels.length > 1 && (
                   <div className="flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5 mt-3 overflow-x-auto [&::-webkit-scrollbar]:hidden">
                     {unitLabels.map(label => (
-                      <button key={label} onClick={() => { if (label !== line.selectedUom) { changeUom(line, label); setInputQty(0); setCaseQty(0) } }}
+                      <button key={label} onClick={() => { if (label !== line.selectedUom) { changeUom(line, label); setInputQty(''); setCaseQty(0) } }}
                         className={`flex-1 min-w-[56px] py-1.5 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
                         {uomDisplay(label)}
                       </button>
@@ -2374,11 +2374,11 @@ export default function CountPage() {
                 {/* Big stepper */}
                 <div className="text-center font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] mt-4 mb-2">{line.selectedUom} on hand</div>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setInputQty(v => Math.max(0, Math.round((v - stepBy) * 100) / 100))}
+                  <button onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - stepBy) * 100) / 100))}
                     className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0 active:bg-line"><Minus size={26} className="text-ink-2" /></button>
-                  <input type="number" value={inputQty} onChange={e => setInputQty(parseFloat(e.target.value) || 0)}
+                  <input type="number" value={inputQty} onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                     className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={stepBy} />
-                  <button onClick={() => setInputQty(v => Math.round((v + stepBy) * 100) / 100)}
+                  <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + stepBy) * 100) / 100)}
                     className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0 active:bg-ink-2"><Plus size={26} className="text-gold" /></button>
                 </div>
                 <div className="text-center font-mono text-[10.5px] text-ink-4 mt-2">tap to type</div>
