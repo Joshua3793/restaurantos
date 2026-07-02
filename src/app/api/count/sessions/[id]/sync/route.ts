@@ -30,6 +30,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       isActive: true,
       isStocked: true,
       ...(areaIds.length > 0 ? { storageAreaId: { in: areaIds } } : {}),
+      // RC-scoped session → only items that are members of this revenue center
+      // (ItemRevenueCenter). An unscoped session (no revenueCenterId) keeps the
+      // legacy "all items". Mirrors POST /api/count/sessions item selection.
+      ...(session.revenueCenterId
+        ? { revenueCenters: { some: { revenueCenterId: session.revenueCenterId } } }
+        : {}),
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
