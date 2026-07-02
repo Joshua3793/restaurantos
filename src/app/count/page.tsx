@@ -2123,27 +2123,48 @@ export default function CountPage() {
                 )
               })()}
 
-              {/* ± stepper */}
-              <div className="flex items-center gap-2 mb-3">
-                <button
-                  onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
-                  className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
-                >
-                  <Minus size={20} className="text-ink-2" />
-                </button>
-                <input
-                  type="number"
-                  value={inputQty}
-                  onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
-                  className="flex-1 min-w-0 h-[66px] text-center text-[28px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-[9px] focus:outline-none text-ink"
-                  min={0} step={0.1}
-                />
-                <button
-                  onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
-                  className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
-                >
-                  <Plus size={20} className="text-ink-2" />
-                </button>
+              {/* ± stepper — coarse ±1 flanks the input, fine ±0.1 below */}
+              <div className="mb-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
+                    className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
+                    aria-label="Subtract 1"
+                  >
+                    <Minus size={20} className="text-ink-2" />
+                  </button>
+                  <input
+                    type="number"
+                    value={inputQty}
+                    onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
+                    className="flex-1 min-w-0 h-[66px] text-center text-[28px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-[9px] focus:outline-none text-ink"
+                    min={0} step={0.1}
+                  />
+                  <button
+                    onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
+                    className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
+                    aria-label="Add 1"
+                  >
+                    <Plus size={20} className="text-ink-2" />
+                  </button>
+                </div>
+                {/* fine ±0.1 row, constrained to the input width (button 56px + gap 8px each side) */}
+                <div className="flex gap-2 mt-2 px-[64px]">
+                  <button
+                    onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 0.1) * 100) / 100))}
+                    className="flex-1 h-9 rounded-[9px] bg-bg-2 border border-line flex items-center justify-center gap-1 hover:bg-line transition-colors text-ink-3"
+                    aria-label="Subtract 0.1"
+                  >
+                    <Minus size={13} /><span className="text-[12px] font-medium">0.1</span>
+                  </button>
+                  <button
+                    onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 0.1) * 100) / 100)}
+                    className="flex-1 h-9 rounded-[9px] bg-bg-2 border border-line flex items-center justify-center gap-1 hover:bg-line transition-colors text-ink-3"
+                    aria-label="Add 0.1"
+                  >
+                    <Plus size={13} /><span className="text-[12px] font-medium">0.1</span>
+                  </button>
+                </div>
               </div>
 
               <div className="text-center font-mono text-[11px] text-ink-3 mb-4">{line.selectedUom}</div>
@@ -2251,7 +2272,6 @@ export default function CountPage() {
       const uoms        = getCountableUoms(item)
       const unitLabels  = Array.from(new Set([...uoms.map(u => u.label), line.selectedUom]))   // size order (case→pkg→each→units); selectedUom only appended if it's a legacy unit not in the list
       const uomDisplay  = (lbl: string) => uomBaseContentLabel(lbl, item)   // base-content text ("case (6,000 g)") vs stored token
-      const stepBy      = /^(kg|l|lb|gal|qt)$/i.test(line.selectedUom) ? 0.1 : 1   // fine step for bulk weight/volume units
       // "+ unopened cases" — one full top-level container, derived from the pack
       // chain. The top container is packChain[0]; one case = the base units it
       // holds (levelBaseUnits[top.unit]). Shown when the top is a real container
@@ -2371,15 +2391,22 @@ export default function CountPage() {
                   </div>
                 )}
 
-                {/* Big stepper */}
+                {/* Big stepper — coarse ±1 flanks the input, fine ±0.1 below */}
                 <div className="text-center font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] mt-4 mb-2">{line.selectedUom} on hand</div>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - stepBy) * 100) / 100))}
-                    className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0 active:bg-line"><Minus size={26} className="text-ink-2" /></button>
+                  <button onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
+                    className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0 active:bg-line" aria-label="Subtract 1"><Minus size={26} className="text-ink-2" /></button>
                   <input type="number" value={inputQty} onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
-                    className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={stepBy} />
-                  <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + stepBy) * 100) / 100)}
-                    className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0 active:bg-ink-2"><Plus size={26} className="text-gold" /></button>
+                    className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={0.1} />
+                  <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
+                    className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0 active:bg-ink-2" aria-label="Add 1"><Plus size={26} className="text-gold" /></button>
+                </div>
+                {/* fine ±0.1 row, constrained to the input width (button 60px + gap 12px each side) */}
+                <div className="flex gap-3 mt-2 px-[72px]">
+                  <button onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 0.1) * 100) / 100))}
+                    className="flex-1 h-10 rounded-xl bg-bg-2 border border-line flex items-center justify-center gap-1 active:bg-line text-ink-3" aria-label="Subtract 0.1"><Minus size={16} /><span className="text-[13px] font-medium">0.1</span></button>
+                  <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 0.1) * 100) / 100)}
+                    className="flex-1 h-10 rounded-xl bg-bg-2 border border-line flex items-center justify-center gap-1 active:bg-line text-ink-3" aria-label="Add 0.1"><Plus size={16} /><span className="text-[13px] font-medium">0.1</span></button>
                 </div>
                 <div className="text-center font-mono text-[10.5px] text-ink-4 mt-2">tap to type</div>
 
