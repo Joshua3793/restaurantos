@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle, Mail, Activity, Zap, Clock,
-  ArrowRight, ClipboardList,
+  ArrowRight, ClipboardList, RefreshCw,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { getVocab } from '@/lib/rc-vocab'
@@ -89,7 +89,7 @@ interface AttnItem {
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function PassPage() {
-  const { user } = useUser()
+  const { user, role } = useUser()
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   // Type-driven cost noun: an RC carries a FOOD/DRINK type → "FOOD COST" /
   // "POUR COST"; a Location or "all" view spans types → generic "COST".
@@ -120,6 +120,10 @@ export default function PassPage() {
     rcCoverage?: { total: number; counted: number; uncounted: string[] } | null
   } | null>(null)
   const [handover, setHandover] = useState<Handover | null>(null)
+  const [syncingSales, setSyncingSales] = useState(false)
+  const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null)
+  // Bumped after a manual sales sync to force the dashboard to refetch.
+  const [reloadTick, setReloadTick] = useState(0)
 
   // Last close's handover note — only meaningful when scoped to a single RC.
   useEffect(() => {
@@ -182,7 +186,7 @@ export default function PassPage() {
     load()
     const t = setInterval(load, 60_000)
     return () => { cancelled = true; clearInterval(t) }
-  }, [activeRcId, activeRc, activeKind, activeLocationId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, reloadTick])
 
   // ── Attention queue (derived) ────────────────────────────────────────────
   const attn = useMemo<AttnItem[]>(() => {
@@ -258,6 +262,35 @@ export default function PassPage() {
     return { total: active.length, top }
   }, [prepItems])
 
+  // On-demand Toast sales pull for today (MANAGER+). Idempotent server-side, so
+  // clicking repeatedly just refreshes the day's figures.
+  const syncSales = async () => {
+    setSyncingSales(true); setSyncNote(null)
+    try {
+      const res = await fetch('/api/toast/sync-sales', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSyncNote({ ok: false, text: data.error || 'Sync failed' })
+      } else {
+        const r = data.result
+        const revenue = (r?.perRc ?? []).reduce((s: number, x: { totalRevenue: number }) => s + x.totalRevenue, 0)
+        setSyncNote(
+          r?.status === 'error'
+            ? { ok: false, text: r.error || 'Sync failed' }
+            : r?.status === 'skipped' || (r?.ordersPulled ?? 0) === 0
+              ? { ok: true, text: 'No sales yet today' }
+              : { ok: true, text: `Synced ${r.ordersPulled} ${r.ordersPulled === 1 ? 'order' : 'orders'} · ${formatCurrency(revenue)}` },
+        )
+        setReloadTick(t => t + 1) // pull the refreshed figures into the dashboard
+      }
+    } catch {
+      setSyncNote({ ok: false, text: 'Request failed' })
+    } finally {
+      setSyncingSales(false)
+      setTimeout(() => setSyncNote(null), 6000)
+    }
+  }
+
   const greeting = greetingFor(new Date())
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
 
@@ -287,6 +320,24 @@ export default function PassPage() {
           </>}
           actions={
             <>
+              {(role === 'ADMIN' || role === 'MANAGER') && (
+                <div className="inline-flex items-center gap-2">
+                  {syncNote && (
+                    <span className={`text-[12px] font-medium ${syncNote.ok ? 'text-ink-3' : 'text-red-text'}`}>
+                      {syncNote.text}
+                    </span>
+                  )}
+                  <button
+                    onClick={syncSales}
+                    disabled={syncingSales}
+                    title="Pull today's sales from Toast now"
+                    className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-60"
+                  >
+                    <RefreshCw size={13} className={`text-ink-3 ${syncingSales ? 'animate-spin' : ''}`} />
+                    {syncingSales ? 'Syncing…' : 'Sync sales'}
+                  </button>
+                </div>
+              )}
               <Link href="/end-of-day" className="inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <Clock size={13} className="text-ink-3" /> End-of-day
               </Link>
