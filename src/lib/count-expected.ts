@@ -30,22 +30,35 @@ type RecipeForExpansion = {
 /**
  * Per-item lookback gate. The movement maps are queried over a single wide
  * window (the earliest `lastCountDate` in the batch) for efficiency, but each
- * item's baseline is its OWN count. An event may only be applied to item X if
- * it occurred on/after X's own `lastCountDate` — otherwise it is already baked
- * into X's baseline and would be double-counted.
+ * item's baseline is its OWN count.
+ *
+ * A count OWNS its day: the physical count on day D already reflects every
+ * movement dated on/before D, so an event may only be applied to item X if it
+ * occurred STRICTLY AFTER the day of X's own `lastCountDate`. `lastCountDate`
+ * is day-floored (the session's date, no time), so the gate is
+ * `eventDate >= lastCountDate + 1 day`. Anything dated on the count day itself
+ * is already baked into the baseline and would be double-counted.
  *
  * When `cutoff` is omitted, every event passes (legacy single-window behaviour).
- * When provided, an item present in the map is gated at its own `lastCountDate`.
+ * When provided, an item present in the map is gated at its own count day.
  * An item ABSENT from the map has never been counted: its baseline is its current
  * `stockOnHand` (0 for most items, an imported opening balance for a few), so its
  * entire movement history is "new" and must be applied — every event passes.
  * (Previously such items received nothing, which silently dropped their purchases.)
  */
+const DAY_MS = 24 * 60 * 60 * 1000
 function inWindow(cutoff: Map<string, Date> | undefined, id: string, date: Date): boolean {
   if (!cutoff) return true
   const c = cutoff.get(id)
   if (c == null) return true
-  return date >= c
+  return date.getTime() >= c.getTime() + DAY_MS
+}
+
+/** Parse an invoice's "YYYY-MM-DD" received-date string; null when missing/unparseable. */
+function parseInvoiceDate(s: string | null | undefined): Date | null {
+  if (!s) return null
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d
 }
 
 function expandRecipeIngredients(
@@ -163,7 +176,7 @@ export async function buildPurchaseMap(
       invoicePackQty: true,
       invoicePackSize: true,
       invoicePackUOM: true,
-      session: { select: { createdAt: true } },
+      session: { select: { createdAt: true, invoiceDate: true } },
       matchedItem: {
         select: {
           id: true,
@@ -175,7 +188,13 @@ export async function buildPurchaseMap(
 
   for (const si of scanItems) {
     if (!si.matchedItemId || !si.matchedItem) continue
-    if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
+    // A purchase enters theoretical stock on the day the goods were RECEIVED
+    // (invoiceDate), not the day the invoice was keyed in (createdAt). Gating on
+    // entry time double-counts an invoice for pre-count goods that is entered
+    // AFTER the count — the goods were already on the shelf when it was counted.
+    // invoiceDate is a nullable "YYYY-MM-DD" OCR string; fall back to createdAt.
+    const receivedDate = parseInvoiceDate(si.session.invoiceDate) ?? si.session.createdAt
+    if (!inWindow(cutoff, si.matchedItemId, receivedDate)) continue
     const qty = Number(si.rawQty ?? 0)
     if (qty <= 0) continue
 
@@ -340,12 +359,18 @@ export async function computeExpectedForItem(
   // (these buildXMap calls pass no cutoff, so inWindow includes every event within
   // the window). For a counted item the window is its own lastCountDate.
   const since = item.lastCountDate ?? new Date(0)
+  // Pass a per-item cutoff so this single-item path gets the same gating as the
+  // batched getTheoreticalStockMap: "count owns its day" (movements on the count
+  // day are already in the baseline) and invoiceDate-based purchase timing. A
+  // never-counted item has no cutoff entry → its full history applies (since=epoch).
+  const cutoff = new Map<string, Date>()
+  if (item.lastCountDate) cutoff.set(itemId, item.lastCountDate)
 
   const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
-    buildConsumptionMap(since, rcId),
-    buildPurchaseMap(since, rcId),
-    buildWastageMap(since, [itemId], rcId),
-    buildPrepMap(since, rcId),
+    buildConsumptionMap(since, rcId, cutoff),
+    buildPurchaseMap(since, rcId, cutoff),
+    buildWastageMap(since, [itemId], rcId, cutoff),
+    buildPrepMap(since, rcId, cutoff),
   ])
 
   return {
