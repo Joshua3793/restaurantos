@@ -147,14 +147,16 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
       matchedItemId: inventoryItemId,
       approved: true,
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] },
-      session: { status: 'APPROVED', approvedAt: { gte: since } },
+      // Price history windows on the invoice's own date (purchaseDate), not approval
+      // time, so a June-dated invoice's price lands in June's trend. See purchase-date.ts.
+      session: { status: 'APPROVED', purchaseDate: { gte: since } },
     },
     select: {
       newPrice: true, rate: true, rateUOM: true, pricingMode: true,
       invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
-      session: { select: { supplierName: true, supplierId: true, approvedAt: true, invoiceDate: true } },
+      session: { select: { supplierName: true, supplierId: true, purchaseDate: true, invoiceDate: true } },
     },
-    orderBy: { session: { approvedAt: 'asc' } },
+    orderBy: { session: { purchaseDate: 'asc' } },
   })
 
   // Group history by supplier identity: supplierId when the session resolved
@@ -166,7 +168,7 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
     if (!key) continue
     const ppb = scanLinePricePerBase(l, item)
     if (ppb === null) continue
-    const date = l.session!.invoiceDate ?? l.session!.approvedAt?.toISOString().slice(0, 10) ?? ''
+    const date = l.session!.invoiceDate ?? l.session!.purchaseDate?.toISOString().slice(0, 10) ?? ''
     if (!bySupplier.has(key)) bySupplier.set(key, [])
     bySupplier.get(key)!.push({ date, ppb })
   }

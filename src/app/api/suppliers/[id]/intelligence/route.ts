@@ -15,19 +15,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const [monthAgg, prevMonthAgg, yearAgg, yearCount, lastSession, priceAlerts, items] =
     await Promise.all([
       prisma.invoiceSession.aggregate({
-        where: { supplierId: id, status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd } },
+        where: { supplierId: id, status: 'APPROVED', purchaseDate: { gte: monthStart, lt: monthEnd } },
         _sum: { total: true },
       }),
       prisma.invoiceSession.aggregate({
-        where: { supplierId: id, status: 'APPROVED', approvedAt: { gte: prevMonthStart, lt: monthStart } },
+        where: { supplierId: id, status: 'APPROVED', purchaseDate: { gte: prevMonthStart, lt: monthStart } },
         _sum: { total: true },
       }),
       prisma.invoiceSession.aggregate({
-        where: { supplierId: id, status: 'APPROVED', approvedAt: { gte: yearStart } },
+        where: { supplierId: id, status: 'APPROVED', purchaseDate: { gte: yearStart } },
         _sum: { total: true },
       }),
       prisma.invoiceSession.count({
-        where: { supplierId: id, status: 'APPROVED', approvedAt: { gte: yearStart } },
+        where: { supplierId: id, status: 'APPROVED', purchaseDate: { gte: yearStart } },
       }),
       prisma.invoiceSession.findFirst({
         where: { supplierId: id, status: 'APPROVED' },

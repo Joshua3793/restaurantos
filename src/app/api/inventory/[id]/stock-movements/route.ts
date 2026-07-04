@@ -4,6 +4,7 @@ import { convertQty } from '@/lib/uom'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { computeScale } from '@/lib/prep-utils'
 import { asChainItem, basePerUnit } from '@/lib/item-model'
+import { parseInvoiceDate } from '@/lib/purchase-date'
 
 export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
 
@@ -74,23 +75,32 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   // ── PURCHASES (from approved invoice sessions) ────────────────────────────
+  // A purchase belongs to the day the goods were RECEIVED (the invoice's own date),
+  // not the day the session was approved. The DB filter is a superset (either date
+  // in-window); the real inclusion + display date use the resolved received date
+  // below, so a pre-count invoice keyed in after the count drops out of the list
+  // (it's already in the counted baseline) instead of inflating theoretical stock.
   const scanItems = await prisma.invoiceScanItem.findMany({
     where: {
       matchedItemId: params.id,
       approved: true,
       // CREATE_NEW = the invoice that created the item also received its first stock.
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
-      session: { status: 'APPROVED', approvedAt: { gte: since } },
+      session: { status: 'APPROVED', OR: [{ approvedAt: { gte: since } }, { purchaseDate: { gte: since } }] },
       rawQty: { not: null },
       splitToSessionId: null,
     },
     include: {
-      session: { select: { supplierName: true, invoiceDate: true, invoiceNumber: true, approvedAt: true, revenueCenterId: true } },
+      session: { select: { supplierName: true, invoiceDate: true, invoiceNumber: true, approvedAt: true, purchaseDate: true, revenueCenterId: true } },
     },
   })
   for (const si of scanItems) {
     const qty = Number(si.rawQty ?? 0)
     if (qty <= 0) continue
+    // Received date: resolved purchaseDate → raw invoiceDate string → approvedAt.
+    const receivedDate = si.session.purchaseDate ?? parseInvoiceDate(si.session.invoiceDate) ?? si.session.approvedAt ?? new Date()
+    // Skip anything received on/before the count baseline — it's already counted.
+    if (receivedDate < since) continue
     let baseUnits: number
     const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
     const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
@@ -106,8 +116,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     }
     const supplier = si.session.supplierName ?? 'Purchase'
     const invNum   = si.session.invoiceNumber ? ` · #${si.session.invoiceNumber}` : ''
-    const date     = si.session.approvedAt ?? (si.session.invoiceDate ? new Date(si.session.invoiceDate) : new Date())
-    raw.push({ id: si.id, date, type: 'PURCHASE', qtyBase: baseUnits, description: `${supplier}${invNum}`, revenueCenterId: si.session.revenueCenterId ?? null })
+    raw.push({ id: si.id, date: receivedDate, type: 'PURCHASE', qtyBase: baseUnits, description: `${supplier}${invNum}`, revenueCenterId: si.session.revenueCenterId ?? null })
   }
 
   // ── SALES consumption ─────────────────────────────────────────────────────

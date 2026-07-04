@@ -331,6 +331,11 @@ model InvoiceSession {
   errorMessage    String?
   approvedBy      String?
   approvedAt      DateTime?
+  // The accounting/received date a purchase lands on. Resolved at approval from the
+  // OCR invoiceDate string (falling back to approvedAt when it's missing/unparseable).
+  // ALL purchase-spend reporting AND theoretical-stock windows on this, NOT approvedAt,
+  // so a June-dated invoice approved in July still counts toward June. See src/lib/purchase-date.ts.
+  purchaseDate    DateTime?
   createdAt       DateTime          @default(now())
   parentSessionId String?
   revenueCenterId String?
@@ -342,6 +347,8 @@ model InvoiceSession {
   supplier        Supplier?         @relation("SupplierInvoiceSessions", fields: [supplierId], references: [id])
   priceAlerts     PriceAlert[]
   recipeAlerts    RecipeAlert[]
+
+  @@index([purchaseDate])
 }
 
 model InvoiceFile {

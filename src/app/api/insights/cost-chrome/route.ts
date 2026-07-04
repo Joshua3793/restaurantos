@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: { approvedAt: { gte: weekStart }, ...purchaseSessionFilter },
+        session: { purchaseDate: { gte: weekStart }, ...purchaseSessionFilter },
       },
       _sum: { rawLineTotal: true },
     }),
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: { approvedAt: { gte: sevenDaysAgo }, ...purchaseSessionFilter },
+        session: { purchaseDate: { gte: sevenDaysAgo }, ...purchaseSessionFilter },
       },
       _sum: { rawLineTotal: true },
     }),
@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: { approvedAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo }, ...purchaseSessionFilter },
+        session: { purchaseDate: { gte: fourteenDaysAgo, lt: sevenDaysAgo }, ...purchaseSessionFilter },
       },
       _sum: { rawLineTotal: true },
     }),

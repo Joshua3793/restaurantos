@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { convertQty, UNIT_FACTORS, canonicalUom } from '@/lib/uom'
 import { computeScale } from '@/lib/prep-utils'
 import { asChainItem, basePerUnit, dimensionOf, PRICING_SELECT } from '@/lib/item-model'
+import { parseInvoiceDate } from '@/lib/purchase-date'
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
@@ -142,7 +143,11 @@ export async function buildPurchaseMap(
     where: {
       session: {
         status: 'APPROVED',
-        createdAt: { gte: since },
+        // Broad prefilter for performance only — catch rows in-window by EITHER the
+        // entry time OR the resolved received date, so a late-entered / future-dated /
+        // not-yet-backfilled invoice with an in-window received date isn't dropped
+        // before the receivedDate gate in the loop makes the real per-item decision.
+        OR: [{ createdAt: { gte: since } }, { purchaseDate: { gte: since } }],
         ...(rcId ? { revenueCenterId: rcId } : {}),   // null = all RCs (matches sibling maps)
       },
       approved: true,
@@ -163,7 +168,7 @@ export async function buildPurchaseMap(
       invoicePackQty: true,
       invoicePackSize: true,
       invoicePackUOM: true,
-      session: { select: { createdAt: true } },
+      session: { select: { createdAt: true, purchaseDate: true, invoiceDate: true } },
       matchedItem: {
         select: {
           id: true,
@@ -175,7 +180,14 @@ export async function buildPurchaseMap(
 
   for (const si of scanItems) {
     if (!si.matchedItemId || !si.matchedItem) continue
-    if (!inWindow(cutoff, si.matchedItemId, si.session.createdAt)) continue
+    // A purchase enters theoretical stock on the day the goods were RECEIVED (the
+    // invoice's own date), NOT the day the invoice was keyed in / approved. Gating on
+    // entry time double-counts a pre-count invoice that is entered AFTER the count —
+    // the goods were already on the shelf (and in the counted baseline). Prefer the
+    // resolved purchaseDate column; fall back to the raw invoiceDate string, then
+    // createdAt (covers sessions not yet backfilled).
+    const receivedDate = si.session.purchaseDate ?? parseInvoiceDate(si.session.invoiceDate) ?? si.session.createdAt
+    if (!inWindow(cutoff, si.matchedItemId, receivedDate)) continue
     const qty = Number(si.rawQty ?? 0)
     if (qty <= 0) continue
 
@@ -341,11 +353,20 @@ export async function computeExpectedForItem(
   // the window). For a counted item the window is its own lastCountDate.
   const since = item.lastCountDate ?? new Date(0)
 
+  // Per-item cutoff so this single-item path gets the SAME per-item gating as the
+  // batched getTheoreticalStockMap: an event is only applied if it is dated on/after
+  // the item's own lastCountDate (its baseline). Without a cutoff, inWindow passes
+  // everything and the invoice-date/received-date gate in buildPurchaseMap is a no-op,
+  // so a pre-count invoice keyed in after the count would still be added here. A
+  // never-counted item has no cutoff entry → its full history applies (since=epoch).
+  const cutoff = new Map<string, Date>()
+  if (item.lastCountDate) cutoff.set(itemId, item.lastCountDate)
+
   const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
-    buildConsumptionMap(since, rcId),
-    buildPurchaseMap(since, rcId),
-    buildWastageMap(since, [itemId], rcId),
-    buildPrepMap(since, rcId),
+    buildConsumptionMap(since, rcId, cutoff),
+    buildPurchaseMap(since, rcId, cutoff),
+    buildWastageMap(since, [itemId], rcId, cutoff),
+    buildPrepMap(since, rcId, cutoff),
   ])
 
   return {
