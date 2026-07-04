@@ -12,7 +12,9 @@ export interface RcSpendResult {
 }
 
 /**
- * Canonical "amount paid" per revenue center for APPROVED invoices in [start, end).
+ * Canonical "amount paid" per revenue center for APPROVED invoices in [start, end),
+ * windowed by the invoice's own date (session.purchaseDate — see
+ * src/lib/purchase-date.ts), NOT the day it was approved.
  *
  * Attribution rules (RC-split design — keep every reader in sync with these):
  *  - Each line's printed total (rawLineTotal) is attributed to that line's effective
@@ -31,7 +33,7 @@ export async function invoiceSpendByRc(start: Date, end: Date): Promise<RcSpendR
   const [defaultRc, sessions] = await Promise.all([
     prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { id: true } }),
     prisma.invoiceSession.findMany({
-      where: { status: 'APPROVED', parentSessionId: null, approvedAt: { gte: start, lt: end } },
+      where: { status: 'APPROVED', parentSessionId: null, purchaseDate: { gte: start, lt: end } },
       select: {
         revenueCenterId: true,
         total: true,

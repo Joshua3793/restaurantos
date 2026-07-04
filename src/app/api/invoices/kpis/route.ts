@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: { status: 'APPROVED', approvedAt: { gte: monthStart, lt: monthEnd }, ...rcWhere },
+        session: { status: 'APPROVED', purchaseDate: { gte: monthStart, lt: monthEnd }, ...rcWhere },
       },
       select: { rawLineTotal: true, matchedItem: { select: { category: true } } },
     }),

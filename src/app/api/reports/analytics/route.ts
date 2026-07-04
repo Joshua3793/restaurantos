@@ -139,11 +139,11 @@ async function getOverview(ctx: Ctx) {
     }),
     // Purchases current period
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: win, ...sessionRc } },
+      where: { approved: true, splitToSessionId: null, session: { purchaseDate: win, ...sessionRc } },
       _sum: { rawLineTotal: true },
     }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: prevWin, ...sessionRc } },
+      where: { approved: true, splitToSessionId: null, session: { purchaseDate: prevWin, ...sessionRc } },
       _sum: { rawLineTotal: true },
     }),
   ])
@@ -418,11 +418,11 @@ async function getPurchasing(ctx: Ctx) {
   const { win, days, sessionRc } = ctx
   const [scanItems, supplierPrices] = await Promise.all([
     prisma.invoiceScanItem.findMany({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: win, ...sessionRc } },
+      where: { approved: true, splitToSessionId: null, session: { purchaseDate: win, ...sessionRc } },
       select: {
         rawDescription: true, rawQty: true, rawUnitPrice: true, rawLineTotal: true,
         matchedItem: { select: { itemName: true, category: true } },
-        session: { select: { supplierName: true, supplierId: true, approvedAt: true } },
+        session: { select: { supplierName: true, supplierId: true, purchaseDate: true } },
       },
     }),
     prisma.inventorySupplierPrice.findMany({
@@ -466,8 +466,8 @@ async function getPurchasing(ctx: Ctx) {
   // Weekly spend trend
   const weeklySpend: Record<string, number> = {}
   for (const item of scanItems) {
-    if (!item.session.approvedAt) continue
-    const d = new Date(item.session.approvedAt)
+    if (!item.session.purchaseDate) continue
+    const d = new Date(item.session.purchaseDate)
     const dow = d.getDay()
     const mon = new Date(d)
     mon.setDate(d.getDate() - ((dow + 6) % 7))
@@ -513,7 +513,7 @@ async function buildMultiSupplierBlock(win: { gte: Date; lte: Date }) {
       // CREATE_NEW = the invoice that created the item also received its first stock.
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
       matchedItemId: { in: [...byItem.keys()] },
-      session: { status: 'APPROVED', approvedAt: win },
+      session: { status: 'APPROVED', purchaseDate: win },
     },
     select: {
       matchedItemId: true, rawLineTotal: true,

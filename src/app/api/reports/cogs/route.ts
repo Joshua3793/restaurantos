@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
 
   // COGS pieces for ONE scope (a specific RC, or the default pool). Opening/closing
   // inventory = the FULL counts bounding the period by sessionDate; purchases = approved
-  // non-split scan items by session.approvedAt. Counted stock is the ONLY inventory
+  // non-split scan items by session.purchaseDate (invoice date). Counted stock is the ONLY inventory
   // source (no StockAllocation fallback — allocations aren't counted values).
   const cogsForScope = async (scope: { rcId: string; isDefault: boolean }) => {
     const { opening, closing } =

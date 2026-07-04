@@ -27,9 +27,11 @@ export interface PurchaseScope {
  * "what was purchased in a date range", shared by computePeriodCogs and
  * /api/reports/cogs so they can never diverge.
  *
- * Purchases = approved, non-split InvoiceScanItems whose session.approvedAt is
- * in [startMs, endMs], summed on rawLineTotal. This matches the live cost-chrome
- * spine aggregate exactly: NO action filter (a received line whose price didn't
+ * Purchases = approved, non-split InvoiceScanItems whose session.purchaseDate is
+ * in [startMs, endMs], summed on rawLineTotal. purchaseDate is the invoice's own
+ * date (see src/lib/purchase-date.ts), so a June-dated invoice approved in July
+ * still lands in June. This matches the live cost-chrome spine aggregate exactly:
+ * NO action filter (a received line whose price didn't
  * change is still a purchase) and NO legacy Invoice rows (that flow is dead and
  * the live food-cost number already ignores it). Items with a null rawLineTotal
  * contribute 0, mirroring the spine. RC scope is applied on the session.
@@ -50,7 +52,7 @@ export async function periodPurchases(
     where: {
       approved: true,
       splitToSessionId: null,
-      session: { approvedAt: { gte: new Date(startMs), lte: new Date(endMs) }, ...sessionRc },
+      session: { purchaseDate: { gte: new Date(startMs), lte: new Date(endMs) }, ...sessionRc },
     },
     select: { rawLineTotal: true, sessionId: true, matchedItem: { select: { category: true } } },
   })
