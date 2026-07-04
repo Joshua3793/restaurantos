@@ -84,8 +84,12 @@ export interface DaySyncResult {
     lineItemsWritten: number
     unmatchedItems: number
     unmatchedQty: number
+    supersededManual: number   // same-day manual entries removed (Toast is authoritative)
   }[]
   skippedUnmappedRcOrders: number
+  // Multi-day manual entries that overlap a synced day but were LEFT in place (deleting
+  // them would drop revenue for their other days) — surfaced for manual resolution.
+  manualConflicts?: string[]
   error?: string
 }
 
@@ -202,13 +206,34 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   }
 
   const date = dateFromInt(yyyymmdd)
+  const dayEnd = new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1)   // 23:59:59.999 same UTC day
   const perRc: DaySyncResult['perRc'] = []
+  const manualConflicts: string[] = []
 
   for (const bucket of buckets.values()) {
     const foodSalesPct = bucket.totalRevenue > 0 ? bucket.foodRevenue / bucket.totalRevenue : 0
     const lineItems = [...bucket.qtyByRecipe.entries()].map(([recipeId, qtySold]) => ({ recipeId, qtySold }))
 
-    await prisma.$transaction(async (tx) => {
+    const supersededManual = await prisma.$transaction(async (tx) => {
+      // Toast is authoritative for a day it has data. A MANUAL entry on the same
+      // (day, RC) would double-count in reports (which sum sources raw) — the June
+      // $421K→$217,863 incident. Supersede it: a same-day manual entry is deleted
+      // (its line items cascade). A MULTI-day manual entry that merely overlaps this
+      // day is left in place — deleting it would drop revenue for its other days —
+      // and reported as a conflict for the user to resolve.
+      const overlapping = (await tx.salesEntry.findMany({
+        where: { source: 'manual', revenueCenterId: bucket.revenueCenterId, date: { lte: dayEnd } },
+        select: { id: true, date: true, endDate: true },
+      })).filter(m => (m.endDate ?? m.date).getTime() >= date.getTime())
+
+      const singleDayIds = overlapping.filter(m => !m.endDate || m.endDate.getTime() === m.date.getTime()).map(m => m.id)
+      for (const m of overlapping.filter(m => m.endDate && m.endDate.getTime() !== m.date.getTime())) {
+        manualConflicts.push(`${rcNameById.get(bucket.revenueCenterId) ?? bucket.revenueCenterId}: manual ${m.date.toISOString().slice(0, 10)}…${m.endDate!.toISOString().slice(0, 10)} overlaps Toast day ${date.toISOString().slice(0, 10)} (left in place — resolve manually)`)
+      }
+      if (singleDayIds.length) {
+        await tx.salesEntry.deleteMany({ where: { id: { in: singleDayIds } } })   // SaleLineItem cascades
+      }
+
       const existing = await tx.salesEntry.findUnique({
         where: {
           date_revenueCenterId_source_periodType: {
@@ -239,6 +264,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
           },
         })
       }
+      return singleDayIds.length
     })
 
     const unmatchedQty = [...bucket.unmatched.values()].reduce((s, q) => s + q, 0)
@@ -251,8 +277,11 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
       lineItemsWritten: lineItems.length,
       unmatchedItems: bucket.unmatched.size,
       unmatchedQty,
+      supersededManual,
     })
   }
+
+  if (manualConflicts.length) console.warn(`[toast-sync ${yyyymmdd}] manual/Toast conflicts left in place:\n  ${manualConflicts.join('\n  ')}`)
 
   return {
     businessDate: yyyymmdd,
@@ -260,6 +289,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     status: buckets.size ? 'ok' : 'skipped',
     perRc,
     skippedUnmappedRcOrders,
+    ...(manualConflicts.length ? { manualConflicts } : {}),
   }
 }
 

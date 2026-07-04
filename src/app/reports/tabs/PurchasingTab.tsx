@@ -7,11 +7,12 @@ import {
 import { formatCurrency, formatPricePerBase } from '@/lib/utils'
 import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
-import { DateRangePicker, rangeForPreset, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
+import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
+import { useReportRange } from '@/lib/report-range'
 
 export default function PurchasingTab() {
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
-  const [range, setRange] = useState<DateRange>(() => rangeForPreset('last30'))
+  const [range, setRange] = useReportRange()
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -26,7 +27,7 @@ export default function PurchasingTab() {
     return () => { cancelled = true }
   }, [range, activeRcId, activeRc, activeKind, activeLocationId])
 
-  const picker = <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
+  const picker = <DateRangePicker value={range} onChange={setRange} />
 
   if (loading && !data) return <div className="space-y-6">{picker}<LoadingState /></div>
   if (!data) return <div className="space-y-6">{picker}<EmptyState message="Failed to load purchasing data" /></div>

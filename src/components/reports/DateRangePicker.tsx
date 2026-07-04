@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { CalendarRange } from 'lucide-react'
 import { startOfWeek, startOfMonth, startOfQuarter, endOfDay, lastWeekRange } from '@/lib/dates'
 import { setScopeParams } from '@/lib/scope-params'
@@ -65,25 +65,30 @@ function fromInputValue(s: string): Date {
   return new Date(y, m - 1, d)
 }
 
-export function DateRangePicker({ value, onChange, defaultPreset = 'thisWeek' }: {
+export function DateRangePicker({ value, onChange }: {
   value: DateRange
   onChange: (r: DateRange) => void
-  /** Which preset chip is highlighted initially — match whatever the parent seeded `value` with. */
-  defaultPreset?: Exclude<PresetKey, 'custom'>
 }) {
-  const [preset, setPreset] = useState<PresetKey>(defaultPreset)
-
   const fromStr = toInputValue(value.from)
   const toStr   = toInputValue(value.to)
   const invalid = value.from > value.to
 
+  // Highlight is DERIVED from `value` (not held in local state) so a range restored
+  // from shared storage or set by another page shows the correct chip. A value that
+  // matches a preset's current [from,to] (day-level) highlights it; else → custom.
+  const preset: PresetKey = useMemo(() => {
+    for (const p of PRESETS) {
+      const r = rangeForPreset(p.key)
+      if (toInputValue(r.from) === fromStr && toInputValue(r.to) === toStr) return p.key
+    }
+    return 'custom'
+  }, [fromStr, toStr])
+
   const applyPreset = (key: Exclude<PresetKey, 'custom'>) => {
-    setPreset(key)
     onChange(rangeForPreset(key))
   }
 
   const applyCustom = (next: { from?: string; to?: string }) => {
-    setPreset('custom')
     const from = next.from ? fromInputValue(next.from) : value.from
     const to   = next.to   ? endOfDay(fromInputValue(next.to)) : value.to
     onChange({ from, to, label: 'Custom' })
