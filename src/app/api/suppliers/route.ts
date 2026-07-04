@@ -20,7 +20,7 @@ export async function GET() {
       where: {
         status: 'APPROVED',
         supplierId: { not: null },
-        approvedAt: { gte: monthStart, lt: monthEnd },
+        purchaseDate: { gte: monthStart, lt: monthEnd },
       },
       _sum: { total: true },
     }),
@@ -29,7 +29,7 @@ export async function GET() {
       where: {
         status: 'APPROVED',
         supplierId: { not: null },
-        approvedAt: { gte: prevMonthStart, lt: monthStart },
+        purchaseDate: { gte: prevMonthStart, lt: monthStart },
       },
       _sum: { total: true },
     }),

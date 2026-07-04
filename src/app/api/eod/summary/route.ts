@@ -68,12 +68,12 @@ export async function GET(req: NextRequest) {
         inventoryItem: { select: { itemName: true } },
       },
     }),
-    // Food cost $ today = today's approved purchases (numerator basis used elsewhere).
+    // Food cost $ today = purchases dated today (by invoice date, the basis used elsewhere).
     prisma.invoiceScanItem.aggregate({
       where: {
         approved: true, splitToSessionId: null,
         session: {
-          approvedAt: win,
+          purchaseDate: win,
           // InvoiceSession.revenueCenterId is NULLABLE → location lens also surfaces null rows.
           ...(locRcIds
             ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }

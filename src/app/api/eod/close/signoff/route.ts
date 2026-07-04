@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const [sales, purchases] = await Promise.all([
       prisma.salesEntry.findMany({ where: { date: { gte: dayStart, lte: dayEnd }, revenueCenterId: rcId }, select: { totalRevenue: true, foodSalesPct: true, covers: true } }),
       prisma.invoiceScanItem.aggregate({
-        where: { approved: true, splitToSessionId: null, session: { approvedAt: { gte: dayStart, lte: dayEnd }, revenueCenterId: rcId } },
+        where: { approved: true, splitToSessionId: null, session: { purchaseDate: { gte: dayStart, lte: dayEnd }, revenueCenterId: rcId } },
         _sum: { rawLineTotal: true },
       }),
     ])

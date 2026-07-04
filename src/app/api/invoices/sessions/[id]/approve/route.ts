@@ -16,6 +16,7 @@ import { lookupDensity } from '@/lib/density'
 import { densityCrossedPpb } from '@/lib/invoice/density-bridge'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
+import { resolvePurchaseDate } from '@/lib/purchase-date'
 
 // Give background work up to 60s after the response is sent
 export const maxDuration = 60
@@ -587,12 +588,16 @@ async function doApprove(
 
     // Mark session as APPROVED. If any lines were skipped (price not safely
     // resolvable), surface that on the session so it isn't silently lost.
+    const approvedNow = new Date()
     await prisma.invoiceSession.update({
       where: { id: sessionId },
       data: {
         status: 'APPROVED',
         approvedBy,
-        approvedAt: new Date(),
+        approvedAt: approvedNow,
+        // Reporting date = the invoice's own date (falls back to approval time).
+        // ALL purchase-spend reporting windows on this. See src/lib/purchase-date.ts.
+        purchaseDate: resolvePurchaseDate(session.invoiceDate, approvedNow),
         revenueCenterId: effectiveSessionRcId,
         ...(skippedLines > 0
           ? {
@@ -697,7 +702,10 @@ async function doApprove(
             revenueCenterId: rcId,
             parentSessionId: sessionId,
             approvedBy,
-            approvedAt:      new Date(),
+            approvedAt:      approvedNow,
+            // Clone's scan items (splitToSessionId=null) are the ones counted by
+            // periodPurchases — it must carry the same reporting date as its parent.
+            purchaseDate:    resolvePurchaseDate(session.invoiceDate, approvedNow),
           },
         })
         if (!firstSplitCloneId) firstSplitCloneId = clone.id

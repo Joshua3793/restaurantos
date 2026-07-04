@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { convertQty, UNIT_FACTORS, canonicalUom } from '@/lib/uom'
 import { computeScale } from '@/lib/prep-utils'
 import { asChainItem, basePerUnit, dimensionOf, PRICING_SELECT } from '@/lib/item-model'
+import { parseInvoiceDate } from '@/lib/purchase-date'
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
@@ -52,13 +53,6 @@ function inWindow(cutoff: Map<string, Date> | undefined, id: string, date: Date)
   const c = cutoff.get(id)
   if (c == null) return true
   return date.getTime() >= c.getTime() + DAY_MS
-}
-
-/** Parse an invoice's "YYYY-MM-DD" received-date string; null when missing/unparseable. */
-function parseInvoiceDate(s: string | null | undefined): Date | null {
-  if (!s) return null
-  const d = new Date(s)
-  return isNaN(d.getTime()) ? null : d
 }
 
 function expandRecipeIngredients(

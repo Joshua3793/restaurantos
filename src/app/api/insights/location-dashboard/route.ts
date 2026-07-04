@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
         where: {
           approved: true,
           splitToSessionId: null,
-          session: { approvedAt: { gte: from, lte: to }, revenueCenterId: rc.id },
+          session: { purchaseDate: { gte: from, lte: to }, revenueCenterId: rc.id },
         },
         _sum: { rawLineTotal: true },
       }),

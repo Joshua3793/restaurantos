@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.salesEntry.findMany({ where: { date: cardsWin, ...rcFilter } }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { approvedAt: cardsWin } },
+      where: { approved: true, splitToSessionId: null, session: { purchaseDate: cardsWin } },
       _sum: { rawLineTotal: true },
     }),
     prisma.salesEntry.findMany({
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
         approved: true,
         splitToSessionId: null,
         session: {
-          approvedAt: fcWin,
+          purchaseDate: fcWin,
           // InvoiceSession.revenueCenterId is NULLABLE → location lens also surfaces null rows.
           ...(locRcIds
             ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
