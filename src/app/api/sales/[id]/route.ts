@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { toastCoveredDays, toastOverlapMessage } from '@/lib/sales-guard'
 
 const RECIPE_SELECT = {
   id: true, name: true, menuPrice: true,
@@ -27,6 +28,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   if (!revenueCenterId) {
     return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
+  }
+
+  // Guard: don't let a MANUAL entry be moved onto Toast-covered days (double-counts
+  // revenue — reports have no source dedup). Toast rows are exempt (editing Toast over
+  // other Toast is the sync's concern, not a double-count). Exclude self from the check.
+  const existing = await prisma.salesEntry.findUnique({ where: { id: params.id }, select: { source: true } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (existing.source !== 'toast') {
+    const covered = await toastCoveredDays(revenueCenterId, new Date(rest.date), rest.endDate ? new Date(rest.endDate) : null, params.id)
+    if (covered.length > 0) {
+      return NextResponse.json({ error: toastOverlapMessage(covered) }, { status: 409 })
+    }
   }
 
   // Replace all line items

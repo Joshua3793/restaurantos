@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
+import { toastCoveredDays, toastOverlapMessage } from '@/lib/sales-guard'
 
 const RECIPE_SELECT = {
   id: true, name: true, menuPrice: true,
@@ -67,6 +68,13 @@ export async function POST(req: NextRequest) {
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
+  }
+
+  // Guard: a manual entry over Toast-covered days double-counts revenue (reports sum
+  // every SalesEntry with no source dedup). Block it — this is what inflated June.
+  const covered = await toastCoveredDays(revenueCenterId, new Date(rest.date), rest.endDate ? new Date(rest.endDate) : null)
+  if (covered.length > 0) {
+    return NextResponse.json({ error: toastOverlapMessage(covered) }, { status: 409 })
   }
 
   const entry = await prisma.salesEntry.create({
