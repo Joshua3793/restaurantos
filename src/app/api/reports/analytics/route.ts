@@ -422,7 +422,7 @@ async function getPurchasing(ctx: Ctx) {
       select: {
         rawDescription: true, rawQty: true, rawUnitPrice: true, rawLineTotal: true,
         matchedItem: { select: { itemName: true, category: true } },
-        session: { select: { supplierName: true, supplierId: true, purchaseDate: true } },
+        session: { select: { supplierName: true, supplierId: true, purchaseDate: true, supplier: { select: { name: true } } } },
       },
     }),
     prisma.inventorySupplierPrice.findMany({
@@ -433,16 +433,21 @@ async function getPurchasing(ctx: Ctx) {
     }),
   ])
 
-  // Spend by supplier
-  const bySupplier: Record<string, { spend: number; invoices: Set<string>; lines: number }> = {}
+  // Spend by supplier — fold OCR name variants ("SYSCO Canada, Inc." vs
+  // "Sysco Canada, Inc. - Vancouver") into ONE row by grouping on supplierId and
+  // showing the canonical Supplier.name. Only sessions with no linked supplier fall
+  // back to their raw OCR name (each distinct unlinked name stays its own row).
+  const bySupplier: Record<string, { name: string; spend: number; lines: number }> = {}
   for (const item of scanItems) {
-    const sup = item.session.supplierName ?? 'Unknown'
-    if (!bySupplier[sup]) bySupplier[sup] = { spend: 0, invoices: new Set(), lines: 0 }
-    bySupplier[sup].spend += Number(item.rawLineTotal ?? 0)
-    bySupplier[sup].lines++
+    const s = item.session
+    const key  = s.supplierId ?? s.supplierName ?? 'Unknown'
+    const name = s.supplier?.name ?? s.supplierName ?? 'Unknown'
+    if (!bySupplier[key]) bySupplier[key] = { name, spend: 0, lines: 0 }
+    bySupplier[key].spend += Number(item.rawLineTotal ?? 0)
+    bySupplier[key].lines++
   }
-  const supplierSpend = Object.entries(bySupplier)
-    .map(([name, d]) => ({ name, spend: d.spend, lines: d.lines }))
+  const supplierSpend = Object.values(bySupplier)
+    .map(d => ({ name: d.name, spend: d.spend, lines: d.lines }))
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 10)
 

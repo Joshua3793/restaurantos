@@ -8,7 +8,8 @@ import { getVocab } from '@/lib/rc-vocab'
 import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
 import { ReportsSubnav } from './ReportsSubnav'
-import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
+import { DateRangePicker, type DateRange } from '@/components/reports/DateRangePicker'
+import { useReportRange } from '@/lib/report-range'
 import { LocationDashboard } from '@/components/locations/LocationDashboard'
 
 interface ChromeData {
@@ -48,7 +49,7 @@ export default function ReportsPage() {
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
-  const [range, setRange] = useState<DateRange>(() => rangeForPreset('thisWeek'))
+  const [range, setRange] = useReportRange()
 
   // cost-chrome (target + live on-hand) and recipes are point-in-time — fetch on RC change only.
   useEffect(() => {

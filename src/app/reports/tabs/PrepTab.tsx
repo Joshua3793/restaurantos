@@ -4,7 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { ChefHat, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
+import { DateRangePicker } from '@/components/reports/DateRangePicker'
+import { useReportRange } from '@/lib/report-range'
 
 interface DailySummary {
   date: string
@@ -58,7 +59,7 @@ function completionColor(rate: number) {
 
 export default function PrepTab() {
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
-  const [range,   setRange]   = useState<DateRange>(() => rangeForPreset('last30'))
+  const [range,   setRange]   = useReportRange()
   const [report,  setReport]  = useState<PrepReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
@@ -83,7 +84,7 @@ export default function PrepTab() {
         <ChefHat size={18} className="text-gold" />
         <h2 className="text-base font-semibold text-ink-2">Prep Performance</h2>
       </div>
-      <DateRangePicker value={range} onChange={setRange} defaultPreset="last30" />
+      <DateRangePicker value={range} onChange={setRange} />
 
       {loading ? (
         <div className="flex justify-center py-20">

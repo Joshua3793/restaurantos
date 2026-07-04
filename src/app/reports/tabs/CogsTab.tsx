@@ -6,7 +6,8 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
 import { rcHex } from '@/lib/rc-colors'
-import { DateRangePicker, rangeForPreset, type DateRange } from '@/components/reports/DateRangePicker'
+import { DateRangePicker } from '@/components/reports/DateRangePicker'
+import { useReportRange } from '@/lib/report-range'
 
 interface InvBound { value: number; sessionDate: string | null; sessionId: string | null; needsCount: boolean; sameAsOpening?: boolean }
 interface CogsResult {
@@ -51,7 +52,7 @@ export default function CogsTab() {
   const costNounLower = activeKind === 'rc'
     ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toLowerCase()
     : 'cost'
-  const [range, setRange] = useState<DateRange>(() => rangeForPreset('thisWeek'))
+  const [range, setRange] = useReportRange()
   const [data, setData] = useState<CogsResult | null>(null)
   const [loading, setLoading] = useState(false)
 
