@@ -4,6 +4,11 @@ import { Utensils } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 import { ReportsSubnav } from '../ReportsSubnav'
 import { formatCurrency } from '@/lib/utils'
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
+import { useReportRange } from '@/lib/report-range'
+import { InfoDot } from '../report-components'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 interface Dish {
   recipeId: string; name: string; qtySold: number
@@ -21,13 +26,15 @@ const QUADRANT_META: Record<string, { label: string; cls: string }> = {
 }
 
 export default function MenuEngineeringPage() {
+  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
   const [data, setData] = useState<Resp | null>(null)
-  const [days, setDays] = useState<30 | 60 | 90>(30)
+  const [range, setRange] = useReportRange()
 
   useEffect(() => {
-    fetch(`/api/reports/menu-engineering?days=${days}`, { cache: 'no-store' })
+    const params = analyticsParams(range, { activeKind, activeRcId, activeRc, activeLocationId })
+    fetch(`/api/reports/menu-engineering?${params}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null).then(j => j && setData(j))
-  }, [days])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
 
   const groups: Array<keyof typeof QUADRANT_META> = ['STAR', 'PLOWHORSE', 'PUZZLE', 'DOG']
 
@@ -36,17 +43,10 @@ export default function MenuEngineeringPage() {
       <PageHead
         crumbs={<><Utensils size={12} /> INSIGHTS / REPORTS / MENU</>}
         title="Menu Engineering"
-        sub={data ? <>Last <b>{data.days}d</b> · {data.dishes.length} dishes · split at median popularity <b>{data.medianPopularity}</b> / margin <b>{formatCurrency(data.medianMargin)}</b></> : <>Loading…</>} />
+        sub={data ? <>{range.label} · {data.dishes.length} dishes · split at median popularity <b>{data.medianPopularity}</b> / margin <b>{formatCurrency(data.medianMargin)}</b> <InfoDot text={PROVENANCE.menuQuadrants} /></> : <>Loading…</>} />
       <ReportsSubnav />
 
-      <div className="flex gap-2 mb-4">
-        {([30, 60, 90] as const).map(d => (
-          <button key={d} onClick={() => setDays(d)}
-            className={`px-3 py-1 rounded-md font-mono text-[12px] border ${days === d ? 'bg-ink text-paper border-ink' : 'border-line text-ink-3'}`}>
-            {d}d
-          </button>
-        ))}
-      </div>
+      <DateRangePicker value={range} onChange={setRange} />
 
       <div className="grid sm:grid-cols-2 gap-4">
         {groups.map(q => {

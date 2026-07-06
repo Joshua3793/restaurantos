@@ -1,16 +1,18 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { TrendingUp, ArrowRight, BarChart3 } from 'lucide-react'
+import { TrendingUp, ArrowRight, BarChart3, Download } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
 import { PageHead } from '@/components/layout/PageHead'
 import { formatCurrency } from '@/lib/utils'
 import { ReportsSubnav } from './ReportsSubnav'
-import { DateRangePicker, type DateRange } from '@/components/reports/DateRangePicker'
+import { DateRangePicker, analyticsParams, type DateRange } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
 import { LocationDashboard } from '@/components/locations/LocationDashboard'
+import { InfoDot } from './report-components'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 interface ChromeData {
   foodCostPct: number | null
@@ -56,9 +58,13 @@ export default function ReportsPage() {
     const chromeParams = new URLSearchParams()
     setScopeParams(chromeParams, { activeKind, activeRcId, activeRc, activeLocationId })
     const chromeQs = chromeParams.toString()
+    // Recipe drift must be scoped to the selected RC/Location too — MENU recipes are
+    // strictly per-RC server-side, so an unscoped fetch showed the wrong menu (B8).
+    const recipeParams = new URLSearchParams({ type: 'MENU' })
+    setScopeParams(recipeParams, { activeKind, activeRcId, activeRc, activeLocationId })
     Promise.all([
       fetch(`/api/insights/cost-chrome${chromeQs ? `?${chromeQs}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-      fetch(`/api/recipes?type=MENU`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+      fetch(`/api/recipes?${recipeParams}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
     ]).then(([c, r]) => {
       if (c) setChrome(c)
       if (Array.isArray(r)) setRecipes(r)
@@ -118,16 +124,28 @@ export default function ReportsPage() {
 
       <ReportsSubnav />
 
-      <DateRangePicker value={range} onChange={setRange} />
+      <div className="flex flex-col sm:flex-row sm:items-start gap-2 mb-3">
+        <div className="flex-1 min-w-0">
+          <DateRangePicker value={range} onChange={setRange} />
+        </div>
+        <a
+          href={`/api/reports/export?${analyticsParams(range, { activeKind, activeRcId, activeRc, activeLocationId })}`}
+          className="shrink-0 inline-flex items-center justify-center gap-1.5 h-[42px] px-4 rounded-[12px] bg-ink text-paper font-mono text-[11px] hover:bg-ink-2 transition-colors"
+          title="Download an Excel workbook of every report for the selected scope and date range"
+        >
+          <Download size={14} /> Export Excel
+        </a>
+      </div>
 
       <div className="grid gap-3 mb-6 grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <HeroCard pct={rangeFoodCostPct} target={target} label={range.label} />
-        <Card label="REVENUE" value={dashboard ? formatCurrency(dashboard.weeklyRevenue) : '—'} delta={<>{range.label}</>} />
-        <Card label="PURCHASES" value={dashboard ? formatCurrency(dashboard.weeklyPurchaseCost) : '—'} delta={<>numerator</>} />
+        <Card label="REVENUE" value={dashboard ? formatCurrency(dashboard.weeklyRevenue) : '—'} delta={<>{range.label}</>} info={PROVENANCE.revenue} />
+        <Card label="PURCHASES" value={dashboard ? formatCurrency(dashboard.weeklyPurchaseCost) : '—'} delta={<>numerator</>} info={PROVENANCE.purchases} />
         <Card label="WASTAGE"
           value={dashboard ? formatCurrency(dashboard.weeklyWastageCost) : '—'}
           valueClass={dashboard && dashboard.weeklyWastageCost > 0 ? 'text-red-text' : ''}
           delta={<>{range.label}</>}
+          info={PROVENANCE.wastage}
         />
       </div>
 
@@ -138,6 +156,7 @@ export default function ReportsPage() {
               <TrendingUp size={13} className="text-gold" />
               Top inventory value drivers
               <span className="font-mono text-[10.5px] text-ink-3 font-normal">· top 10</span>
+              <InfoDot text={PROVENANCE.topValueDrivers} />
             </h3>
             <Link href="/inventory" className="font-mono text-[10.5px] text-gold-2 border-b border-dashed border-current">Open inventory →</Link>
           </header>
@@ -170,6 +189,7 @@ export default function ReportsPage() {
               <BarChart3 size={13} className="text-red" />
               Recipe drift · over target by &gt;3pp
               <span className="font-mono text-[10.5px] text-ink-3 font-normal">· top {drift.length}</span>
+              <InfoDot text={PROVENANCE.recipeDrift} />
             </h3>
             <Link href="/signals" className="font-mono text-[10.5px] text-gold-2 border-b border-dashed border-current">Open signals →</Link>
           </header>
@@ -216,7 +236,7 @@ function HeroCard({ pct, target, label }: { pct: number | null; target: number; 
   return (
     <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
       <div>
-        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase">FOOD COST · {label}</div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase inline-flex items-center gap-1">FOOD COST · {label}<InfoDot text={PROVENANCE.heroFoodCost} /></div>
         <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
           {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decStr}</sub>
         </div>
@@ -229,12 +249,12 @@ function HeroCard({ pct, target, label }: { pct: number | null; target: number; 
   )
 }
 
-function Card({ label, value, delta, valueClass = '' }: { label: string; value: string; delta: React.ReactNode; valueClass?: string }) {
+function Card({ label, value, delta, valueClass = '', info }: { label: string; value: string; delta: React.ReactNode; valueClass?: string; info?: string }) {
   return (
     <div className="bg-paper border border-line rounded-[12px] p-5 flex flex-col justify-between min-h-[128px] relative">
       <div className="absolute top-0 left-0 w-8 h-0.5 bg-gold" />
       <div>
-        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase">{label}</div>
+        <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase inline-flex items-center gap-1">{label}{info && <InfoDot text={info} />}</div>
         <div className={`text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 ${valueClass || 'text-ink'}`}>{value}</div>
       </div>
       <div className="font-mono text-[11px] text-ink-3 tracking-[0] [&_b]:text-ink [&_b]:font-medium">{delta}</div>

@@ -8,6 +8,18 @@ import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
+/** Default target %: the default stock-pool RC's target, else the 27.0 fallback. */
+async function defaultTargetPct(): Promise<number> {
+  const defaultRc = await prisma.revenueCenter.findFirst({
+    where: { isDefault: true },
+    select: { targetCostPct: true, targetFoodCostPct: true },
+  })
+  if (defaultRc?.targetCostPct != null || defaultRc?.targetFoodCostPct != null) {
+    return Number(defaultRc.targetCostPct ?? defaultRc.targetFoodCostPct)
+  }
+  return 27.0
+}
+
 /**
  * GET /api/insights/cost-chrome
  *
@@ -114,10 +126,13 @@ export async function GET(req: NextRequest) {
   //
   // Pass the selected rcId to the engine whenever ANY RC is selected (default or
   // not) so the banner is scoped to that RC, exactly like the inventory list.
-  // null is used only for the unfiltered "all RCs" view, where the map returns ΣRC.
+  // Under a Location lens (no single rcId) constrain the ΣRC aggregate to the
+  // location's child RCs via allowedRcIds — otherwise on-hand leaks to global.
   const theoreticalRcId: string | null = rcId || null
   const itemIds = inventory.map(it => it.id)
-  const theoreticalMap = await getTheoreticalStockMap(theoreticalRcId, itemIds)
+  const theoreticalMap = await getTheoreticalStockMap(
+    theoreticalRcId, itemIds, locRcIds ? new Set(locRcIds) : null,
+  )
 
   // onHand:
   //   concrete RC → Σ theoreticalMap[item] × price   (map already scoped to rcId)
@@ -161,14 +176,21 @@ export async function GET(req: NextRequest) {
   let targetPct: number = 27.0
   if (targetRC?.targetCostPct != null || targetRC?.targetFoodCostPct != null) {
     targetPct = Number(targetRC.targetCostPct ?? targetRC.targetFoodCostPct)
-  } else {
-    const defaultRc = await prisma.revenueCenter.findFirst({
-      where: { isDefault: true },
+  } else if (locRcIds && locRcIds.length) {
+    // Location lens: no single RC target — average the defined targets of the
+    // location's child RCs; fall back to default-RC / 27 if none are set.
+    const rcs = await prisma.revenueCenter.findMany({
+      where: { id: { in: locRcIds } },
       select: { targetCostPct: true, targetFoodCostPct: true },
     })
-    if (defaultRc?.targetCostPct != null || defaultRc?.targetFoodCostPct != null) {
-      targetPct = Number(defaultRc.targetCostPct ?? defaultRc.targetFoodCostPct)
-    }
+    const defined = rcs
+      .map(r => r.targetCostPct ?? r.targetFoodCostPct)
+      .filter((v): v is NonNullable<typeof v> => v != null)
+      .map(Number)
+    if (defined.length) targetPct = defined.reduce((a, b) => a + b, 0) / defined.length
+    else targetPct = await defaultTargetPct()
+  } else {
+    targetPct = await defaultTargetPct()
   }
 
   return NextResponse.json({

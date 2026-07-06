@@ -5,6 +5,7 @@ import { startOfWeek } from '@/lib/dates'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { dedupeSalesEntries } from '@/lib/sales-dedup'
 
 export async function GET(req: NextRequest) {
   let user
@@ -61,6 +62,13 @@ export async function GET(req: NextRequest) {
     ? { revenueCenterId: { in: locRcIds } }
     : rcId ? { revenueCenterId: rcId } : {}
 
+  // Invoice-session scope (InvoiceSession.revenueCenterId is NULLABLE → a location
+  // lens also surfaces shared null-RC sessions). Shared by BOTH purchase aggregates
+  // so the PURCHASES card and the Hero numerator stay consistent under any scope.
+  const sessionRcScope = locRcIds
+    ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
+    : rcId ? { revenueCenterId: rcId } : {}
+
   const [inventoryRaw, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases, salesWTD, purchasesWTD] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true, isStocked: true },
@@ -82,13 +90,16 @@ export async function GET(req: NextRequest) {
     }),
     prisma.salesEntry.findMany({ where: { date: cardsWin, ...rcFilter } }),
     prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { purchaseDate: cardsWin } },
+      // B4 fix: scope the PURCHASES card by RC/location (was unscoped — global).
+      where: { approved: true, splitToSessionId: null, session: { purchaseDate: cardsWin, ...sessionRcScope } },
       _sum: { rawLineTotal: true },
     }),
     prisma.salesEntry.findMany({
       where: { date: fcWin, ...rcFilter },
       select: {
         totalRevenue: true, foodSalesPct: true, covers: true,
+        // date/revenueCenterId/periodType/source drive the manual↔Toast dedupe.
+        date: true, revenueCenterId: true, periodType: true, source: true,
         lineItems: { select: { recipeId: true, qtySold: true } },
       },
     }),
@@ -96,17 +107,15 @@ export async function GET(req: NextRequest) {
       where: {
         approved: true,
         splitToSessionId: null,
-        session: {
-          purchaseDate: fcWin,
-          // InvoiceSession.revenueCenterId is NULLABLE → location lens also surfaces null rows.
-          ...(locRcIds
-            ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
-            : rcId ? { revenueCenterId: rcId } : {}),
-        },
+        session: { purchaseDate: fcWin, ...sessionRcScope },
       },
       _sum: { rawLineTotal: true },
     }),
   ])
+
+  // Dedupe manual↔Toast overlap before any revenue sum (B3 — see sales-dedup.ts).
+  const weeklySalesDeduped = dedupeSalesEntries(weeklySales)
+  const salesWTDDeduped = dedupeSalesEntries(salesWTD)
 
   // Build per-item effective stock based on selected RC:
   // - No RC selected ("All"): stockOnHand + all allocations = true total physical stock
@@ -116,7 +125,29 @@ export async function GET(req: NextRequest) {
     ...item, stockOnHand: stock,
   })
 
-  const inventory = rcId && !isDefault
+  // B5 fix: under a Location lens we must sum the location's OWN child-RC stock, not
+  // fall through to the global "all" branch. Which child RCs (if any) is the default
+  // stock-pool RC decides whether the pooled `stockOnHand` belongs to this location.
+  const locDefaultRcIds = locRcIds
+    ? (await prisma.revenueCenter.findMany({
+        where: { id: { in: locRcIds }, isDefault: true }, select: { id: true },
+      })).map(r => r.id)
+    : []
+  const inLoc = (a: { revenueCenterId: string }) => !!locRcIds && locRcIds.includes(a.revenueCenterId)
+
+  const inventory = locRcIds
+    ? (locDefaultRcIds.length > 0
+        // Location owns the default pool: every pooled item is present; add this
+        // location's own allocations (allocations pulled elsewhere are excluded).
+        ? inventoryRaw.map(({ stockAllocations, ...item }) =>
+            toItem(item, Number(item.stockOnHand) +
+              stockAllocations.filter(inLoc).reduce((s, a) => s + Number(a.quantity), 0)))
+        // No default pool in this location: only items allocated to its child RCs.
+        : inventoryRaw.flatMap(({ stockAllocations, ...item }) => {
+            const sum = stockAllocations.filter(inLoc).reduce((s, a) => s + Number(a.quantity), 0)
+            return sum > 0 ? [toItem(item, sum)] : []
+          }))
+    : rcId && !isDefault
     // Non-default RC: only items with an allocation for this RC, stock = allocation qty
     ? inventoryRaw.flatMap(({ stockAllocations, ...item }) => {
         const alloc = stockAllocations.find(a => a.revenueCenterId === rcId)
@@ -154,8 +185,8 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b.inventoryValue - a.inventoryValue)
     .slice(0, 10)
 
-  const weeklyRevenue = weeklySales.reduce((sum, s) => sum + parseFloat(String(s.totalRevenue)), 0)
-  const weeklyFoodSales = weeklySales.reduce((sum, s) =>
+  const weeklyRevenue = weeklySalesDeduped.reduce((sum, s) => sum + parseFloat(String(s.totalRevenue)), 0)
+  const weeklyFoodSales = weeklySalesDeduped.reduce((sum, s) =>
     sum + parseFloat(String(s.totalRevenue)) * parseFloat(String(s.foodSalesPct)), 0)
 
   const foodCostNumerator = weeklyPurchaseCost > 0 ? weeklyPurchaseCost : weeklyWastageCost
@@ -172,18 +203,18 @@ export async function GET(req: NextRequest) {
     .slice(0, 5)
 
   // ── WTD food-cost block (single Monday-WTD window; all cells comparable) ──
-  const foodSalesWTD = salesWTD.reduce(
+  const foodSalesWTD = salesWTDDeduped.reduce(
     (s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
-  const revenueWTD = salesWTD.reduce((s, e) => s + Number(e.totalRevenue), 0)
+  const revenueWTD = salesWTDDeduped.reduce((s, e) => s + Number(e.totalRevenue), 0)
   const purchasesWTDTotal = Number(purchasesWTD._sum.rawLineTotal ?? 0)
 
-  const wtdLineItems = salesWTD.flatMap(e => e.lineItems)
+  const wtdLineItems = salesWTDDeduped.flatMap(e => e.lineItems)
   const theo = await theoreticalCostForLineItems(wtdLineItems)
 
   const purchaseFoodCostPct  = foodSalesWTD > 0 ? (purchasesWTDTotal / foodSalesWTD) * 100 : null
   const theoreticalFoodCostPct = foodSalesWTD > 0 ? (theo.theoreticalCost / foodSalesWTD) * 100 : null
 
-  const coversWTD = salesWTD.reduce((s, e) => s + (e.covers ?? 0), 0)
+  const coversWTD = salesWTDDeduped.reduce((s, e) => s + (e.covers ?? 0), 0)
   const avgCheck     = coversWTD > 0 ? revenueWTD / coversWTD : null
   const revPerCover  = coversWTD > 0 ? foodSalesWTD / coversWTD : null
   const costPerCover = coversWTD > 0 ? theo.theoreticalCost / coversWTD : null

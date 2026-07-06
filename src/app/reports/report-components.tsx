@@ -1,6 +1,27 @@
 'use client'
-import { ChevronUp, ChevronDown, Minus } from 'lucide-react'
+import { ChevronUp, ChevronDown, Minus, Info } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
+
+/**
+ * Small ⓘ affordance that reveals a provenance note (how a number is computed:
+ * formula · window · scope) on hover or keyboard focus. Pure CSS — no state — so
+ * it is cheap to sprinkle onto every KPI. Tap-friendly via focus on mobile.
+ */
+export function InfoDot({ text, className = '' }: { text: string; className?: string }) {
+  return (
+    <span className={`relative inline-flex group/info align-middle ${className}`}>
+      <Info size={12} tabIndex={0}
+        className="text-ink-4 hover:text-ink-2 focus:text-ink-2 cursor-help shrink-0 outline-none" />
+      <span role="tooltip"
+        className="pointer-events-none absolute z-50 left-1/2 -translate-x-1/2 top-full mt-1.5
+          w-60 max-w-[60vw] rounded-lg bg-ink text-paper text-[11px] leading-snug font-normal
+          normal-case tracking-normal text-left px-2.5 py-2 opacity-0 shadow-xl
+          transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100">
+        {text}
+      </span>
+    </span>
+  )
+}
 
 export const CAT_COLORS: Record<string, string> = {
   MEAT: '#dc2626', FISH: '#0d9488', DAIRY: '#2563eb', PROD: '#16a34a',
@@ -26,8 +47,8 @@ export function DeltaBadge({ change, inverse = false }: { change: number | null;
   )
 }
 
-export function KpiCard({ label, value, sub, change, inverse = false, accent = 'blue', icon: Icon }:
-  { label: string; value: string; sub?: string; change?: number | null; inverse?: boolean; accent?: string; icon?: React.ElementType }) {
+export function KpiCard({ label, value, sub, change, inverse = false, accent = 'blue', icon: Icon, info }:
+  { label: string; value: string; sub?: string; change?: number | null; inverse?: boolean; accent?: string; icon?: React.ElementType; info?: string }) {
   const accentMap: Record<string, string> = {
     blue: 'text-gold', green: 'text-green-text', amber: 'text-gold',
     red: 'text-red', purple: 'text-blue', gray: 'text-ink-3',
@@ -35,7 +56,9 @@ export function KpiCard({ label, value, sub, change, inverse = false, accent = '
   return (
     <div className="bg-white rounded-xl border border-line p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-[11px] font-semibold text-ink-4 tracking-wide uppercase leading-tight">{label}</span>
+        <span className="text-[11px] font-semibold text-ink-4 tracking-wide uppercase leading-tight inline-flex items-center gap-1">
+          {label}{info && <InfoDot text={info} />}
+        </span>
         {Icon && <Icon size={16} className={accentMap[accent] ?? 'text-ink-4'} />}
       </div>
       <div className={`text-2xl font-bold ${accentMap[accent] ?? 'text-ink-2'}`}>{value}</div>
@@ -47,10 +70,12 @@ export function KpiCard({ label, value, sub, change, inverse = false, accent = '
   )
 }
 
-export function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+export function SectionHeader({ title, subtitle, info }: { title: string; subtitle?: string; info?: string }) {
   return (
     <div className="mb-4">
-      <h2 className="text-base font-bold text-ink">{title}</h2>
+      <h2 className="text-base font-bold text-ink inline-flex items-center gap-1.5">
+        {title}{info && <InfoDot text={info} />}
+      </h2>
       {subtitle && <p className="text-xs text-ink-3 mt-0.5">{subtitle}</p>}
     </div>
   )

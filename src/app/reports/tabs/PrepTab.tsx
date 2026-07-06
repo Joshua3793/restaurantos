@@ -6,6 +6,8 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { DateRangePicker } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
+import { InfoDot } from '../report-components'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 interface DailySummary {
   date: string
@@ -103,15 +105,15 @@ export default function PrepTab() {
           {/* Overall KPI cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Total Logged',   value: report.totals.total,          icon: ChefHat,      cls: 'text-ink-2' },
-              { label: 'Completed',      value: report.totals.done + report.totals.partial, icon: CheckCircle2, cls: 'text-green-text' },
-              { label: 'Blocked',        value: report.totals.blocked,         icon: AlertTriangle,cls: 'text-red' },
-              { label: 'Completion Rate',value: `${report.totals.completionRate}%`, icon: TrendingUp, cls: report.totals.completionRate >= 80 ? 'text-green-text' : report.totals.completionRate >= 50 ? 'text-gold-2' : 'text-red' },
-            ].map(({ label, value, icon: Icon, cls }) => (
+              { label: 'Total Logged',   value: report.totals.total,          icon: ChefHat,      cls: 'text-ink-2', info: PROVENANCE.prepTotalLogged },
+              { label: 'Completed',      value: report.totals.done + report.totals.partial, icon: CheckCircle2, cls: 'text-green-text', info: PROVENANCE.prepCompleted },
+              { label: 'Blocked',        value: report.totals.blocked,         icon: AlertTriangle,cls: 'text-red', info: PROVENANCE.prepBlocked },
+              { label: 'Completion Rate',value: `${report.totals.completionRate}%`, icon: TrendingUp, cls: report.totals.completionRate >= 80 ? 'text-green-text' : report.totals.completionRate >= 50 ? 'text-gold-2' : 'text-red', info: PROVENANCE.prepCompletionRate },
+            ].map(({ label, value, icon: Icon, cls, info }) => (
               <div key={label} className="bg-white border border-line rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Icon size={14} className="text-ink-4" />
-                  <span className="text-xs text-ink-4">{label}</span>
+                  <span className="text-xs text-ink-4 inline-flex items-center gap-1">{label}<InfoDot text={info} /></span>
                 </div>
                 <div className={`text-2xl font-bold ${cls}`}>{value}</div>
               </div>

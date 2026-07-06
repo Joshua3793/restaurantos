@@ -170,6 +170,23 @@ export function computeRecipeCost(
 }
 
 /**
+ * Effective per-serving cost + food-cost % for a MENU dish. Prefers the recipe's
+ * own costPerPortion, but most menu dishes set no portionSize (one recipe = one
+ * plate), which leaves costPerPortion null. In that case fall back to
+ * totalCost ÷ baseYieldQty so the dish still reports a real cost instead of a
+ * blank. Used by the Sales report and Menu Engineering.
+ */
+export function dishServingCost(r: {
+  costPerPortion: number | null; totalCost: number; baseYieldQty: number; menuPrice: number | null
+}): { cost: number | null; foodCostPct: number | null } {
+  const cost = r.costPerPortion ?? (r.baseYieldQty > 0 ? r.totalCost / r.baseYieldQty : r.totalCost)
+  const foodCostPct = cost != null && r.menuPrice != null && r.menuPrice > 0
+    ? (cost / r.menuPrice) * 100
+    : null
+  return { cost, foodCostPct }
+}
+
+/**
  * Cost per 1 unit of a linked PREP sub-recipe's yield, read from the spine.
  *
  * A PREP recipe's fully-resolved cost — including any nested PREP-in-PREP

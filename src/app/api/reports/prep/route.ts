@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 
+export const dynamic = 'force-dynamic'
+
 // GET /api/reports/prep?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&rcId=<id>
 export async function GET(req: NextRequest) {
   let user

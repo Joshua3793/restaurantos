@@ -180,11 +180,16 @@ export default function SignalsPage() {
     setLoading(true)
     const p = new URLSearchParams()
     setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
+    // B7: scope the invoice-KPI and recipe fetches too — both endpoints honor the
+    // scope params, so leaving them off made price-alert / pending / recipe signals
+    // global under any RC selection.
+    const recipeParams = new URLSearchParams({ type: 'MENU', isActive: 'true' })
+    setScopeParams(recipeParams, { activeKind, activeRcId, activeRc, activeLocationId })
 
     const [dashRes, inboxRes, recipesRes] = await Promise.allSettled([
       fetch(`/api/reports/dashboard?${p}`).then(r => r.ok ? r.json() : null),
-      fetch('/api/invoices/kpis').then(r => r.ok ? r.json() : null),
-      fetch('/api/recipes?type=MENU&isActive=true').then(r => r.ok ? r.json() : null),
+      fetch(`/api/invoices/kpis?${p}`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/recipes?${recipeParams}`).then(r => r.ok ? r.json() : null),
     ])
 
     if (dashRes.status === 'fulfilled' && dashRes.value && !dashRes.value.error) {

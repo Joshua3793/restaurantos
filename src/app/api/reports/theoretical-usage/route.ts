@@ -4,26 +4,44 @@ import { convertQty } from '@/lib/uom'
 import { convertCountQtyToBase } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { scopeWhereFromParams } from '@/lib/rc-scope'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
 
   const { searchParams } = new URL(req.url)
-  const startDate = searchParams.get('startDate')
-  const endDate   = searchParams.get('endDate')
+  // Accept both the shared reports range (`from`/`to`) and the legacy startDate/endDate.
+  const startDate = searchParams.get('from') ?? searchParams.get('startDate')
+  const endDate   = searchParams.get('to')   ?? searchParams.get('endDate')
+  // UTC-boundary parsing (matches how sale.date / sessionDate are stored) — a bare
+  // `new Date('2026-06-01')` is already UTC midnight, but the end bound needs the
+  // full day. B2: was `+'T23:59:59'` (server-local), causing TZ-dependent drift.
+  const startAt = startDate ? new Date(`${startDate}T00:00:00.000Z`) : null
+  const endAt   = endDate   ? new Date(`${endDate}T23:59:59.999Z`)   : null
+
+  // Scope: sales rows via SalesEntry.revenueCenterId (NOT NULL); count sessions via
+  // CountSession.revenueCenterId (NULLABLE → default RC also reads shared null counts).
+  const [saleScope, countScope] = await Promise.all([
+    scopeWhereFromParams(user, searchParams, { nullable: false }),
+    scopeWhereFromParams(user, searchParams, { nullable: true }),
+  ])
 
   // ── 1. Sales line items in range ─────────────────────────────────────────
   const sales = await prisma.saleLineItem.findMany({
     where: {
       sale: {
         date: {
-          ...(startDate ? { gte: new Date(startDate) } : {}),
-          ...(endDate   ? { lte: new Date(endDate + 'T23:59:59') } : {}),
+          ...(startAt ? { gte: startAt } : {}),
+          ...(endAt   ? { lte: endAt } : {}),
         },
+        ...saleScope,
       },
     },
     include: {
@@ -92,7 +110,7 @@ export async function GET(req: NextRequest) {
   // ── 3. Actual count-based usage (opening − closing stock) ─────────────────
   // Find count sessions that bracket the date range
   const countSessions = await prisma.countSession.findMany({
-    where: { status: 'FINALIZED' },
+    where: { status: 'FINALIZED', ...countScope },
     include: {
       lines: {
         include: {
@@ -111,11 +129,9 @@ export async function GET(req: NextRequest) {
   // Find the closest session before startDate (opening) and after endDate (closing)
   let openingSession = null
   let closingSession = null
-  if (startDate && endDate) {
-    const start = new Date(startDate)
-    const end   = new Date(endDate)
-    openingSession = countSessions.filter(s => new Date(s.sessionDate) <= start).at(-1) ?? null
-    closingSession = countSessions.filter(s => new Date(s.sessionDate) >= end)[0] ?? null
+  if (startAt && endAt) {
+    openingSession = countSessions.filter(s => new Date(s.sessionDate) <= startAt).at(-1) ?? null
+    closingSession = countSessions.filter(s => new Date(s.sessionDate) >= endAt)[0] ?? null
   }
 
   // Build actual usage map from count lines
