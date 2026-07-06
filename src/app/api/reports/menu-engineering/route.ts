@@ -2,27 +2,41 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { fetchRecipeWithCost, dishServingCost } from '@/lib/recipeCosts'
+import { scopeWhereFromParams } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
 
 type Quadrant = 'STAR' | 'PLOWHORSE' | 'PUZZLE' | 'DOG'
 
-// GET /api/reports/menu-engineering?days=30
+// GET /api/reports/menu-engineering?from=YYYY-MM-DD&to=YYYY-MM-DD (preferred) | ?days=30
+//   &rcId=<id>&isDefault=true | &locationId=<id>   (scope; omit for All)
 // Classifies MENU dishes by popularity (qty sold) × profitability (contribution
-// margin = menuPrice − costPerPortion), split on the medians.
+// margin = menuPrice − costPerPortion), split on the medians. Scoped to the
+// selected RC/Location and the shared reports date range (B1).
 export async function GET(req: NextRequest) {
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
 
-  const days = Number(new URL(req.url).searchParams.get('days') ?? 30)
-  const since = new Date(); since.setDate(since.getDate() - days)
+  const { searchParams } = new URL(req.url)
+  const days = Number(searchParams.get('days') ?? 30)
+  const fromParam = searchParams.get('from')
+  const toParam   = searchParams.get('to')
+  const hasRange  = !!fromParam && !!toParam
+  // Absolute range parsed at UTC boundaries (matches how sale.date is stored);
+  // else the legacy trailing-`days` window.
+  const dateWin = hasRange
+    ? { gte: new Date(`${fromParam}T00:00:00.000Z`), lte: new Date(`${toParam}T23:59:59.999Z`) }
+    : (() => { const s = new Date(); s.setDate(s.getDate() - days); return { gte: s } })()
+  // SalesEntry.revenueCenterId is NOT NULL → nullable:false.
+  const saleScope = await scopeWhereFromParams(user, searchParams, { nullable: false })
 
   const lineItems = await prisma.saleLineItem.findMany({
-    where: { sale: { date: { gte: since } } },
+    where: { sale: { date: dateWin, ...saleScope } },
     select: { recipeId: true, qtySold: true },
   })
 
@@ -35,13 +49,15 @@ export async function GET(req: NextRequest) {
   const dishes = recipes.flatMap((r, i) => {
     if (!r || r.type !== 'MENU') return []
     const qty = qtyByRecipe.get(ids[i]) ?? 0
-    const cost = r.costPerPortion
+    // Per-serving cost with the totalCost/baseYieldQty fallback for dishes without
+    // a portionSize — otherwise cost/margin are null and every dish is unclassified.
+    const { cost, foodCostPct } = dishServingCost(r)
     const price = r.menuPrice
     const margin = price != null && cost != null ? price - cost : null
     return [{
       recipeId: r.id, name: r.name, qtySold: qty,
       menuPrice: price, costPerPortion: cost, margin,
-      foodCostPct: r.foodCostPct,
+      foodCostPct,
     }]
   })
 

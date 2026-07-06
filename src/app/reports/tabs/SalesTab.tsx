@@ -10,6 +10,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { getVocab } from '@/lib/rc-vocab'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 export default function SalesTab() {
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
@@ -50,9 +51,9 @@ export default function SalesTab() {
       {picker}
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <KpiCard label="Total Revenue" value={formatCurrency(summary.totalRevenue)} accent="blue" icon={TrendingUp} sub={range.label} />
-        <KpiCard label="Food Sales" value={formatCurrency(summary.totalFoodSales)} accent="green" sub="est. food portion" />
-        <KpiCard label="Service Days" value={String(summary.totalOrders)} accent="gray" sub="entries logged" />
+        <KpiCard label="Total Revenue" value={formatCurrency(summary.totalRevenue)} accent="blue" icon={TrendingUp} sub={range.label} info={PROVENANCE.salesTotalRevenue} />
+        <KpiCard label="Food Sales" value={formatCurrency(summary.totalFoodSales)} accent="green" sub="est. food portion" info={PROVENANCE.salesFoodSales} />
+        <KpiCard label="Service Days" value={String(summary.totalOrders)} accent="gray" sub="entries logged" info={PROVENANCE.salesServiceDays} />
       </div>
 
       {/* Weekly Revenue Chart */}
@@ -74,7 +75,7 @@ export default function SalesTab() {
 
       {/* Top Menu Items */}
       <Card>
-        <SectionHeader title="Top Menu Items" subtitle={`By quantity sold · ${range.label}`} />
+        <SectionHeader title="Top Menu Items" subtitle={`By quantity sold · ${range.label}`} info={PROVENANCE.salesTopItems} />
         {topMenuItems.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

@@ -4,6 +4,8 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { volatilityOf, stabilityOf, scanLinePricePerBase, offerPricePerBase } from '@/lib/supplier-offers'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { fetchRecipeWithCost, dishServingCost } from '@/lib/recipeCosts'
+import { dedupeSalesEntries } from '@/lib/sales-dedup'
 
 function startOf(daysAgo: number): Date {
   const d = new Date()
@@ -38,6 +40,10 @@ interface Ctx {
   rcEq: { revenueCenterId?: string | { in: string[] } }
   sessionRc: Record<string, unknown>
   countRc: { revenueCenterId: string | null | { in: string[] } } | Record<string, never>
+  // Location lens: the child RC ids, and whether the location owns the default
+  // stock-pool RC (decides whether pooled `stockOnHand` counts toward its stock).
+  locRcIds: string[] | null
+  locOwnsDefault: boolean
 }
 
 // ── GET /api/reports/analytics?section=overview|sales|inventory|purchasing ──
@@ -67,6 +73,13 @@ export async function GET(req: NextRequest) {
   const isDefault = searchParams.get('isDefault') === 'true'
   const locationId = searchParams.get('locationId')
   const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
+  // Does the location own the default stock-pool RC? (B5 — decides whether the
+  // pooled stockOnHand belongs to this location's inventory value.)
+  const locDefaultRcIds = locRcIds
+    ? (await prisma.revenueCenter.findMany({
+        where: { id: { in: locRcIds }, isDefault: true }, select: { id: true },
+      })).map(r => r.id)
+    : []
 
   const ctx: Ctx = locRcIds
     ? {
@@ -79,6 +92,7 @@ export async function GET(req: NextRequest) {
         rcEq:      { revenueCenterId: { in: locRcIds } },
         sessionRc: { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] },
         countRc:   { revenueCenterId: { in: locRcIds } },
+        locRcIds, locOwnsDefault: locDefaultRcIds.length > 0,
       }
     : {
         since, until, days,
@@ -88,10 +102,10 @@ export async function GET(req: NextRequest) {
         rcEq:      rcId ? { revenueCenterId: rcId } : {},
         sessionRc: rcId ? (isDefault ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : { revenueCenterId: rcId }) : {},
         countRc:   rcId && !isDefault ? { revenueCenterId: rcId } : { revenueCenterId: null },
+        locRcIds: null, locOwnsDefault: false,
       }
 
   try {
-    if (section === 'overview') return NextResponse.json(await getOverview(ctx))
     if (section === 'sales')    return NextResponse.json(await getSales(ctx))
     if (section === 'inventory') return NextResponse.json(await getInventory(ctx))
     if (section === 'purchasing') return NextResponse.json(await getPurchasing(ctx))
@@ -99,110 +113,6 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error('[analytics]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
-}
-
-// ── Overview ─────────────────────────────────────────────────────────────────
-async function getOverview(ctx: Ctx) {
-  const { win, prevWin, days, rcEq, sessionRc } = ctx
-  const [
-    salesCur, salesPrev,
-    wastageCur, wastagePrev,
-    inventoryItems,
-    priceAlerts,
-    countSessions,
-    purchasesCur, purchasesPrev,
-  ] = await Promise.all([
-    prisma.salesEntry.aggregate({ where: { date: win, ...rcEq }, _sum: { totalRevenue: true, foodSalesPct: true }, _count: true }),
-    prisma.salesEntry.aggregate({ where: { date: prevWin, ...rcEq }, _sum: { totalRevenue: true }, _count: true }),
-    prisma.wastageLog.aggregate({ where: { date: win, ...rcEq }, _sum: { costImpact: true } }),
-    prisma.wastageLog.aggregate({ where: { date: prevWin, ...rcEq }, _sum: { costImpact: true } }),
-    prisma.inventoryItem.findMany({
-      where: { isActive: true, isStocked: true },
-      select: { stockOnHand: true, category: true, ...PRICING_SELECT,
-        stockAllocations: { select: { quantity: true } } },
-    }),
-    prisma.priceAlert.findMany({
-      where: { acknowledged: false },
-      select: { id: true, inventoryItemId: true, changePct: true, direction: true, newPrice: true, previousPrice: true, createdAt: true,
-        inventoryItem: { select: { itemName: true } },
-        session: { select: { supplierName: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-    }),
-    prisma.countSession.findMany({
-      where: { status: 'FINALIZED', finalizedAt: { gte: win.gte, lte: win.lte } },
-      select: { finalizedAt: true, totalCountedValue: true, label: true },
-      orderBy: { finalizedAt: 'desc' },
-      take: 1,
-    }),
-    // Purchases current period
-    prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { purchaseDate: win, ...sessionRc } },
-      _sum: { rawLineTotal: true },
-    }),
-    prisma.invoiceScanItem.aggregate({
-      where: { approved: true, splitToSessionId: null, session: { purchaseDate: prevWin, ...sessionRc } },
-      _sum: { rawLineTotal: true },
-    }),
-  ])
-
-  const totalRevenue   = Number(salesCur._sum.totalRevenue ?? 0)
-  const prevRevenue    = Number(salesPrev._sum.totalRevenue ?? 0)
-  const totalWastage   = Number(wastageCur._sum.costImpact ?? 0)
-  const prevWastage    = Number(wastagePrev._sum.costImpact ?? 0)
-  const purchasesCurVal  = Number(purchasesCur._sum.rawLineTotal ?? 0)
-  const purchasesPrevVal = Number(purchasesPrev._sum.rawLineTotal ?? 0)
-
-  const inventoryValue = inventoryItems.reduce((s, i) => {
-    const totalStock = Number(i.stockOnHand) + i.stockAllocations.reduce((a, r) => a + Number(r.quantity), 0)
-    return s + totalStock * pricePerBaseUnit(asChainItem(i))
-  }, 0)
-
-  // Average food cost % from sales entries in period
-  const salesEntries = await prisma.salesEntry.findMany({
-    where: { date: win, ...rcEq },
-    select: { totalRevenue: true, foodSalesPct: true },
-  })
-  let totalFoodSales = 0, totalFoodCost = 0
-  // We don't have totalCost per entry; estimate from wastage is a proxy
-  const avgFoodCostPct = salesEntries.length > 0
-    ? salesEntries.reduce((s, e) => s + Number(e.foodSalesPct) * 100, 0) / salesEntries.length
-    : 0
-
-  // Revenue trend (daily over the window)
-  const dailySales = await prisma.salesEntry.groupBy({
-    by: ['date'],
-    where: { date: win, ...rcEq },
-    _sum: { totalRevenue: true },
-    orderBy: { date: 'asc' },
-  })
-  const revenueTrend = dailySales.map(d => ({
-    date: isoDate(d.date),
-    revenue: Number(d._sum.totalRevenue ?? 0),
-  }))
-
-  // Inventory by category
-  const byCategory: Record<string, number> = {}
-  for (const i of inventoryItems) {
-    const val = Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i))
-    byCategory[i.category] = (byCategory[i.category] ?? 0) + val
-  }
-
-  return {
-    period: days,
-    kpis: {
-      revenue:       { value: totalRevenue,     prev: prevRevenue,    change: prevRevenue > 0 ? ((totalRevenue - prevRevenue) / prevRevenue) * 100 : null },
-      wastage:       { value: totalWastage,     prev: prevWastage,    change: prevWastage > 0 ? ((totalWastage - prevWastage) / prevWastage) * 100 : null },
-      inventoryValue:{ value: inventoryValue,   prev: null,           change: null },
-      purchases:     { value: purchasesCurVal,  prev: purchasesPrevVal, change: purchasesPrevVal > 0 ? ((purchasesCurVal - purchasesPrevVal) / purchasesPrevVal) * 100 : null },
-      priceAlerts:   { value: priceAlerts.length, prev: null, change: null },
-    },
-    revenueTrend,
-    inventoryByCategory: Object.entries(byCategory).map(([cat, value]) => ({ cat, value })).sort((a, b) => b.value - a.value),
-    recentAlerts: priceAlerts,
-    lastCount: countSessions[0] ?? null,
   }
 }
 
@@ -226,37 +136,44 @@ async function getSales(ctx: Ctx) {
     // weekly revenue + food sales
     prisma.salesEntry.findMany({
       where: { date: win, ...rcEq },
-      select: { date: true, totalRevenue: true, foodSalesPct: true },
+      select: { date: true, totalRevenue: true, foodSalesPct: true, revenueCenterId: true, periodType: true, source: true },
       orderBy: { date: 'asc' },
     }),
   ])
 
-  // Enrich top items with recipe details
+  // Enrich top items with spine-derived recipe cost (B6 — cost/foodCostPct were
+  // hardcoded 0/null, leaving the cost-% column and the alerts card permanently
+  // empty). fetchRecipeWithCost derives costPerPortion from the pack chain at read
+  // time (nested-PREP safe). ≤15 recipes, fetched in parallel.
   const recipeIds = topItems.map(t => t.recipeId)
-  const recipes = await prisma.recipe.findMany({
-    where: { id: { in: recipeIds } },
-    select: { id: true, name: true, menuPrice: true },
-  })
-  const recipeMap = Object.fromEntries(recipes.map(r => [r.id, r]))
+  const costed = await Promise.all(recipeIds.map(id => fetchRecipeWithCost(id)))
+  const recipeMap = new Map(costed.filter((r): r is NonNullable<typeof r> => !!r).map(r => [r.id, r]))
 
   const topMenuItems = topItems.map(t => {
-    const recipe = recipeMap[t.recipeId]
+    const recipe = recipeMap.get(t.recipeId)
     const qty    = Number(t._sum.qtySold ?? 0)
-    const revenue = recipe?.menuPrice ? Number(recipe.menuPrice) * qty : 0
+    const menuPrice = recipe?.menuPrice ?? null
+    // Per-serving cost with the totalCost/baseYieldQty fallback for menu dishes
+    // that carry no portionSize (otherwise costPerPortion — and this column — is null).
+    const { cost: perServing, foodCostPct } = recipe
+      ? dishServingCost(recipe)
+      : { cost: null, foodCostPct: null }
+    const revenue = menuPrice != null ? menuPrice * qty : 0
     return {
       recipeId: t.recipeId,
       name:     recipe?.name ?? 'Unknown',
       qty,
       revenue,
-      cost:        0,
-      menuPrice:   recipe?.menuPrice ? Number(recipe.menuPrice) : null,
-      foodCostPct: null as number | null,
+      // Total line cost = per-serving cost × qty (comparable to `revenue`).
+      cost:        perServing != null ? perServing * qty : 0,
+      menuPrice,
+      foodCostPct,
     }
   }).sort((a, b) => b.qty - a.qty)
 
-  // Group daily sales into weekly buckets
+  // Group daily sales into weekly buckets (dedupe manual↔Toast overlap first — B3)
   const weekMap = new Map<string, { revenue: number; foodSales: number; count: number }>()
-  for (const s of weeklyData) {
+  for (const s of dedupeSalesEntries(weeklyData)) {
     const d   = new Date(s.date)
     const dow = d.getDay()
     const mon = new Date(d)
@@ -280,10 +197,11 @@ async function getSales(ctx: Ctx) {
   // Food cost alerts: menu items where foodCostPct > 35%
   const foodCostAlerts = topMenuItems.filter(i => i.foodCostPct !== null && i.foodCostPct > 35)
 
-  // Revenue summary
-  const totalRevenue = salesEntries.reduce((s, e) => s + Number(e.totalRevenue), 0)
-  const totalFoodSales = salesEntries.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
-  const totalOrders = salesEntries.length
+  // Revenue summary (dedupe manual↔Toast overlap before summing — B3)
+  const dedupedEntries = dedupeSalesEntries(salesEntries)
+  const totalRevenue = dedupedEntries.reduce((s, e) => s + Number(e.totalRevenue), 0)
+  const totalFoodSales = dedupedEntries.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
+  const totalOrders = dedupedEntries.length
 
   return {
     summary: { totalRevenue, totalFoodSales, totalOrders },
@@ -296,7 +214,7 @@ async function getSales(ctx: Ctx) {
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 async function getInventory(ctx: Ctx) {
-  const { win, rcId, isDefault, countRc } = ctx
+  const { win, rcId, isDefault, countRc, locRcIds, locOwnsDefault } = ctx
   const [priceAlerts, items, countSessions] = await Promise.all([
     // Price changes are GLOBAL — PriceAlert has no RC column (a price change is
     // item-level, not revenue-center-specific). Windowed by the selected range.
@@ -328,6 +246,14 @@ async function getInventory(ctx: Ctx) {
   // RC-aware current stock (point-in-time): default RC = stockOnHand; non-default =
   // its allocation; All = stockOnHand + every allocation. Mirrors the inventory page.
   const effStock = (i: typeof items[number]) => {
+    // B5: Location lens sums only the location's child-RC stock — its own
+    // allocations, plus the pooled stockOnHand iff the location owns the default RC.
+    if (locRcIds) {
+      const allocSum = i.stockAllocations
+        .filter(a => locRcIds.includes(a.revenueCenterId))
+        .reduce((s, a) => s + Number(a.quantity), 0)
+      return (locOwnsDefault ? Number(i.stockOnHand) : 0) + allocSum
+    }
     if (!rcId) return Number(i.stockOnHand) + i.stockAllocations.reduce((a, r) => a + Number(r.quantity), 0)
     if (isDefault) return Number(i.stockOnHand)
     const a = i.stockAllocations.find(x => x.revenueCenterId === rcId)

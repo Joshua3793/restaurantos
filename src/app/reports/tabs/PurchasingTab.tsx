@@ -9,6 +9,7 @@ import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState }
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 export default function PurchasingTab() {
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
@@ -44,9 +45,9 @@ export default function PurchasingTab() {
       {picker}
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <KpiCard label="Total Spend" value={formatCurrency(summary.totalSpend)} accent="purple" icon={ShoppingCart} sub={range.label} />
-        <KpiCard label="Line Items" value={summary.totalLines.toLocaleString()} accent="blue" sub="invoice lines processed" />
-        <KpiCard label="Suppliers" value={String(summary.supplierCount)} accent="gray" sub="with approved invoices" />
+        <KpiCard label="Total Spend" value={formatCurrency(summary.totalSpend)} accent="purple" icon={ShoppingCart} sub={range.label} info={PROVENANCE.purchTotalSpend} />
+        <KpiCard label="Line Items" value={summary.totalLines.toLocaleString()} accent="blue" sub="invoice lines processed" info={PROVENANCE.purchTotalSpend} />
+        <KpiCard label="Suppliers" value={String(summary.supplierCount)} accent="gray" sub="with approved invoices" info={PROVENANCE.purchBySupplier} />
       </div>
 
       {/* Weekly Spend Chart */}
@@ -68,7 +69,7 @@ export default function PurchasingTab() {
       {/* Supplier Breakdown + Top Items */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <SectionHeader title="Spend by Supplier" subtitle="Top suppliers by total spend" />
+          <SectionHeader title="Spend by Supplier" subtitle="Top suppliers by total spend" info={PROVENANCE.purchBySupplier} />
           {supplierSpend.length > 0 ? (
             <div className="space-y-3">
               {supplierSpend.map(s => {
@@ -126,6 +127,7 @@ export default function PurchasingTab() {
               <SectionHeader
                 title="Multi-Supplier Items"
                 subtitle={`${ms.totalSaving > 0 ? `Buying each from its cheapest supplier would have saved ~${formatCurrency(ms.totalSaving)} over this period` : 'Price comparison across suppliers'}${activeRcId ? ' · global (offers aren’t RC-specific)' : ''}`}
+                info={PROVENANCE.purchMultiSupplier}
               />
               {ms.items.length > 0 ? (
                 <div className="space-y-3 overflow-y-auto max-h-96">

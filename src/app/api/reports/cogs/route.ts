@@ -6,6 +6,8 @@ import { periodPurchases, periodSnapshotBounds, type SnapshotBound } from '@/lib
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 
+export const dynamic = 'force-dynamic'
+
 // ── GET /api/reports/cogs ─────────────────────────────────────────────────────
 // Without params → legacy dashboard data (weekly trends, wastage, inventory)
 // With ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD → COGS calculation

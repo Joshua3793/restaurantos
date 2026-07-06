@@ -9,6 +9,7 @@ import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState, 
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 export default function InventoryTab() {
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
@@ -44,17 +45,17 @@ export default function InventoryTab() {
       {picker}
       {/* KPIs — value/items are current (point-in-time); price moves are over the range */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <KpiCard label="Inventory Value" value={formatCurrency(summary.totalValue)} accent="green" icon={Package} sub="current" />
-        <KpiCard label="Active Items" value={String(summary.totalItems)} accent="blue" sub="in inventory" />
-        <KpiCard label="Not Counted 30d" value={String(summary.notCounted30)} accent={summary.notCounted30 > 20 ? 'red' : 'amber'} sub="needs attention" />
-        <KpiCard label="Price Increases" value={String(summary.priceIncreases)} accent="red" sub={range.label} />
-        <KpiCard label="Price Decreases" value={String(summary.priceDecreases)} accent="green" sub={range.label} />
+        <KpiCard label="Inventory Value" value={formatCurrency(summary.totalValue)} accent="green" icon={Package} sub="current" info={PROVENANCE.invValue} />
+        <KpiCard label="Active Items" value={String(summary.totalItems)} accent="blue" sub="in inventory" info={PROVENANCE.invActiveItems} />
+        <KpiCard label="Not Counted 30d" value={String(summary.notCounted30)} accent={summary.notCounted30 > 20 ? 'red' : 'amber'} sub="needs attention" info={PROVENANCE.invNotCounted30} />
+        <KpiCard label="Price Increases" value={String(summary.priceIncreases)} accent="red" sub={range.label} info={PROVENANCE.invPriceChanges} />
+        <KpiCard label="Price Decreases" value={String(summary.priceDecreases)} accent="green" sub={range.label} info={PROVENANCE.invPriceChanges} />
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <SectionHeader title="Inventory Value Trend" subtitle="From finalized count sessions" />
+          <SectionHeader title="Inventory Value Trend" subtitle="From finalized count sessions" info={PROVENANCE.invValueTrend} />
           {valueTrend.length >= 2 ? (
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={valueTrend}>
@@ -168,7 +169,7 @@ export default function InventoryTab() {
         </Card>
 
         <Card>
-          <SectionHeader title="Top Value Items" subtitle="Items representing most inventory value" />
+          <SectionHeader title="Top Value Items" subtitle="Items representing most inventory value" info={PROVENANCE.invValue} />
           {topValueItems.length > 0 ? (
             <div className="space-y-2">
               {topValueItems.map((item, i) => (

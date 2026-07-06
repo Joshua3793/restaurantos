@@ -1,13 +1,14 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/utils'
-import { SectionHeader, Card, LoadingState } from '../report-components'
+import { SectionHeader, Card, LoadingState, InfoDot } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
 import { rcHex } from '@/lib/rc-colors'
 import { DateRangePicker } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
+import { PROVENANCE } from '@/lib/report-provenance'
 
 interface InvBound { value: number; sessionDate: string | null; sessionId: string | null; needsCount: boolean; sameAsOpening?: boolean }
 interface CogsResult {
@@ -75,7 +76,7 @@ export default function CogsTab() {
   return (
     <div className="space-y-6">
       <Card>
-        <SectionHeader title="COGS Calculator" subtitle="Beginning Inventory + Purchases − Ending Inventory · from full counts" />
+        <SectionHeader title="COGS Calculator" subtitle="Beginning Inventory + Purchases − Ending Inventory · from full counts" info={PROVENANCE.cogs} />
         <DateRangePicker value={range} onChange={setRange} />
         <div className="flex items-center gap-1.5 text-xs text-ink-3 mt-1">
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: activeRc ? rcHex(activeRc.color) : '#9ca3af' }} />
@@ -103,10 +104,10 @@ export default function CogsTab() {
             <div className="hidden sm:block" />
             <InventoryCard label="Ending Inventory" bound={data.endingInventory} rcName={rcName} />
             <Card className="text-center border-gold/30 bg-gold/10">
-              <div className="text-xs font-semibold text-gold mb-1">= COGS</div>
+              <div className="text-xs font-semibold text-gold mb-1 inline-flex items-center gap-1 justify-center">= COGS <InfoDot text={PROVENANCE.cogs} /></div>
               <div className="text-2xl font-bold text-gold">{formatCurrency(data.cogs)}</div>
               {data.foodSales > 0 && (
-                <div className={`text-lg font-bold mt-1 ${fcColor(data.foodCostPct)}`}>{data.foodCostPct.toFixed(1)}% {costNounLower}</div>
+                <div className={`text-lg font-bold mt-1 inline-flex items-center gap-1 ${fcColor(data.foodCostPct)}`}>{data.foodCostPct.toFixed(1)}% {costNounLower} <InfoDot text={PROVENANCE.cogsPct} /></div>
               )}
             </Card>
           </div>
