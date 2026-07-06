@@ -17,7 +17,7 @@ npx prisma generate                           # regenerate client after schema c
 npx prisma studio                             # browse database in browser
 ```
 
-There is no test suite — `npm run build` is the only automated correctness check. Run it after any non-trivial change.
+`npm test` runs a vitest suite over the pure cost-math libs (`src/lib/__tests__/` — uom, item-model, recipeCosts). Run it after touching unit conversion, pack chains, or costing; it's fast (<1s). For everything else, `npm run build` is the correctness check — run it after any non-trivial change.
 
 `npm install` triggers a postinstall (`prisma generate && node scripts/copy-pdf-worker.cjs`). If Prisma types look stale after a branch switch, run `npx prisma generate`.
 
