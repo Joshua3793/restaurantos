@@ -335,7 +335,7 @@ export function InvoiceReviewDrawer({
   const fetchSession = useCallback(async (id: string) => {
     setLoading(true)
     try {
-      const res  = await fetch(`/api/invoices/sessions/${id}`)
+      const res  = await fetch(`/api/invoices/sessions/${id}`, { cache: 'no-store' })
       const data = await res.json()
       setSession(data)
       setLinkedSupplierId(data.supplierId ?? null)
@@ -348,7 +348,7 @@ export function InvoiceReviewDrawer({
   // so child component state (expanded cards, staged edits) is preserved.
   const refreshSession = useCallback(async (id: string) => {
     try {
-      const res  = await fetch(`/api/invoices/sessions/${id}`)
+      const res  = await fetch(`/api/invoices/sessions/${id}`, { cache: 'no-store' })
       const data = await res.json()
       setSession(data)
     } catch { /* ignore — stale session data stays on screen */ }

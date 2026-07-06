@@ -33,8 +33,11 @@ export async function GET(req: NextRequest) {
       _count: { select: { scanItems: true, priceAlerts: true, recipeAlerts: true } },
     },
   })
+  // no-store: this list drives the live status pills — the page polls it every
+  // 3s while a session is in a transient state, and any HTTP caching here makes
+  // the poll (and post-approve refetches) serve stale statuses.
   return NextResponse.json(sessions, {
-    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+    headers: { 'Cache-Control': 'no-store' },
   })
 }
 

@@ -63,7 +63,9 @@ export default function InvoicesPage() {
       const p = new URLSearchParams()
       setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
       const qs = p.toString()
-      const data: SessionSummary[] = await fetch(`/api/invoices/sessions${qs ? `?${qs}` : ''}`).then(r => r.json())
+      // cache: 'no-store' — status pills poll this; a cached body would show
+      // stale statuses and clobber optimistic updates (esp. Capacitor WebView).
+      const data: SessionSummary[] = await fetch(`/api/invoices/sessions${qs ? `?${qs}` : ''}`, { cache: 'no-store' }).then(r => r.json())
 
       // Detect PROCESSING → REVIEW and APPROVING → APPROVED transitions
       const prev = prevStatusesRef.current
@@ -129,20 +131,26 @@ export default function InvoicesPage() {
   fetchRef.current    = fetchSessions
   sessionsRef.current = sessions
 
+  // Depend on the transient FLAG (not the sessions array) so the timer is only
+  // rescheduled when the cadence should actually change — the fast poll engages
+  // the moment a session goes transient instead of waiting out a pending 15s
+  // timer, while ordinary list updates still leave the timer untouched.
+  const hasTransient = sessions.some(s =>
+    s.status === 'UPLOADING' || s.status === 'PROCESSING' || s.status === 'APPROVING'
+  )
+
   useEffect(() => {
+    let cancelled = false
     let timer: ReturnType<typeof setTimeout>
     const schedule = () => {
-      const hasTransient = sessionsRef.current.some(s =>
-        s.status === 'UPLOADING' || s.status === 'PROCESSING' || s.status === 'APPROVING'
-      )
       timer = setTimeout(async () => {
         await fetchRef.current()
-        schedule()
+        if (!cancelled) schedule()
       }, hasTransient ? 3000 : 15000)
     }
     schedule()
-    return () => clearTimeout(timer)
-  }, []) // runs once; uses refs for always-fresh values
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [hasTransient])
 
   // Refresh whenever the tab regains focus (covers status changes made elsewhere)
   useEffect(() => {
