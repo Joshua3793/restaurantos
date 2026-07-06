@@ -367,7 +367,11 @@ export function InvoiceMathFields({
   }
 
   const math = computeLineMath(localItem)
-  const showPanel = !panelDismissed && math !== null && !math.matches && edited.size > 0
+  // Show the mismatch resolver whenever the numbers don't reconcile — not only
+  // after the user edits a field. An OCR mismatch the user hasn't touched is
+  // exactly the case that needs the loud fix panel (it's what the attention
+  // strip's "fix ↓" jumps to); gating it behind edits kept it hidden on load.
+  const showPanel = !panelDismissed && math !== null && !math.matches
 
   // Reset dismiss when item changes
   useEffect(() => { setPanelDismissed(false); setEdited(new Set()) }, [item.id])
