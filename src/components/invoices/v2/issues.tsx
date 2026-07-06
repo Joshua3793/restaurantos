@@ -4,7 +4,7 @@
 // three different warning languages the old drawer used (mock §1, §3, §7).
 
 import { useState } from 'react'
-import { ArrowRight, Check } from 'lucide-react'
+import { ArrowRight, Check, AlertTriangle } from 'lucide-react'
 import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
@@ -16,6 +16,82 @@ import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
 import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
 import type { ScanItem } from '@/components/invoices/types'
+
+// ─── AttentionSummary ──────────────────────────────────────────────────────────
+// The headline "why this line needs attention" strip. Given a live, ordered list
+// of the line's reasons (from lineReasons()), it renders a compact checklist:
+// active reasons show an amber dot + plain-English summary; reasons the user has
+// already resolved show a struck-through green ✓. It recomputes every render, so
+// fixing one problem checks it off while any others stay visibly open — and when
+// the last one clears the whole strip flips to a green "all resolved" state.
+//
+// `SummaryRow` is what the card passes in: the union of every reason seen on this
+// line (so resolved ones don't vanish), each tagged with whether it's still active.
+export interface SummaryRow {
+  kind: IssueKind
+  title: string
+  summary: string
+  active: boolean
+}
+
+export function AttentionSummary({
+  rows,
+  onJumpMath,
+}: {
+  rows: SummaryRow[]
+  /** Scroll to the invoice-math zone (only offered for the math reason). */
+  onJumpMath?: () => void
+}) {
+  if (rows.length === 0) return null
+  const remaining = rows.filter(r => r.active).length
+  const allResolved = remaining === 0
+
+  return (
+    <div
+      className={`mx-4 mt-3 rounded-lg border px-3 py-2.5 transition-colors ${
+        allResolved ? 'border-[#86efac] bg-green-soft/40' : 'border-[#fcd34d] bg-gold-soft/50'
+      }`}
+      onClick={e => e.stopPropagation()}
+      role="presentation"
+    >
+      <div className="flex items-center gap-1.5 mb-2">
+        {allResolved
+          ? <Check size={13} className="text-green-text shrink-0" />
+          : <AlertTriangle size={13} className="text-gold-2 shrink-0" />}
+        <span className={`font-mono text-[10px] font-semibold uppercase tracking-[0.06em] ${allResolved ? 'text-green-text' : 'text-gold-2'}`}>
+          {allResolved ? 'All issues resolved' : 'Why this needs attention'}
+        </span>
+        {!allResolved && (
+          <span className="ml-auto font-mono text-[10px] font-semibold text-gold-2 tabular-nums">
+            {remaining} to resolve
+          </span>
+        )}
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {rows.map(r => (
+          <li key={r.kind} className="flex items-start gap-2 text-[12px] leading-[1.4]">
+            {r.active
+              ? <span className="mt-[6px] w-1.5 h-1.5 rounded-full bg-gold shrink-0" aria-hidden />
+              : <Check size={13} className="mt-[2px] text-green-text shrink-0" />}
+            <div className={r.active ? 'text-ink-2 min-w-0' : 'text-ink-4 min-w-0'}>
+              <span className={`font-semibold ${r.active ? 'text-ink' : 'line-through'}`}>{r.title}</span>
+              {r.active && <span className="text-ink-3"> — {r.summary}</span>}
+              {r.active && r.kind === 'math' && onJumpMath && (
+                <button
+                  type="button"
+                  onClick={onJumpMath}
+                  className="ml-1.5 font-mono text-[10.5px] font-semibold text-gold hover:text-gold-2 border-b border-dashed border-gold/70"
+                >
+                  fix ↓
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 // ─── IssueShell ────────────────────────────────────────────────────────────────
 // Badge + description on one row, actions below. The container border/divider is

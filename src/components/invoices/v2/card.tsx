@@ -5,24 +5,24 @@
 // inventory-cost comparison. Reads shared state from DrawerContext.
 
 import { useRef, useState, useEffect } from 'react'
-import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, Split, Plus, X, type LucideIcon } from 'lucide-react'
+import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, Split, Plus, X, AlertTriangle, type LucideIcon } from 'lucide-react'
 import { rcHex } from '@/lib/rc-colors'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { useDrawerContext } from './context'
-import { LineNumberChip } from './atoms'
+import { LineNumberChip, type IssueKind } from './atoms'
 import {
   LinkPicker,
   CaseStructureEditor,
   InvoiceMathFields,
   type InventorySearchResult,
 } from './composites'
-import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote } from './issues'
+import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, AttentionSummary, type SummaryRow } from './issues'
 import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
@@ -103,12 +103,31 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
   const canSplit     = !!item.matchedItem && !!received && received.qty > 0 && ctx.revenueCenters.length > 1
 
+  const resolveOpts = {
+    priceAck: ctx.acknowledgedPriceLines.has(lineId),
+    confAck:  ctx.acknowledgedConfLines.has(lineId),
+  }
+  const sessionSupplier = { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }
+
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
-  const resolved = isAttention && !lineUnresolved(item, {
-    priceAck:      ctx.acknowledgedPriceLines.has(lineId),
-    confAck:       ctx.acknowledgedConfLines.has(lineId),
-  }, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
+  const resolved = isAttention && !lineUnresolved(item, resolveOpts, sessionSupplier)
+
+  // ── Live "why this needs attention" summary ────────────────────────────────
+  // The current reasons, recomputed every render. We keep a per-line snapshot of
+  // every reason ever seen (seenReasons) so a fixed problem doesn't vanish from
+  // the strip — it flips to a struck-through ✓ while any remaining reasons stay
+  // open. Reasons that resolve by disappearing (link, bridge, math, split) leave
+  // the live list; ack-based reasons (price, conf) stay with resolved=true.
+  const currentReasons = lineReasons(item, resolveOpts, sessionSupplier)
+  const seenReasons = useRef<Map<IssueKind, { title: string; summary: string }>>(new Map())
+  useEffect(() => { seenReasons.current.clear() }, [lineId])
+  const activeKinds = new Set(currentReasons.filter(r => !r.resolved).map(r => r.kind))
+  for (const r of currentReasons) seenReasons.current.set(r.kind, { title: r.title, summary: r.summary })
+  const summaryRows: SummaryRow[] = [...seenReasons.current.entries()].map(([kind, meta]) => ({
+    kind, title: meta.title, summary: meta.summary, active: activeKinds.has(kind),
+  }))
+  const leadReason = currentReasons.find(r => !r.resolved) ?? null
 
   // data-task for the footer's goToTask() targeting (highest-priority first).
   const dataTask = isSkipped ? undefined
@@ -201,6 +220,15 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
             {item.rawDescription || '(no description)'}
             <span className="font-mono text-[10.5px] text-ink-4 font-normal ml-2">{formatPackSummary(item)}</span>
           </div>
+          {isAttention && !resolved && leadReason && (
+            <div className="font-mono text-[10.5px] text-gold-2 mt-[3px] flex items-center gap-1 min-w-0">
+              <AlertTriangle size={10} className="shrink-0" />
+              <span className="truncate">{leadReason.title}</span>
+              {activeKinds.size > 1 && (
+                <span className="text-ink-4 shrink-0">+{activeKinds.size - 1} more</span>
+              )}
+            </div>
+          )}
         </div>
         {resolved && (
           <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-green-soft text-green-text shrink-0 inline-flex items-center gap-1">
@@ -286,6 +314,18 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           <ChevronDown size={16} className="text-ink-4 mt-1 rotate-180 transition-transform" />
         </div>
       </div>
+
+      {/* Why this needs attention — the live reason summary. Leads the card so the
+          cause is never buried; recomputes as each reason is resolved. */}
+      {!isPicking && summaryRows.length > 0 && (
+        <AttentionSummary
+          rows={summaryRows}
+          onJumpMath={() => {
+            if (!isOpen) ctx.toggleExpand(lineId)
+            requestAnimationFrame(() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+          }}
+        />
+      )}
 
       {/* link picker (search) */}
       {isPicking ? (
