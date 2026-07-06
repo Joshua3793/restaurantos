@@ -122,6 +122,9 @@ export async function GET(req: NextRequest) {
     exceptionsCount,
     topCategories,
   }, {
-    headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=60' },
+    // no-store: awaitingApprovalCount/exceptions must reflect an approve
+    // immediately — the page bumps refreshKey right after approving, and a
+    // cached body here would show the pre-approve counts.
+    headers: { 'Cache-Control': 'no-store' },
   })
 }
