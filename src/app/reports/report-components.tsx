@@ -1,24 +1,54 @@
 'use client'
+import { useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronUp, ChevronDown, Minus, Info } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 /**
  * Small ⓘ affordance that reveals a provenance note (how a number is computed:
- * formula · window · scope) on hover or keyboard focus. Pure CSS — no state — so
- * it is cheap to sprinkle onto every KPI. Tap-friendly via focus on mobile.
+ * formula · window · scope) on hover or keyboard focus.
+ *
+ * The tooltip is rendered in a portal on <body> with fixed positioning, so it
+ * escapes the `overflow-hidden` / narrow KPI-card containers that used to crop it.
+ * Position is measured from the icon and clamped to the viewport (flips above the
+ * icon when there isn't room below).
  */
+const TIP_W = 264
 export function InfoDot({ text, className = '' }: { text: string; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [box, setBox] = useState<{ left: number; top?: number; bottom?: number } | null>(null)
+
+  const show = useCallback(() => {
+    const el = ref.current
+    if (!el || typeof window === 'undefined') return
+    const r = el.getBoundingClientRect()
+    // Center under the icon, then clamp horizontally into the viewport (8px gutter).
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - TIP_W / 2, window.innerWidth - TIP_W - 8))
+    // Flip above the icon when the bottom half of the viewport is tight.
+    const openUp = window.innerHeight - r.bottom < 140
+    setBox(openUp
+      ? { left, bottom: window.innerHeight - r.top + 6 }
+      : { left, top: r.bottom + 6 })
+  }, [])
+  const hide = useCallback(() => setBox(null), [])
+
   return (
-    <span className={`relative inline-flex group/info align-middle ${className}`}>
+    <span
+      ref={ref}
+      className={`relative inline-flex align-middle ${className}`}
+      onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}
+    >
       <Info size={12} tabIndex={0}
         className="text-ink-4 hover:text-ink-2 focus:text-ink-2 cursor-help shrink-0 outline-none" />
-      <span role="tooltip"
-        className="pointer-events-none absolute z-50 left-1/2 -translate-x-1/2 top-full mt-1.5
-          w-60 max-w-[60vw] rounded-lg bg-ink text-paper text-[11px] leading-snug font-normal
-          normal-case tracking-normal text-left px-2.5 py-2 opacity-0 shadow-xl
-          transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100">
-        {text}
-      </span>
+      {box && typeof document !== 'undefined' && createPortal(
+        <span role="tooltip"
+          style={{ position: 'fixed', left: box.left, top: box.top, bottom: box.bottom, width: TIP_W }}
+          className="pointer-events-none z-[100] rounded-lg bg-ink text-paper text-[11px] leading-snug
+            font-normal normal-case tracking-normal text-left px-2.5 py-2 shadow-xl">
+          {text}
+        </span>,
+        document.body,
+      )}
     </span>
   )
 }
