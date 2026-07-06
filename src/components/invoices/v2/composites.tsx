@@ -333,11 +333,17 @@ export function InvoiceMathFields({
   const [qty,       setQty]       = useState(item.rawQty          ? String(Number(item.rawQty))          : '')
   const [unitPrice, setUnitPrice] = useState(item.rawUnitPrice    ? String(Number(item.rawUnitPrice))    : '')
   const [lineTotal, setLineTotal] = useState(item.rawLineTotal    ? String(Number(item.rawLineTotal))    : '')
-  // Per-weight fields
+  // Per-weight fields. A SINGLE weight unit governs both the qty shipped and the
+  // rate denominator: `qty × rate = line total` is only dimensionally sound when
+  // both share a unit, and the spine write (approve) + price comparison both read
+  // `rateUOM` to convert to the item's base. So the weight dropdown IS the rate
+  // unit — pick kg and the rate becomes $/kg (was hard-coded to $/lb, which
+  // mislabelled every non-lb catch-weight line and corrupted the conversion).
+  // Default to the invoice's own price basis (rateUOM), then the shipped-weight
+  // unit, then the nominal-weight unit.
   const [wQty,      setWQty]      = useState(item.totalQty        ? String(Number(item.totalQty))        : '')
-  const [wQtyUOM,   setWQtyUOM]   = useState(item.totalQtyUOM     ?? item.rateUOM ?? 'kg')
+  const [weightUOM, setWeightUOM] = useState(item.rateUOM ?? item.totalQtyUOM ?? item.qtyOrderedUOM ?? 'lb')
   const [rate,      setRate]      = useState(item.rate            ? String(Number(item.rate))            : '')
-  const [rateUOM,   setRateUOM]   = useState(item.rateUOM         ?? 'lb')
   const [wTotal,    setWTotal]    = useState(item.rawLineTotal     ? String(Number(item.rawLineTotal))    : '')
 
   // Track which fields were edited this session (for blue tint)
@@ -354,9 +360,9 @@ export function InvoiceMathFields({
     rawUnitPrice:  mode === 'per_case' ? (unitPrice || null) : null,
     rawLineTotal:  mode === 'per_case' ? (lineTotal || null) : (wTotal || null),
     totalQty:      mode === 'per_weight' ? (wQty    || null) : item.totalQty,
-    totalQtyUOM:   mode === 'per_weight' ? wQtyUOM           : item.totalQtyUOM,
+    totalQtyUOM:   mode === 'per_weight' ? weightUOM         : item.totalQtyUOM,
     rate:          mode === 'per_weight' ? (rate    || null) : item.rate,
-    rateUOM:       mode === 'per_weight' ? rateUOM           : item.rateUOM,
+    rateUOM:       mode === 'per_weight' ? weightUOM         : item.rateUOM,
     pricingMode:   mode,
   }
 
@@ -450,12 +456,13 @@ export function InvoiceMathFields({
                 type="number" step="any" min="0"
                 value={wQty}
                 onChange={e => { setWQty(e.target.value); markEdited('wQty') }}
-                onBlur={() => onChange({ totalQty: wQty || null, totalQtyUOM: wQtyUOM })}
+                onBlur={() => onChange({ totalQty: wQty || null, totalQtyUOM: weightUOM, rateUOM: weightUOM })}
                 className={`flex-1 px-2 text-center ${inputBase} ${editedCls('wQty')}`}
               />
+              {/* One weight unit drives both qty shipped AND the rate denominator. */}
               <select
-                value={wQtyUOM}
-                onChange={e => { setWQtyUOM(e.target.value); onChange({ totalQtyUOM: e.target.value }) }}
+                value={weightUOM}
+                onChange={e => { setWeightUOM(e.target.value); onChange({ totalQtyUOM: e.target.value, rateUOM: e.target.value }) }}
                 className="h-8 px-1.5 border border-line rounded bg-paper text-sm font-medium focus:outline-none"
               >
                 {['lb', 'kg', 'g', 'oz'].map(u => <option key={u} value={u}>{u}</option>)}
@@ -475,10 +482,10 @@ export function InvoiceMathFields({
                 type="number" step="any" min="0"
                 value={rate}
                 onChange={e => { setRate(e.target.value); markEdited('rate') }}
-                onBlur={() => onChange({ rate: rate || null, rateUOM })}
+                onBlur={() => onChange({ rate: rate || null, rateUOM: weightUOM })}
                 className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-medium tabular-nums"
               />
-              <span className="text-ink-4 text-[12.5px] shrink-0">/ {rateUOM}</span>
+              <span className="text-ink-4 text-[12.5px] shrink-0">/ {weightUOM}</span>
             </div>
           </div>
 
