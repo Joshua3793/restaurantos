@@ -20,6 +20,7 @@ interface VarianceRow {
 interface VarianceResp {
   items: VarianceRow[]
   totalVarianceValue: number
+  needsCounts?: boolean
   startDate?: string
   endDate?: string
 }
@@ -34,10 +35,7 @@ export default function VariancePage() {
   }, [])
 
   useEffect(() => {
-    const end = new Date()
-    const start = new Date(); start.setDate(start.getDate() - range)
-    const qs = `?startDate=${start.toISOString().slice(0,10)}&endDate=${end.toISOString().slice(0,10)}`
-    fetch(`/api/reports/theoretical-usage${qs}`, { cache: 'no-store' })
+    fetch(`/api/insights/variance-lines?days=${range}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(json => json && setData(json))
   }, [range])
@@ -82,12 +80,21 @@ export default function VariancePage() {
       )}
 
       {!data ? null : top.length === 0 ? (
-        <div className="bg-paper border border-line rounded-[12px] p-12 text-center">
-          <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-green-text">No variance</p>
-          <p className="text-[14px] text-ink-2 mt-2 max-w-md mx-auto">
-            Counts and theoretical depletion are in sync. Either your sales/recipe data is sparse, or you&apos;re running a tight kitchen.
-          </p>
-        </div>
+        data.needsCounts ? (
+          <div className="bg-paper border border-line rounded-[12px] p-12 text-center">
+            <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">No counts in range</p>
+            <p className="text-[14px] text-ink-2 mt-2 max-w-md mx-auto">
+              No finalized stock counts in the last <b>{range}d</b>. Variance is measured at count time — finalize a count to see theoretical vs counted drift. Widen the range or <Link href="/count" className="underline">run a count</Link>.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-paper border border-line rounded-[12px] p-12 text-center">
+            <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-green-text">No variance</p>
+            <p className="text-[14px] text-ink-2 mt-2 max-w-md mx-auto">
+              Counted stock matched theoretical on every line in the last <b>{range}d</b>. Either you&apos;re running a tight kitchen, or counts were light.
+            </p>
+          </div>
+        )
       ) : (
         <section className="bg-paper border border-line rounded-[12px] overflow-hidden">
           <header className="flex items-center justify-between px-[18px] py-3 border-b border-line bg-bg-2">
@@ -129,8 +136,8 @@ export default function VariancePage() {
       )}
 
       <div className="mt-5 font-mono text-[10.5px] text-ink-3 tracking-wide text-center">
-        Variance = theoretical depletion from sales (recipe × qty sold) minus counted on-hand.
-        Negative Δ$ means short (eat into margin); positive means over (likely uncounted waste).
+        Variance = counted on-hand minus theoretical on-hand (last count + purchases − sales − waste), measured at each finalized count.
+        Negative Δ$ means short (shrinkage — eats into margin); positive means over (uncounted receiving or light usage).
       </div>
     </div>
   )
