@@ -146,21 +146,29 @@ export async function periodSnapshotBounds(
 }
 
 /**
- * Global, snapshot-based COGS for a date range.
+ * Snapshot-based COGS for a date range.
  * Opening/closing via the canonical {@link periodSnapshotBounds}; purchases via
- * the canonical {@link periodPurchases} (global scope).
- * (Global only — per-RC actual COGS needs per-RC snapshots; not supported.)
+ * the canonical {@link periodPurchases}. `scope` (default `{}` = global) is
+ * threaded to both so a single RC can be bracketed by its own counts/purchases;
+ * for the "All RCs" view (ΣRC) the caller sums per-RC results (a default-pool
+ * count can't be split across RCs). SalesEntry.revenueCenterId is NOT NULL, so
+ * the food-sales denominator filters on the concrete rcId only.
  */
-export async function computePeriodCogs(startMs: number, endMs: number): Promise<PeriodCogs> {
-  const { opening, closing } = await periodSnapshotBounds(startMs, endMs)
+export async function computePeriodCogs(
+  startMs: number, endMs: number, scope: SnapshotScope = {},
+): Promise<PeriodCogs> {
+  const { opening, closing } = await periodSnapshotBounds(startMs, endMs, scope)
 
   const openingValue = opening?.value ?? 0
   const closingValue = closing?.value ?? 0
 
-  const { total: purchases } = await periodPurchases(startMs, endMs)
+  const { total: purchases } = await periodPurchases(startMs, endMs, scope)
 
   const salesAgg = await prisma.salesEntry.findMany({
-    where: { date: { gte: new Date(startMs), lte: new Date(endMs) } },
+    where: {
+      date: { gte: new Date(startMs), lte: new Date(endMs) },
+      ...(scope.rcId ? { revenueCenterId: scope.rcId } : {}),
+    },
     select: { totalRevenue: true, foodSalesPct: true },
   })
   const foodSales = salesAgg.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
