@@ -213,15 +213,19 @@ export default function PassPage() {
         const cogsParams = new URLSearchParams(scope)
         cogsParams.set('startDate', fcFrom); cogsParams.set('endDate', fcTo)
         const cogsQs = `?${cogsParams.toString()}`
+        // Days-on-hand shares the same scope as the on-hand $ card it sits under.
+        const effParams = new URLSearchParams(scope)
+        effParams.set('days', '30')
+        const effQs = `?${effParams.toString()}`
         const [d, c, k, p, s, a, fv, ie, cg] = await Promise.all([
           fetch(`/api/reports/dashboard${fcQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/insights/cost-chrome${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/invoices/kpis${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-          fetch('/api/prep/items', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
-          fetch('/api/count/sessions', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+          fetch(`/api/prep/items${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+          fetch(`/api/count/sessions${qs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
           fetch('/api/invoices/alerts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { priceAlerts: [] }),
           fetch('/api/insights/food-cost-variance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
-          fetch('/api/reports/inventory-efficiency?days=30', { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
+          fetch(`/api/reports/inventory-efficiency${effQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
           fetch(`/api/reports/cogs${cogsQs}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
         ])
         if (cancelled) return
@@ -267,7 +271,7 @@ export default function PassPage() {
         icon: AlertTriangle,
         iconTint: 'red',
         title: <><b>{priceAlertCount}</b> active price {priceAlertCount === 1 ? 'alert' : 'alerts'} — review impact on recipes</>,
-        meta: 'PRICE ALERTS · open Inbox to acknowledge',
+        meta: 'PRICE ALERTS · all RCs · open Inbox to acknowledge',
         cost: { value: priceAlertCount.toString(), sub: priceAlertCount === 1 ? 'alert' : 'alerts', tint: 'bad' },
         ctaHref: '/invoices',
         ctaLabel: 'Review',
@@ -610,7 +614,7 @@ export default function PassPage() {
 
             <RailCard icon={<Zap size={11} />} iconTint="amber" title="Signal of the day">
               {priceAlertCount > 0 ? (
-                <>You have <b>{priceAlertCount}</b> active price {priceAlertCount === 1 ? 'alert' : 'alerts'} — review whether to bump menu prices or switch suppliers before lunch service.</>
+                <>You have <b>{priceAlertCount}</b> active price {priceAlertCount === 1 ? 'alert' : 'alerts'} <span className="text-ink-3">(across all RCs)</span> — review whether to bump menu prices or switch suppliers before lunch service.</>
               ) : (
                 <>No new signals. Your spine is clean — the live cost chrome above is up to date.</>
               )}

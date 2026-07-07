@@ -5,7 +5,7 @@ import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, assertRcWritable } from '@/lib/rc-scope'
+import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 
 const recipeInclude = {
   select: {
@@ -43,13 +43,25 @@ export async function GET(req: NextRequest) {
   today.setHours(0, 0, 0, 0)
   const tomorrow = new Date(today.getTime() + 86_400_000)
 
-  // Prep items have no rcId query param — scope to the user's RCs (always
-  // including shared (null) prep). allowed===null (ADMIN / unscoped) → no filter,
-  // so the list behaves exactly as before.
+  // Scope to the active RC (or a location's child RCs) when passed — matching the
+  // /prep page and the RC-scoped Pass cards — else fall back to all the user's RCs.
+  // Shared (revenueCenterId null) prep ALWAYS shows: it belongs to every RC.
+  // allowed===null (ADMIN / unscoped) with no rc/location param → no filter.
+  const rcId = searchParams.get('rcId')
+  const locationId = searchParams.get('locationId')
   const allowed = await resolveScopedRcIds(user)
-  const scopeWhere = allowed === null
+  let rcIn: string[] | null // null = no concrete-RC restriction (shared prep still shows)
+  if (locationId) {
+    rcIn = await resolveLocationRcIds(user, locationId)
+  } else if (rcId) {
+    // Honor an rcId only inside the caller's scope; out-of-scope → shared prep only.
+    rcIn = allowed === null || allowed.has(rcId) ? [rcId] : []
+  } else {
+    rcIn = allowed === null ? null : [...allowed]
+  }
+  const scopeWhere = rcIn === null
     ? {}
-    : { OR: [{ revenueCenterId: null }, { revenueCenterId: { in: [...allowed] } }] }
+    : { OR: [{ revenueCenterId: null }, { revenueCenterId: { in: rcIn } }] }
 
   const items = await prisma.prepItem.findMany({
     where: { AND: [activeOnly ? { isActive: true } : {}, scopeWhere] },

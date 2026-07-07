@@ -10,6 +10,13 @@ export const dynamic = 'force-dynamic'
 // regardless of whether a handover note was written: the reconciled snapshot
 // (netSales/covers/foodCostPct) and sign-off time are useful on their own, and
 // the note is just one optional field of the payload.
+//
+// The sign-off snapshot froze the day's sales at the instant the manager clicked
+// close — often BEFORE the overnight Toast sync landed the real numbers, leaving
+// netSales/covers stuck at 0. So we RE-COMPUTE netSales/covers/foodCost live for
+// the close's business date (same RC-scoped math as sign-off) and merge them over
+// the frozen snapshot: the figures self-heal as sales arrive, while who/when and
+// the checklist/temps state stay as-recorded at close.
 export async function GET(req: NextRequest) {
   try {
     await requireSession('MANAGER')
@@ -28,7 +35,39 @@ export async function GET(req: NextRequest) {
       },
     })
     if (!close) return NextResponse.json(null)
-    return NextResponse.json(close, { headers: { 'Cache-Control': 'no-store' } })
+
+    // Live-reconcile the close's business date. Sales are stored date-only at UTC
+    // midnight, so bracket the business date at UTC — identical window to sign-off.
+    const dayStart = new Date(`${close.businessDate}T00:00:00.000Z`)
+    const dayEnd = new Date(`${close.businessDate}T23:59:59.999Z`)
+    const [sales, purchases] = await Promise.all([
+      prisma.salesEntry.findMany({
+        where: { date: { gte: dayStart, lte: dayEnd }, revenueCenterId: rcId },
+        select: { totalRevenue: true, foodSalesPct: true, covers: true },
+      }),
+      prisma.invoiceScanItem.aggregate({
+        where: { approved: true, splitToSessionId: null, session: { purchaseDate: { gte: dayStart, lte: dayEnd }, revenueCenterId: rcId } },
+        _sum: { rawLineTotal: true },
+      }),
+    ])
+    const netSales = sales.reduce((s, e) => s + Number(e.totalRevenue), 0)
+    const foodSales = sales.reduce((s, e) => s + Number(e.totalRevenue) * Number(e.foodSalesPct), 0)
+    const covers = sales.reduce((s, e) => s + (e.covers ?? 0), 0)
+    const foodCostDollars = Number(purchases._sum.rawLineTotal ?? 0)
+    // Only override once the day actually has sales — an empty live window (a
+    // closed day, or sales not yet synced) shouldn't blank a snapshot that had figures.
+    const frozen = (close.snapshot ?? {}) as Record<string, unknown>
+    const reconciled = sales.length > 0
+      ? {
+          netSales, covers, foodCostDollars,
+          foodCostPct: foodSales > 0 ? (foodCostDollars / foodSales) * 100 : null,
+        }
+      : {}
+
+    return NextResponse.json(
+      { ...close, snapshot: { ...frozen, ...reconciled } },
+      { headers: { 'Cache-Control': 'no-store' } },
+    )
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     console.error('GET /api/eod/handover', e)
