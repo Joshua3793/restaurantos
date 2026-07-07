@@ -58,7 +58,7 @@ interface InventoryItem {
 type SortMode  = 'category' | 'all'
 type ColKey    = 'item' | 'category' | 'supplier' | 'price' | 'stock' | 'value'
 type ColDir    = 'asc' | 'desc'
-type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'lowStock' | 'active' | 'inactive'
+type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'lowStock'
 
 // First-click direction per column: text cols go A→Z, numeric cols go high→low
 const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
@@ -205,6 +205,9 @@ function InventoryPageInner() {
   const [colSort,      setColSort]      = useState<{ col: ColKey; dir: ColDir } | null>(null)
   const [activePill,   setActivePill]   = useState<FilterPill>('all')
   const [showNonStocked, setShowNonStocked] = useState(false)
+  // Inactive items no longer belong to the operational catalogue: the default view
+  // fetches active items only, and this switch swaps to an inactive-only view.
+  const [showInactive, setShowInactive] = useState(false)
   const [selected,     setSelected]     = useState<InventoryItem | null>(null)
   const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
@@ -250,8 +253,10 @@ function InventoryPageInner() {
     if (areaFilter)     p.set('storageAreaId', areaFilter)
     setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     if (showNonStocked) p.set('includeNonStocked', 'true')
+    // Active items are the catalogue; inactive ones only exist in the dedicated view.
+    p.set('isActive', showInactive ? 'false' : 'true')
     fetch(`/api/inventory?${p}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
-  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, activeKind, activeLocationId, showNonStocked])
+  }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, activeKind, activeLocationId, showNonStocked, showInactive])
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
@@ -329,13 +334,12 @@ function InventoryPageInner() {
     countUnit: i.countUnit,
   })
 
-  // KPIs
+  // KPIs — items are fetched active-only, so inactive items never enter these numbers.
   const kpis = useMemo(() => {
-    const active = items.filter(i => i.isActive)
-    const totalValue = active.reduce((s, i) =>
+    const totalValue = items.reduce((s, i) =>
       s + effStock(i) * parseFloat(String(i.pricePerBaseUnit)), 0)
-    const counted = active.filter(isCountedThisWeek).length
-    return { totalValue, counted, notCounted: active.length - counted, activeCount: active.length, totalCount: items.length }
+    const counted = items.filter(isCountedThisWeek).length
+    return { totalValue, counted, notCounted: items.length - counted, activeCount: items.length }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
@@ -348,8 +352,6 @@ function InventoryPageInner() {
       case 'highValue':  return base.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01)
       case 'outOfStock': return base.filter(i => effStock(i) <= 0)
       case 'lowStock':   return base.filter(i => i.parLevel != null && displayStock(i) > 0 && displayStock(i) < i.parLevel)
-      case 'active':     return base.filter(i => i.isActive)
-      case 'inactive':   return base.filter(i => !i.isActive)
       default:           return base
     }
   }, [items, activePill, filterNeedsReview])
@@ -737,10 +739,19 @@ function InventoryPageInner() {
     )
   }
 
+  // Switching between the active catalogue and the inactive-only view: reset any
+  // pill/selection state that was scoped to the previous list.
+  const toggleInactiveView = () => {
+    setShowInactive(v => !v)
+    setActivePill('all')
+    setCheckedIds(new Set())
+    // Clear immediately so the other view's rows never flash (or feed the KPIs)
+    // while the refetch is in flight.
+    setItems([])
+  }
+
   const pills: { key: FilterPill; label: string }[] = [
     { key: 'all',        label: 'All Items' },
-    { key: 'active',     label: 'Active' },
-    { key: 'inactive',   label: 'Inactive' },
     { key: 'counted',    label: 'Counted This Week' },
     { key: 'notCounted', label: 'Not Counted' },
     { key: 'highValue',  label: 'High Value' },
@@ -809,8 +820,19 @@ function InventoryPageInner() {
         </div>
       </div>
 
+      {/* Inactive view banner — replaces the KPI rows, which only cover active items */}
+      {showInactive && (
+        <div className="flex items-start gap-3 rounded-xl border border-line bg-bg-2 px-4 py-3">
+          <AlertCircle size={15} className="text-ink-3 mt-0.5 shrink-0" />
+          <div className="text-[13px] text-ink-2">
+            <span className="font-semibold">Viewing inactive items</span> — {items.length} item{items.length === 1 ? '' : 's'} removed from the system.
+            They are excluded from KPIs, counts and all calculations. Use the row toggle to reactivate an item.
+          </div>
+        </div>
+      )}
+
       {/* Mobile KPI strip */}
-      <div className="flex sm:hidden gap-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+      <div className={`${showInactive ? 'hidden' : 'flex'} sm:hidden gap-3 overflow-x-auto pb-0.5`} style={{ scrollbarWidth: 'none' }}>
         <div className="flex-shrink-0 bg-ink text-paper rounded-[12px] px-3 py-2.5 min-w-[140px]">
           <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-4">Theoretical Value</div>
           <div className="font-mono text-[18px] font-semibold text-paper mt-0.5 tracking-[-0.02em]">
@@ -834,7 +856,7 @@ function InventoryPageInner() {
       </div>
 
       {/* Desktop KPI row */}
-      <div className="hidden sm:grid gap-3" style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
+      <div className={`${showInactive ? 'hidden' : 'hidden sm:grid'} gap-3`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
         {/* Hero — Current Stock Value */}
         <div className="bg-ink text-paper rounded-xl border border-ink p-5 flex flex-col justify-between min-h-[128px] relative">
           <div className="absolute right-4 top-[18px] flex gap-[2px] items-end h-[18px]">
@@ -901,7 +923,7 @@ function InventoryPageInner() {
             <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink">{kpis.activeCount}</div>
           </div>
           <div className="font-mono text-[11px] text-ink-3 mt-2">
-            {kpis.totalCount} total · <span className="text-ink font-medium">{kpis.totalCount - kpis.activeCount} inactive</span>
+            Inactive items hidden
           </div>
         </div>
       </div>
@@ -976,15 +998,25 @@ function InventoryPageInner() {
               {p.label}
             </button>
           ))}
+          {/* Inactive-items switch — swaps the whole view, not a client-side filter */}
+          <button
+            onClick={toggleInactiveView}
+            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-[0.04em] transition-colors ${
+              showInactive ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-2 border border-line'
+            }`}
+          >
+            Inactive
+            <span className={`relative inline-flex w-[26px] h-[15px] shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${showInactive ? 'bg-gold' : 'bg-line-2'}`}>
+              <span className={`pointer-events-none inline-block h-[11px] w-[11px] transform rounded-full bg-white shadow transition duration-200 ${showInactive ? 'translate-x-[11px]' : 'translate-x-0'}`} />
+            </span>
+          </button>
         </div>
       </div>
 
       {/* Desktop filter chips */}
-      <div className="hidden sm:flex gap-1.5 flex-wrap">
+      <div className="hidden sm:flex gap-1.5 flex-wrap items-center">
         {pills.map(p => {
           const count = p.key === 'all' ? items.length
-            : p.key === 'active' ? kpis.activeCount
-            : p.key === 'inactive' ? (kpis.totalCount - kpis.activeCount)
             : p.key === 'counted' ? kpis.counted
             : p.key === 'notCounted' ? kpis.notCounted
             : p.key === 'outOfStock' ? items.filter(i => effStock(i) <= 0).length
@@ -1014,6 +1046,19 @@ function InventoryPageInner() {
           }`}
         >
           {showNonStocked ? 'Hide non-stocked' : 'Show non-stocked'}
+        </button>
+        {/* Inactive-items switch — swaps the whole view, not a client-side filter */}
+        <button
+          onClick={toggleInactiveView}
+          title="View items removed from the system (excluded from KPIs and calculations)"
+          className={`ml-auto flex items-center gap-2 font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
+            showInactive ? 'bg-ink text-paper border border-ink' : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
+          }`}
+        >
+          Inactive items
+          <span className={`relative inline-flex w-[26px] h-[15px] shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${showInactive ? 'bg-gold' : 'bg-line-2'}`}>
+            <span className={`pointer-events-none inline-block h-[11px] w-[11px] transform rounded-full bg-white shadow transition duration-200 ${showInactive ? 'translate-x-[11px]' : 'translate-x-0'}`} />
+          </span>
         </button>
       </div>
 
