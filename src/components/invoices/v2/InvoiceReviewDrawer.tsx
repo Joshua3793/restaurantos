@@ -678,8 +678,14 @@ export function InvoiceReviewDrawer({
     // user never confirmed) is SKIPPED by approve — its money is paid but its stock is
     // never credited. Surface it so purchases can't silently fail to reach inventory.
     // (SKIP lines are intentional — cleaning supplies etc. — so they're excluded.)
+    //
+    // Read effectiveLines (server ∪ staged edits), NOT session.scanItems: a match the
+    // user just picked lives in editedLines and is only flushed to the DB by
+    // flushPendingEdits() below. Filtering the stale server snapshot flagged a
+    // just-matched line as still PENDING — the false "won't be added to inventory"
+    // warning that only cleared after a page refresh.
     if (!force) {
-      const untracked = session.scanItems.filter(
+      const untracked = effectiveLines.filter(
         i => i.action === 'PENDING' && Number(i.rawLineTotal ?? 0) > 0,
       )
       if (untracked.length > 0) {
