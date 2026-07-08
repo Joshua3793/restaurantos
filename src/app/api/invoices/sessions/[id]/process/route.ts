@@ -294,14 +294,32 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     console.log(`[process] Extracted ${allOcrItems.length} items`)
 
+    // ── Resolve the supplier BEFORE matching ────────────────────────────────
+    // The in-memory `session` was loaded at the top of this route, BEFORE the
+    // quick-peek + OCR discovered the supplier (those write the DB, not this
+    // object). Matching with the stale `session.supplierName` — which is null
+    // for a photo uploaded without a pre-selected supplier — hides EVERY learned
+    // rule and item-code rule for the real supplier: item-code tier-0 is skipped
+    // (empty supplier list) and learned rules load only the generic '' bucket,
+    // so a line falls through to fuzzy (e.g. "OIL CANOLA W/ ANTIFOAM" fuzzy-hit
+    // "Oil Canola" instead of the learned code-7296319 → "Oil Canola Fryer").
+    // Prefer the OCR-extracted name; fall back to the session's own.
+    const finalSupplierName = sessionMeta.supplierName ?? session.supplierName
+    let autoSupplierId: string | null = null
+    if (finalSupplierName) {
+      autoSupplierId = await matchSupplierByName(finalSupplierName)
+    }
+
     let matched: Awaited<ReturnType<typeof matchLineItems>> = []
     try {
       // Offers are stored under the canonical Supplier.name — pass it so the
-      // matcher can find offers even when the OCR name is a variant.
-      const canonicalName = session.supplierName
-        ? await canonicalSupplierName(session.supplierId, session.supplierName)
+      // matcher can find offers even when the OCR name is a variant. Resolve the
+      // canonical name from the best-known supplier id (session's own, else the
+      // name-matched one) so rules/offers keyed by canonical name are visible.
+      const canonicalName = finalSupplierName
+        ? await canonicalSupplierName(session.supplierId ?? autoSupplierId, finalSupplierName)
         : null
-      matched = await matchLineItems(allOcrItems, session.supplierName, canonicalName)
+      matched = await matchLineItems(allOcrItems, finalSupplierName, canonicalName)
       await prisma.invoiceScanItem.deleteMany({ where: { sessionId: params.id } })
       if (matched.length > 0) {
         await prisma.invoiceScanItem.createMany({
@@ -346,12 +364,6 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       }
     } catch (err) {
       console.error('[process] Matching failed:', err)
-    }
-
-    const finalSupplierName = sessionMeta.supplierName ?? session.supplierName
-    let autoSupplierId: string | null = null
-    if (finalSupplierName) {
-      autoSupplierId = await matchSupplierByName(finalSupplierName)
     }
 
     // Sum the split Canadian taxes back into the single InvoiceSession.tax column
