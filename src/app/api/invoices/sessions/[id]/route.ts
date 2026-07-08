@@ -129,6 +129,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     // Learn alias: associate this OCR name with the chosen supplier
     if (body.supplierId && session.supplierName) {
+      // Re-point the alias so this OCR name authoritatively maps to the chosen
+      // supplier. Remove it from any OTHER supplier first: a prior wrong fuzzy
+      // auto-link (matchSupplierByName learns fuzzy hits ≥50% as aliases) would
+      // otherwise keep resolving future invoices to the wrong record even after
+      // the user corrects this one. The manual choice is authoritative.
+      await prisma.supplierAlias.deleteMany({
+        where: {
+          name:       { equals: session.supplierName, mode: 'insensitive' },
+          supplierId: { not: body.supplierId },
+        },
+      })
       await learnAlias(body.supplierId, session.supplierName)
 
       // Adopt orphaned offers: supplier prices recorded under this OCR text name
@@ -137,6 +148,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.inventorySupplierPrice.updateMany({
         where: { supplierName: session.supplierName, supplierId: null },
         data:  { supplierId: body.supplierId },
+      })
+    } else if (body.supplierId === null && session.supplierName) {
+      // Clearing the link: the user is saying this OCR name should NOT map to the
+      // auto-picked supplier. Drop the learned alias entirely so it stops
+      // auto-linking future invoices to the wrong supplier.
+      await prisma.supplierAlias.deleteMany({
+        where: { name: { equals: session.supplierName, mode: 'insensitive' } },
       })
     }
 

@@ -48,6 +48,104 @@ function supplierInitials(name: string | null): string {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
+// ─── HeaderSupplierPicker ──────────────────────────────────────────────────────
+// The supplier name in the review header, made re-assignable. OCR can auto-link
+// the WRONG supplier (matchSupplierByName fuzzy-matches ≥50% coverage), and once
+// linked there was previously no way to fix it. This chip opens a picker to
+// choose an existing supplier, create a new one, or clear the (bad) link.
+function HeaderSupplierPicker({
+  displayName,
+  linkedSupplierId,
+  suppliers,
+  open,
+  search,
+  onToggle,
+  onSearch,
+  onPick,
+  onCreate,
+  onClear,
+}: {
+  displayName: string
+  linkedSupplierId: string | null
+  suppliers: Array<{ id: string; name: string }>
+  open: boolean
+  search: string
+  onToggle: () => void
+  onSearch: (v: string) => void
+  onPick: (id: string) => void
+  onCreate: (name: string) => void
+  onClear: () => void
+}) {
+  const q = search.trim().toLowerCase()
+  const filtered = suppliers.filter(s => s.name.toLowerCase().includes(q))
+  const canCreate = q.length > 0 && !suppliers.some(s => s.name.toLowerCase() === q)
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="group flex items-center gap-1.5 max-w-full text-left"
+        title="Change supplier"
+      >
+        <h2 className="font-medium text-[18px] sm:text-[23px] leading-[1.1] tracking-[-0.02em] text-ink truncate">
+          {displayName}
+        </h2>
+        <ChevronDown size={15} className="shrink-0 text-ink-4 group-hover:text-ink-2 transition-colors" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={onToggle} />
+          <div className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-paper border border-line rounded-lg shadow-lg overflow-hidden">
+            <input
+              autoFocus
+              value={search}
+              onChange={e => onSearch(e.target.value)}
+              placeholder="Search or type a new name…"
+              className="w-full px-3 py-2 text-[13px] border-b border-bg-2 focus:outline-none"
+            />
+            <div className="max-h-56 overflow-y-auto">
+              {filtered.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onPick(s.id)}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-gold-soft transition-colors font-medium text-ink flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">{s.name}</span>
+                  {linkedSupplierId === s.id && <Check size={13} className="text-green-text shrink-0" />}
+                </button>
+              ))}
+              {filtered.length === 0 && !canCreate && (
+                <p className="px-3 py-3 text-[12px] text-ink-4">No suppliers found</p>
+              )}
+              {canCreate && (
+                <button
+                  type="button"
+                  onClick={() => onCreate(search.trim())}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-gold-soft transition-colors text-ink flex items-center gap-1.5 border-t border-bg-2"
+                >
+                  <Plus size={12} /> Create &ldquo;{search.trim()}&rdquo;
+                </button>
+              )}
+            </div>
+            {linkedSupplierId && (
+              <button
+                type="button"
+                onClick={onClear}
+                className="w-full text-left px-3 py-2 text-[12.5px] text-red-text hover:bg-red-soft transition-colors border-t border-bg-2 flex items-center gap-1.5"
+              >
+                <X size={12} /> Clear supplier link
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function InvoiceHeader({
   session,
   revenueCenters,
@@ -56,6 +154,15 @@ function InvoiceHeader({
   queuePos,
   onPrev,
   onNext,
+  linkedSupplierId,
+  suppliers,
+  supplierComboOpen,
+  supplierSearch,
+  onToggleSupplierCombo,
+  onSupplierSearch,
+  onPickSupplier,
+  onCreateSupplier,
+  onClearSupplier,
 }: {
   session: Session
   revenueCenters: RevenueCenter[]
@@ -64,6 +171,15 @@ function InvoiceHeader({
   queuePos: { idx: number; total: number }
   onPrev?: () => void
   onNext?: () => void
+  linkedSupplierId: string | null
+  suppliers: Array<{ id: string; name: string }>
+  supplierComboOpen: boolean
+  supplierSearch: string
+  onToggleSupplierCombo: () => void
+  onSupplierSearch: (v: string) => void
+  onPickSupplier: (id: string) => void
+  onCreateSupplier: (name: string) => void
+  onClearSupplier: () => void
 }) {
   const total    = session.total    ? Number(session.total)    : null
   const subtotal = session.subtotal ? Number(session.subtotal) : null
@@ -74,6 +190,11 @@ function InvoiceHeader({
   if (session.invoiceNumber) metaParts.push(`#${session.invoiceNumber}`)
   if (session.invoiceDate)   metaParts.push(session.invoiceDate)
   metaParts.push(`${itemCount} line${itemCount !== 1 ? 's' : ''}`)
+
+  // Prefer the linked directory supplier's real name over the raw OCR text
+  // (they differ when OCR read a variant, e.g. "SYSCO Canada, Inc." → "Sysco").
+  const linkedSupplier = linkedSupplierId ? suppliers.find(s => s.id === linkedSupplierId) : null
+  const supplierDisplay = linkedSupplier?.name ?? session.supplierName ?? 'Unknown supplier'
 
   return (
     <div
@@ -96,9 +217,18 @@ function InvoiceHeader({
           {supplierInitials(session.supplierName)}
         </div>
         <div className="min-w-0">
-          <h2 className="font-medium text-[18px] sm:text-[23px] leading-[1.1] tracking-[-0.02em] text-ink truncate">
-            {session.supplierName ?? 'Unknown supplier'}
-          </h2>
+          <HeaderSupplierPicker
+            displayName={supplierDisplay}
+            linkedSupplierId={linkedSupplierId}
+            suppliers={suppliers}
+            open={supplierComboOpen}
+            search={supplierSearch}
+            onToggle={onToggleSupplierCombo}
+            onSearch={onSupplierSearch}
+            onPick={onPickSupplier}
+            onCreate={onCreateSupplier}
+            onClear={onClearSupplier}
+          />
           <div className="font-mono text-[11px] text-ink-4 mt-[3px] truncate" title={metaParts.join('  ·  ')}>
             {metaParts.join('  ·  ')}
           </div>
@@ -292,6 +422,21 @@ export function InvoiceReviewDrawer({
     })
   }, [session])
 
+  // Clear an (often wrong auto-) linked supplier. Sends supplierId:null so the
+  // server drops the learned alias too — the OCR name stops resolving to the
+  // wrong supplier next time. Unlinking re-surfaces the SupplierLinkCard.
+  const handleClearSupplier = useCallback(async () => {
+    if (!session) return
+    setLinkedSupplierId(null)
+    setSupplierComboOpen(false)
+    setSupplierSearch('')
+    await fetch(`/api/invoices/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supplierId: null }),
+    })
+  }, [session])
+
   const handleSessionRcChange = useCallback(async (rcId: string) => {
     if (!session) return
     const prevRcId = session.revenueCenterId ?? null
@@ -413,6 +558,9 @@ export function InvoiceReviewDrawer({
     setReviewSegment('all')
     setSupplierSkipped(false)
     setBannerDismissed(false)
+    // Load the directory so the header supplier chip can show the linked
+    // supplier's real name (not just the OCR text) and offer re-assignment.
+    void loadSuppliers()
 
     // Snapshot the lines that need a decision at load — the progress denominator.
     const attentionIds = new Set(
@@ -965,6 +1113,15 @@ export function InvoiceReviewDrawer({
               queuePos={queuePos}
               onPrev={navPrev}
               onNext={navNext}
+              linkedSupplierId={linkedSupplierId}
+              suppliers={allSuppliers}
+              supplierComboOpen={supplierComboOpen}
+              supplierSearch={supplierSearch}
+              onToggleSupplierCombo={() => { loadSuppliers(); setSupplierComboOpen(v => !v) }}
+              onSupplierSearch={setSupplierSearch}
+              onPickSupplier={handleLinkSupplier}
+              onCreateSupplier={(name) => { void handleCreateSupplier({ name }) }}
+              onClearSupplier={handleClearSupplier}
             />
 
             {/* Cost-chrome impact strip — Principle 01 */}
