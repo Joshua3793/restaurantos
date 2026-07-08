@@ -1,11 +1,11 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { formatCurrency, formatDate, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { Plus, X, AlertTriangle } from 'lucide-react'
+import { Plus, X, AlertTriangle, Search, Check } from 'lucide-react'
 
 // Lazy-load recharts — only renders when there are logs to display
 const WastageCharts = dynamic(() => import('@/components/wastage/WastageCharts'), { ssr: false, loading: () => null })
@@ -28,6 +28,127 @@ interface InventoryItem {
   itemName: string
   baseUnit: string
   pricePerBaseUnit: number
+}
+
+// Fuzzy score mirroring the server-side matcher in /api/inventory/search — kept
+// client-side here so the wastage picker can search the full loaded list
+// (including PREP items, which that endpoint deliberately excludes).
+function fuzzyScore(query: string, target: string): number {
+  const q = query.toLowerCase().trim()
+  const t = target.toLowerCase().trim()
+  if (!q) return 100
+  if (t === q) return 100
+  if (t.includes(q)) return 90
+  const qWords = q.split(/\s+/).filter(Boolean)
+  const tWords = t.split(/[\s\-/]+/).filter(Boolean)
+  const allMatch = qWords.every(qw => tWords.some(tw => tw.startsWith(qw) || tw.includes(qw)))
+  if (allMatch) return 80
+  const matched = qWords.filter(qw => tWords.some(tw => tw.startsWith(qw) || tw.includes(qw)))
+  const ratio = matched.length / qWords.length
+  return ratio >= 0.5 ? Math.round(40 + ratio * 40) : 0
+}
+
+// Searchable item selector — replaces the plain <select>. Type to fuzzy-match
+// against the loaded inventory list; ↑↓ to move, ⏎ to pick.
+function ItemPicker({
+  items,
+  value,
+  onSelect,
+}: {
+  items: InventoryItem[]
+  value: string
+  onSelect: (item: InventoryItem) => void
+}) {
+  const selected = items.find(i => i.id === value) ?? null
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  // Close when clicking outside
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const results = (() => {
+    const q = query.trim()
+    if (!q) return items.slice(0, 8)
+    return items
+      .map(item => ({ item, score: fuzzyScore(q, item.itemName) }))
+      .filter(r => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map(r => r.item)
+  })()
+
+  const pick = (item: InventoryItem) => {
+    onSelect(item)
+    setQuery('')
+    setOpen(false)
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, results.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (results[active]) pick(results[active]) }
+    else if (e.key === 'Escape') { setOpen(false) }
+  }
+
+  return (
+    <div ref={boxRef} className="relative">
+      <div className="flex items-center gap-2 border border-line rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-gold">
+        <Search size={14} className="text-ink-4 shrink-0" />
+        <input
+          value={open ? query : (selected ? `${selected.itemName} (${selected.baseUnit})` : query)}
+          onChange={e => { setQuery(e.target.value); setActive(0); if (!open) setOpen(true) }}
+          onFocus={() => { setOpen(true); setQuery('') }}
+          onKeyDown={onKeyDown}
+          placeholder="Search item…"
+          className="flex-1 text-sm bg-transparent border-none outline-none placeholder:text-ink-4"
+        />
+        {selected && !open && (
+          <button
+            type="button"
+            onClick={() => { onSelect({ id: '', itemName: '', baseUnit: 'g', pricePerBaseUnit: 0 }); setQuery(''); setOpen(true) }}
+            className="text-ink-4 hover:text-ink-2 shrink-0"
+            aria-label="Clear selected item"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-line rounded-lg shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+          {results.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-ink-4">No matching items</div>
+          ) : (
+            results.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                onMouseEnter={() => setActive(i)}
+                onClick={() => pick(item)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-left ${i === active ? 'bg-bg' : ''} ${i < results.length - 1 ? 'border-b border-bg-2' : ''}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-ink truncate">{item.itemName}</div>
+                  <div className="text-xs text-ink-3 tabular-nums">{formatCurrency(parseFloat(String(item.pricePerBaseUnit)))}/{item.baseUnit}</div>
+                </div>
+                {item.id === value && <Check size={14} className="text-gold shrink-0" />}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 const REASON_COLORS: Record<string, string> = {
@@ -80,6 +201,10 @@ export default function WastagePage() {
     e.preventDefault()
     if (!activeRcId) {
       setError('Select a revenue center (not "All") to log wastage.')
+      return
+    }
+    if (!form.inventoryItemId) {
+      setError('Select an item to log wastage.')
       return
     }
     setError(null)
@@ -264,20 +389,11 @@ export default function WastagePage() {
             <form onSubmit={handleAdd} className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-ink-3 mb-1">Item *</label>
-                <select
-                  required
+                <ItemPicker
+                  items={inventoryItems}
                   value={form.inventoryItemId}
-                  onChange={e => {
-                    const item = inventoryItems.find(i => i.id === e.target.value)
-                    setForm(f => ({ ...f, inventoryItemId: e.target.value, unit: item?.baseUnit || 'g' }))
-                  }}
-                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                >
-                  <option value="">Select item...</option>
-                  {inventoryItems.map(item => (
-                    <option key={item.id} value={item.id}>{item.itemName} ({item.baseUnit})</option>
-                  ))}
-                </select>
+                  onSelect={item => setForm(f => ({ ...f, inventoryItemId: item.id, unit: item.baseUnit || 'g' }))}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
