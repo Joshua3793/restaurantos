@@ -55,6 +55,62 @@ function inWindow(cutoff: Map<string, Date> | undefined, id: string, date: Date)
   return date.getTime() >= c.getTime() + DAY_MS
 }
 
+/**
+ * Whether a prep log's movement (output produced, or an ingredient drawn down)
+ * should be applied on top of the counted baseline for `id`.
+ *
+ * The generic "count owns its day" rule ({@link inWindow}) is day-granular: it drops
+ * anything dated on the count day, because sales/purchases dated that day are assumed
+ * already reflected in an end-of-day count. But a count is a point-in-time snapshot and
+ * prep production commonly happens *after* it on the same day — that stock is genuinely
+ * new and must be added (the reported bug: count 8 at 00:52, make 72 at 15:05, on-hand
+ * stayed 8). PrepLog carries a precise `createdAt`, and a count carries a precise
+ * `finalizedAt`, so for prep we order by timestamp instead of by calendar day:
+ *   - after the count finalized  → genuinely new, count it
+ *   - before/at the count moment → already in the counted baseline, skip it
+ * When we don't have a finalize timestamp for the item (never counted, or the count
+ * predates snapshot bookkeeping), fall back to the day-granular window.
+ */
+export function prepEventCounts(
+  finalizedAt: Map<string, Date> | undefined,
+  cutoff: Map<string, Date> | undefined,
+  id: string,
+  logCreatedAt: Date,
+  logDate: Date,
+): boolean {
+  const f = finalizedAt?.get(id)
+  if (f != null) return logCreatedAt.getTime() > f.getTime()
+  return inWindow(cutoff, id, logDate)
+}
+
+/**
+ * For each item, the `finalizedAt` of the most recent FINALIZED count in which the
+ * item was actually counted (non-skipped, `countedQty != null`) — i.e. the count that
+ * established the item's current baseline / `lastCountDate`. Used to order same-day prep
+ * against the count moment (see {@link prepEventCounts}). Items with no such count are
+ * absent from the map and fall back to the day-granular window.
+ */
+export async function buildCountFinalizedMap(ids: string[]): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>()
+  if (ids.length === 0) return map
+  const lines = await prisma.countLine.findMany({
+    where: {
+      inventoryItemId: { in: ids },
+      skipped: false,
+      countedQty: { not: null },
+      session: { status: 'FINALIZED', finalizedAt: { not: null } },
+    },
+    select: { inventoryItemId: true, session: { select: { finalizedAt: true } } },
+  })
+  for (const l of lines) {
+    const f = l.session.finalizedAt
+    if (!f) continue
+    const cur = map.get(l.inventoryItemId)
+    if (!cur || f.getTime() > cur.getTime()) map.set(l.inventoryItemId, f)
+  }
+  return map
+}
+
 function expandRecipeIngredients(
   recipe: RecipeForExpansion,
   batches: number,
@@ -364,7 +420,7 @@ export async function computeExpectedForItem(
     buildConsumptionMap(since, rcId, cutoff),
     buildPurchaseMap(since, rcId, cutoff),
     buildWastageMap(since, [itemId], rcId, cutoff),
-    buildPrepMap(since, rcId, cutoff),
+    buildCountFinalizedMap([itemId]).then(finalizedAt => buildPrepMap(since, rcId, cutoff, finalizedAt)),
   ])
 
   return {
@@ -393,6 +449,7 @@ export async function buildPrepMap(
   since: Date,
   rcId?: string | null,
   cutoff?: Map<string, Date>,
+  finalizedAt?: Map<string, Date>,
 ): Promise<{ consumption: Map<string, number>; output: Map<string, number> }> {
   const logs = await prisma.prepLog.findMany({
     where: {
@@ -446,16 +503,16 @@ export async function buildPrepMap(
       // conversion afterward — same pattern as recipeCosts.ts.
       const qty = Number(ing.qtyBase) * scale
       if (ing.inventoryItemId && ing.inventoryItem) {
-        if (inWindow(cutoff, ing.inventoryItem.id, log.logDate))
+        if (prepEventCounts(finalizedAt, cutoff, ing.inventoryItem.id, log.createdAt, log.logDate))
           add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         const prep = ing.linkedRecipe.inventoryItem
-        if (inWindow(cutoff, prep.id, log.logDate))
+        if (prepEventCounts(finalizedAt, cutoff, prep.id, log.createdAt, log.logDate))
           add(consumption, prep.id, convertQty(qty, ing.unit, prep.baseUnit))
       }
     }
 
-    if (recipe.inventoryItemId && recipe.inventoryItem && inWindow(cutoff, recipe.inventoryItem.id, log.logDate)) {
+    if (recipe.inventoryItemId && recipe.inventoryItem && prepEventCounts(finalizedAt, cutoff, recipe.inventoryItem.id, log.createdAt, log.logDate)) {
       const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
       add(output, recipe.inventoryItem.id, yieldInBase)
     }
@@ -527,7 +584,7 @@ export async function getTheoreticalStockMap(
         buildConsumptionMap(since, rcId, cutoff),
         buildPurchaseMap(since, rcId, cutoff),
         buildWastageMap(since, ids, rcId, cutoff),
-        buildPrepMap(since, rcId, cutoff),
+        buildCountFinalizedMap(ids).then(finalizedAt => buildPrepMap(since, rcId, cutoff, finalizedAt)),
       ])
     : [empty, empty, empty, { consumption: empty, output: empty }]
 
