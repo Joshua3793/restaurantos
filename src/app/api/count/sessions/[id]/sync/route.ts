@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, computeExpected } from '@/lib/count-expected'
 import { lineCountedBase, resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
@@ -89,7 +89,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff),
         buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff),
         buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff),
-        buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff),
+        buildCountFinalizedMap(itemIds).then(finalizedAt => buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt)),
       ])
     : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
 

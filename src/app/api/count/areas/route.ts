@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, computeExpected } from '@/lib/count-expected'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
         buildConsumptionMap(earliestLastCount, rcId, cutoff),
         buildPurchaseMap(earliestLastCount, rcId, cutoff),
         buildWastageMap(earliestLastCount, items.map(i => i.id), rcId, cutoff),
-        buildPrepMap(earliestLastCount, rcId, cutoff),
+        buildCountFinalizedMap(items.map(i => i.id)).then(finalizedAt => buildPrepMap(earliestLastCount, rcId, cutoff, finalizedAt)),
       ])
     : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
 
