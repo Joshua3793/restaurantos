@@ -32,9 +32,13 @@ interface Props {
   onPulled:     () => void
 }
 
-export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, toDisplay, onPulled }: Props) {
+export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, onPulled }: Props) {
   const { revenueCenters } = useRc()
   const [allocations, setAllocations] = useState<Allocation[]>([])
+  // Per-RC THEORETICAL on-hand (baseUnit), keyed by rcId. This — not the raw
+  // StockAllocation.quantity — is what we display: a pull/transfer is a theoretical
+  // move, so it shifts these numbers without touching real stock.
+  const [theoretical, setTheoretical] = useState<Record<string, number>>({})
   const [transfers, setTransfers]     = useState<Transfer[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [pullRcId, setPullRcId]       = useState<string | null>(null)
@@ -55,10 +59,11 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
   const [memberErr,  setMemberErr]  = useState<{ rcId: string; msg: string } | null>(null)
 
   const loadData = useCallback(async () => {
-    const [allocsRes, transferRes, membersRes] = await Promise.all([
+    const [allocsRes, transferRes, membersRes, theoRes] = await Promise.all([
       fetch(`/api/stock-allocations?itemId=${itemId}`).then(r => r.json()),
       fetch(`/api/stock-transfers?itemId=${itemId}`).then(r => r.json()),
       fetch(`/api/inventory/${itemId}/revenue-centers`).then(r => r.json()).catch(() => []),
+      fetch(`/api/inventory/${itemId}/rc-theoretical`).then(r => r.json()).catch(() => ({})),
     ])
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setMembers(new Set((Array.isArray(membersRes) ? membersRes : []).map((m: any) => m.id)))
@@ -70,6 +75,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
         reorderQty: a.reorderQty !== null && a.reorderQty !== undefined ? Number(a.reorderQty) : null,
       }))
     )
+    setTheoretical(theoRes && typeof theoRes === 'object' ? theoRes : {})
     setTransfers(transferRes)
   }, [itemId])
 
@@ -95,11 +101,11 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
       setPullError(d.error || 'Pull failed')
       return
     }
-    setAllocations(prev => prev.map(a => a.revenueCenterId === rcId ? { ...a, quantity: a.quantity + parseFloat(pullQty) } : a))
     setPullRcId(null)
     setPullQty('')
     setPullNotes('')
     setPullError('')
+    // Displayed qty is the RC's theoretical on-hand; refetch to reflect the new transfer.
     loadData()
     onPulled()
   }
@@ -160,8 +166,13 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
     loadData()
   }
 
-  // How much of the on-hand stock has been distributed out of the main pool.
-  const allInMain = allocations.length === 0
+  // Whether any non-default RC holds theoretical stock. Under the theoretical model a
+  // pull/transfer writes no StockAllocation row, so distribution is read from the
+  // per-RC theoretical map, not from allocation rows.
+  const distributedRcCount = revenueCenters.filter(
+    rc => rc.id !== defaultRcId && (theoretical[rc.id] ?? 0) > 1e-9,
+  ).length
+  const allInMain = distributedRcCount === 0
 
   return (
     <div className="border border-[#fcd34d] rounded-xl overflow-hidden shadow-[0_1px_0_var(--gold-soft)]">
@@ -174,7 +185,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
           <p className="text-[11px] text-[#92722f] leading-tight">
             {allInMain
               ? 'All stock is in the main pool — pull some into a revenue center.'
-              : `Distributed across ${allocations.length} revenue center${allocations.length === 1 ? '' : 's'}.`}
+              : `Distributed across ${distributedRcCount} revenue center${distributedRcCount === 1 ? '' : 's'}.`}
           </p>
         </div>
       </div>
@@ -183,8 +194,10 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
         {revenueCenters.map(rc => {
           const isDefaultRc  = rc.id === defaultRcId
           const alloc        = allocations.find(a => a.revenueCenterId === rc.id)
-          // stockOnHand prop is already countUOM; allocation.quantity is baseUnit → convert.
-          const qty          = isDefaultRc ? stockOnHand : (alloc ? toDisplay(Number(alloc.quantity)) : 0)
+          // Display the RC's THEORETICAL on-hand (baseUnit → countUOM). A pull/transfer
+          // is theoretical, so this shifts without any real-stock write; par comparison
+          // is against the live theoretical value.
+          const qty          = toDisplay(theoretical[rc.id] ?? 0)
           const parLevel     = alloc?.parLevel ?? null
           const isBelowPar   = parLevel !== null && qty < parLevel
           const isEditingPar = editParRcId === rc.id
@@ -325,7 +338,7 @@ export function RcAllocationPanel({ itemId, stockOnHand, countUOM, defaultRcId, 
               {isPulling && (
                 <div className="mt-3 pl-4 space-y-2">
                   <div className="text-xs text-ink-3">
-                    Available: <span className="font-medium text-ink-2">{stockOnHand.toFixed(2)} {countUOM}</span>
+                    Available in main pool: <span className="font-medium text-ink-2">{toDisplay(theoretical[defaultRcId ?? ''] ?? 0).toFixed(2)} {countUOM}</span>
                   </div>
                   <div className="flex gap-2">
                     <input

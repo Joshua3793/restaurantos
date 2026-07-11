@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { getTheoreticalStock } from '@/lib/count-expected'
 
 // GET /api/stock-transfers?itemId=&rcId= — list transfers
 export async function GET(req: NextRequest) {
@@ -37,7 +38,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(transfers)
 }
 
-// POST /api/stock-transfers — execute a pull (transfer stock between RCs)
+// POST /api/stock-transfers — move stock between two RCs.
+// THEORETICAL move: records a StockTransfer row only. It does NOT write real stock
+// (StockAllocation.quantity is untouched); the transfer feeds the theoretical-stock
+// engine (buildTransferMap) so the source RC's theoretical drops and the destination's
+// rises. `quantity` is in baseUnit. Only a count ever changes real stock in hand.
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const { fromRcId, toRcId, inventoryItemId, quantity, notes } = body
@@ -55,34 +60,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Quantity must be a positive number' }, { status: 400 })
   }
 
-  // Check source allocation
-  const sourceAllocation = await prisma.stockAllocation.findUnique({
-    where: { revenueCenterId_inventoryItemId: { revenueCenterId: fromRcId, inventoryItemId } },
-  })
-
-  const sourceQty = sourceAllocation ? Number(sourceAllocation.quantity) : 0
+  // Guard against moving more than the source RC's THEORETICAL on-hand (baseUnit).
+  const sourceQty = (await getTheoreticalStock(inventoryItemId, fromRcId)) ?? 0
   if (sourceQty < qty) {
     return NextResponse.json({
-      error: `Insufficient allocation. Source RC has ${sourceQty} units available.`,
+      error: `Insufficient stock. Source RC has ${sourceQty} units available.`,
     }, { status: 400 })
   }
 
   await prisma.$transaction([
-    // Decrement source
-    prisma.stockAllocation.upsert({
-      where: { revenueCenterId_inventoryItemId: { revenueCenterId: fromRcId, inventoryItemId } },
-      update: { quantity: { decrement: qty } },
-      create: { revenueCenterId: fromRcId, inventoryItemId, quantity: 0 },
-    }),
-    // Increment destination
-    prisma.stockAllocation.upsert({
-      where: { revenueCenterId_inventoryItemId: { revenueCenterId: toRcId, inventoryItemId } },
-      update: { quantity: { increment: qty } },
-      create: { revenueCenterId: toRcId, inventoryItemId, quantity: qty },
-    }),
-    // Audit log
+    // The transfer IS the movement — a theoretical event, no real-stock write.
     prisma.stockTransfer.create({
       data: { fromRcId, toRcId, inventoryItemId, quantity: qty, notes: notes || null },
+    }),
+    // Stock in the destination RC implies membership so it appears in that RC's count.
+    prisma.itemRevenueCenter.upsert({
+      where: { inventoryItemId_revenueCenterId: { inventoryItemId, revenueCenterId: toRcId } },
+      create: { inventoryItemId, revenueCenterId: toRcId },
+      update: {},
     }),
   ])
 
