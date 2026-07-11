@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
@@ -62,14 +62,17 @@ export async function GET(req: NextRequest) {
   // a recently-counted item's baseline).
   const cutoff = new Map<string, Date>()
   for (const i of items) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
-  const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliestLastCount
+  // finalizedAt orders same-day prep AND transfers against the count moment.
+  const finalizedAt = earliestLastCount ? await buildCountFinalizedMap(items.map(i => i.id)) : new Map<string, Date>()
+  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = earliestLastCount
     ? await Promise.all([
         buildConsumptionMap(earliestLastCount, rcId, cutoff),
         buildPurchaseMap(earliestLastCount, rcId, cutoff),
         buildWastageMap(earliestLastCount, items.map(i => i.id), rcId, cutoff),
-        buildCountFinalizedMap(items.map(i => i.id)).then(finalizedAt => buildPrepMap(earliestLastCount, rcId, cutoff, finalizedAt)),
+        buildPrepMap(earliestLastCount, rcId, cutoff, finalizedAt),
+        buildTransferMap(earliestLastCount, rcId, cutoff, finalizedAt),
       ])
-    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
+    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }, new Map<string, number>()]
 
   type Agg = { itemCount: number; onHandValue: number; drift: number; lastCountDate: Date | null }
   const agg = new Map<string, Agg>()
@@ -81,7 +84,7 @@ export async function GET(req: NextRequest) {
     cur.itemCount += 1
     cur.onHandValue += bs * price
     if (it.lastCountDate) {
-      const expected = computeExpected(it.id, bs, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
+      const expected = computeExpected(it.id, bs, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
       cur.drift += Math.abs(expected - bs) * price
     }
     if (it.lastCountDate && (!cur.lastCountDate || it.lastCountDate > cur.lastCountDate)) cur.lastCountDate = it.lastCountDate

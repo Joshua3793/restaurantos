@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
 import { lineCountedBase, resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 
@@ -84,14 +84,17 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const cutoff = new Map<string, Date>()
   for (const i of activeItems) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
 
-  const [consumptionMap, purchaseMap, wastageMap, prepMap] = earliestLastCount
+  // finalizedAt orders same-day prep AND transfers against the count moment.
+  const finalizedAt = earliestLastCount ? await buildCountFinalizedMap(itemIds) : new Map<string, Date>()
+  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = earliestLastCount
     ? await Promise.all([
         buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff),
         buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff),
         buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff),
-        buildCountFinalizedMap(itemIds).then(finalizedAt => buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt)),
+        buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt),
+        buildTransferMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt),
       ])
-    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }]
+    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }, new Map<string, number>()]
 
   // RC stock allocation baseline (same rules as session creation: non-default RC
   // with no allocation falls back to 0, not global stockOnHand).
@@ -117,7 +120,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const baseStock = rcId
       ? (stockAllocationMap.has(itemId) ? stockAllocationMap.get(itemId)! : (isDefaultRc ? stockOnHand : 0))
       : stockOnHand
-    return computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
+    return computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
   }
 
   // Build nextSort from current max

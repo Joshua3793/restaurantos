@@ -332,6 +332,59 @@ export async function buildWastageMap(
 }
 
 /**
+ * Net RC-to-RC stock transfers since `since`, scoped to one revenue center.
+ *
+ * A transfer (StockTransfer row) is a purely THEORETICAL movement — it never
+ * writes real stock (only a count does). It contributes `+quantity` to the
+ * destination RC and `-quantity` to the source RC, so summed across every RC a
+ * transfer nets to zero (total on-hand is unchanged; it just moved between RCs).
+ *
+ * `quantity` is stored in baseUnit (like `stockOnHand`/`StockAllocation.quantity`),
+ * so no unit conversion is needed.
+ *
+ * Chronology: a transfer carries a precise `createdAt`, and a count a precise
+ * `finalizedAt`, so — exactly like prep ({@link prepEventCounts}) — a transfer is
+ * ordered against the count MOMENT, not the calendar day:
+ *   - createdAt AFTER the count finalized  → genuinely new, apply it
+ *   - createdAt before/at the count moment → already in the counted baseline, skip
+ * Without a finalize timestamp (never counted, or a pre-snapshot count) it falls back
+ * to the day-granular "count owns its day" window. This is what lets a pull done in
+ * the afternoon still register against a count taken that morning.
+ *
+ * Called only with a concrete `rcId` (the per-RC computation path). With no rcId
+ * the map is empty — the "All RCs" aggregate sums the per-RC maps, where transfers
+ * already cancel out.
+ */
+export async function buildTransferMap(
+  since: Date,
+  rcId?: string | null,
+  cutoff?: Map<string, Date>,
+  finalizedAt?: Map<string, Date>,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  if (!rcId) return map
+
+  const transfers = await prisma.stockTransfer.findMany({
+    where: {
+      createdAt: { gte: since },
+      OR: [{ fromRcId: rcId }, { toRcId: rcId }],
+    },
+    select: { inventoryItemId: true, fromRcId: true, toRcId: true, quantity: true, createdAt: true },
+  })
+
+  for (const t of transfers) {
+    // Timestamp-precise vs the count moment, with a day-granular fallback — the same
+    // rule prep uses (see prepEventCounts). logCreatedAt and logDate are both createdAt.
+    if (!prepEventCounts(finalizedAt, cutoff, t.inventoryItemId, t.createdAt, t.createdAt)) continue
+    // A transfer can't have fromRcId === toRcId (validated on write), so at most
+    // one branch applies per row.
+    const signed = t.toRcId === rcId ? Number(t.quantity) : -Number(t.quantity)
+    map.set(t.inventoryItemId, (map.get(t.inventoryItemId) ?? 0) + signed)
+  }
+  return map
+}
+
+/**
  * Compute theoretical expected qty for an inventory item given its base stock
  * and the consumption/purchase/wastage maps for a period.
  * prepConsumptionMap and prepOutputMap are optional for backward compatibility.
@@ -346,13 +399,17 @@ export function computeExpected(
   wastageMap: Map<string, number>,
   prepConsumptionMap?: Map<string, number>,
   prepOutputMap?: Map<string, number>,
+  // Net RC-to-RC transfers (signed: +into this RC, -out of it). Optional so pre-existing
+  // callers keep compiling; every theoretical call site passes it (see buildTransferMap).
+  transferMap?: Map<string, number>,
 ): number {
   const consumption = consumptionMap.get(itemId) ?? 0
   const purchases   = purchaseMap.get(itemId)    ?? 0
   const wastage     = wastageMap.get(itemId)     ?? 0
   const prepCons    = prepConsumptionMap?.get(itemId) ?? 0
   const prepOut     = prepOutputMap?.get(itemId)      ?? 0
-  return Math.max(0, baseStock + purchases + prepOut - consumption - wastage - prepCons)
+  const transfers   = transferMap?.get(itemId)        ?? 0
+  return Math.max(0, baseStock + purchases + prepOut + transfers - consumption - wastage - prepCons)
 }
 
 /**
@@ -416,15 +473,18 @@ export async function computeExpectedForItem(
   const cutoff = new Map<string, Date>()
   if (item.lastCountDate) cutoff.set(itemId, item.lastCountDate)
 
-  const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
+  // finalizedAt orders same-day prep AND transfers against the count moment.
+  const finalizedAt = await buildCountFinalizedMap([itemId])
+  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = await Promise.all([
     buildConsumptionMap(since, rcId, cutoff),
     buildPurchaseMap(since, rcId, cutoff),
     buildWastageMap(since, [itemId], rcId, cutoff),
-    buildCountFinalizedMap([itemId]).then(finalizedAt => buildPrepMap(since, rcId, cutoff, finalizedAt)),
+    buildPrepMap(since, rcId, cutoff, finalizedAt),
+    buildTransferMap(since, rcId, cutoff, finalizedAt),
   ])
 
   return {
-    expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output),
+    expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap),
     baseStock,
   }
 }
@@ -579,14 +639,17 @@ export async function getTheoreticalStockMap(
   const since = hasUncounted ? new Date(0) : earliest
 
   const empty = new Map<string, number>()
-  const [consumptionMap, purchaseMap, wastageMap, prepMap] = since
+  // finalizedAt orders same-day prep AND transfers against the count moment.
+  const finalizedAt = since ? await buildCountFinalizedMap(ids) : new Map<string, Date>()
+  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = since
     ? await Promise.all([
         buildConsumptionMap(since, rcId, cutoff),
         buildPurchaseMap(since, rcId, cutoff),
         buildWastageMap(since, ids, rcId, cutoff),
-        buildCountFinalizedMap(ids).then(finalizedAt => buildPrepMap(since, rcId, cutoff, finalizedAt)),
+        buildPrepMap(since, rcId, cutoff, finalizedAt),
+        buildTransferMap(since, rcId, cutoff, finalizedAt),
       ])
-    : [empty, empty, empty, { consumption: empty, output: empty }]
+    : [empty, empty, empty, { consumption: empty, output: empty }, empty]
 
   const stockAllocationMap = new Map<string, number>()
   let isDefaultRc = false
@@ -605,7 +668,7 @@ export async function getTheoreticalStockMap(
     const baseStock = rcId
       ? (stockAllocationMap.has(item.id) ? stockAllocationMap.get(item.id)! : (isDefaultRc ? Number(item.stockOnHand) : 0))
       : Number(item.stockOnHand)
-    result.set(item.id, computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output))
+    result.set(item.id, computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap))
   }
   return result
 }

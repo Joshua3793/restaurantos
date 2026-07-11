@@ -6,7 +6,7 @@ import { computeScale } from '@/lib/prep-utils'
 import { asChainItem, basePerUnit } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
 
-export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
+export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
 
 export interface StockMovement {
   id: string
@@ -220,11 +220,30 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })
   }
 
+  // ── RC-to-RC TRANSFERS (theoretical moves between revenue centers) ─────────
+  // Shown for provenance/history. This drawer is a GLOBAL (all-RC) view, and a
+  // transfer only moves stock between RCs — it never changes total on-hand — so
+  // transfer rows are display-only and excluded from the theoretical total below.
+  const transfers = await prisma.stockTransfer.findMany({
+    where: { inventoryItemId: params.id, createdAt: { gte: since } },
+    include: { fromRc: { select: { name: true } }, toRc: { select: { name: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+  })
+  for (const t of transfers) {
+    raw.push({
+      id: `transfer-${t.id}`,
+      date: t.createdAt, type: 'TRANSFER', qtyBase: Number(t.quantity),
+      description: `${t.fromRc.name} → ${t.toRc.name}`,
+    })
+  }
+
   // Sort newest first
   raw.sort((a, b) => b.date.getTime() - a.date.getTime())
 
-  // Compute theoretical from baseline + all movements
-  const totalMovement  = raw.reduce((sum, m) => sum + m.qtyBase, 0)
+  // Compute theoretical from baseline + all movements. Transfers are net-zero at the
+  // global level (they only shuffle stock between RCs), so they're excluded here.
+  const totalMovement  = raw.reduce((sum, m) => (m.type === 'TRANSFER' ? sum : sum + m.qtyBase), 0)
   const theoreticalBase = Math.max(0, baseQty + totalMovement)
 
   const response: StockMovementsResponse = {

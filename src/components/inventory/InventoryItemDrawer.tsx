@@ -23,7 +23,7 @@ import { lookupDensity } from '@/lib/density'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
+type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
 
 interface StockMovement {
   id: string; date: string; type: MovementType
@@ -789,12 +789,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     <div className="space-y-0.5 mt-1">
                       {stockMovements.movements.slice(0, 12).map(m => {
                         const isPositive = m.qty >= 0
+                        // A transfer is a theoretical move between RCs — net-zero globally, so
+                        // it reads as neutral (no +/− framing) in this all-RC drawer view.
+                        const isTransfer = m.type === 'TRANSFER'
                         const typeConfig: Record<MovementType, { label: string; color: string }> = {
                           SALE:     { label: 'Sale',        color: 'text-red' },
                           WASTAGE:  { label: 'Wastage',     color: 'text-gold' },
                           PREP_IN:  { label: 'Prep (used)', color: 'text-blue' },
                           PREP_OUT: { label: 'Prep (yield)',color: 'text-green' },
                           PURCHASE: { label: 'Purchase',    color: 'text-blue' },
+                          TRANSFER: { label: 'Transfer',    color: 'text-ink-3' },
                         }
                         const cfg = typeConfig[m.type] ?? { label: m.type, color: 'text-ink-3' }
                         return (
@@ -804,8 +808,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                               <span className="text-ink-4 truncate">{m.description}</span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
-                              <span className={`font-semibold ${isPositive ? 'text-green' : 'text-red'}`}>
-                                {isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
+                              <span className={`font-semibold ${isTransfer ? 'text-ink-3' : isPositive ? 'text-green' : 'text-red'}`}>
+                                {isTransfer ? '' : isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
                               </span>
                               <span className="text-ink-4 w-14 text-right">
                                 {new Date(m.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}

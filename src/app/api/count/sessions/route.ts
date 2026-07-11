@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, buildCountFinalizedMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
 import { resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -108,8 +108,10 @@ export async function POST(req: NextRequest) {
   const cutoff = new Map<string, Date>()
   for (const i of items) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
 
-  // ── Maps: consumption, purchases, wastage, prep ────────────────────────────
-  const [consumptionMap, purchaseMap, wastageMap, prepMap] = await Promise.all([
+  // ── Maps: consumption, purchases, wastage, prep, transfers ─────────────────
+  // finalizedAt orders same-day prep AND transfers against the count moment.
+  const finalizedAt = earliestLastCount ? await buildCountFinalizedMap(itemIds) : new Map<string, Date>()
+  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = await Promise.all([
     earliestLastCount
       ? buildConsumptionMap(earliestLastCount, revenueCenterId, cutoff)
       : Promise.resolve(new Map<string, number>()),
@@ -120,8 +122,11 @@ export async function POST(req: NextRequest) {
       ? buildWastageMap(earliestLastCount, itemIds, revenueCenterId, cutoff)
       : Promise.resolve(new Map<string, number>()),
     earliestLastCount
-      ? buildCountFinalizedMap(itemIds).then(finalizedAt => buildPrepMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt))
+      ? buildPrepMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt)
       : Promise.resolve({ consumption: new Map<string, number>(), output: new Map<string, number>() }),
+    earliestLastCount
+      ? buildTransferMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt)
+      : Promise.resolve(new Map<string, number>()),
   ])
 
   // ── RC stock baseline ──────────────────────────────────────────────────────
@@ -162,7 +167,7 @@ export async function POST(req: NextRequest) {
                 : (isDefaultRc ? Number(item.stockOnHand) : 0))
             : Number(item.stockOnHand)
 
-          const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output)
+          const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
 
           // Zero-velocity: a previously-counted item that NO movement map touched in
           // its window. expected == baseStock == its last counted qty by construction,

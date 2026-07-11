@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase, convertBaseToCountUom } from '@/lib/count-uom'
+import { getTheoreticalStock } from '@/lib/count-expected'
 
 // GET /api/stock-allocations?itemId= — allocations for a specific inventory item
 export async function GET(req: NextRequest) {
@@ -17,7 +18,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(allocations)
 }
 
-// POST /api/stock-allocations — pull qty from main pool (stockOnHand) into an RC
+// POST /api/stock-allocations — move qty from the main pool (default RC) into an RC.
+// THEORETICAL move: this records a StockTransfer (default RC → target RC) and grants
+// membership. It does NOT write real stock — stockOnHand and StockAllocation.quantity
+// are untouched. The transfer feeds the theoretical-stock engine (buildTransferMap),
+// so the default RC's theoretical drops and the target RC's rises. Only a count ever
+// changes real stock in hand.
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const { inventoryItemId, rcId, quantity, notes } = body
@@ -37,10 +43,17 @@ export async function POST(req: NextRequest) {
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
 
-  // `quantity` arrives in the item's countUOM (e.g. kg), but stockOnHand is
-  // stored in baseUnit (e.g. g). Convert before decrementing / comparing —
-  // otherwise pulling 2.28 kg decremented stockOnHand by 2.28 g, leaving the
-  // main pool ~unchanged while the RC allocation showed the full amount.
+  const defaultRc = await prisma.revenueCenter.findFirst({ where: { isDefault: true } })
+  if (!defaultRc) {
+    return NextResponse.json({ error: 'No default revenue center — cannot pull from the main pool.' }, { status: 400 })
+  }
+  if (rcId === defaultRc.id) {
+    return NextResponse.json({ error: 'Cannot pull the main pool into itself.' }, { status: 400 })
+  }
+
+  // `quantity` arrives in the item's countUOM (e.g. kg); transfers are persisted in
+  // baseUnit (e.g. g) — the canonical unit for all stock, matching how the theoretical
+  // engine reads StockTransfer.quantity. Convert before persisting / comparing.
   const countUOM = item.countUnit || item.baseUnit
   const dims = {
     dimension: item.dimension,
@@ -48,39 +61,27 @@ export async function POST(req: NextRequest) {
     packChain: item.packChain,
     countUnit: item.countUnit,
   }
-  const qtyBase     = convertCountQtyToBase(qty, countUOM, dims)
-  const availBase   = Number(item.stockOnHand)
+  const qtyBase = convertCountQtyToBase(qty, countUOM, dims)
+
+  // Guard against pulling more than the main pool's THEORETICAL on-hand (not raw
+  // stockOnHand): since pulls no longer decrement stockOnHand, the raw value would
+  // never fall and you could over-allocate the same stock into many RCs.
+  const availBase = (await getTheoreticalStock(inventoryItemId, defaultRc.id)) ?? 0
   if (availBase < qtyBase) {
     const availDisplay = convertBaseToCountUom(availBase, countUOM, dims)
     return NextResponse.json(
-      { error: `Not enough stock. Available: ${availDisplay.toFixed(2)} ${countUOM}` },
+      { error: `Not enough stock in the main pool. Available: ${availDisplay.toFixed(2)} ${countUOM}` },
       { status: 400 },
     )
   }
 
-  const defaultRc = await prisma.revenueCenter.findFirst({ where: { isDefault: true } })
-
   await prisma.$transaction([
-    prisma.inventoryItem.update({
-      where: { id: inventoryItemId },
-      data: { stockOnHand: { decrement: qtyBase } },
+    // The transfer IS the movement — a theoretical event, no real-stock write.
+    prisma.stockTransfer.create({
+      data: { fromRcId: defaultRc.id, toRcId: rcId, inventoryItemId, quantity: qtyBase, notes: notes || null },
     }),
-    // Allocation + transfer quantities are persisted in baseUnit — the canonical
-    // unit for all stock (matches stockOnHand and count-finalize). Display layers
-    // convert to countUOM. Writing the raw countUOM `qty` here made the inventory
-    // list (which treats the value as baseUnit) show ~0 after a pull.
-    prisma.stockAllocation.upsert({
-      where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId } },
-      update: { quantity: { increment: qtyBase } },
-      create: { revenueCenterId: rcId, inventoryItemId, quantity: qtyBase },
-    }),
-    ...(defaultRc
-      ? [prisma.stockTransfer.create({
-          data: { fromRcId: defaultRc.id, toRcId: rcId, inventoryItemId, quantity: qtyBase, notes: notes || null },
-        })]
-      : []),
-    // Stock in an RC implies membership — otherwise the item would hold stock there but
-    // be invisible in that RC's count. Idempotent.
+    // Stock in an RC implies membership — otherwise the item would hold (theoretical)
+    // stock there but be invisible in that RC's count. Idempotent.
     prisma.itemRevenueCenter.upsert({
       where: { inventoryItemId_revenueCenterId: { inventoryItemId, revenueCenterId: rcId } },
       create: { inventoryItemId, revenueCenterId: rcId },

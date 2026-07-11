@@ -88,29 +88,33 @@ export async function GET(req: NextRequest) {
     recipe: { select: { id: true, name: true } },
   }
 
-  // Non-default RC: only show items that have been allocated to this RC
+  // Non-default RC: show the items that are MEMBERS of this RC (ItemRevenueCenter) —
+  // the same visibility rule the count uses. Membership is what a theoretical pull/
+  // transfer grants (it no longer writes a StockAllocation row), so an item moved into
+  // this RC appears here with its theoretical on-hand. StockAllocation is left-joined
+  // only for par/reorder (and rcStock as a legacy fallback).
   if (rcId && !isDefault) {
-    const allocations = await prisma.stockAllocation.findMany({
-      where: { revenueCenterId: rcId },
-      include: { inventoryItem: { include: itemInclude } },
-      orderBy: [{ inventoryItem: { category: 'asc' } }, { inventoryItem: { itemName: 'asc' } }],
+    const [members, allocations] = await Promise.all([
+      prisma.inventoryItem.findMany({
+        where: { AND: [itemWhere, { revenueCenters: { some: { revenueCenterId: rcId } } }] },
+        include: itemInclude,
+        orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
+      }),
+      prisma.stockAllocation.findMany({
+        where: { revenueCenterId: rcId },
+        select: { inventoryItemId: true, quantity: true, parLevel: true, reorderQty: true },
+      }),
+    ])
+    const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
+    const items = members.map(i => {
+      const alloc = allocByItemId[i.id]
+      return {
+        ...i,
+        rcStock:    alloc ? Number(alloc.quantity) : 0,
+        parLevel:   alloc?.parLevel   != null ? Number(alloc.parLevel)   : null,
+        reorderQty: alloc?.reorderQty != null ? Number(alloc.reorderQty) : null,
+      }
     })
-    const lc = search.toLowerCase()
-    const items = allocations
-      .map(a => ({
-        ...a.inventoryItem,
-        rcStock:    Number(a.quantity),
-        parLevel:   a.parLevel   !== null ? Number(a.parLevel)   : null,
-        reorderQty: a.reorderQty !== null ? Number(a.reorderQty) : null,
-      }))
-      .filter(i =>
-        (!search      || i.itemName?.toLowerCase().includes(lc)) &&
-        (!category    || i.category === category) &&
-        (!supplierId  || i.supplierId === supplierId) &&
-        (!storageAreaId || i.storageAreaId === storageAreaId) &&
-        (isActive === null || isActive === '' || String(i.isActive) === isActive) &&
-        (includeNonStocked || i.isStocked !== false)
-      )
     const itemIds = items.map(i => i.id)
     const theoMap = await getTheoreticalStockMap(rcId, itemIds)
     return NextResponse.json(attachTheoreticalFields(items, theoMap), {
