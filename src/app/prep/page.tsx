@@ -22,7 +22,6 @@ import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
 import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
 import PrepTaskList from '@/components/prep/PrepTaskList'
 import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
-import PrepGetAhead from '@/components/prep/PrepGetAhead'
 import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
 import RecipeCookAlongModal from '@/components/prep/RecipeCookAlongModal'
@@ -1314,7 +1313,12 @@ export default function PrepPage() {
               {todayGroups.needed.map(item => (
                 <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
               ))}
-              <PrepGetAhead items={todayGroups.later} onAdd={(it) => handleToggleOnList(it.id, true)} />
+              {todayGroups.later.length > 0 && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Later · <span className="text-ink font-semibold">if time allows</span></div>
+              )}
+              {todayGroups.later.map(item => (
+                <PrepTaskRowCompact key={item.id} item={item} kind="later" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
+              ))}
               {todayGroups.done.length > 0 && (
                 <div className="mt-5">
                   <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Done today · <span className="text-ink font-semibold">{todayGroups.done.length} prepped</span></div>
