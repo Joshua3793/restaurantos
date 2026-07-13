@@ -103,6 +103,13 @@ export default function PrepPage() {
 
   // Prevent duplicate concurrent status mutations per item
   const pendingItems = useRef<Set<string>>(new Set())
+  // Bumped on every optimistic local mutation. The /api/prep/items GET is slow
+  // (several seconds — it recomputes theoretical stock per item), so a background
+  // poll can still be in flight when the user marks an item done. When that stale
+  // snapshot resolves it would clobber the optimistic change (e.g. a just-completed
+  // item snapping back to "in progress"). A silent load compares this counter before
+  // and after its fetch and discards its result if any mutation happened meanwhile.
+  const mutationSeq = useRef(0)
 
   // ── Prep tasks (checklist) ─────────────────────────────────────────────────
   const [taskLibrary, setTaskLibrary] = useState<PrepTask[]>([])
@@ -188,12 +195,19 @@ export default function PrepPage() {
   // full-screen loading state or wiping the list on a transient failure.
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
+    const seqAtStart = mutationSeq.current
     try {
       if (!navigator.onLine) throw new Error('offline')
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const fetched = Array.isArray(data) ? data : []
+      // Discard a stale snapshot: if the user mutated an item while this slow fetch
+      // was in flight (poll, mount load, or manual refresh), its data predates that
+      // change and applying it would revert the optimistic update — e.g. a
+      // just-completed item snapping back to "in progress". The mutation's own write
+      // already made the server authoritative; the next quiet load will reconcile.
+      if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
       savePrepCache(fetched)
       setIsOffline(false)
@@ -447,6 +461,7 @@ export default function PrepPage() {
       return
     }
     pendingItems.current.add(itemId)
+    mutationSeq.current++
 
     const now = new Date().toISOString()
     const completingNow = newStatus === 'DONE' || newStatus === 'PARTIAL'
@@ -521,6 +536,7 @@ export default function PrepPage() {
   }
 
   async function handlePriorityChange(itemId: string, priority: string) {
+    mutationSeq.current++
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item
       return {
@@ -554,6 +570,7 @@ export default function PrepPage() {
   }
 
   async function handleDelete(itemId: string) {
+    mutationSeq.current++
     try {
       setItems(prev => prev.filter(i => i.id !== itemId))
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
@@ -568,6 +585,7 @@ export default function PrepPage() {
   // Toggle isOnList: add to list (true) or remove from list (false)
   async function handleToggleOnList(itemId: string, newValue: boolean) {
     // Optimistic update
+    mutationSeq.current++
     setItems(prev => prev.map(i =>
       i.id === itemId ? { ...i, isOnList: newValue } : i
     ))
@@ -610,6 +628,7 @@ export default function PrepPage() {
     const targets = items.filter(i => i.priority === priority && !i.isOnList)
     if (targets.length === 0) return
     // Optimistic: flip all at once
+    mutationSeq.current++
     setItems(prev => prev.map(i =>
       targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i
     ))
@@ -628,6 +647,7 @@ export default function PrepPage() {
   async function handleAddIds(ids: string[]) {
     const targets = items.filter(i => ids.includes(i.id) && !i.isOnList)
     if (targets.length === 0) return
+    mutationSeq.current++
     setItems(prev => prev.map(i => targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i))
     await Promise.all(targets.map(i =>
       fetch(`/api/prep/items/${i.id}`, {
