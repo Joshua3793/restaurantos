@@ -101,8 +101,13 @@ export default function PrepPage() {
   }>>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
-  // Prevent duplicate concurrent status mutations per item
-  const pendingItems = useRef<Set<string>>(new Set())
+  // Serialize status mutations per item. A rapid Start→Done must not race — two
+  // PUTs committing out of order would lose the later status — and the follow-up
+  // must not be dropped (an earlier "skip if already pending" guard silently ate a
+  // Done fired while Start's ~2s write was still in flight, so the item stayed "in
+  // progress" while the toast lied "done"). Each op chains after the item's
+  // previous in-flight op; the optimistic UI update still applies immediately.
+  const opChains = useRef<Map<string, Promise<void>>>(new Map())
   // Bumped on every optimistic local mutation. The /api/prep/items GET is slow
   // (several seconds — it recomputes theoretical stock per item), so a background
   // poll can still be in flight when the user marks an item done. When that stale
@@ -450,7 +455,6 @@ export default function PrepPage() {
 
 
   async function handleStatusChange(itemId: string, newStatus: string, actualQty?: number) {
-    if (pendingItems.current.has(itemId)) return
     const item = items.find(i => i.id === itemId)
     if (!item) return
     // Recording a prep log is a stock movement — it needs a concrete revenue center.
@@ -460,7 +464,6 @@ export default function PrepPage() {
       setActionError('Select a revenue center (not "All") to record prep.')
       return
     }
-    pendingItems.current.add(itemId)
     mutationSeq.current++
 
     const now = new Date().toISOString()
@@ -499,40 +502,51 @@ export default function PrepPage() {
     if (!navigator.onLine) {
       enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty, revenueCenterId: item.revenueCenterId ?? activeRcId })
       setPendingCount(n => n + 1)
-      pendingItems.current.delete(itemId)
       markSaving(itemId, false)
       return
     }
 
-    try {
-      let logId = item.todayLog?.id
-      if (!logId || logId.startsWith('_opt_')) {
-        const log = await fetch('/api/prep/logs', {
-          method: 'POST',
+    // Queue the network write behind any op already in flight for this item so
+    // their PUTs commit in click order. The POST is an upsert on (prepItem, day),
+    // so a redundant create from a stale `_opt_` id just returns the existing log.
+    const prevOp = opChains.current.get(itemId) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        let logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: itemId, revenueCenterId: activeRcId }),
+          }).then(r => r.json())
+          logId = log.id
+          setItems(prev => prev.map(i => {
+            if (i.id !== itemId || !i.todayLog) return i
+            return { ...i, todayLog: { ...i.todayLog, id: log.id } }
+          }))
+        }
+        await fetch(`/api/prep/logs/${logId}`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prepItemId: itemId, revenueCenterId: activeRcId }),
-        }).then(r => r.json())
-        logId = log.id
-        setItems(prev => prev.map(i => {
-          if (i.id !== itemId || !i.todayLog) return i
-          return { ...i, todayLog: { ...i.todayLog, id: log.id } }
-        }))
+          body: JSON.stringify({
+            status: newStatus,
+            ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
+          }),
+        })
+      } catch {
+        setActionError('Status update failed — try again.')
+        load()
       }
-      await fetch(`/api/prep/logs/${logId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: newStatus,
-          ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
-        }),
-      })
-    } catch {
-      setActionError('Status update failed — try again.')
-      load()
-    } finally {
-      pendingItems.current.delete(itemId)
-      markSaving(itemId, false)
-    }
+    })
+    opChains.current.set(itemId, runOp)
+    // Only the last-queued op releases the chain slot and clears the saving flag.
+    runOp.finally(() => {
+      if (opChains.current.get(itemId) === runOp) {
+        opChains.current.delete(itemId)
+        markSaving(itemId, false)
+      }
+    })
+    return runOp
   }
 
   async function handlePriorityChange(itemId: string, priority: string) {
