@@ -101,8 +101,20 @@ export default function PrepPage() {
   }>>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
-  // Prevent duplicate concurrent status mutations per item
-  const pendingItems = useRef<Set<string>>(new Set())
+  // Serialize status mutations per item. A rapid Start→Done must not race — two
+  // PUTs committing out of order would lose the later status — and the follow-up
+  // must not be dropped (an earlier "skip if already pending" guard silently ate a
+  // Done fired while Start's ~2s write was still in flight, so the item stayed "in
+  // progress" while the toast lied "done"). Each op chains after the item's
+  // previous in-flight op; the optimistic UI update still applies immediately.
+  const opChains = useRef<Map<string, Promise<void>>>(new Map())
+  // Bumped on every optimistic local mutation. The /api/prep/items GET is slow
+  // (several seconds — it recomputes theoretical stock per item), so a background
+  // poll can still be in flight when the user marks an item done. When that stale
+  // snapshot resolves it would clobber the optimistic change (e.g. a just-completed
+  // item snapping back to "in progress"). A silent load compares this counter before
+  // and after its fetch and discards its result if any mutation happened meanwhile.
+  const mutationSeq = useRef(0)
 
   // ── Prep tasks (checklist) ─────────────────────────────────────────────────
   const [taskLibrary, setTaskLibrary] = useState<PrepTask[]>([])
@@ -188,12 +200,19 @@ export default function PrepPage() {
   // full-screen loading state or wiping the list on a transient failure.
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
+    const seqAtStart = mutationSeq.current
     try {
       if (!navigator.onLine) throw new Error('offline')
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const fetched = Array.isArray(data) ? data : []
+      // Discard a stale snapshot: if the user mutated an item while this slow fetch
+      // was in flight (poll, mount load, or manual refresh), its data predates that
+      // change and applying it would revert the optimistic update — e.g. a
+      // just-completed item snapping back to "in progress". The mutation's own write
+      // already made the server authoritative; the next quiet load will reconcile.
+      if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
       savePrepCache(fetched)
       setIsOffline(false)
@@ -436,7 +455,6 @@ export default function PrepPage() {
 
 
   async function handleStatusChange(itemId: string, newStatus: string, actualQty?: number) {
-    if (pendingItems.current.has(itemId)) return
     const item = items.find(i => i.id === itemId)
     if (!item) return
     // Recording a prep log is a stock movement — it needs a concrete revenue center.
@@ -446,7 +464,7 @@ export default function PrepPage() {
       setActionError('Select a revenue center (not "All") to record prep.')
       return
     }
-    pendingItems.current.add(itemId)
+    mutationSeq.current++
 
     const now = new Date().toISOString()
     const completingNow = newStatus === 'DONE' || newStatus === 'PARTIAL'
@@ -484,43 +502,55 @@ export default function PrepPage() {
     if (!navigator.onLine) {
       enqueueMutation({ type: 'status', itemId, logId: item.todayLog?.id ?? null, status: newStatus, actualQty, revenueCenterId: item.revenueCenterId ?? activeRcId })
       setPendingCount(n => n + 1)
-      pendingItems.current.delete(itemId)
       markSaving(itemId, false)
       return
     }
 
-    try {
-      let logId = item.todayLog?.id
-      if (!logId || logId.startsWith('_opt_')) {
-        const log = await fetch('/api/prep/logs', {
-          method: 'POST',
+    // Queue the network write behind any op already in flight for this item so
+    // their PUTs commit in click order. The POST is an upsert on (prepItem, day),
+    // so a redundant create from a stale `_opt_` id just returns the existing log.
+    const prevOp = opChains.current.get(itemId) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        let logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: itemId, revenueCenterId: activeRcId }),
+          }).then(r => r.json())
+          logId = log.id
+          setItems(prev => prev.map(i => {
+            if (i.id !== itemId || !i.todayLog) return i
+            return { ...i, todayLog: { ...i.todayLog, id: log.id } }
+          }))
+        }
+        await fetch(`/api/prep/logs/${logId}`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prepItemId: itemId, revenueCenterId: activeRcId }),
-        }).then(r => r.json())
-        logId = log.id
-        setItems(prev => prev.map(i => {
-          if (i.id !== itemId || !i.todayLog) return i
-          return { ...i, todayLog: { ...i.todayLog, id: log.id } }
-        }))
+          body: JSON.stringify({
+            status: newStatus,
+            ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
+          }),
+        })
+      } catch {
+        setActionError('Status update failed — try again.')
+        load()
       }
-      await fetch(`/api/prep/logs/${logId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: newStatus,
-          ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
-        }),
-      })
-    } catch {
-      setActionError('Status update failed — try again.')
-      load()
-    } finally {
-      pendingItems.current.delete(itemId)
-      markSaving(itemId, false)
-    }
+    })
+    opChains.current.set(itemId, runOp)
+    // Only the last-queued op releases the chain slot and clears the saving flag.
+    runOp.finally(() => {
+      if (opChains.current.get(itemId) === runOp) {
+        opChains.current.delete(itemId)
+        markSaving(itemId, false)
+      }
+    })
+    return runOp
   }
 
   async function handlePriorityChange(itemId: string, priority: string) {
+    mutationSeq.current++
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item
       return {
@@ -554,6 +584,7 @@ export default function PrepPage() {
   }
 
   async function handleDelete(itemId: string) {
+    mutationSeq.current++
     try {
       setItems(prev => prev.filter(i => i.id !== itemId))
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
@@ -568,6 +599,7 @@ export default function PrepPage() {
   // Toggle isOnList: add to list (true) or remove from list (false)
   async function handleToggleOnList(itemId: string, newValue: boolean) {
     // Optimistic update
+    mutationSeq.current++
     setItems(prev => prev.map(i =>
       i.id === itemId ? { ...i, isOnList: newValue } : i
     ))
@@ -610,6 +642,7 @@ export default function PrepPage() {
     const targets = items.filter(i => i.priority === priority && !i.isOnList)
     if (targets.length === 0) return
     // Optimistic: flip all at once
+    mutationSeq.current++
     setItems(prev => prev.map(i =>
       targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i
     ))
@@ -628,6 +661,7 @@ export default function PrepPage() {
   async function handleAddIds(ids: string[]) {
     const targets = items.filter(i => ids.includes(i.id) && !i.isOnList)
     if (targets.length === 0) return
+    mutationSeq.current++
     setItems(prev => prev.map(i => targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i))
     await Promise.all(targets.map(i =>
       fetch(`/api/prep/items/${i.id}`, {
