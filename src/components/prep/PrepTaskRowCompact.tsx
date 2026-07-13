@@ -66,7 +66,7 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
     <button
       type="button"
       onClick={() => onOpen(item)}
-      className="w-full text-left flex items-center gap-2.5 bg-paper border border-line rounded-xl pl-2.5 pr-2.5 py-2 mb-1.5 active:bg-bg-2 transition-colors"
+      className="w-full text-left flex items-center gap-2 bg-paper border border-line rounded-xl pl-2.5 pr-2 py-2 mb-1.5 active:bg-bg-2 transition-colors"
       style={edge ? { borderLeftWidth: 4, borderLeftColor: edge } : undefined}
     >
       <span className={`w-8 h-8 rounded-[9px] grid place-items-center shrink-0 ${tileCls}`}>{glyph}</span>
@@ -81,6 +81,9 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
         </div>
       </div>
 
+      {/* Labeled controls so a new user knows what each does. Recipe is a small
+          tinted secondary pill; the dominant primary button's label tracks state:
+          Start → Mark done → Reopen. */}
       {item.linkedRecipeId && (
         <span
           role="button"
@@ -88,9 +91,9 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
           title="View recipe"
           onClick={(e) => { e.stopPropagation(); onOpenRecipe(item) }}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenRecipe(item) } }}
-          className="w-9 h-9 rounded-[10px] grid place-items-center shrink-0 bg-paper border border-line text-ink-2 active:scale-95"
+          className="h-[26px] px-2.5 rounded-full inline-flex items-center gap-1 shrink-0 bg-gold-soft text-gold-2 border border-gold/30 text-[11px] font-medium whitespace-nowrap active:scale-95"
         >
-          <IcRecipe size={16} />
+          <IcRecipe size={13} /> Recipe
         </span>
       )}
       {(() => {
@@ -100,18 +103,20 @@ export default function PrepTaskRowCompact({ item, kind, onOpen, onOpenRecipe, o
         const inProgress = state === 'in-progress'
         const cls = inProgress ? 'bg-green text-white' : isDoneState ? 'bg-paper border border-line text-ink-3' : 'bg-ink text-gold'
         const Icon = inProgress ? IcCheck : isDoneState ? IcUndo : IcPlay
-        const label = inProgress ? 'Mark done' : isDoneState ? 'Reopen' : item.isBlocked ? 'Start anyway' : 'Start prep'
+        // Concise label — the "Stock out" tag in the meta line already signals a blocked item.
+        const label = inProgress ? 'Mark done' : isDoneState ? 'Reopen' : 'Start'
+        const title = !inProgress && !isDoneState && item.isBlocked ? 'Start anyway' : label
         const act = () => { if (inProgress) onQuickDone(item); else onStatusChange(item, isDoneState ? 'NOT_STARTED' : 'IN_PROGRESS') }
         return (
           <span
             role="button"
             tabIndex={0}
-            title={label}
+            title={title}
             onClick={(e) => { e.stopPropagation(); act() }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); act() } }}
-            className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${cls}`}
+            className={`h-9 px-3.5 rounded-[10px] inline-flex items-center gap-1.5 shrink-0 text-[12.5px] font-medium whitespace-nowrap active:scale-95 ${cls}`}
           >
-            <Icon size={16} />
+            <Icon size={15} /> {label}
           </span>
         )
       })()}
