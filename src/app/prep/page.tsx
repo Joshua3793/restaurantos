@@ -612,22 +612,13 @@ export default function PrepPage() {
     }
 
     try {
+      // Removing simply takes the item off today's list (isOnList=false) — it drops
+      // back to Smart Prep, still re-addable. No SKIPPED log: "removed" is not "skipped".
       await fetch(`/api/prep/items/${itemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isOnList: newValue }),
       })
-      // When removing from list, log SKIPPED for today so it shows in History
-      if (!newValue) {
-        const existingLog = items.find(i => i.id === itemId)?.todayLog
-        if (!existingLog || existingLog.status === 'NOT_STARTED') {
-          await fetch('/api/prep/logs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prepItemId: itemId, status: 'SKIPPED', revenueCenterId: activeRcId }),
-          }).catch(() => {}) // non-critical — don't fail the whole operation
-        }
-      }
     } catch {
       setActionError('Could not update list — try again.')
       load()
@@ -1713,6 +1704,7 @@ export default function PrepPage() {
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
           onOpenRecipe={openRecipeModal}
+          onRemove={(item) => { handleToggleOnList(item.id, false); closeDrawer() }}
         />
       </div>
       {/* Quick yield prompt — shared by the mobile compact row and the desktop board row. */}

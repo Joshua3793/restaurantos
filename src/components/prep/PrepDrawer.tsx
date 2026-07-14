@@ -22,6 +22,8 @@ interface PrepDrawerProps {
   onClose: () => void
   onStatusChange: (item: PrepItemRich, status: PrepStatus, actualQty?: number) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** Remove from today's list → back to Smart Prep (isOnList=false). No log written. */
+  onRemove: (item: PrepItemRich) => void
 }
 
 type StateKey = 'not-started' | 'in-progress' | 'done' | 'skipped'
@@ -132,6 +134,7 @@ export default function PrepDrawer({
   onClose,
   onStatusChange,
   onOpenRecipe,
+  onRemove,
 }: PrepDrawerProps) {
   const [showPartial, setShowPartial] = useState(false)
   const [partialValue, setPartialValue] = useState('')
@@ -445,10 +448,10 @@ export default function PrepDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onStatusChange(item, 'SKIPPED')}
+                    onClick={() => onRemove(item)}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
                   >
-                    Skip today
+                    Remove from list
                   </button>
                 </>
               )}
@@ -470,7 +473,8 @@ export default function PrepDrawer({
                   >
                     Log partial
                   </button>
-                  {/* Stop = abandon the in-progress prep without logging any qty (back to the to-do list); Skip = drop it for today. */}
+                  {/* Stop = abandon the in-progress prep without logging any qty (back to the
+                      to-do list, still on it). Remove = take it off today's list → Smart Prep. */}
                   <div className="flex gap-2.5">
                     <button
                       type="button"
@@ -482,10 +486,10 @@ export default function PrepDrawer({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onStatusChange(item, 'SKIPPED')}
+                      onClick={() => onRemove(item)}
                       className="flex-1 h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
                     >
-                      Skip today
+                      Remove from list
                     </button>
                   </div>
                 </>
