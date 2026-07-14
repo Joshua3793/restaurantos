@@ -111,7 +111,9 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
       <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>
       <span className="r-act">
         {priorityPill}
-        {item.linkedRecipeId && <button className="r-recipe" onClick={() => h.onOpenRecipe(item)} title="View recipe"><IcRecipe /></button>}
+        {/* Labeled tinted pill (mirrors the mobile row) — a bare book icon read as
+            decoration; the label makes the cook-along shortcut discoverable. */}
+        {item.linkedRecipeId && <button className="r-recipe" onClick={() => h.onOpenRecipe(item)} title="View recipe"><IcRecipe size={12} /> Recipe</button>}
         {act}
       </span>
     </div>

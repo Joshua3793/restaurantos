@@ -121,7 +121,11 @@
 /* ══════════ DENSE ROW ══════════ */
 .pb .row{
   display:grid;
-  grid-template-columns:14px minmax(150px,1fr) 78px 60px auto;
+  /* Fixed stock/make widths — each row is its own grid, so only fixed columns keep
+     the numbers aligned down the list. Sized past the worst realistic content
+     ("1113.1 / 2000 ml" ≈ 111px, "make 886.9" ≈ 72px); they clip rather than
+     collide if anything longer shows up. */
+  grid-template-columns:14px minmax(150px,1fr) 118px 84px auto;
   align-items:center;gap:8px;
   padding:7px 14px;border-bottom:1px solid var(--line);
   font-size:13px;min-height:35px;position:relative;
@@ -140,16 +144,18 @@
 .pb .tag.station{background:var(--bg-2);color:var(--ink-3);}
 .pb .r-edit{color:var(--gold-2);font-size:11px;flex-shrink:0;}
 
-.pb .r-stock{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:12px;color:var(--ink-2);text-align:right;letter-spacing:-0.01em;white-space:nowrap;}
+.pb .r-stock{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:12px;color:var(--ink-2);text-align:right;letter-spacing:-0.01em;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .pb .r-stock .z{color:var(--red-text);}
 .pb .r-stock small{color:var(--ink-4);font-size:10px;}
+.pb .r-make-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pb .r-make{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:12px;text-align:right;white-space:nowrap;font-weight:500;}
 .pb .r-make.crit{color:var(--red);} .pb .r-make.low{color:var(--gold-2);} .pb .r-make.par{color:var(--ink-4);font-weight:400;}
 
-/* hover reveal icons */
-/* "View recipe" shortcut — always visible, sits just before the Start button. */
-.pb .r-recipe{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3);flex-shrink:0;}
-.pb .r-recipe:hover{background:var(--bg-2);color:var(--ink);}
+/* "View recipe" shortcut — always visible, sits just before the Start button.
+   Labeled secondary pill, tinted gold so it reads as subordinate to the dark
+   primary action; matches the mobile row (PrepTaskRowCompact). */
+.pb .r-recipe{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:99px;background:var(--gold-soft);color:var(--gold-2);border:1px solid var(--gold-soft);font-size:10.5px;font-weight:500;white-space:nowrap;flex-shrink:0;transition:.12s;}
+.pb .r-recipe:hover{filter:brightness(0.97);border-color:var(--gold);}
 
 /* primary action */
 .pb .r-act{justify-self:end;display:flex;align-items:center;gap:6px;}
