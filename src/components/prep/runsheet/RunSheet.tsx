@@ -7,7 +7,7 @@
 // DSidebar (the app has its own nav), tweaks slider, and clock slider are
 // dropped — real props drive everything instead. Flat Tailwind tokens replace
 // the hex palette; mono via `font-mono`; Lucide icons.
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
@@ -36,7 +36,10 @@ function minuteOfDay(iso: string): number {
   return d.getHours() * 60 + d.getMinutes()
 }
 
-const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE'
+// PARTIAL is a reachable resolved state (onDrawerComplete sets it when the logged
+// qty falls short of suggestedQty) — mirrors groupPrepItems' isDone in prep-utils.ts,
+// which already treats DONE/PARTIAL as done-equivalent.
+const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
 const sbOr = (i: PrepItemRich) => i.startByMinutes ?? Infinity
@@ -67,6 +70,13 @@ export function RunSheet({
   const [group, setGroup] = useState<Group>('time')
   const [stFilter, setStFilter] = useState<string>('all')
   const [showDone, setShowDone] = useState(false)
+
+  // `cooks` can arrive after mount (async fetch) — the initial useState only ran
+  // once with an empty roster. Without this, My-station mode is stuck with cook
+  // === null forever, showing an empty ladder.
+  useEffect(() => {
+    if (cook == null && cooks.length > 0) setCook(cooks[0].id)
+  }, [cooks, cook])
 
   // Stations present in the current dataset (the prototype's static PT_STATIONS).
   const stations = useMemo(

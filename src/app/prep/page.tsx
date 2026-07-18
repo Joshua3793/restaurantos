@@ -588,7 +588,38 @@ export default function PrepPage() {
 
     const c = cookId ? cooks.find(x => x.id === cookId) ?? null : null
     const assignedCook = c ? { id: c.id, initials: c.initials, name: c.name, homeStation: c.homeStation } : null
-    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, assignedCook } : i)))
+    // Mirror handleStatusChange's log-seed: without a todayLog to patch, the
+    // post-POST id patch-back below (`i.todayLog ? ... : i`) is a no-op, so an
+    // item with no prior log never mirrors its new log id locally and re-POSTs
+    // on every subsequent claim/status change until the next poll.
+    const now = new Date().toISOString()
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i
+      const existingLog = i.todayLog
+      return {
+        ...i,
+        assignedCook,
+        todayLog: existingLog
+          ? { ...existingLog, assignedTo: cookId }
+          : {
+              id: `_opt_${item.id}`,
+              prepItemId: item.id,
+              logDate: now.split('T')[0],
+              status: 'NOT_STARTED',
+              requiredQty: null,
+              actualPrepQty: null,
+              assignedTo: cookId,
+              dueTime: null,
+              note: null,
+              blockedReason: null,
+              inventoryAdjusted: false,
+              createdAt: now,
+              updatedAt: now,
+              startedAt: null,
+              completedAt: null,
+            },
+      }
+    }))
     markSaving(item.id, true)
 
     if (!navigator.onLine) {
@@ -1288,6 +1319,15 @@ export default function PrepPage() {
               onLog={setDoneSheetItem}
               onClaim={handleClaim}
             />
+          )}
+          {/* Prep tasks (checklist) — desktop Today. Task 13 replaced the shared
+              PrepBoard (whose tasksSlot carried this) with RunSheet, which has no
+              task slot of its own; restore the same conditional PrepTaskList the
+              board used for the 'today' view so the checklist capability isn't lost. */}
+          {!loading && activeTaskRows.length > 0 && (
+            <div className="mt-3.5">
+              <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+            </div>
           )}
         </div>
       )}
