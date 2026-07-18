@@ -17,6 +17,9 @@ import './prep-board.css'
 import { PrepBoard } from '@/components/prep/board/PrepBoard'
 import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
+import { RunSheet } from '@/components/prep/runsheet/RunSheet'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import type { Cook } from '@/components/prep/runsheet/assignee'
 import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
 import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
 import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
@@ -38,6 +41,7 @@ export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc, activeRcId, activeKind, activeLocationId, isReadOnly } = useRc()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
+  const [cooks,        setCooks]        = useState<Cook[]>([])
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
   const [selected,     setSelected]     = useState<PrepItemRich | null>(null)
@@ -76,6 +80,9 @@ export default function PrepPage() {
   const [subRecipeView, setSubRecipeView] = useState<{ recipeId: string; name: string } | null>(null)
   const [subRecipeChecked, setSubRecipeChecked] = useState<Set<string>>(new Set())
   const [alertDismissed, setAlertDismissed] = useState(false)
+
+  // Live Pacific-local clock for the desktop run sheet (start-by math + rail timers).
+  const { nowMs, nowMin } = useNowMinute()
 
   // View state
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
@@ -259,13 +266,26 @@ export default function PrepPage() {
     }
   }, [stations, filterStation])
 
+  // Kitchen crew for the run sheet's claim popover / crew strip. Cooks change
+  // rarely, so a one-shot load on mount is enough (no polling).
+  const loadCooks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/prep/cooks')
+      if (res.ok) {
+        const data = await res.json()
+        setCooks(Array.isArray(data) ? data : [])
+      }
+    } catch { /* silent degradation — run sheet still renders without cooks */ }
+  }, [])
+
   useEffect(() => {
     setIsOffline(!navigator.onLine)
     setPendingCount(loadQueue().length)
     load()
     loadSettings()
+    loadCooks()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadSettings])
+  }, [loadSettings, loadCooks])
 
   useEffect(() => { load() }, [load])
 
@@ -549,6 +569,62 @@ export default function PrepPage() {
       if (opChains.current.get(itemId) === runOp) {
         opChains.current.delete(itemId)
         markSaving(itemId, false)
+      }
+    })
+    return runOp
+  }
+
+  // Assign (or unassign) a cook to a prep item from the run sheet's claim popover.
+  // Mirrors handleStatusChange's log-ensure + per-item op chaining: create the day's
+  // PrepLog if there isn't one yet, then PUT the assignment. The assignee chip
+  // updates optimistically off the local `cooks` roster.
+  async function handleClaim(item: PrepItemRich, cookId: string | null) {
+    // Assigning writes a PrepLog (a stock-scoped row) — needs a concrete RC.
+    if (!item.revenueCenterId && !activeRcId) {
+      setActionError('Select a revenue center (not "All") to assign a cook.')
+      return
+    }
+    mutationSeq.current++
+
+    const c = cookId ? cooks.find(x => x.id === cookId) ?? null : null
+    const assignedCook = c ? { id: c.id, initials: c.initials, name: c.name, homeStation: c.homeStation } : null
+    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, assignedCook } : i)))
+    markSaving(item.id, true)
+
+    if (!navigator.onLine) {
+      // Claims aren't part of the offline mutation queue — best-effort online only.
+      markSaving(item.id, false)
+      return
+    }
+
+    const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        let logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId }),
+          }).then(r => r.json())
+          logId = log.id
+          setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
+        }
+        await fetch(`/api/prep/logs/${logId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignedTo: cookId }),
+        })
+      } catch {
+        setActionError('Assign failed — try again.')
+        load()
+      }
+    })
+    opChains.current.set(item.id, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(item.id) === runOp) {
+        opChains.current.delete(item.id)
+        markSaving(item.id, false)
       }
     })
     return runOp
@@ -1182,12 +1258,12 @@ export default function PrepPage() {
           TODAY TAB
       ══════════════════════════════════════════════════════ */}
       {/* ══════════════════════════════════════════════════════
-          DESKTOP BOARD — dense redesign (To Do + Smart Prep)
-          Replaces the old desktop renderers below (now md:hidden).
+          DESKTOP TODAY — prep run sheet (Task 13). Replaces the old
+          desktop To Do board; Smart Prep + history keep their boards below.
       ══════════════════════════════════════════════════════ */}
-      {viewMode !== 'history' && (
+      {viewMode === 'today' && (
         <div className="pb hidden md:block" style={{ containerType: 'inline-size' }}>
-          {viewMode === 'today' && priorityAlerts.length > 0 && !alertDismissed && (
+          {priorityAlerts.length > 0 && !alertDismissed && (
             <div className="mb-2.5">
               <PrepAlertBanner
                 onDismiss={() => setAlertDismissed(true)}
@@ -1198,6 +1274,30 @@ export default function PrepPage() {
               />
             </div>
           )}
+          {loading ? (
+            <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
+          ) : (
+            <RunSheet
+              items={todayItems}
+              cooks={cooks}
+              nowMin={nowMin}
+              nowMs={nowMs}
+              onOpenRecipe={openDrawer}
+              onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+              onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+              onLog={setDoneSheetItem}
+              onClaim={handleClaim}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          DESKTOP BOARD — dense redesign (Smart Prep)
+          Replaces the old desktop renderers below (now md:hidden).
+      ══════════════════════════════════════════════════════ */}
+      {viewMode === 'smartprep' && (
+        <div className="pb hidden md:block" style={{ containerType: 'inline-size' }}>
           <div className="toolbar">
             <div className="search">
               <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
@@ -1212,40 +1312,36 @@ export default function PrepPage() {
               {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <button className="ddown" onClick={() => setActiveOnly(a => !a)}><span className="cb">{activeOnly ? '✓' : ''}</span> Active only</button>
-            {viewMode === 'smartprep' && (
-              <div className="seg" style={{ marginLeft: 'auto' }}>
-                {(['urgency', 'category', 'station'] as const).map(g => (
-                  <div key={g} className={`s${smartPrepView === g ? ' active' : ''}`} onClick={() => setSmartPrepView(g)}>{g[0].toUpperCase() + g.slice(1)}</div>
-                ))}
-              </div>
-            )}
+            <div className="seg" style={{ marginLeft: 'auto' }}>
+              {(['urgency', 'category', 'station'] as const).map(g => (
+                <div key={g} className={`s${smartPrepView === g ? ' active' : ''}`} onClick={() => setSmartPrepView(g)}>{g[0].toUpperCase() + g.slice(1)}</div>
+              ))}
+            </div>
           </div>
-          <PrepSummaryLine items={viewMode === 'today' ? filteredToday : filteredSmart} view={viewMode === 'today' ? 'todo' : 'smart'} />
+          <PrepSummaryLine items={filteredSmart} view="smart" />
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : (
             <PrepBoard
-              view={viewMode === 'today' ? 'todo' : 'smart'}
+              view="smart"
               groupBy={smartPrepView}
               items={filteredSmart}
               todayItems={filteredToday}
               handlers={{ onOpen: openDrawer, onOpenRecipe: openDrawer, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange, savingIds }}
               onAddAll={handleAddIds}
-              tasksSlot={viewMode === 'smartprep'
-                ? <PrepTaskLibrary
-                    asBlock
-                    rows={taskRows}
-                    inventory={inventoryForTasks}
-                    disabled={tasksDisabled}
-                    onCreate={createTask}
-                    onEdit={editTask}
-                    onToggleActive={setTaskActive}
-                    onDelete={deleteTask}
-                    onReorder={reorderTasks}
-                  />
-                : activeTaskRows.length > 0
-                  ? <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-                  : undefined}
+              tasksSlot={
+                <PrepTaskLibrary
+                  asBlock
+                  rows={taskRows}
+                  inventory={inventoryForTasks}
+                  disabled={tasksDisabled}
+                  onCreate={createTask}
+                  onEdit={editTask}
+                  onToggleActive={setTaskActive}
+                  onDelete={deleteTask}
+                  onReorder={reorderTasks}
+                />
+              }
             />
           )}
         </div>
