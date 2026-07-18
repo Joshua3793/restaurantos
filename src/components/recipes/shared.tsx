@@ -651,7 +651,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   onDelete: (ingId: string) => void
   onMoveUp: () => void
   onMoveDown: () => void
-  onSubstitute: (ingId: string, item: IngredientSearchResult) => void
+  onSubstitute: (ingId: string, item: IngredientSearchResult, fromCustom: boolean) => void
   onInventoryClick?: (inventoryItemId: string) => void
   isBase: boolean
   baseIsSet: boolean
@@ -699,7 +699,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
   const pickSubstitute = (item: IngredientSearchResult) => {
     setSubstituting(false); setSubQ(''); setSubResults([])
-    onSubstitute(ing.id, item)
+    onSubstitute(ing.id, item, ing.ingredientType === 'custom')
   }
 
   const saveQty = () => { setEditingQty(false); if (qty !== String(ing.qtyBase)) onUpdate(ing.id, { qtyBase: qty, unit }) }
@@ -1105,7 +1105,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     if (res.ok) dirtyRef.current = true
   }, [recipeId])
 
-  const substituteIngredient = useCallback(async (ingId: string, item: IngredientSearchResult) => {
+  const substituteIngredient = useCallback(async (ingId: string, item: IngredientSearchResult, fromCustom: boolean) => {
     // Optimistic: update name/type; keep prior lineCost as placeholder until load() reconciles
     setRecipe(prev => {
       if (!prev) return prev
@@ -1119,6 +1119,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           linkedRecipeId: item.type === 'recipe' ? item.id : null,
           pricePerBaseUnit: item.pricePerBaseUnit,
           ingredientBaseUnit: item.unit,
+          unit: fromCustom ? item.unit : ing.unit,
           lineCost: ing.lineCost,
         }
       })
@@ -1126,9 +1127,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
       return { ...prev, ingredients: updatedIngredients, totalCost }
     })
 
-    const body = item.type === 'inventory'
+    const body: Record<string, unknown> = item.type === 'inventory'
       ? { inventoryItemId: item.id }
       : { linkedRecipeId: item.id }
+    // Promoting a custom line: its free-form unit (e.g. "sprig") can't cost against the
+    // real item's base unit — adopt the substituted item's unit so the line actually costs.
+    if (fromCustom) body.unit = item.unit
 
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -1577,7 +1581,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   clearTimeout(searchTimer.current)
                   searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 400)
                 }}
-                  onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
+                  onFocus={() => { if (searchResults.length > 0 || searchQ.trim()) setShowSearch(true) }}
                   placeholder="+ Add ingredient — search inventory or recipes…"
                   className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
               </div>
@@ -1831,7 +1835,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                     clearTimeout(searchTimer.current)
                     searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 400)
                   }}
-                    onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
+                    onFocus={() => { if (searchResults.length > 0 || searchQ.trim()) setShowSearch(true) }}
                     placeholder="+ Add ingredient…"
                     className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
                 </div>
