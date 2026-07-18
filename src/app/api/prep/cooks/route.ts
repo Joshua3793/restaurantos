@@ -10,14 +10,21 @@ function normalizeInitials(value: unknown): string | null {
 }
 
 // ── GET /api/prep/cooks ─────────────────────────────────────────────────────
-// Returns active cooks ordered by sortOrder, name.
-export async function GET() {
+// Default: active cooks only, ordered by sortOrder, name — this is what
+// /api/prep/items and every other consumer relies on. Pass
+// ?includeInactive=true (used by the Kitchen Crew admin page) to also see
+// deactivated cooks, so they can be reactivated — sorted active-first.
+export async function GET(req: NextRequest) {
   try {
     await requireSession()
 
+    const includeInactive = req.nextUrl.searchParams.get('includeInactive') === 'true'
+
     const cooks = await prisma.cook.findMany({
-      where: { isActive: true },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      where: includeInactive ? {} : { isActive: true },
+      orderBy: includeInactive
+        ? [{ isActive: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }]
+        : [{ sortOrder: 'asc' }, { name: 'asc' }],
     })
 
     return NextResponse.json(cooks)

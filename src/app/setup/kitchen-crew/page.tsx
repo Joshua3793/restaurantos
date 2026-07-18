@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Check, X, ChefHat, ChevronUp, ChevronDown, Power } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, ChefHat, ChevronUp, ChevronDown, Ban, RotateCcw } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 
 interface Cook {
@@ -86,7 +86,7 @@ function AddCookForm({
 /* ────────────────────────────────  Row  ────────────────────────────────── */
 
 function CookRow({
-  cook, stations, isFirst, isLast, onSave, onDelete, onDeactivate, onMove,
+  cook, stations, isFirst, isLast, onSave, onDelete, onDeactivate, onReactivate, onMove,
 }: {
   cook: Cook
   stations: string[]
@@ -95,6 +95,7 @@ function CookRow({
   onSave: (id: string, name: string, initials: string, homeStation: string) => Promise<string | void>
   onDelete: (cook: Cook) => void
   onDeactivate: (cook: Cook) => void
+  onReactivate: (cook: Cook) => void
   onMove: (cook: Cook, direction: 'up' | 'down') => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -120,7 +121,7 @@ function CookRow({
   }
 
   return (
-    <div className="flex items-center gap-2 px-4 py-3">
+    <div className={`flex items-center gap-2 px-4 py-3 ${!cook.isActive ? 'opacity-50' : ''}`}>
       {/* Reorder */}
       <div className="flex flex-col shrink-0">
         <button onClick={() => onMove(cook, 'up')} disabled={isFirst}
@@ -163,16 +164,30 @@ function CookRow({
       ) : (
         <>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-ink-2 truncate">{cook.name}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-medium text-ink-2 truncate">{cook.name}</span>
+              {!cook.isActive && (
+                <span className="text-[10px] font-semibold bg-red-soft text-red px-1.5 py-0.5 rounded-full shrink-0">
+                  Inactive
+                </span>
+              )}
+            </div>
             {cook.homeStation && <div className="text-xs text-ink-4">{cook.homeStation}</div>}
           </div>
           <span className="font-mono text-xs text-ink-3 bg-bg-2 px-2 py-1 rounded-lg shrink-0">
             {cook.initials}
           </span>
-          <button onClick={() => onDeactivate(cook)} title="Deactivate"
-            className="p-1 text-green hover:text-red">
-            <Power size={14} />
-          </button>
+          {cook.isActive ? (
+            <button onClick={() => onDeactivate(cook)} title="Deactivate — remove from roster, keep the record"
+              className="p-1 text-ink-4 hover:text-red">
+              <Ban size={14} />
+            </button>
+          ) : (
+            <button onClick={() => onReactivate(cook)} title="Reactivate — restore to roster"
+              className="p-1 text-ink-4 hover:text-green">
+              <RotateCcw size={14} />
+            </button>
+          )}
           <button onClick={startEdit} className="text-ink-4 hover:text-gold p-1"><Pencil size={14} /></button>
           <button onClick={() => onDelete(cook)} className="text-ink-4 hover:text-red p-1"><Trash2 size={14} /></button>
         </>
@@ -194,7 +209,7 @@ export default function KitchenCrewPage() {
     setError('')
     try {
       const [cooksRes, settingsRes] = await Promise.all([
-        fetch('/api/prep/cooks'),
+        fetch('/api/prep/cooks?includeInactive=true'),
         fetch('/api/prep/settings'),
       ])
       if (!cooksRes.ok) throw new Error(`Failed to load cooks (${cooksRes.status})`)
@@ -242,21 +257,34 @@ export default function KitchenCrewPage() {
     refetch()
   }
 
-  // Deactivating a cook takes them off the roster view — GET only returns
-  // active cooks, so there's no way to see/reactivate them from this page
-  // once deactivated (use Delete to permanently remove instead, or reactivate
-  // directly via the API/DB). Confirm since it's effectively one-directional here.
-  const handleDeactivate = async (cook: Cook) => {
-    if (!confirm(`Deactivate "${cook.name}"? They'll drop off the roster and prep assignment lists.`)) return
-    setCooks(prev => prev.filter(c => c.id !== cook.id)) // optimistic
+  // Reversible lifecycle toggle — mirrors /setup/users. Deactivating drops a
+  // cook off prep assignment lists (GET /api/prep/cooks default excludes
+  // inactive) but keeps the record, so they can be reactivated here at any
+  // time. This page always loads with includeInactive=true so both states
+  // stay visible.
+  const setActive = async (cook: Cook, isActive: boolean) => {
+    setCooks(prev => prev.map(c => c.id === cook.id ? { ...c, isActive } : c)) // optimistic
     const res = await fetch(`/api/prep/cooks/${cook.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive: false }),
+      body: JSON.stringify({ isActive }),
     })
-    if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Failed to deactivate cook'); refetch(); return }
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || `Failed to ${isActive ? 'reactivate' : 'deactivate'} cook`)
+      refetch()
+      return
+    }
     setError('')
+    refetch()
   }
+
+  const handleDeactivate = (cook: Cook) => {
+    if (!confirm(`Deactivate "${cook.name}"? They'll drop off prep assignment lists but can be reactivated later.`)) return
+    setActive(cook, false)
+  }
+
+  const handleReactivate = (cook: Cook) => setActive(cook, true)
 
   const handleMove = async (cook: Cook, direction: 'up' | 'down') => {
     const idx = cooks.findIndex(c => c.id === cook.id)
@@ -318,6 +346,7 @@ export default function KitchenCrewPage() {
                 onSave={handleSave}
                 onDelete={handleDelete}
                 onDeactivate={handleDeactivate}
+                onReactivate={handleReactivate}
                 onMove={handleMove}
               />
             ))
