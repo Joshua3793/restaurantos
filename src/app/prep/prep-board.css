@@ -131,6 +131,9 @@
   padding:7px 14px;border-bottom:1px solid var(--line);
   font-size:13px;min-height:35px;position:relative;
 }
+/* Smart Prep drops the make/pct column (its cell isn't rendered) for more name
+   room; To-do keeps it so the cook sees the "make X" qty while executing. */
+.pb .row.smart{grid-template-columns:14px minmax(0,1fr) 118px auto;}
 .pb .row:last-child{border-bottom:none;}
 .pb .row:hover{background:#fafaf9;}
 .pb .row .r-dot{width:8px;height:8px;border-radius:99px;}
