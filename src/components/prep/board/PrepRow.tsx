@@ -82,7 +82,7 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
     </span>
   ) : null
 
-  const cls = `row${h.view === 'todo' && row.status === 'in-progress' ? ' inprog' : ''}${h.view === 'todo' && row.status === 'done' ? ' done' : ''}${h.view === 'todo' && row.status === 'skipped' ? ' skipped' : ''}`
+  const cls = `row${h.view === 'smart' ? ' smart' : ''}${h.view === 'todo' && row.status === 'in-progress' ? ' inprog' : ''}${h.view === 'todo' && row.status === 'done' ? ' done' : ''}${h.view === 'todo' && row.status === 'skipped' ? ' skipped' : ''}`
 
   // Highlight accent — matches the mobile rows: status (To-Do) overrides urgency.
   // in-progress → blue, done → green, removed → gray; else critical → red,
@@ -108,7 +108,9 @@ export function PrepRow({ row, h }: { row: BoardRow; h: RowHandlers }) {
         {statusChip}
       </span>
       <span className="r-stock">{stock}</span>
-      <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>
+      {/* Smart Prep hides the make/pct column to give the name more room; To-do keeps
+          it (the cook needs the "make X" qty while executing). */}
+      {h.view !== 'smart' && <span className="r-make-cell" style={{ textAlign: 'right' }}>{make}</span>}
       <span className="r-act">
         {priorityPill}
         {/* Labeled tinted pill (mirrors the mobile row) — a bare book icon read as
