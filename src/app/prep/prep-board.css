@@ -75,17 +75,17 @@
 
 /* ══════════ BOARD ══════════ */
 .pb .board{display:flex;flex-direction:column;gap:14px;}
-/* auto-fit so a 2nd column only forms once it can hold a full row. A row's
-   fixed parts (14 + name 150 + stock 78 + make 60 + pill/recipe/action ~185
-   + gaps + padding) need ~530px; a fixed 1040px 2-col breakpoint produced
-   513px columns that clipped the right-edge action buttons under
-   .block{overflow:hidden}. 540px min keeps a small safety margin. */
-.pb .actionable{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,540px),1fr));gap:14px;align-items:start;}
+/* auto-fit so a 2nd column only forms once it's a sensible width. The old fixed
+   1040px 2-col breakpoint produced 513px columns whose rows clipped the right-edge
+   action buttons under .block{overflow:hidden}. 500px min keeps names readable; the
+   row's minmax(0,1fr) name track (see .row) is the real guarantee that buttons never
+   clip — it lets the name truncate before any fixed column or action is cut. */
+.pb .actionable{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));gap:14px;align-items:start;}
 /* Category / Station view: many comparable-height blocks, so use masonry columns
    that pack vertically and fill the negative space (the short Tasks block no longer
    leaves a gap beneath it). column-width is the masonry analog of auto-fit — it
-   makes as many ≥540px columns as fit, so blocks never get too narrow to clip. */
-.pb .actionable.tri{display:block;column-width:540px;column-gap:14px;}
+   makes as many ≥500px columns as fit, so blocks never get too narrow. */
+.pb .actionable.tri{display:block;column-width:500px;column-gap:14px;}
 .pb .actionable.tri > .block{break-inside:avoid;margin-bottom:14px;}
 /* A grid cell that stacks several blocks (e.g. Tasks + Needed Today on the left
    so they fill the space beside a tall Critical column). */
@@ -121,7 +121,12 @@
 /* ══════════ DENSE ROW ══════════ */
 .pb .row{
   display:grid;
-  grid-template-columns:14px minmax(150px,1fr) 78px 60px auto;
+  /* Name track has NO min (minmax(0,1fr), not 150px): the name (which already
+     line-clamps to 2 lines) must yield and truncate before the fixed stock/make
+     columns or the right-edge action buttons ever get clipped by .block's
+     overflow:hidden. A 150px floor forced the row wider than a narrow column and
+     clipped the actions instead. */
+  grid-template-columns:14px minmax(0,1fr) 78px 60px auto;
   align-items:center;gap:8px;
   padding:7px 14px;border-bottom:1px solid var(--line);
   font-size:13px;min-height:35px;position:relative;
@@ -208,11 +213,10 @@
 .pb .later-strip .lcount{margin-left:auto;font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10.5px;color:var(--ink-3);}
 .pb .later-body{display:none;border-top:1px solid var(--line);}
 .pb .later.open .later-body{display:block;}
-/* Each .row needs ~530px (14 + name minmax(150px,1fr) + stock 78 + make 60 +
-   priority pill/recipe/action ~185 + gaps + padding); its fixed columns can't
-   shrink, so a 2-col grid narrower than that clipped the right column's action
-   buttons. auto-fit only creates as many ≥540px columns as actually fit. */
-.pb .later-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,540px),1fr));}
+/* auto-fit only creates as many ≥500px columns as actually fit; the row's
+   minmax(0,1fr) name track (see .row) lets the name truncate before the fixed
+   stock/make columns or the action buttons ever clip under .block overflow. */
+.pb .later-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));}
 .pb .later-grid .row{border-right:1px solid var(--line);}
 .pb .later-note{padding:9px 16px;font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10px;color:var(--ink-4);letter-spacing:0.02em;border-top:1px solid var(--line);background:var(--bg);}
 
