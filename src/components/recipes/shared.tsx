@@ -1009,6 +1009,45 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     }
   }
 
+  const addCustomIngredient = async (rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return
+    setShowSearch(false); setSearchQ(''); setSearchResults([])
+
+    const tempId = `temp-${Date.now()}`
+    setRecipe(prev => {
+      if (!prev) return prev
+      const newIng: IngredientWithCost = {
+        id: tempId,
+        sortOrder: (prev.ingredients.at(-1)?.sortOrder ?? -1) + 1,
+        qtyBase: 0,
+        unit: '',
+        notes: null,
+        recipePercent: null,
+        inventoryItemId: null,
+        linkedRecipeId: null,
+        ingredientName: name,
+        ingredientType: 'custom',
+        pricePerBaseUnit: 0,
+        lineCost: 0,
+        ingredientBaseUnit: '',
+      }
+      return { ...prev, ingredients: [...prev.ingredients, newIng] }
+    })
+
+    const res = await fetch(`/api/recipes/${recipeId}/ingredients`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customName: name, qtyBase: 0, unit: '' }),
+    })
+    if (res.ok) {
+      const { id: realId } = await res.json()
+      setRecipe(prev => prev ? { ...prev, ingredients: prev.ingredients.map(i => i.id === tempId ? { ...i, id: realId } : i) } : prev)
+      dirtyRef.current = true
+    } else {
+      setRecipe(prev => prev ? { ...prev, ingredients: prev.ingredients.filter(i => i.id !== tempId) } : prev)
+    }
+  }
+
   const updateIngredient = useCallback(async (ingId: string, data: Record<string, unknown>) => {
     const newQtyBase = data.qtyBase !== undefined ? Number(data.qtyBase) : undefined
     const newUnit = data.unit !== undefined ? String(data.unit) : undefined
@@ -1524,7 +1563,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   placeholder="+ Add ingredient — search inventory or recipes…"
                   className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
               </div>
-              {showSearch && searchResults.length > 0 && (
+              {showSearch && searchQ.trim() && (
                 <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto">
                   {searchResults.map(item => (
                     <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
@@ -1538,6 +1577,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                       </span>
                     </button>
                   ))}
+                  <button onClick={() => addCustomIngredient(searchQ)}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg text-left text-sm border-t border-line">
+                    <Plus size={13} className="text-ink-4 shrink-0" />
+                    <span className="flex-1 text-ink-2">Add <span className="font-medium text-ink">&ldquo;{searchQ.trim()}&rdquo;</span> as a custom ingredient</span>
+                    <span className="text-xs text-ink-4 italic">no cost</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -1678,6 +1723,17 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
     await load(); onUpdated(); setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
 
+  const addCustomIngredient = async (rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return
+    setShowSearch(false); setSearchQ(''); setSearchResults([])
+    await fetch(`/api/recipes/${linkedRecipeId}/ingredients`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customName: name, qtyBase: 0, unit: '' }),
+    })
+    await load()
+  }
+
   const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
     await fetch(`/api/recipes/${linkedRecipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     await load(); onUpdated()
@@ -1761,7 +1817,7 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                     placeholder="+ Add ingredient…"
                     className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
                 </div>
-                {showSearch && searchResults.length > 0 && (
+                {showSearch && searchQ.trim() && (
                   <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                     {searchResults.map(item => (
                       <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
@@ -1774,6 +1830,12 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                         </span>
                       </button>
                     ))}
+                    <button onClick={() => addCustomIngredient(searchQ)}
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-bg text-left text-sm border-t border-line">
+                      <Plus size={12} className="text-ink-4 shrink-0" />
+                      <span className="flex-1 text-ink-2">Add <span className="font-medium text-ink">&ldquo;{searchQ.trim()}&rdquo;</span> as a custom ingredient</span>
+                      <span className="text-xs text-ink-4 italic">no cost</span>
+                    </button>
                   </div>
                 )}
               </div>
