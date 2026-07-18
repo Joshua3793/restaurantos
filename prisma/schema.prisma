@@ -186,6 +186,9 @@ model Recipe {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   revenueCenterId  String?
+  activeMinutes   Int?
+  passiveMinutes  Int?
+  passiveNote     String?
   prepItems       PrepItem[]         @relation("PrepItemRecipe")
   category        RecipeCategory     @relation(fields: [categoryId], references: [id])
   inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
@@ -521,9 +524,14 @@ model PrepItem {
   updatedAt              DateTime       @updatedAt
   estimatedPrepTime      Int?
   revenueCenterId        String?
+  targetServiceId        String?
+  activeMinutesOverride  Int?
+  passiveMinutesOverride Int?
+  passiveNoteOverride    String?
   linkedInventoryItem    InventoryItem? @relation("PrepItemInventory", fields: [linkedInventoryItemId], references: [id])
   linkedRecipe           Recipe?        @relation("PrepItemRecipe", fields: [linkedRecipeId], references: [id])
   revenueCenter          RevenueCenter? @relation("PrepItemRC", fields: [revenueCenterId], references: [id])
+  targetService          Service? @relation("PrepItemService", fields: [targetServiceId], references: [id])
   logs                   PrepLog[]
 }
 
@@ -542,6 +550,8 @@ model PrepLog {
   inventoryAdjusted Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  startedAt         DateTime?
+  completedAt       DateTime?
   prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
   revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 
@@ -615,6 +625,28 @@ model RevenueCenter {
   defaultForLocations Location[]      @relation("LocationDefaultRC")
   eodCheckItems     EodCheckItem[]    @relation("EodCheckItemRC")
   eodCloses         EodClose[]        @relation("EodCloseRC")
+  services          Service[]         @relation("ServiceRC")
+}
+
+model Service {
+  id              String        @id @default(cuid())
+  revenueCenterId String
+  name            String
+  timeMinutes     Int
+  sortOrder       Int           @default(0)
+  isActive        Boolean       @default(true)
+  revenueCenter   RevenueCenter @relation("ServiceRC", fields: [revenueCenterId], references: [id])
+  prepItems       PrepItem[]    @relation("PrepItemService")
+  @@index([revenueCenterId])
+}
+
+model Cook {
+  id          String  @id @default(cuid())
+  name        String
+  initials    String
+  homeStation String?
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
 }
 
 model UserScope {
