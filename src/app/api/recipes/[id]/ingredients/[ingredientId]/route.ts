@@ -10,32 +10,46 @@ export async function PATCH(
   { params }: { params: { id: string; ingredientId: string } }
 ) {
   const body = await req.json()
-  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId } = body
+  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId, customName } = body
 
-  // Validate + normalize the unit when it's being changed.
-  let canonUnit: string | undefined
+  // Load the existing row to know whether it's a custom line (free-form unit) and
+  // whether this PATCH is promoting it to a costed line.
+  const existing = await prisma.recipeIngredient.findUnique({
+    where: { id: params.ingredientId },
+    select: { customName: true },
+  })
+  if (!existing) return NextResponse.json({ error: 'Ingredient not found' }, { status: 404 })
+
+  const promoting = inventoryItemId !== undefined || linkedRecipeId !== undefined
+  const isCustomAfter = !promoting && existing.customName !== null
+
+  // Validate the unit only for costed lines. Custom lines store the unit raw.
+  let unitToStore: string | undefined
   if (unit !== undefined) {
-    try { canonUnit = assertKnownUnit(unit, 'ingredient unit') }
-    catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+    if (isCustomAfter) {
+      unitToStore = unit
+    } else {
+      try { unitToStore = assertKnownUnit(unit, 'ingredient unit') }
+      catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+    }
   }
 
   await prisma.recipeIngredient.update({
     where: { id: params.ingredientId },
     data: {
       ...(qtyBase !== undefined ? { qtyBase: parseFloat(qtyBase) } : {}),
-      ...(canonUnit !== undefined ? { unit: canonUnit } : {}),
+      ...(unitToStore !== undefined ? { unit: unitToStore } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),
-      // Substituting with an inventory item — clears linkedRecipeId
-      ...(inventoryItemId !== undefined && linkedRecipeId === undefined ? { inventoryItemId, linkedRecipeId: null } : {}),
-      // Substituting with a linked recipe — clears inventoryItemId
-      ...(linkedRecipeId !== undefined ? { linkedRecipeId, inventoryItemId: null } : {}),
+      ...(customName !== undefined ? { customName: customName || null } : {}),
+      // Substituting with an inventory item — clears linkedRecipeId and any customName.
+      ...(inventoryItemId !== undefined && linkedRecipeId === undefined ? { inventoryItemId, linkedRecipeId: null, customName: null } : {}),
+      // Substituting with a linked recipe — clears inventoryItemId and any customName.
+      ...(linkedRecipeId !== undefined ? { linkedRecipeId, inventoryItemId: null, customName: null } : {}),
     },
   })
 
-  // Re-sync the linked item and dependent preps. Awaited so the cascade runs before
-  // responding; caught so a rare sync hiccup doesn't fail the edit (headless endpoint repairs).
   const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined || linkedRecipeId !== undefined
   if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient PATCH] resync', e))
 

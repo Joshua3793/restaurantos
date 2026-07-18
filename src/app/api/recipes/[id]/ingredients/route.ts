@@ -7,22 +7,30 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
-  const { inventoryItemId, linkedRecipeId, qtyBase, unit, notes, recipePercent } = body
+  const { inventoryItemId, linkedRecipeId, qtyBase, unit, notes, recipePercent, customName } = body
 
-  // Exactly one of inventoryItemId / linkedRecipeId must be set
   const hasInv = !!inventoryItemId
   const hasLinked = !!linkedRecipeId
-  if (hasInv === hasLinked) {
+  const hasCustom = typeof customName === 'string' && customName.trim().length > 0
+
+  // Exactly one kind: inventory, linked recipe, or custom.
+  const kinds = [hasInv, hasLinked, hasCustom].filter(Boolean).length
+  if (kinds !== 1) {
     return NextResponse.json(
-      { error: 'Provide exactly one of inventoryItemId or linkedRecipeId' },
+      { error: 'Provide exactly one of inventoryItemId, linkedRecipeId, or customName' },
       { status: 400 }
     )
   }
 
-  // Validate + normalize the ingredient unit against the UOM backbone.
-  let canonUnit: string
-  try { canonUnit = assertKnownUnit(unit, 'ingredient unit') }
-  catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+  // Custom lines carry a free-form unit and are never costed → skip UOM validation.
+  // Inventory/recipe lines must resolve to a known unit.
+  let storedUnit: string
+  if (hasCustom) {
+    storedUnit = typeof unit === 'string' ? unit : ''
+  } else {
+    try { storedUnit = assertKnownUnit(unit, 'ingredient unit') }
+    catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+  }
 
   const maxOrder = await prisma.recipeIngredient.aggregate({
     where: { recipeId: params.id },
@@ -35,8 +43,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       recipeId: params.id,
       inventoryItemId: inventoryItemId || null,
       linkedRecipeId: linkedRecipeId || null,
-      qtyBase: parseFloat(qtyBase),
-      unit: canonUnit,
+      customName: hasCustom ? customName.trim() : null,
+      qtyBase: qtyBase !== undefined && qtyBase !== null && qtyBase !== '' ? parseFloat(qtyBase) : 0,
+      unit: storedUnit,
       sortOrder,
       notes: notes || null,
       recipePercent: recipePercent !== undefined && recipePercent !== null ? parseFloat(recipePercent) : null,
@@ -47,9 +56,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  // Keep the linked inventory item and dependent preps in sync. Awaited so the cascade
-  // runs before responding; caught so a rare sync hiccup doesn't fail the edit (the
-  // headless /api/inventory/sync-prepd endpoint is the recovery path).
   await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient POST] resync', e))
   return NextResponse.json({ id: ing.id }, { status: 201 })
 }
