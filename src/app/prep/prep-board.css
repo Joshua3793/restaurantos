@@ -121,11 +121,12 @@
 /* ══════════ DENSE ROW ══════════ */
 .pb .row{
   display:grid;
-  /* Fixed stock/make widths — each row is its own grid, so only fixed columns keep
-     the numbers aligned down the list. Sized past the worst realistic content
-     ("1113.1 / 2000 ml" ≈ 111px, "make 886.9" ≈ 72px); they clip rather than
-     collide if anything longer shows up. */
-  grid-template-columns:14px minmax(150px,1fr) 118px 84px auto;
+  /* Fixed stock/make widths keep the numbers aligned down the list. The NAME track
+     is minmax(0,1fr) (no floor): the name already line-clamps to 2 lines, so it must
+     yield and truncate before the fixed stock/make columns or the right-edge action
+     buttons ever get clipped by .block's overflow:hidden. A 150px name floor forced
+     the row wider than the column and clipped the actions instead. */
+  grid-template-columns:14px minmax(0,1fr) 118px 84px auto;
   align-items:center;gap:8px;
   padding:7px 14px;border-bottom:1px solid var(--line);
   font-size:13px;min-height:35px;position:relative;
