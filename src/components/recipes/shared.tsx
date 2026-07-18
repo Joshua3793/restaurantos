@@ -724,10 +724,11 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   const needsQty = ing.ingredientType === 'inventory' && (!ing.qtyBase || ing.qtyBase === 0)
   const pctValue = isBase ? 100 : (baseIsSet ? autoPercent : (ing.recipePercent ?? null))
   const pctBarColor = isBase ? 'bg-gold' : 'bg-ink'
+  const isCustom = ing.ingredientType === 'custom'
 
   return (
     <div className={`border-t border-line ${needsQty ? 'bg-gold-soft/40' : ''}`}>
-      <div className="grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group">
+      <div className={`grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group ${isCustom ? 'italic text-ink-4' : ''}`}>
         <div className="col-span-1 flex flex-col items-center">
           <button onClick={onMoveUp} disabled={!canMoveUp} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronUp size={13} /></button>
           <button onClick={onMoveDown} disabled={!canMoveDown} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronDown size={13} /></button>
@@ -817,20 +818,37 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
         </div>
 
         <div className="col-span-2">
-          <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-            className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold">
-            {!unitInList && <option value="__custom__">{unit}</option>}
-            {compatibleGroups.map(group => (
-              <optgroup key={group.label} label={group.label}>
-                {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          {isCustom ? (
+            <input
+              value={unit}
+              onChange={e => setUnit(e.target.value)}
+              onBlur={() => { if (unit !== ing.unit) onUpdate(ing.id, { unit }) }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              placeholder="unit"
+              className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold not-italic"
+            />
+          ) : (
+            <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
+              className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold">
+              {!unitInList && <option value="__custom__">{unit}</option>}
+              {compatibleGroups.map(group => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="col-span-2 text-right font-mono text-[13px] font-medium text-ink">
-          {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
-          {formatCurrency(displayCost)}
+          {isCustom ? (
+            <span className="text-ink-4 not-italic text-[11px]">—</span>
+          ) : (
+            <>
+              {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+              {formatCurrency(displayCost)}
+            </>
+          )}
         </div>
 
         <div className="col-span-1 flex items-center justify-end gap-1">
@@ -1873,9 +1891,10 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
   const compatibleGroups = baseUnitGroup ? UOM_GROUPS.filter(g => g.label === baseUnitGroup) : UOM_GROUPS
   const allKnownUnits = UOM_GROUPS.flatMap(g => g.units.map(u => u.label))
   const unitInList = allKnownUnits.includes(unit)
+  const isCustom = ing.ingredientType === 'custom'
 
   return (
-    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-line hover:bg-bg group">
+    <div className={`grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-line hover:bg-bg group ${isCustom ? 'italic text-ink-4' : ''}`}>
       <div className="col-span-5 flex items-center gap-1.5 min-w-0 flex-wrap">
         {ing.ingredientType === 'recipe'
           ? <ChefHat size={11} className="text-green shrink-0" />
@@ -1891,19 +1910,33 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
           className="w-full text-right border border-line rounded px-1 py-0.5 text-sm text-ink focus:outline-none focus:border-[#93c5fd]" />
       </div>
       <div className="col-span-2">
-        <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-          className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
-          {!unitInList && <option value="__custom__">{unit}</option>}
-          {compatibleGroups.map(group => (
-            <optgroup key={group.label} label={group.label}>
-              {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
+        {isCustom ? (
+          <input value={unit} onChange={e => setUnit(e.target.value)}
+            onBlur={() => { if (unit !== ing.unit) onUpdate({ qtyBase: qty, unit }) }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+            placeholder="unit"
+            className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold not-italic" />
+        ) : (
+          <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
+            className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
+            {!unitInList && <option value="__custom__">{unit}</option>}
+            {compatibleGroups.map(group => (
+              <optgroup key={group.label} label={group.label}>
+                {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        )}
       </div>
       <div className="col-span-2 text-right text-sm font-medium text-ink-2">
-        {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
-        {formatCurrency(ing.lineCost)}
+        {isCustom ? (
+          <span className="text-ink-4 not-italic text-xs">—</span>
+        ) : (
+          <>
+            {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+            {formatCurrency(ing.lineCost)}
+          </>
+        )}
       </div>
       <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100">
         <button onClick={onDelete} className="text-ink-4 hover:text-red"><Trash2 size={13} /></button>
