@@ -10,16 +10,20 @@ function dayStart(dateStr: string | null): Date {
   return d
 }
 
-// Activate: idempotent create of today's membership log.
+// Activate: put the task on the list. Membership persists across days until the
+// task is checked off or removed, so at most one log per task — reuse it if present.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireSession()
+    const existing = await prisma.prepTaskLog.findFirst({
+      where: { prepTaskId: params.id },
+      select: { id: true, prepTaskId: true, logDate: true },
+    })
+    if (existing) return NextResponse.json(existing, { status: 200 })
     const body = await req.json().catch(() => ({}))
     const logDate = dayStart(body.date ?? null)
-    const log = await prisma.prepTaskLog.upsert({
-      where: { prepTaskId_logDate: { prepTaskId: params.id, logDate } },
-      create: { prepTaskId: params.id, logDate },
-      update: {},
+    const log = await prisma.prepTaskLog.create({
+      data: { prepTaskId: params.id, logDate },
       select: { id: true, prepTaskId: true, logDate: true },
     })
     return NextResponse.json(log, { status: 201 })
@@ -30,13 +34,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 }
 
-// Done / remove: clear today's membership log (vanish + reset).
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+// Done / remove: take the task off the list. Clears every log for the task
+// regardless of which day it was added, so a persisted task always clears.
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireSession()
-    const { searchParams } = new URL(req.url)
-    const logDate = dayStart(searchParams.get('date'))
-    await prisma.prepTaskLog.deleteMany({ where: { prepTaskId: params.id, logDate } })
+    await prisma.prepTaskLog.deleteMany({ where: { prepTaskId: params.id } })
     return NextResponse.json({ ok: true })
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })

@@ -15,12 +15,6 @@ const taskSelect = {
   linkedInventoryItem: { select: { id: true, itemName: true } },
 } as const
 
-function dayBounds(dateStr: string | null) {
-  const d = dateStr ? new Date(dateStr) : new Date()
-  d.setHours(0, 0, 0, 0)
-  return { start: d, end: new Date(d.getTime() + 86_400_000) }
-}
-
 export async function GET(req: NextRequest) {
   try {
     const user = await requireSession()
@@ -29,7 +23,6 @@ export async function GET(req: NextRequest) {
     const locationId = searchParams.get('locationId')
     const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
     if (!rcId && !locRcIds) return NextResponse.json({ error: 'rcId or locationId required' }, { status: 400 })
-    const { start, end } = dayBounds(searchParams.get('date'))
 
     const rcWhere = locRcIds ? { revenueCenterId: { in: locRcIds } } : { revenueCenterId: rcId! }
     const library = await prisma.prepTask.findMany({
@@ -37,8 +30,10 @@ export async function GET(req: NextRequest) {
       select: taskSelect,
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     })
+    // Membership is NOT scoped to the calendar day: a task stays on the list
+    // until it is checked off or removed (both delete its log). No date filter.
     const today = await prisma.prepTaskLog.findMany({
-      where: { prepTask: { ...rcWhere, isActive: true }, logDate: { gte: start, lt: end } },
+      where: { prepTask: { ...rcWhere, isActive: true } },
       select: { id: true, prepTaskId: true, logDate: true },
     })
     return NextResponse.json({ library, today })
