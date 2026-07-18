@@ -1,13 +1,25 @@
 'use client'
-import { useEffect, useState } from 'react'
-import type { PrepItemRich, PrepItemDetail } from '@/components/prep/types'
+import { useEffect } from 'react'
+import type { PrepItemRich, PrepItemDetail, RecipeStepsData } from '@/components/prep/types'
 import { toBoardRow, dotClass, fmtMin, fmtQty } from './prep-board-utils'
+import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
 
 export interface DrawerProps {
   item: PrepItemRich | null
+  detail: PrepItemDetail | null
   view: 'todo' | 'smart'
+  /** Linked recipe (steps + cost) for the embedded cook-along; null when the item has none. */
+  recipe: RecipeStepsData | null
+  recipeLoading: boolean
+  /** Make quantity from the cook-along slider (or the no-recipe qty input) — what "Done" credits. */
+  makeQty: number
+  onMakeQtyChange: (qty: number) => void
+  /** Complete the prep at makeQty (host decides DONE vs PARTIAL by the suggested rule). */
+  onComplete: (item: PrepItemRich, qty: number) => void
+  /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
+  onOpenSubRecipe: (recipeId: string, name: string) => void
   onClose: () => void
   onToggleOnList: (id: string, next: boolean) => void
   onStatusChange: (item: PrepItemRich, status: string, qty?: number) => void
@@ -15,33 +27,7 @@ export interface DrawerProps {
   onEdit: (item: PrepItemRich) => void
 }
 
-export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit }: DrawerProps) {
-  const [detail, setDetail] = useState<PrepItemDetail | null>(null)
-  const [steps, setSteps] = useState<string[]>([])
-  // doneQty !== null → the "How much did you make?" prompt is open (in-progress completion).
-  const [doneQty, setDoneQty] = useState<string | null>(null)
-
-  useEffect(() => {
-    setDetail(null); setSteps([]); setDoneQty(null)
-    if (!item) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const d = await fetch(`/api/prep/items/${item.id}`).then(r => r.ok ? r.json() : null)
-        if (!cancelled && d) setDetail(d)
-      } catch { /* ignore */ }
-      if (item.linkedRecipeId) {
-        try {
-          const r = await fetch(`/api/recipes/${item.linkedRecipeId}`).then(r => r.ok ? r.json() : null)
-          const arr: string[] = Array.isArray(r?.steps) ? r.steps.map(String)
-            : (typeof r?.notes === 'string' ? r.notes.replace(/^\s*(instructions?|method|steps)\s*:?\s*/i, '').split(/\n+|(?=\d+[.)]\s)/).map((s: string) => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean) : [])
-          if (!cancelled) setSteps(arr)
-        } catch { /* ignore */ }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [item])
-
+export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit }: DrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
@@ -58,6 +44,8 @@ export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusC
         ? `${fmtQty(r.onHand)} ${r.unit} on hand against a ${fmtQty(r.par)} par — system suggests making ${fmtQty(r.make)} ${r.unit} to cover through the next count.`
         : `At or above par (${r.pct}%). No make needed right now; the board updates as sales and wastage move stock.`)
     : ''
+
+  const complete = () => { if (item) { onComplete(item, makeQty); onClose() } }
 
   return (
     <>
@@ -101,20 +89,32 @@ export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusC
                 </div>
               </div>
 
-              {steps.length > 0 && (
+              {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}
+              {item.linkedRecipeId && (
                 <div className="dr-sec">
-                  <div className="sl">Method · {steps.length} steps</div>
-                  <div className="steps">{steps.map((s, n) => <div className="step" key={n}><span className="n">{n + 1}</span><span>{s}</span></div>)}</div>
+                  <div className="sl">Recipe &amp; method</div>
+                  <PrepRecipeSection
+                    recipe={recipe}
+                    ingredients={detail?.ingredients ?? []}
+                    loading={recipeLoading}
+                    unit={r.unit}
+                    makeQty={makeQty}
+                    onMakeQtyChange={onMakeQtyChange}
+                    onOpenSubRecipe={onOpenSubRecipe}
+                  />
                 </div>
               )}
 
-              {detail?.ingredients && detail.ingredients.length > 0 && (
+              {/* No-recipe items have no upscale slider — a plain qty input keeps the yield editable. */}
+              {!item.linkedRecipeId && view !== 'smart' && r.status !== 'done' && (
                 <div className="dr-sec">
-                  <div className="sl">Ingredients</div>
-                  <div>{detail.ingredients.map(ing => {
-                    const short = ing.isAvailable === false
-                    return <div className="ing" key={ing.id}><span>{ing.itemName}</span><span className={`iq ${short ? 'short' : ''}`}>{fmtQty(ing.qtyBase)} {ing.unit}{short ? ' · short' : ''}</span></div>
-                  })}</div>
+                  <div className="sl">Make ({r.unit})</div>
+                  <input
+                    type="number" inputMode="decimal" value={makeQty || ''}
+                    onChange={e => onMakeQtyChange(parseFloat(e.target.value) || 0)}
+                    placeholder={`e.g. ${fmtQty(r.make)}`}
+                    className="bg-paper border border-line rounded-[9px] px-3 py-2 text-[13px] font-mono outline-none focus:border-ink-3"
+                  />
                 </div>
               )}
 
@@ -126,44 +126,22 @@ export function PrepBoardDrawer({ item, view, onClose, onToggleOnList, onStatusC
               )}
             </div>
             <div className="dr-foot">
-              {view !== 'smart' && r.status === 'in-progress' && doneQty !== null ? (
-                // Yield prompt — ask how much was actually made before crediting inventory.
-                (() => {
-                  const confirm = () => { const v = parseFloat(doneQty); if (v > 0) { onStatusChange(item, 'DONE', v); onClose() } }
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-                      <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">How much did you make? ({r.unit})</label>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <input
-                          type="number" inputMode="decimal" autoFocus value={doneQty}
-                          onChange={e => setDoneQty(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') confirm() }}
-                          className="flex-1 min-w-0 bg-paper border border-line rounded-[9px] px-3 py-2 text-[13px] font-mono outline-none focus:border-ink-3"
-                        />
-                        <button className="btn btn-primary" onClick={confirm}><span className="ic">✓</span> Mark done</button>
-                      </div>
-                      <button className="font-mono text-[11px] text-ink-3 hover:text-ink self-start" onClick={() => setDoneQty(null)}>Cancel</button>
-                    </div>
-                  )
-                })()
-              ) : (
-                <>
-                  {view === 'smart'
-                    ? (r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
-                    : (r.status === 'not-started' ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
-                      : r.status === 'in-progress' ? <button className="btn btn-primary" onClick={() => setDoneQty(item.suggestedQty ? String(item.suggestedQty) : '')}><span className="ic">✓</span> Mark done</button>
+              {view === 'smart'
+                ? (r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
+                : (r.status === 'not-started'
+                    ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
+                    : r.status === 'in-progress'
+                      ? <button className="btn" style={{ background: 'var(--green)', color: '#fff', borderColor: 'var(--green)' }} title={`Add ${fmtQty(makeQty)} ${r.unit}`} onClick={complete}><span className="ic" style={{ color: '#fff' }}>✓</span> Done · {fmtQty(makeQty)} {r.unit}</button>
                       : <button className="btn" onClick={onClose}>Close</button>)}
-                  {/* Stop = abandon the in-progress prep (no qty logged) → back to the
-                      to-do list. No inventory effect (only DONE/PARTIAL credit). */}
-                  {view !== 'smart' && r.status === 'in-progress' && (
-                    <button className="btn" onClick={() => { onStatusChange(item, 'NOT_STARTED'); onClose() }}><span className="ic">↩</span> Stop prep</button>
-                  )}
-                  <button className="btn" onClick={() => onEdit(item)}>
-                    <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
-                    Edit prep settings
-                  </button>
-                </>
+              {/* Stop = abandon the in-progress prep (no qty logged) → back to the
+                  to-do list. No inventory effect (only DONE/PARTIAL credit). */}
+              {view !== 'smart' && r.status === 'in-progress' && (
+                <button className="btn" onClick={() => { onStatusChange(item, 'NOT_STARTED'); onClose() }}><span className="ic">↩</span> Stop</button>
               )}
+              <button className="btn" onClick={() => onEdit(item)}>
+                <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                Edit
+              </button>
             </div>
           </>
         )}
