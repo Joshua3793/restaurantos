@@ -20,8 +20,19 @@ export async function PATCH(
   })
   if (!existing) return NextResponse.json({ error: 'Ingredient not found' }, { status: 404 })
 
-  const promoting = inventoryItemId !== undefined || linkedRecipeId !== undefined
+  // A substitute must supply a REAL id (not an explicit null). Presence-with-null is
+  // not a substitution and must never clear the line's identity.
+  const substituteInv = inventoryItemId != null
+  const substituteLinked = linkedRecipeId != null
+  const promoting = substituteInv || substituteLinked
   const isCustomAfter = !promoting && existing.customName !== null
+
+  // Never let a PATCH leave the row kind-less: reject an attempt to blank a custom
+  // line's name when nothing is replacing it.
+  if (customName !== undefined && !promoting) {
+    const trimmed = typeof customName === 'string' ? customName.trim() : ''
+    if (!trimmed) return NextResponse.json({ error: 'customName cannot be empty' }, { status: 400 })
+  }
 
   // Validate the unit only for costed lines. Custom lines store the unit raw.
   let unitToStore: string | undefined
@@ -42,15 +53,15 @@ export async function PATCH(
       ...(notes !== undefined ? { notes } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),
-      ...(customName !== undefined ? { customName: customName || null } : {}),
+      ...(customName !== undefined && !promoting ? { customName: customName.trim() } : {}),
       // Substituting with an inventory item — clears linkedRecipeId and any customName.
-      ...(inventoryItemId !== undefined && linkedRecipeId === undefined ? { inventoryItemId, linkedRecipeId: null, customName: null } : {}),
+      ...(substituteInv && !substituteLinked ? { inventoryItemId, linkedRecipeId: null, customName: null } : {}),
       // Substituting with a linked recipe — clears inventoryItemId and any customName.
-      ...(linkedRecipeId !== undefined ? { linkedRecipeId, inventoryItemId: null, customName: null } : {}),
+      ...(substituteLinked ? { linkedRecipeId, inventoryItemId: null, customName: null } : {}),
     },
   })
 
-  const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined || linkedRecipeId !== undefined
+  const costAffecting = qtyBase !== undefined || unit !== undefined || promoting
   if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient PATCH] resync', e))
 
   return NextResponse.json({ ok: true })
