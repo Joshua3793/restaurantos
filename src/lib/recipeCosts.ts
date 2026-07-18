@@ -18,7 +18,7 @@ export interface IngredientWithCost {
   inventoryItemId: string | null
   linkedRecipeId: string | null
   ingredientName: string
-  ingredientType: 'inventory' | 'recipe'
+  ingredientType: 'inventory' | 'recipe' | 'custom'
   pricePerBaseUnit: number
   lineCost: number
   /** The base unit of the linked inventory item / recipe — used to filter compatible UOM options in the UI */
@@ -82,6 +82,7 @@ export function computeRecipeCost(
       recipePercent?: Numeric | null
       inventoryItemId: string | null
       linkedRecipeId: string | null
+      customName?: string | null
       inventoryItem: ({ itemName: string; baseUnit: string; allergens?: string[]; densityGPerMl?: unknown } & Parameters<typeof asChainItem>[0]) | null
       linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
@@ -94,7 +95,7 @@ export function computeRecipeCost(
     const qty = Number(ing.qtyBase)
     let pricePerBaseUnit = 0
     let ingredientName = 'Unknown'
-    let ingredientType: 'inventory' | 'recipe' = 'inventory'
+    let ingredientType: 'inventory' | 'recipe' | 'custom' = 'inventory'
     let lineCostQty = qty   // qty converted to the ingredient's base unit for cost maths
     let ingredientBaseUnit = ing.unit  // fallback: use current unit as base
     // True only when the recipe unit can't be costed against the ingredient's
@@ -126,6 +127,14 @@ export function computeRecipeCost(
       ingredientBaseUnit = yieldUnit
       dimensionConflict  = !dimensionallyCostable(ing.unit, yieldUnit)
       lineCostQty        = convertQty(qty, ing.unit, yieldUnit)
+    } else if (ing.customName) {
+      // Custom (uncosted) ingredient: free-text name + free-form unit, never costed.
+      ingredientName     = ing.customName
+      ingredientType     = 'custom'
+      pricePerBaseUnit   = 0
+      lineCostQty        = 0
+      ingredientBaseUnit = ing.unit
+      // dimensionConflict stays false; allergens stays []
     }
 
     return {

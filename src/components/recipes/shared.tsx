@@ -77,7 +77,7 @@ export interface IngredientWithCost {
   inventoryItemId: string | null
   linkedRecipeId: string | null
   ingredientName: string
-  ingredientType: 'inventory' | 'recipe'
+  ingredientType: 'inventory' | 'recipe' | 'custom'
   pricePerBaseUnit: number
   lineCost: number
   ingredientBaseUnit: string

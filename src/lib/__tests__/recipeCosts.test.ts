@@ -167,3 +167,30 @@ describe('linkedRecipeUnitCost', () => {
     })
   })
 })
+
+describe('computeRecipeCost — custom (uncosted) ingredients', () => {
+  it('adds a custom line at $0 and leaves it uncosted', () => {
+    const r = computeRecipeCost(recipe([
+      ing({ qtyBase: 500, unit: 'ml', inventoryItemId: 'x', inventoryItem: oilItem }),
+      ing({ id: 'i2', qtyBase: 2, unit: 'sprig', customName: 'Fresh basil garnish' }),
+    ]))
+    // total is unchanged from the single oil line (500 ml × $0.002 = $1)
+    expect(r.totalCost).toBeCloseTo(1)
+    const custom = r.ingredients.find(i => i.id === 'i2')!
+    expect(custom.ingredientType).toBe('custom')
+    expect(custom.ingredientName).toBe('Fresh basil garnish')
+    expect(custom.lineCost).toBe(0)
+    expect(custom.pricePerBaseUnit).toBe(0)
+    expect(custom.ingredientBaseUnit).toBe('sprig')
+    expect(custom.dimensionConflict).toBe(false)
+    expect(custom.allergens).toEqual([])
+  })
+
+  it('a free-form unit on a custom line never triggers a dimension conflict', () => {
+    const r = computeRecipeCost(recipe([
+      ing({ qtyBase: 1, unit: 'to taste', customName: 'Sea salt' }),
+    ]))
+    expect(r.dimensionConflicts).toBe(0)
+    expect(r.totalCost).toBe(0)
+  })
+})
