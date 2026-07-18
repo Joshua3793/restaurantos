@@ -24,6 +24,8 @@ export interface PrepLogData {
   inventoryAdjusted: boolean
   createdAt: string
   updatedAt: string
+  startedAt: string | null
+  completedAt: string | null
 }
 
 export interface PrepItemRich {
@@ -61,6 +63,12 @@ export interface PrepItemRich {
   ingredientTotalCount: number | null
   lastMadeAt: string | null
   revenueCenterId: string | null
+  activeMinutes: number | null
+  passiveMinutes: number | null
+  passiveNote: string | null
+  service: { id: string; name: string; timeMinutes: number } | null
+  startByMinutes: number | null
+  assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
 }
 
 export interface IngredientAvailability {

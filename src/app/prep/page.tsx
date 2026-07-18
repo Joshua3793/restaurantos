@@ -493,6 +493,8 @@ export default function PrepPage() {
               inventoryAdjusted: false,
               createdAt: now,
               updatedAt: now,
+              startedAt: null,
+              completedAt: null,
             },
       }
     }))

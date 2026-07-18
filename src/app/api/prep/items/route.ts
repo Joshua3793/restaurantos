@@ -6,6 +6,7 @@ import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
+import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
 
 const recipeInclude = {
   select: {
@@ -14,6 +15,9 @@ const recipeInclude = {
     yieldUnit: true,
     baseYieldQty: true,
     inventoryItemId: true,
+    activeMinutes: true,
+    passiveMinutes: true,
+    passiveNote: true,
     inventoryItem: {
       select: { id: true, stockOnHand: true, baseUnit: true },
     },
@@ -70,6 +74,9 @@ export async function GET(req: NextRequest) {
       linkedInventoryItem: {
         select: { id: true, itemName: true, stockOnHand: true, baseUnit: true },
       },
+      targetService: {
+        select: { id: true, name: true, timeMinutes: true },
+      },
       logs: {
         where: { logDate: { gte: today, lt: tomorrow } },
         take: 1,
@@ -77,6 +84,9 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { createdAt: 'asc' },
   })
+
+  const cooks = await prisma.cook.findMany({ where: { isActive: true } })
+  const cookById = new Map(cooks.map(c => [c.id, c]))
 
   const prepItemIds = items.map(i => i.id)
   const doneLogs = await prisma.prepLog.findMany({
@@ -143,6 +153,28 @@ export async function GET(req: NextRequest) {
     const priority     = computePriority(onHand, parLevel, minThreshold, targetToday, item.manualPriorityOverride)
     const suggestedQty = computeSuggestedQty(onHand, parLevel, targetToday)
 
+    // Run-sheet fields: effective active/passive time (override > linked recipe),
+    // target service, computed start-by, and the cook assigned to today's log.
+    const times = {
+      activeMinutesOverride: item.activeMinutesOverride,
+      passiveMinutesOverride: item.passiveMinutesOverride,
+      passiveNoteOverride: item.passiveNoteOverride,
+      linkedRecipe: item.linkedRecipe
+        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote }
+        : null,
+    }
+    const activeMinutes  = resolveActive(times)
+    const passiveMinutes = resolvePassive(times)
+    const passiveNote    = resolvePassiveNote(times)
+    const service = item.targetService
+      ? { id: item.targetService.id, name: item.targetService.name, timeMinutes: item.targetService.timeMinutes }
+      : null
+    const startByMin = startByMinutes(service?.timeMinutes ?? null, activeMinutes, passiveMinutes)
+    const cook = item.logs[0]?.assignedTo ? cookById.get(item.logs[0].assignedTo) : null
+    const assignedCook = cook
+      ? { id: cook.id, initials: cook.initials, name: cook.name, homeStation: cook.homeStation }
+      : null
+
     // Blocked check — any ingredient at zero stock?
     // The recipe ingredients are already resolved (with stockOnHand) via recipeInclude.
     let isBlocked   = false
@@ -198,6 +230,12 @@ export async function GET(req: NextRequest) {
       ingredientShortCount,
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
       revenueCenterId: item.revenueCenterId ?? null,
+      activeMinutes,
+      passiveMinutes,
+      passiveNote,
+      service,
+      startByMinutes: startByMin,
+      assignedCook,
       todayLog: item.logs[0] ?? null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
