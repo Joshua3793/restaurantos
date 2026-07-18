@@ -488,7 +488,9 @@ git commit -m "chore(prep): backfill prep times + seed default services"
 
 # Phase 2 — Desktop run sheet
 
-> Interim: in this phase, opening a recipe uses the **existing `RecipeViewModal`** (still present). Phase 4 replaces it with `RecipeSheet`. Start/Done reuse the existing log mutation callbacks on `/prep` (now writing timestamps via Task 4).
+> **REVISED (2026-07-18, "build on your drawer"):** The run sheet reuses the **existing fused item drawer** (`PrepDrawer` mobile / `PrepBoardDrawer` desktop + `PrepRecipeSection`) that commit `102fd12` built — it does NOT introduce a new recipe/yield surface. "Open recipe" from any run-sheet row calls the page's existing `openDrawer(item)`. Completion stays on the existing paths: the drawer's `onDrawerComplete(item, qty)` (DONE/PARTIAL by `qty ≥ suggestedQty`) and the quick-yield `PrepDoneSheet` via `setDoneSheetItem(item)`. Tasks **16 (RecipeSheet) and 17 (LogYield) are DROPPED**; Task 18 becomes a wiring/cleanup task. `RecipeViewModal` stays (it is now the sub-recipe peek). The prototype's "Start this batch writes `targetToday`" write-back is dropped — the drawer's `makeQty` slider owns batch scaling at completion time.
+>
+> **Reusable page handlers to wire against** (`src/app/prep/page.tsx`, confirmed via code map): `openDrawer(item)`, `closeDrawer()`, `onRowStatusChange(item, status, qty?)` → PUT `/api/prep/logs/:id` (creates the log first if missing; IN_PROGRESS now stamps `startedAt`, DONE stamps `completedAt` via Task 4), `handleToggleOnList(id, next)`, `handlePriorityChange(id, priority)`, `setDoneSheetItem(item)` (quick-yield sheet), `onDrawerComplete(item, qty)`. The board's row-handler contract is `{ onOpen, onOpenRecipe, onStatusChange, onQuickDone, onToggleOnList, onPriorityChange }` — the run sheet calls the same shapes. **New handler to add:** `handleClaim(item, cookId|null)` — ensure a log exists then PUT `{ assignedTo }`.
 
 ### Task 10: Run-sheet atoms, group heads, NOW line, assignee chip
 
@@ -580,7 +582,13 @@ git commit -m "feat(prep): desktop in-progress rail + crew strip"
 
 - [ ] **Step 2: Port `PTDesktop`→`RunSheet`** faithfully (status band, modes, filters, `renderLadder` time/station/priority sections, NOW line, Done). Replace prototype `api`/`tweaks`/`clock` with props: mutations via `onStart(id)`, `onClaim(id, cookId)`, `onLog(item)`, `onReopen(id)`, `onOpenRecipe(item)`; `dense`/`bold` fixed to comfortable/subtle; grouping is a real `Segmented`/pill control.
 
-- [ ] **Step 3: Wire `/prep` desktop** — in `page.tsx`, replace the desktop `<PrepBoard …>` render with `<RunSheet …>` inside the existing `hidden md:block` desktop wrapper. Add a `cooks` load (`/api/prep/cooks`) alongside the existing loads. Map the page's existing mutation helpers to `onStart` (PATCH log IN_PROGRESS), `onClaim` (PATCH log assignedTo), `onLog` (opens existing yield flow), `onReopen`, `onOpenRecipe` (opens existing `RecipeViewModal` for now). Keep Smart Prep and history panes intact.
+- [ ] **Step 3: Wire `/prep` desktop** — in `page.tsx`, render `<RunSheet …>` as the desktop **Today** surface (the `viewMode === 'today'` board render on the `hidden md:block` desktop path — study how `PrepBoard` is currently mounted and gated by `viewMode`; the run sheet replaces the *today* list only, NOT Smart Prep, which keeps its `PrepBoard`/intake rendering). Add a `cooks` load (`GET /api/prep/cooks`) alongside the existing loads (store in state; refetch is not critical — cooks change rarely). Wire the run sheet's callbacks to the **existing** page handlers (do NOT invent new endpoints except claim):
+  - `onOpenRecipe(item)` and the row/book "open" → `openDrawer(item)` (opens the existing fused drawer).
+  - `onStart(item)` → `onRowStatusChange(item, 'IN_PROGRESS')` (stamps `startedAt`).
+  - `onReopen(item)` → `onRowStatusChange(item, 'IN_PROGRESS')`.
+  - `onLog(item)` (rail/Done quick-finish) → `setDoneSheetItem(item)` (the existing `PrepDoneSheet` quick-yield prompt).
+  - `onClaim(item, cookId)` → **new** `handleClaim(item, cookId)`: reuse the log-ensure logic from `handleStatusChange` (POST `/api/prep/logs {prepItemId, revenueCenterId}` if no `todayLog`), then PUT `/api/prep/logs/:id { assignedTo: cookId }`; optimistically update local `items` so the chip reflects immediately.
+  The fused drawers (`PrepDrawer`/`PrepBoardDrawer`), `PrepDoneSheet`, `RecipeViewModal` (sub-recipe peek), Smart Prep, and history stay mounted exactly as they are.
 
 - [ ] **Step 4: Verify in browser** (preview_start the dev server; `/prep` desktop, resize ≥ md):
   - Rows are ordered by start-by; NOW line sits between overdue and upcoming.
@@ -633,7 +641,7 @@ git commit -m "feat(prep): mobile run-sheet row, rail, next-up hero"
 
 - [ ] **Step 1: Port `PTMobile`→`RunSheetMobile`** faithfully; mutations via props; default mode `station`.
 
-- [ ] **Step 2: Wire `/prep` mobile** — replace the mobile Today surface render with `<RunSheetMobile>` in the `block md:hidden` wrapper.
+- [ ] **Step 2: Wire `/prep` mobile** — replace the mobile **Today** surface render (the `block md:hidden` mobile Today list — currently `PrepTaskRowCompact` rows) with `<RunSheetMobile>`, passing the SAME wired callbacks as desktop Task 13 (`onOpenRecipe`→`openDrawer`, `onStart`→IN_PROGRESS, `onLog`→`setDoneSheetItem`, `onClaim`→`handleClaim`, `onReopen`→IN_PROGRESS) plus `cooks`, `nowMin`, `nowMs`. The mobile fused `PrepDrawer` and `PrepDoneSheet` stay mounted (they're what `openDrawer`/`setDoneSheetItem` open). Keep the mobile Smart Prep tab intact.
 
 - [ ] **Step 3: Verify in browser** (`resize_window` mobile 375×812): hero shows next-up by start-by; Start; claim-to-me; rail timer; kitchen time sections; Done reopen. Console clean; `npm run build` green.
 
@@ -645,80 +653,38 @@ git commit -m "feat(prep): mobile run sheet wired into /prep"
 
 ---
 
-# Phase 4 — Recipe sheet, yield logging, cleanup
+# Phase 4 — Reconcile & clean up (REVISED for "build on your drawer")
 
-### Task 16: `RecipeSheet` shared drawer/sheet with batch scaling
+> Tasks 16 (`RecipeSheet`) and 17 (`LogYield`) are **DROPPED** — the fused item drawer (`PrepDrawer`/`PrepBoardDrawer` + `PrepRecipeSection`) and `PrepDoneSheet` from commit `102fd12` already are the recipe + yield surfaces, and Tasks 13/15 wire the run sheet to open them. The prototype's `PTRecipe`/`PTLogBody`/batch-write-back are intentionally not ported. Phase 4 is now a single reconciliation/cleanup task.
 
-**Files:**
-- Create: `src/components/prep/runsheet/RecipeSheet.tsx`
-- Reference (data): `/api/recipes/[id]` already returns `{ ingredients:[{ingredientName,qtyBase,unit,lineCost}], allergens, totalCost, baseYieldQty, yieldUnit, steps }` (confirm `steps` is present in that response; if not, add it to the recipe GET select — grep `app/api/recipes/[id]/route.ts`).
-
-**Interfaces:**
-- Consumes: `stepFor`, `scaleRound`, `scaleQtyLabel`, `startByMinutes`, `runState`, `fmtClock`, `fmtDuration` (Task 2); `PrepItemRich` (for station/service/priority/blocked/status/times); recipe fetch.
-- Produces: `RecipeSheet({ item, nowMin, variant:'drawer'|'sheet', onClose, onStart, onLog })` — header (close/back + station tag + STOCK-OUT), title + "RECIPE WRITTEN FOR … · HANDS-ON + …", batch control (stepper + `Today/½×/1×/2×/3×` chips + ×base pill), live-scaled ingredients, method steps, "on the pass" meta (start-by/ready-for/holds/allergens), state footer. `onStart(item, scaledTarget)` and `onLog(item)`.
-
-- [ ] **Step 1: Port `PTRecipe`** from `shared.jsx`. Fetch the recipe by `item.linkedRecipeId` on open; `base = { q: baseYieldQty, u: yieldUnit }`. `target` init = `item.targetToday ?? item.suggestedQty ?? item.parLevel`. Stepper snaps to `stepFor(base.u)` and clamps ≥ one step; chips per spec; ingredients via `scaleQtyLabel(ing.qtyBase, target/base.q, ing.unit)`; heading via `scaleQtyLabel`/`scaleRound`. Allergens from the recipe response; holds/shelf-life from `item.shelfLifeDays` (render "KEEPS N DAYS" if present). Footer: blocked notice / "Mark done · log yield" (`onLog`) / "Start this batch" (`onStart(item, target)`).
-
-- [ ] **Step 2: Verify** `npm run build` green (not yet mounted).
-
-- [ ] **Step 3: Commit**
-```bash
-git add src/components/prep/runsheet/RecipeSheet.tsx
-git commit -m "feat(prep): shared recipe drawer/sheet with batch scaling"
-```
-
----
-
-### Task 17: `LogYield` modal + bottom sheet
+### Task 18: Reconcile run sheet with the fused drawer + remove now-dead Today-board code
 
 **Files:**
-- Create: `src/components/prep/runsheet/LogYield.tsx`
+- Modify: `src/app/prep/page.tsx` (finalize wiring; remove Today-board render paths the run sheet replaced)
+- Possibly delete (ONLY if grep proves zero remaining imports): whichever `src/components/prep/board/` list components were used **only** by the Today view (candidates: `PrepBlock`, `PrepRow`, `PrepLater`, `PrepSummaryLine`, and `PrepBoard`/`prep-board-utils.ts` **iff** Smart Prep no longer uses them). **KEEP** `PrepBoardDrawer`, `PrepDrawer`, `PrepRecipeSection`, `PrepDoneSheet`, `RecipeViewModal` (sub-recipe peek) — all still in use.
 
 **Interfaces:**
-- Consumes: `fmtDuration`, `minutesBetween`; `PrepItemRich`.
-- Produces: `LogYield({ item, nowMs, variant:'modal'|'sheet', onCancel, onSave })` where `onSave(actualQty:number)`. Body ported from `PTLogBody` (stepper, "meets plan ✓ / short N vs plan", station/planned/elapsed line).
+- Consumes: `RunSheet` (Task 13), `RunSheetMobile` (Task 15), the existing drawer/quick-yield handlers.
+- Produces: a `/prep` where the Today surface is the run sheet (desktop + mobile), opening the existing fused drawer for recipe/cook-along and `PrepDoneSheet` for quick yield; Smart Prep unchanged; no dead board code left behind.
 
-- [ ] **Step 1: Port `PTLogBody`** + its desktop-modal and mobile-bottom-sheet wrappers (from `desktop.jsx`/`mobile.jsx`). Step = 0.1 for kg/L else 1. Planned qty = `item.targetToday ?? item.suggestedQty`. Elapsed from `todayLog.startedAt`.
+- [ ] **Step 1: Confirm the full flow is wired** (mostly done in Tasks 13/15) — verify `onOpenRecipe`→`openDrawer`, `onStart`/`onReopen`→`onRowStatusChange(…, 'IN_PROGRESS')`, `onLog`→`setDoneSheetItem`, `onClaim`→`handleClaim` are all connected for BOTH desktop and mobile, and that `handleClaim` optimistically updates `items`.
 
-- [ ] **Step 2: Verify** `npm run build` green.
+- [ ] **Step 2: Identify dead Today-board code** — grep every `board/` component (`rg "PrepBoard\b|PrepBlock|PrepRow|PrepLater|PrepSummaryLine|prep-board-utils"` across `src`). Determine which are now referenced ONLY by the removed Today render vs. still used by Smart Prep. `PrepBoard` currently serves BOTH `viewMode==='today'` and Smart Prep — if Smart Prep still renders through it, DO NOT delete `PrepBoard`/`PrepRow`/etc.; only remove the `viewMode==='today'` branch that the run sheet superseded. Delete a file only when its import count reaches zero. **When in doubt, leave it and note it** — a slightly-larger tree is safer than a broken Smart Prep.
 
-- [ ] **Step 3: Commit**
-```bash
-git add src/components/prep/runsheet/LogYield.tsx
-git commit -m "feat(prep): yield-logging modal + bottom sheet"
-```
+- [ ] **Step 3: Remove the superseded Today render** — delete the now-unreachable `viewMode==='today'` desktop-board + mobile-compact-list JSX and any state/handlers that only fed it (but not the shared `openDrawer`/`onRowStatusChange`/`setDoneSheetItem`/`handleToggleOnList`/`handlePriorityChange`, which the run sheet and Smart Prep both use). Log what you removed vs. kept.
 
----
+- [ ] **Step 4: Verify in browser** (desktop ≥md AND mobile 375×812):
+  - `/prep` Today = the run sheet; rows ordered by start-by; NOW line placed right; Kitchen/My-Station scoping; group-by (desktop); claim; Start → in-progress rail timer advances.
+  - Open recipe from a row/book/hero → the **existing fused drawer** opens (upscale slider, ingredients, method); its "Done · add X" completes the prep (DONE/PARTIAL) and the item leaves the list.
+  - Quick-done from the rail/row → `PrepDoneSheet` prompt → logs yield.
+  - Sub-recipe peek (`RecipeViewModal`) still opens from an ingredient inside the drawer.
+  - **Smart Prep tab still works** (intake, add-to-list) — this is the key regression check for the board-code removal.
+  - `npm test` green, `npm run build` green (Today API routes `ƒ`), `read_console_messages` clean.
 
-### Task 18: Wire recipe + yield + write-back; retire old components
-
-**Files:**
-- Modify: `src/app/prep/page.tsx` (host `RecipeSheet` drawer/sheet + `LogYield`; implement `onOpenRecipe`, batch write-back, yield save)
-- Delete: `src/components/prep/RecipeViewModal.tsx` and the old `src/components/prep/board/` tree (`PrepBoard`, `PrepBlock`, `PrepRow`, `PrepLater`, `PrepBoardDrawer`, `PrepSummaryLine`, `prep-board-utils.ts`) once no imports remain.
-
-**Interfaces:**
-- Consumes: `RecipeSheet` (Task 16), `LogYield` (Task 17).
-- Produces: `/prep` opens `RecipeSheet` as a right drawer (`hidden md:block`) / full-screen sheet (`block md:hidden`); **Start this batch** writes the scaled target to `PrepItem.targetToday` (`PATCH /api/prep/items/[id]`) then starts the task; **Mark done / rail Done** opens `LogYield` → save → `PATCH log {status:DONE, actualPrepQty, completedAt}`.
-
-- [ ] **Step 1: Host the recipe view** in `page.tsx` — a single `recipeItem` state; render `<RecipeSheet variant="drawer">` inside the desktop wrapper and `variant="sheet"` inside the mobile wrapper, with the scrim + slide animations from the spec (no `backdrop-blur` on the scrim). Wire `onOpenRecipe` from both `RunSheet`/`RunSheetMobile` to set `recipeItem`.
-
-- [ ] **Step 2: Implement `onStart(item, target?)`** — when `target` is provided (from the recipe view), `PATCH /api/prep/items/[id] { targetToday: target }` first, then the existing start-log PATCH; refresh items. When called without a target (row Start), just start.
-
-- [ ] **Step 3: Implement yield** — `onLog(item)` opens `LogYield`; on save, PATCH the log to DONE with `actualPrepQty` + `completedAt`; close; refresh.
-
-- [ ] **Step 4: Remove `RecipeViewModal` + old board tree** — delete the files after grepping `rg "RecipeViewModal|board/PrepBoard|PrepBoardDrawer|PrepLater|prep-board-utils"` shows no remaining imports. If any other page imports them, stop and reconcile before deleting.
-
-- [ ] **Step 5: Verify in browser** (desktop + mobile):
-  - Open recipe from name/book/rail/hero → drawer (desktop) / sheet (mobile) slides in.
-  - Stepper + chips scale every ingredient live; ×base pill + "scaled to …" heading update.
-  - **Start this batch** with a changed target → run-sheet qty reflects the new `targetToday`, task starts, view closes.
-  - **Mark done · log yield** → `LogYield` opens, save logs the yield and moves the task to Done.
-  - `npm test` (lib still green), `npm run build` green, console clean.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 ```bash
 git add -A
-git commit -m "feat(prep): wire recipe sheet + yield + batch write-back; retire old board"
+git commit -m "feat(prep): run sheet replaces Today board; reuse fused drawer + quick-yield"
 ```
 
 ---
@@ -733,10 +699,10 @@ git commit -m "feat(prep): wire recipe sheet + yield + batch write-back; retire 
 - Start/finish timestamps + live timers → Tasks 1, 4, 12, 14. ✅
 - Desktop run sheet (status band, modes, crew strip, rail, grouped ladder, Done) → Tasks 10–13. ✅
 - Mobile run sheet (hero, queue, kitchen sections, rail) → Tasks 14–15. ✅
-- Recipe drawer/sheet + batch scaling + rounding rules → Tasks 2, 16. ✅
-- Yield logging → Task 17, 18. ✅
-- Batch write-back to `targetToday` → Task 18 Step 2. ✅
-- Smart Prep intake preserved; RC scoping preserved → Tasks 13/15 (page wiring keeps Smart Prep). ✅
+- Recipe view + batch scaling → **provided by the existing fused drawer** (`PrepRecipeSection`, commit `102fd12`), which the run sheet opens via `openDrawer` (Tasks 13/15). The prototype's separate `RecipeSheet` (Task 16) is intentionally dropped. The `prep-runsheet` scaling helpers (Task 2) remain for any future use but the drawer owns scaling. ✅ (revised)
+- Yield logging → the existing drawer completion (`onDrawerComplete`, DONE/PARTIAL) + `PrepDoneSheet` quick-yield; Task 17 `LogYield` dropped. ✅ (revised)
+- Batch write-back to `targetToday` → **dropped**; the drawer's `makeQty` slider owns batch qty at completion time. ✅ (revised)
+- Smart Prep intake preserved; RC scoping preserved → Tasks 13/15 keep Smart Prep + the drawers; Task 18 removes only dead Today-board code. ✅
 - Retire old `board/` + `RecipeViewModal` → Task 18. ✅
 - Backfill + seed → Task 9. ✅
 
