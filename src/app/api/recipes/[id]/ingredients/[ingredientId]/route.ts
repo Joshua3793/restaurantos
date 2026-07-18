@@ -10,33 +10,58 @@ export async function PATCH(
   { params }: { params: { id: string; ingredientId: string } }
 ) {
   const body = await req.json()
-  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId } = body
+  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId, customName } = body
 
-  // Validate + normalize the unit when it's being changed.
-  let canonUnit: string | undefined
+  // Load the existing row to know whether it's a custom line (free-form unit) and
+  // whether this PATCH is promoting it to a costed line.
+  const existing = await prisma.recipeIngredient.findUnique({
+    where: { id: params.ingredientId },
+    select: { customName: true },
+  })
+  if (!existing) return NextResponse.json({ error: 'Ingredient not found' }, { status: 404 })
+
+  // A substitute must supply a REAL id (not an explicit null). Presence-with-null is
+  // not a substitution and must never clear the line's identity.
+  const substituteInv = inventoryItemId != null
+  const substituteLinked = linkedRecipeId != null
+  const promoting = substituteInv || substituteLinked
+  const isCustomAfter = !promoting && existing.customName !== null
+
+  // Never let a PATCH leave the row kind-less: reject an attempt to blank a custom
+  // line's name when nothing is replacing it.
+  if (customName !== undefined && !promoting) {
+    const trimmed = typeof customName === 'string' ? customName.trim() : ''
+    if (!trimmed) return NextResponse.json({ error: 'customName cannot be empty' }, { status: 400 })
+  }
+
+  // Validate the unit only for costed lines. Custom lines store the unit raw.
+  let unitToStore: string | undefined
   if (unit !== undefined) {
-    try { canonUnit = assertKnownUnit(unit, 'ingredient unit') }
-    catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+    if (isCustomAfter) {
+      unitToStore = unit
+    } else {
+      try { unitToStore = assertKnownUnit(unit, 'ingredient unit') }
+      catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+    }
   }
 
   await prisma.recipeIngredient.update({
     where: { id: params.ingredientId },
     data: {
       ...(qtyBase !== undefined ? { qtyBase: parseFloat(qtyBase) } : {}),
-      ...(canonUnit !== undefined ? { unit: canonUnit } : {}),
+      ...(unitToStore !== undefined ? { unit: unitToStore } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),
-      // Substituting with an inventory item — clears linkedRecipeId
-      ...(inventoryItemId !== undefined && linkedRecipeId === undefined ? { inventoryItemId, linkedRecipeId: null } : {}),
-      // Substituting with a linked recipe — clears inventoryItemId
-      ...(linkedRecipeId !== undefined ? { linkedRecipeId, inventoryItemId: null } : {}),
+      ...(customName !== undefined && !promoting ? { customName: customName.trim() } : {}),
+      // Substituting with an inventory item — clears linkedRecipeId and any customName.
+      ...(substituteInv && !substituteLinked ? { inventoryItemId, linkedRecipeId: null, customName: null } : {}),
+      // Substituting with a linked recipe — clears inventoryItemId and any customName.
+      ...(substituteLinked ? { linkedRecipeId, inventoryItemId: null, customName: null } : {}),
     },
   })
 
-  // Re-sync the linked item and dependent preps. Awaited so the cascade runs before
-  // responding; caught so a rare sync hiccup doesn't fail the edit (headless endpoint repairs).
-  const costAffecting = qtyBase !== undefined || unit !== undefined || inventoryItemId !== undefined || linkedRecipeId !== undefined
+  const costAffecting = qtyBase !== undefined || unit !== undefined || promoting
   if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient PATCH] resync', e))
 
   return NextResponse.json({ ok: true })

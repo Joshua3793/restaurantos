@@ -77,7 +77,7 @@ export interface IngredientWithCost {
   inventoryItemId: string | null
   linkedRecipeId: string | null
   ingredientName: string
-  ingredientType: 'inventory' | 'recipe'
+  ingredientType: 'inventory' | 'recipe' | 'custom'
   pricePerBaseUnit: number
   lineCost: number
   ingredientBaseUnit: string
@@ -651,7 +651,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   onDelete: (ingId: string) => void
   onMoveUp: () => void
   onMoveDown: () => void
-  onSubstitute: (ingId: string, item: IngredientSearchResult) => void
+  onSubstitute: (ingId: string, item: IngredientSearchResult, fromCustom: boolean) => void
   onInventoryClick?: (inventoryItemId: string) => void
   isBase: boolean
   baseIsSet: boolean
@@ -699,7 +699,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
   const pickSubstitute = (item: IngredientSearchResult) => {
     setSubstituting(false); setSubQ(''); setSubResults([])
-    onSubstitute(ing.id, item)
+    onSubstitute(ing.id, item, ing.ingredientType === 'custom')
   }
 
   const saveQty = () => { setEditingQty(false); if (qty !== String(ing.qtyBase)) onUpdate(ing.id, { qtyBase: qty, unit }) }
@@ -724,10 +724,11 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   const needsQty = ing.ingredientType === 'inventory' && (!ing.qtyBase || ing.qtyBase === 0)
   const pctValue = isBase ? 100 : (baseIsSet ? autoPercent : (ing.recipePercent ?? null))
   const pctBarColor = isBase ? 'bg-gold' : 'bg-ink'
+  const isCustom = ing.ingredientType === 'custom'
 
   return (
     <div className={`border-t border-line ${needsQty ? 'bg-gold-soft/40' : ''}`}>
-      <div className="grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group">
+      <div className={`grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group ${isCustom ? 'italic text-ink-4' : ''}`}>
         <div className="col-span-1 flex flex-col items-center">
           <button onClick={onMoveUp} disabled={!canMoveUp} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronUp size={13} /></button>
           <button onClick={onMoveDown} disabled={!canMoveDown} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronDown size={13} /></button>
@@ -817,20 +818,37 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
         </div>
 
         <div className="col-span-2">
-          <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-            className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold">
-            {!unitInList && <option value="__custom__">{unit}</option>}
-            {compatibleGroups.map(group => (
-              <optgroup key={group.label} label={group.label}>
-                {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          {isCustom ? (
+            <input
+              value={unit}
+              onChange={e => setUnit(e.target.value)}
+              onBlur={() => { if (unit !== ing.unit) onUpdate(ing.id, { unit }) }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              placeholder="unit"
+              className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold not-italic"
+            />
+          ) : (
+            <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
+              className="w-full border border-line rounded px-1 py-0.5 font-mono text-[11px] text-ink-2 bg-paper focus:outline-none focus:ring-1 focus:ring-gold">
+              {!unitInList && <option value="__custom__">{unit}</option>}
+              {compatibleGroups.map(group => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="col-span-2 text-right font-mono text-[13px] font-medium text-ink">
-          {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
-          {formatCurrency(displayCost)}
+          {isCustom ? (
+            <span className="text-ink-4 not-italic text-[11px]">—</span>
+          ) : (
+            <>
+              {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+              {formatCurrency(displayCost)}
+            </>
+          )}
         </div>
 
         <div className="col-span-1 flex items-center justify-end gap-1">
@@ -1009,6 +1027,45 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     }
   }
 
+  const addCustomIngredient = async (rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return
+    setShowSearch(false); setSearchQ(''); setSearchResults([])
+
+    const tempId = `temp-${Date.now()}`
+    setRecipe(prev => {
+      if (!prev) return prev
+      const newIng: IngredientWithCost = {
+        id: tempId,
+        sortOrder: (prev.ingredients.at(-1)?.sortOrder ?? -1) + 1,
+        qtyBase: 0,
+        unit: '',
+        notes: null,
+        recipePercent: null,
+        inventoryItemId: null,
+        linkedRecipeId: null,
+        ingredientName: name,
+        ingredientType: 'custom',
+        pricePerBaseUnit: 0,
+        lineCost: 0,
+        ingredientBaseUnit: '',
+      }
+      return { ...prev, ingredients: [...prev.ingredients, newIng] }
+    })
+
+    const res = await fetch(`/api/recipes/${recipeId}/ingredients`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customName: name, qtyBase: 0, unit: '' }),
+    })
+    if (res.ok) {
+      const { id: realId } = await res.json()
+      setRecipe(prev => prev ? { ...prev, ingredients: prev.ingredients.map(i => i.id === tempId ? { ...i, id: realId } : i) } : prev)
+      dirtyRef.current = true
+    } else {
+      setRecipe(prev => prev ? { ...prev, ingredients: prev.ingredients.filter(i => i.id !== tempId) } : prev)
+    }
+  }
+
   const updateIngredient = useCallback(async (ingId: string, data: Record<string, unknown>) => {
     const newQtyBase = data.qtyBase !== undefined ? Number(data.qtyBase) : undefined
     const newUnit = data.unit !== undefined ? String(data.unit) : undefined
@@ -1048,7 +1105,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     if (res.ok) dirtyRef.current = true
   }, [recipeId])
 
-  const substituteIngredient = useCallback(async (ingId: string, item: IngredientSearchResult) => {
+  const substituteIngredient = useCallback(async (ingId: string, item: IngredientSearchResult, fromCustom: boolean) => {
     // Optimistic: update name/type; keep prior lineCost as placeholder until load() reconciles
     setRecipe(prev => {
       if (!prev) return prev
@@ -1062,6 +1119,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           linkedRecipeId: item.type === 'recipe' ? item.id : null,
           pricePerBaseUnit: item.pricePerBaseUnit,
           ingredientBaseUnit: item.unit,
+          unit: fromCustom ? item.unit : ing.unit,
           lineCost: ing.lineCost,
         }
       })
@@ -1069,9 +1127,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
       return { ...prev, ingredients: updatedIngredients, totalCost }
     })
 
-    const body = item.type === 'inventory'
+    const body: Record<string, unknown> = item.type === 'inventory'
       ? { inventoryItemId: item.id }
       : { linkedRecipeId: item.id }
+    // Promoting a custom line: its free-form unit (e.g. "sprig") can't cost against the
+    // real item's base unit — adopt the substituted item's unit so the line actually costs.
+    if (fromCustom) body.unit = item.unit
 
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -1520,11 +1581,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   clearTimeout(searchTimer.current)
                   searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 400)
                 }}
-                  onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
+                  onFocus={() => { if (searchResults.length > 0 || searchQ.trim()) setShowSearch(true) }}
                   placeholder="+ Add ingredient — search inventory or recipes…"
                   className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
               </div>
-              {showSearch && searchResults.length > 0 && (
+              {showSearch && searchQ.trim() && (
                 <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto">
                   {searchResults.map(item => (
                     <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
@@ -1538,6 +1599,12 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                       </span>
                     </button>
                   ))}
+                  <button onClick={() => addCustomIngredient(searchQ)}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg text-left text-sm border-t border-line">
+                    <Plus size={13} className="text-ink-4 shrink-0" />
+                    <span className="flex-1 text-ink-2">Add <span className="font-medium text-ink">&ldquo;{searchQ.trim()}&rdquo;</span> as a custom ingredient</span>
+                    <span className="text-xs text-ink-4 italic">no cost</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -1678,6 +1745,17 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
     await load(); onUpdated(); setShowSearch(false); setSearchQ(''); setSearchResults([])
   }
 
+  const addCustomIngredient = async (rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return
+    setShowSearch(false); setSearchQ(''); setSearchResults([])
+    await fetch(`/api/recipes/${linkedRecipeId}/ingredients`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customName: name, qtyBase: 0, unit: '' }),
+    })
+    await load()
+  }
+
   const updateIngredient = async (ingId: string, data: Record<string, unknown>) => {
     await fetch(`/api/recipes/${linkedRecipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     await load(); onUpdated()
@@ -1757,11 +1835,11 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                     clearTimeout(searchTimer.current)
                     searchTimer.current = setTimeout(() => { doSearch(e.target.value); setShowSearch(true) }, 400)
                   }}
-                    onFocus={() => { if (searchResults.length > 0) setShowSearch(true) }}
+                    onFocus={() => { if (searchResults.length > 0 || searchQ.trim()) setShowSearch(true) }}
                     placeholder="+ Add ingredient…"
                     className="flex-1 text-sm text-ink-2 placeholder-ink-4 outline-none bg-transparent py-1" />
                 </div>
-                {showSearch && searchResults.length > 0 && (
+                {showSearch && searchQ.trim() && (
                   <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                     {searchResults.map(item => (
                       <button key={`${item.type}-${item.id}`} onClick={() => addIngredient(item)}
@@ -1774,6 +1852,12 @@ function PrepRecipeModal({ linkedRecipeId, onClose, onUpdated }: { linkedRecipeI
                         </span>
                       </button>
                     ))}
+                    <button onClick={() => addCustomIngredient(searchQ)}
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-bg text-left text-sm border-t border-line">
+                      <Plus size={12} className="text-ink-4 shrink-0" />
+                      <span className="flex-1 text-ink-2">Add <span className="font-medium text-ink">&ldquo;{searchQ.trim()}&rdquo;</span> as a custom ingredient</span>
+                      <span className="text-xs text-ink-4 italic">no cost</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1811,9 +1895,10 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
   const compatibleGroups = baseUnitGroup ? UOM_GROUPS.filter(g => g.label === baseUnitGroup) : UOM_GROUPS
   const allKnownUnits = UOM_GROUPS.flatMap(g => g.units.map(u => u.label))
   const unitInList = allKnownUnits.includes(unit)
+  const isCustom = ing.ingredientType === 'custom'
 
   return (
-    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-line hover:bg-bg group">
+    <div className={`grid grid-cols-12 gap-2 px-4 py-2 items-center border-t border-line hover:bg-bg group ${isCustom ? 'italic text-ink-4' : ''}`}>
       <div className="col-span-5 flex items-center gap-1.5 min-w-0 flex-wrap">
         {ing.ingredientType === 'recipe'
           ? <ChefHat size={11} className="text-green shrink-0" />
@@ -1829,19 +1914,33 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
           className="w-full text-right border border-line rounded px-1 py-0.5 text-sm text-ink focus:outline-none focus:border-[#93c5fd]" />
       </div>
       <div className="col-span-2">
-        <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
-          className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
-          {!unitInList && <option value="__custom__">{unit}</option>}
-          {compatibleGroups.map(group => (
-            <optgroup key={group.label} label={group.label}>
-              {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
+        {isCustom ? (
+          <input value={unit} onChange={e => setUnit(e.target.value)}
+            onBlur={() => { if (unit !== ing.unit) onUpdate({ qtyBase: qty, unit }) }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+            placeholder="unit"
+            className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold not-italic" />
+        ) : (
+          <select value={unitInList ? unit : '__custom__'} onChange={e => { if (e.target.value !== '__custom__') saveUnit(e.target.value) }}
+            className="w-full border border-line rounded px-1 py-0.5 text-xs text-ink-2 bg-white focus:outline-none focus:ring-1 focus:ring-gold">
+            {!unitInList && <option value="__custom__">{unit}</option>}
+            {compatibleGroups.map(group => (
+              <optgroup key={group.label} label={group.label}>
+                {group.units.map(u => <option key={u.label} value={u.label}>{u.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        )}
       </div>
       <div className="col-span-2 text-right text-sm font-medium text-ink-2">
-        {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
-        {formatCurrency(ing.lineCost)}
+        {isCustom ? (
+          <span className="text-ink-4 not-italic text-xs">—</span>
+        ) : (
+          <>
+            {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
+            {formatCurrency(ing.lineCost)}
+          </>
+        )}
       </div>
       <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100">
         <button onClick={onDelete} className="text-ink-4 hover:text-red"><Trash2 size={13} /></button>
