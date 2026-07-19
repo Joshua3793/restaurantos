@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
-import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -88,15 +88,17 @@ export async function GET(req: NextRequest) {
   const cooks = await prisma.cook.findMany({ where: { isActive: true } })
   const cookById = new Map(cooks.map(c => [c.id, c]))
 
+  // Last-made per item = one aggregate row each (max logDate), not every historical
+  // DONE/PARTIAL log. The old findMany pulled the entire done-log history for all items.
   const prepItemIds = items.map(i => i.id)
-  const doneLogs = await prisma.prepLog.findMany({
+  const doneAgg = await prisma.prepLog.groupBy({
+    by: ['prepItemId'],
     where: { prepItemId: { in: prepItemIds }, status: { in: ['DONE', 'PARTIAL'] } },
-    orderBy: { logDate: 'desc' },
-    select: { prepItemId: true, logDate: true },
+    _max: { logDate: true },
   })
   const lastMadeByItem = new Map<string, string>()
-  for (const l of doneLogs) {
-    if (!lastMadeByItem.has(l.prepItemId)) lastMadeByItem.set(l.prepItemId, l.logDate.toISOString())
+  for (const g of doneAgg) {
+    if (g._max.logDate) lastMadeByItem.set(g.prepItemId, g._max.logDate.toISOString())
   }
 
   // Build theoretical stock maps grouped by revenueCenterId (batched, not per-item).
@@ -114,7 +116,7 @@ export async function GET(req: NextRequest) {
   const theoreticalMaps = new Map<string | null, Map<string, number>>()
   await Promise.all(
     Array.from(rcToInvIds.entries()).map(async ([rc, ids]) => {
-      const map = await getTheoreticalStockMap(rc, ids)
+      const map = await getTheoreticalStockMapCached(rc, ids)
       theoreticalMaps.set(rc, map)
     })
   )

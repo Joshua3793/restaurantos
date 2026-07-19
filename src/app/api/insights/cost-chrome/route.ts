@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
-import { getTheoreticalStockMap } from '@/lib/count-expected'
+import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 
@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
   // location's child RCs via allowedRcIds — otherwise on-hand leaks to global.
   const theoreticalRcId: string | null = rcId || null
   const itemIds = inventory.map(it => it.id)
-  const theoreticalMap = await getTheoreticalStockMap(
+  const theoreticalMap = await getTheoreticalStockMapCached(
     theoreticalRcId, itemIds, locRcIds ? new Set(locRcIds) : null,
   )
 

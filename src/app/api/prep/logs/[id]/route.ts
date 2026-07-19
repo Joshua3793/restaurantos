@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { validatePrepQty } from '@/lib/prep-utils'
+import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 
 const COMPLETION_STATUSES = new Set(['DONE', 'PARTIAL'])
 
@@ -66,6 +67,12 @@ export async function PUT(
       ...stamp,
     },
   })
+
+  // Completing (or reverting) a prep changes theoretical stock — buildPrepMap counts
+  // DONE/PARTIAL logs — so drop the cache when a completion is involved either way.
+  if (COMPLETION_STATUSES.has(status) || COMPLETION_STATUSES.has(existing.status)) {
+    invalidateTheoreticalCache()
+  }
 
   // Keep `isOnList` coherent with status: completing/removing clears the item from
   // today's list (frees the Smart Prep "Add" button — the prep stays in History);
