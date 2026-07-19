@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
+import { convertQty } from '@/lib/uom'
 
 /**
  * The cook-along body — upscale slider, scaled ingredient check-off, and tickable
@@ -167,10 +168,15 @@ export default function PrepRecipeSection({
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set())
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set())
 
-  // Reset the cook-along whenever the recipe changes: clear check-off state and default the
-  // making scale to ×1 (a full base batch), matching the former modal. The host owns makeQty
-  // so we push the reset up through onMakeQtyChange. Guarded by a ref so re-renders (e.g. the
-  // host echoing makeQty back) don't re-trigger the reset for the same recipe.
+  // Reset the cook-along whenever the recipe changes: clear check-off state. The host owns
+  // makeQty and seeds it with the item's suggested make (already in the item's unit), so we
+  // only seed a default here when the host left it empty — never overwrite a real suggestion.
+  //
+  // IMPORTANT: the recipe's base yield can be in a DIFFERENT unit than the prep item is
+  // stocked in (e.g. yields grams, stocked in kg). We must express one base batch in the
+  // ITEM's unit before using it as a qty — the old code seeded makeQty with the raw
+  // `baseYieldQty` number and the drawer then logged it as the item's unit, inflating the
+  // completion by the conversion factor (1000× for g↔kg) so the DONE write was rejected.
   const lastResetId = useRef<string | null>(null)
   useEffect(() => {
     if (!recipe || recipe.baseYieldQty <= 0) return
@@ -178,13 +184,16 @@ export default function PrepRecipeSection({
     lastResetId.current = recipe.id
     setCheckedIngredients(new Set())
     setDoneSteps(new Set())
-    onMakeQtyChange(recipe.baseYieldQty)
+    if (!(makeQty > 0)) onMakeQtyChange(convertQty(recipe.baseYieldQty, recipe.yieldUnit, unit))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe?.id, recipe?.baseYieldQty])
 
   if (!recipe) return null
 
-  const factor = recipe.baseYieldQty > 0 ? makeQty / recipe.baseYieldQty : 0
+  // One base batch, expressed in the prep item's unit — everything scales off this so makeQty
+  // stays in the item's unit (what the completion write expects). See the reset effect above.
+  const baseInUnit = convertQty(recipe.baseYieldQty, recipe.yieldUnit, unit)
+  const factor = baseInUnit > 0 ? makeQty / baseInUnit : 0
   const sliderValue = clamp(factor, SLIDER_MIN, SLIDER_MAX)
   const batchCost = recipe.totalCost * factor
   const costPerYield = recipe.baseYieldQty > 0 ? recipe.totalCost / recipe.baseYieldQty : 0
@@ -229,7 +238,7 @@ export default function PrepRecipeSection({
           max={SLIDER_MAX}
           step={0.25}
           value={sliderValue}
-          onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) * recipe.baseYieldQty)}
+          onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) * baseInUnit)}
           className="flex-1 accent-gold"
         />
         <div className="text-right min-w-[96px] flex-shrink-0">

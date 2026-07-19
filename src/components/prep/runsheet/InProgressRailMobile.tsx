@@ -3,7 +3,7 @@
 // Ported from mobile.jsx's MRailCard. Same data/timer math as the desktop
 // InProgressRail.tsx card, but a taller two-row layout (icon+name+qty row,
 // then elapsed/remaining + Done button row) sized for a narrow viewport.
-import { Flame } from 'lucide-react'
+import { Flame, RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
 import { IcCheck } from '@/components/prep/icons'
@@ -20,17 +20,20 @@ export function InProgressRailMobile({
   items,
   nowMs,
   onLog,
+  onStop,
   onOpenRecipe,
 }: {
   items: PrepItemRich[]
   nowMs: number
   onLog: (item: PrepItemRich) => void
+  /** Abandon an in-progress prep (no yield logged) → back onto the run sheet. */
+  onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">
       {items.map(item => (
-        <RailCardMobile key={item.id} item={item} nowMs={nowMs} onLog={onLog} onOpenRecipe={onOpenRecipe} />
+        <RailCardMobile key={item.id} item={item} nowMs={nowMs} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
       ))}
     </div>
   )
@@ -40,11 +43,13 @@ function RailCardMobile({
   item,
   nowMs,
   onLog,
+  onStop,
   onOpenRecipe,
 }: {
   item: PrepItemRich
   nowMs: number
   onLog: (item: PrepItemRich) => void
+  onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
   const startedAt = item.todayLog?.startedAt
@@ -76,12 +81,22 @@ function RailCardMobile({
             <b className="text-red-text font-semibold">over {fmtDuration(-remaining)}</b>
           )}
         </span>
-        <button
-          onClick={() => onLog(item)}
-          className="inline-flex items-center gap-1 bg-ink text-paper border-none rounded-[8px] px-[11px] py-[7px] text-[12px] font-semibold cursor-pointer shrink-0"
-        >
-          <IcCheck size={12} className="text-gold" strokeWidth={2.8} /> Done
-        </button>
+        <span className="flex items-center gap-1.5 shrink-0">
+          {/* Stop = abandon (no yield logged) → back onto the run sheet. */}
+          <button
+            onClick={() => onStop(item)}
+            title="Stop prep — back to the run sheet"
+            className="inline-flex items-center gap-1 bg-paper text-ink-2 border border-line rounded-[8px] px-2 py-[7px] text-[12px] font-semibold cursor-pointer"
+          >
+            <RotateCcw size={12} /> Stop
+          </button>
+          <button
+            onClick={() => onLog(item)}
+            className="inline-flex items-center gap-1 bg-ink text-paper border-none rounded-[8px] px-[11px] py-[7px] text-[12px] font-semibold cursor-pointer"
+          >
+            <IcCheck size={12} className="text-gold" strokeWidth={2.8} /> Done
+          </button>
+        </span>
       </div>
     </div>
   )

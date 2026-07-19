@@ -4,7 +4,7 @@
 // todayLog.status === 'IN_PROGRESS' by the parent; each shows a flame badge,
 // name + qty, a pulsing elapsed/remaining line, the assignee chip, and a
 // "Done" button that opens the log-yield flow.
-import { Flame } from 'lucide-react'
+import { Flame, RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
@@ -24,6 +24,7 @@ export function InProgressRail({
   items,
   nowMs,
   onLog,
+  onStop,
   onOpenRecipe,
 }: {
   items: PrepItemRich[]
@@ -33,12 +34,14 @@ export function InProgressRail({
   // isn't needed here — unlike RunRow, this card has no claim popover).
   cooks?: Cook[]
   onLog: (item: PrepItemRich) => void
+  /** Abandon an in-progress prep (no yield logged) → back onto the run sheet. */
+  onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
   return (
     <div className="flex gap-2.5 overflow-x-auto pb-1">
       {items.map(item => (
-        <RailCard key={item.id} item={item} nowMs={nowMs} onLog={onLog} onOpenRecipe={onOpenRecipe} />
+        <RailCard key={item.id} item={item} nowMs={nowMs} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
       ))}
     </div>
   )
@@ -48,11 +51,13 @@ function RailCard({
   item,
   nowMs,
   onLog,
+  onStop,
   onOpenRecipe,
 }: {
   item: PrepItemRich
   nowMs: number
   onLog: (item: PrepItemRich) => void
+  onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
   const startedAt = item.todayLog?.startedAt
@@ -80,6 +85,15 @@ function RailCard({
         </span>
       </span>
       <AssigneeChip cook={item.assignedCook} size="sm" />
+      {/* Stop = abandon this in-progress prep (no yield logged) → back onto the run sheet.
+          Sits beside Done so a mistakenly-started item can be backed out without the drawer. */}
+      <button
+        onClick={() => onStop(item)}
+        title="Stop prep — back to the run sheet"
+        className="inline-flex items-center gap-[5px] bg-paper text-ink-2 border border-line rounded-[9px] px-2.5 py-2 text-[12px] font-semibold cursor-pointer shrink-0 hover:border-ink-3"
+      >
+        <RotateCcw size={13} /> Stop
+      </button>
       <button
         onClick={() => onLog(item)}
         className="inline-flex items-center gap-[5px] bg-ink text-paper border-none rounded-[9px] px-3 py-2 text-[12px] font-semibold cursor-pointer shrink-0"

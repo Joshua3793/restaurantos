@@ -2,7 +2,7 @@
 // Ported from the prototype (shared.jsx: PTTag, PTNeed, PTDur, PTSegmented) and
 // the inline STOCK OUT / BLOCKED pills in desktop.jsx's DRow. Flat Tailwind
 // tokens replace the prototype's hex palette; mono via `font-mono`.
-import { Lock } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { fmtDuration, fmtClock } from '@/lib/prep-runsheet'
 
 // ─── StationTag ──────────────────────────────────────────────────────────
@@ -123,12 +123,15 @@ export function StockOutBadge() {
 }
 
 // ─── BlockedBadge ────────────────────────────────────────────────────────
-// The small lock + "BLOCKED · reason" pill (DRow: `t.blocked`).
+// Advisory low-stock pill (DRow: `t.blocked`). It flags the risk (e.g. "LOW
+// STOCK: VINEGAR APPLE CIDER") but is NOT a blocker — these items can still be
+// started — so it drops the "BLOCKED" wording and the lock icon in favour of a
+// warning triangle.
 export function BlockedBadge({ reason }: { reason: string }) {
   return (
     <span className="inline-flex items-center gap-1 font-mono text-[8.5px] font-bold tracking-[0.04em] bg-gold-soft text-gold-2 px-[7px] py-[2px] rounded-full whitespace-nowrap">
-      <Lock size={9} strokeWidth={2.4} />
-      BLOCKED · {reason.toUpperCase()}
+      <AlertTriangle size={9} strokeWidth={2.4} />
+      {reason.toUpperCase()}
     </span>
   )
 }

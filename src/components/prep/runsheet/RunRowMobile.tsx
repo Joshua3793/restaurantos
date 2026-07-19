@@ -3,7 +3,7 @@
 // Ported from mobile.jsx's MRow. Compact layout vs. the desktop RunRow.tsx
 // ladder: 44px start-by column | task (name+qty, single meta line) | assignee
 // chip (kitchen mode only) | Start/Lock action button.
-import { Lock, Zap } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
@@ -56,7 +56,7 @@ export function RunRowMobile({
   const passive = item.passiveMinutes ?? 0
 
   const metaText = blocked
-    ? `BLOCKED · ${item.blockedReason ?? 'stock'}`
+    ? (item.blockedReason ?? 'low stock')
     : [
         `${fmtDuration(active)}${passive > 0 ? ` + ${fmtDuration(passive)} ${item.passiveNote || 'rest'}` : ''}`,
         kitchen && item.station ? item.station : null,
@@ -111,18 +111,14 @@ export function RunRowMobile({
 
       {kitchen && <AssigneeChip cook={item.assignedCook} size="sm" onClick={() => onClaim(item)} />}
 
-      {blocked ? (
-        <span className="w-[34px] h-[34px] rounded-[9px] bg-bg-2 grid place-items-center shrink-0">
-          <Lock size={14} className="text-ink-4" />
-        </span>
-      ) : (
-        <button
-          onClick={() => onStart(item)}
-          className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
-        >
-          <Zap size={15} className="text-gold" />
-        </button>
-      )}
+      {/* Stock-out / blocked items are NOT gated — the meta line already flags the risk,
+          but the cook can still start (uncounted stock, or prepping toward a restock). */}
+      <button
+        onClick={() => onStart(item)}
+        className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
+      >
+        <Zap size={15} className="text-gold" />
+      </button>
     </div>
   )
 }

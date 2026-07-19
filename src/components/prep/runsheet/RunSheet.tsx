@@ -51,6 +51,7 @@ export function RunSheet({
   onStart,
   onReopen,
   onLog,
+  onStop,
   onClaim,
   onOpenRecipe,
 }: {
@@ -61,6 +62,7 @@ export function RunSheet({
   onStart: (item: PrepItemRich) => void
   onReopen: (item: PrepItemRich) => void
   onLog: (item: PrepItemRich) => void
+  onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
@@ -195,19 +197,16 @@ export function RunSheet({
 
   const donePct = items.length ? (done.length / items.length) * 100 : 0
   const doingPct = items.length ? (doing.length / items.length) * 100 : 0
-  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
 
   return (
     <div className="max-w-[1010px] mx-auto tracking-[-0.005em]">
-      {/* header */}
-      <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.02em] mb-[9px] uppercase">Today / Prep</div>
-      <div className="flex items-start justify-between gap-5 mb-4">
-        <div>
-          <h1 className="text-[32px] font-semibold tracking-[-0.04em] m-0 mb-[5px] leading-none">Prep run sheet</h1>
-          <div className="text-[13px] text-ink-3">
-            {todayLabel} · ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest time, counted back from service
-          </div>
-        </div>
+      {/* Slim control row — the page header already owns the breadcrumb, "Prep list"
+          title and date, so the run sheet drops its own duplicate chrome and keeps only
+          what's unique to it: the ordering rationale + the Kitchen / My-station toggle. */}
+      <div className="flex items-center justify-between gap-4 mb-3.5">
+        <p className="text-[12.5px] text-ink-3 tracking-[-0.005em] min-w-0">
+          Ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest, counted back from service
+        </p>
         <Segmented<Mode>
           value={mode}
           onPick={setMode}
@@ -235,7 +234,7 @@ export function RunSheet({
           <div className="flex gap-3.5 mt-[9px] font-mono text-[10px] text-ink-3">
             <span><b className="text-gold-2 font-semibold">{doing.length}</b> in progress</span>
             <span><b className={`font-semibold ${lateN ? 'text-red-text' : 'text-ink'}`}>{lateN}</b> late to start</span>
-            <span><b className="text-ink font-semibold">{blockedN}</b> blocked on stock</span>
+            <span><b className="text-ink font-semibold">{blockedN}</b> low on stock</span>
           </div>
         </div>
         <div className="shrink-0 text-right border-l border-line pl-[22px]">
@@ -309,7 +308,7 @@ export function RunSheet({
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
-          <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onLog={onLog} onOpenRecipe={onOpenRecipe} />
+          <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
         </>
       )}
 

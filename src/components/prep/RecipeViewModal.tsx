@@ -45,18 +45,31 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
   const [scale, setScale] = useState(1)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
     fetch(`/api/recipes/${recipeId}`)
-      .then(r => r.json())
-      .then((data: Recipe) => {
-        setRecipe(data)
-        // Pre-fill scale from suggested qty if available
-        if (suggestedQty && data.baseYieldQty > 0) {
-          const s = Math.max(0.5, Math.round((suggestedQty / data.baseYieldQty) * 2) / 2)
-          setScale(s)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: Recipe | null) => {
+        if (cancelled) return
+        // Only accept a well-formed recipe. When offline (or on an error response) the
+        // fetch can resolve to a truthy non-recipe body — e.g. { error: '…' } — and
+        // rendering that would throw on `recipe.ingredients.map` and white-screen the
+        // whole page. A missing `.catch()` here (fetch rejects offline) also left the
+        // promise unhandled.
+        if (data && Array.isArray(data.ingredients)) {
+          setRecipe(data)
+          // Pre-fill scale from suggested qty if available
+          if (suggestedQty && data.baseYieldQty > 0) {
+            const s = Math.max(0.5, Math.round((suggestedQty / data.baseYieldQty) * 2) / 2)
+            setScale(s)
+          }
+        } else {
+          setRecipe(null)
         }
       })
-      .finally(() => setLoading(false))
+      .catch(() => { if (!cancelled) setRecipe(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [recipeId, suggestedQty])
 
   const dec = () => setScale(s => Math.max(0.5, Math.round((s - 0.5) * 10) / 10))
@@ -193,7 +206,7 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
               )}
 
               {/* Allergens */}
-              {recipe.allergens.length > 0 && (
+              {(recipe.allergens?.length ?? 0) > 0 && (
                 <div className="px-5 py-3 border-t border-gold-soft bg-gold-soft flex items-start gap-2">
                   <AlertTriangle size={14} className="text-gold mt-0.5 shrink-0" />
                   <div>
