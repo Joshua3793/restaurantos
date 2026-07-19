@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
-import { getTheoreticalStock } from '@/lib/count-expected'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
@@ -47,13 +46,15 @@ export async function GET(
 
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // NOTE: this onHand is the cheap raw stock, NOT the authoritative theoretical value.
+  // The client already holds the theoretical onHand from the list (/api/prep/items) and
+  // the drawer displays *that* — this detail route only supplies ingredients / steps /
+  // last-made. It used to call getTheoreticalStock here, which re-scanned the entire
+  // movement history for a single item and made every drawer/recipe open take ~3-4s.
   const linkedInvId = item.linkedInventoryItem?.id ?? item.linkedRecipe?.inventoryItem?.id
   let onHand = 0
   if (linkedInvId) {
-    const theoretical = await getTheoreticalStock(linkedInvId, item.revenueCenterId)
-    if (theoretical != null) {
-      onHand = theoretical
-    } else if (item.linkedInventoryItem) {
+    if (item.linkedInventoryItem) {
       onHand = parseFloat(String(item.linkedInventoryItem.stockOnHand))
     } else if (item.linkedRecipe?.inventoryItem) {
       onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))

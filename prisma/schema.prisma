@@ -284,6 +284,9 @@ model WastageLog {
   revenueCenterId String
   inventoryItem   InventoryItem  @relation(fields: [inventoryItemId], references: [id])
   revenueCenter   RevenueCenter  @relation("WastageRC", fields: [revenueCenterId], references: [id])
+
+  // buildWastageMap filters wastage by revenueCenterId + date range.
+  @@index([revenueCenterId, date])
 }
 
 model SalesEntry {
@@ -556,6 +559,9 @@ model PrepLog {
   revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 
   @@unique([prepItemId, logDate])
+  // Theoretical-stock scans (buildPrepMap) filter DONE/PARTIAL logs by revenueCenterId
+  // + logDate range; the unique above leads with prepItemId so it can't serve that scan.
+  @@index([revenueCenterId, logDate])
 }
 
 model PrepSettings {
@@ -713,6 +719,8 @@ model StockTransfer {
 
   @@index([fromRcId])
   @@index([toRcId])
+  // buildTransferMap filters transfers by createdAt range (per RC via the rc indexes above).
+  @@index([createdAt])
   @@index([inventoryItemId])
 }
 

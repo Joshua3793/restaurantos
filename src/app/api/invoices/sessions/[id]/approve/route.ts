@@ -8,6 +8,7 @@ import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
+import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
@@ -895,9 +896,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // waitUntil keeps the Vercel function alive until doApprove finishes,
-  // even after the response has been sent to the client.
+  // even after the response has been sent to the client. Approving writes purchases
+  // (new stock), so drop the theoretical-stock cache once it lands.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  waitUntil(doApprove(params.id, approvedBy, session as any).catch(() => {}))
+  waitUntil(
+    doApprove(params.id, approvedBy, session as any)
+      .then(() => invalidateTheoreticalCache())
+      .catch(() => {}),
+  )
 
   return NextResponse.json({ ok: true, queued: true })
 }

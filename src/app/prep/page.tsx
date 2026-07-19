@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react'
 import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import {
@@ -29,13 +29,203 @@ import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
-import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
+import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown, computePriority } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
 const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
 const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
+
+interface SmartPrepCardProps {
+  item: PrepItemRich
+  menuOpen: boolean
+  setMenuFor: (id: string | null) => void
+  onSelect: (item: PrepItemRich) => void
+  onPriorityChange: (id: string, priority: string) => void
+  onToggleOnList: (id: string, next: boolean) => void
+}
+
+const SmartPrepCard = memo(function SmartPrepCard({ item, menuOpen, setMenuFor, onSelect, onPriorityChange, onToggleOnList }: SmartPrepCardProps) {
+    const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
+    const parPct = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
+    const isCritical = item.priority === '911'
+    const isNeeded = item.priority === 'NEEDED_TODAY'
+    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
+    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-green-text'
+    const suggestAccent = isCritical ? 'text-red' : isNeeded ? 'text-gold' : 'text-green'
+    const isAdded = item.isOnList
+    const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
+    const edgeColor = isCritical ? '#dc2626' : isNeeded ? '#d97706' : '#16a34a'
+    const fmtN = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
+    const makeLabel = item.suggestedQty > 0 ? `make ${fmtN(item.suggestedQty)} ${item.unit}` : 'review stock'
+
+    return (
+      <>
+      {/* Mobile — compact row; tap opens the detail drawer (priority override lives there) */}
+      <button
+        type="button"
+        onClick={() => onSelect(item)}
+        className="md:hidden w-full text-left flex items-center gap-2.5 bg-paper border border-line rounded-xl pl-2.5 pr-2 py-2 active:bg-bg-2 transition-colors"
+        style={{ borderLeftWidth: 4, borderLeftColor: edgeColor }}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-semibold tracking-[-0.01em] text-ink truncate leading-tight">{item.name}</div>
+          <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
+            {item.category} · <b className="text-ink font-medium">{fmtN(item.onHand)}/{fmtN(item.parLevel)}</b>
+            {item.priority !== 'LATER'
+              ? <span className={suggestColor}> · {makeLabel}{item.estimatedPrepTime ? ` · ~${item.estimatedPrepTime}m` : ''}</span>
+              : <span className="text-green-text"> · on par</span>}
+          </div>
+        </div>
+
+        {/* Priority chip — shows current priority, tap to override (no full-drawer trip) */}
+        {(() => {
+          const eff = item.manualPriorityOverride ?? item.priority
+          const chip = eff === '911'
+            ? { label: 'Critical', cls: 'bg-red-soft text-red-text' }
+            : eff === 'NEEDED_TODAY'
+              ? { label: 'Needed', cls: 'bg-gold-soft text-gold-2' }
+              : { label: 'On par', cls: 'bg-green-soft text-green-text' }
+          const open = menuOpen
+          return (
+            <span className="relative shrink-0">
+              <span
+                role="button"
+                tabIndex={0}
+                title="Change priority"
+                onClick={(e) => { e.stopPropagation(); setMenuFor(open ? null : item.id) }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setMenuFor(open ? null : item.id) } }}
+                className={`inline-flex items-center gap-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-1.5 py-1 rounded-full active:scale-95 ${chip.cls}`}
+              >
+                {item.manualPriorityOverride && <span className="opacity-70">✎</span>}{chip.label}
+              </span>
+              {open && (
+                <>
+                  <span className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setMenuFor(null) }} />
+                  <span className="absolute right-0 top-[calc(100%+4px)] z-50 w-36 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1 flex flex-col" role="menu">
+                    {([['911', 'Critical'], ['NEEDED_TODAY', 'Needed today'], ['LATER', 'Later']] as const).map(([p, label]) => (
+                      <span key={p} role="menuitem" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setMenuFor(null); onPriorityChange(item.id, p) }}
+                        className={`px-3 py-2 text-[12.5px] active:bg-bg-2 ${eff === p ? 'text-ink font-semibold' : 'text-ink-2'}`}>
+                        {eff === p ? '✓ ' : ''}{label}
+                      </span>
+                    ))}
+                    {item.manualPriorityOverride && (
+                      <span role="menuitem" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setMenuFor(null); onPriorityChange(item.id, '') }}
+                        className="px-3 py-2 text-[12.5px] text-ink-3 border-t border-line active:bg-bg-2">
+                        Reset to auto
+                      </span>
+                    )}
+                  </span>
+                </>
+              )}
+            </span>
+          )
+        })()}
+
+        <span
+          role="button"
+          tabIndex={0}
+          title={isAdded ? "Remove from today's list" : "Add to today's list"}
+          onClick={(e) => { e.stopPropagation(); onToggleOnList(item.id, !isAdded) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onToggleOnList(item.id, !isAdded) } }}
+          className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${isAdded ? 'bg-green-soft text-green-text' : 'bg-ink text-gold'}`}
+        >
+          {isAdded ? <Check size={16} /> : <Plus size={16} />}
+        </span>
+      </button>
+
+      {/* Desktop — full card (urgency columns) */}
+      <div className={`hidden md:flex bg-paper border ${cardBorder} rounded-[10px] p-3 sm:p-3.5 flex-col gap-2 sm:gap-2.5`}>
+        {/* Top: name + meta + Add button */}
+        <div className="flex items-start justify-between gap-2.5">
+          <button onClick={() => onSelect(item)} className="text-left min-w-0 flex-1 hover:opacity-80 transition-opacity">
+            <div className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink leading-[1.2]">{item.name}</div>
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap whitespace-nowrap">
+              <span className="font-mono text-[10.5px] text-ink-3">{item.category}</span>
+              {item.station && (
+                <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded-[4px] bg-bg-2 text-ink-2 font-medium tracking-[0.02em] uppercase">{item.station}</span>
+              )}
+              {item.manualPriorityOverride && (
+                <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>
+              )}
+            </div>
+          </button>
+          <button
+            onClick={() => onToggleOnList(item.id, !isAdded)}
+            title={isAdded ? "Remove from today's list" : "Add to today's list"}
+            className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
+              isAdded
+                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red hover:bg-red-soft hover:text-red'
+                : 'bg-ink text-paper hover:bg-ink-2'
+            }`}
+          >
+            {isAdded
+              ? <><Check size={13} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
+              : <><span className="text-gold font-semibold">+</span> Add</>}
+          </button>
+        </div>
+
+        {/* Progress */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 flex-wrap">
+            <span className="whitespace-nowrap"><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
+            <span className={`whitespace-nowrap ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}`}>{parPct}% of par</span>
+          </div>
+          <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
+            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
+          </div>
+        </div>
+
+        {/* Suggestion */}
+        {item.priority !== 'LATER' ? (
+          item.manualPriorityOverride ? (
+            <div className="font-mono text-[11.5px] text-ink-3 line-through tracking-[0]">
+              System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
+            </div>
+          ) : (
+            <div className={`font-mono text-[11.5px] tracking-[0] flex items-start gap-1.5 ${suggestColor}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0 mt-[1px]`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+              <span className="min-w-0">
+                System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
+                {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
+              </span>
+            </div>
+          )
+        ) : (
+          <div className="font-mono text-[11.5px] text-green-text tracking-[0]">At or above par — looking good</div>
+        )}
+
+        {/* Override pills */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-line">
+          <span className="font-mono text-[10px] text-ink-3 tracking-[0.02em] mr-0.5">OVERRIDE</span>
+          {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
+            const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
+            const isActive = (item.manualPriorityOverride ?? item.priority) === p
+            const activeCls = p === '911'
+              ? 'bg-red-soft text-red-text border-red-soft'
+              : p === 'NEEDED_TODAY'
+                ? 'bg-gold-soft text-gold-2 border-gold-soft'
+                : 'bg-bg-2 text-ink-2 border-bg-2'
+            return (
+              <button
+                key={p}
+                onClick={() => onPriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
+                className={`font-mono text-[10px] px-2 py-1 rounded-full border font-medium tracking-[0] transition-colors ${
+                  isActive ? activeCls : 'bg-paper text-ink-2 border-line hover:border-ink-3'
+                }`}
+              >
+                {labels[p]}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      </>
+    )
+})
 
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
@@ -148,13 +338,17 @@ export default function PrepPage() {
 
   useEffect(() => { loadTasks() }, [loadTasks])
 
+  // The linked-item picker only lives in the Tasks library on the Smart Prep tab, so
+  // defer this full inventory pull until that tab is first opened instead of paying for
+  // it on every prep-page mount.
   useEffect(() => {
+    if (viewMode !== 'smartprep' || inventoryForTasks.length > 0) return
     fetch('/api/inventory')
       .then(r => r.ok ? r.json() : [])
       .then((items: { id: string; itemName: string }[]) =>
         setInventoryForTasks(items.map(i => ({ id: i.id, itemName: i.itemName }))))
       .catch(() => {})
-  }, [])
+  }, [viewMode, inventoryForTasks.length])
 
   const taskRows: PrepTaskRow[] = useMemo(
     () => taskLibrary.map(t => ({ ...t, activeToday: taskTodayIds.has(t.id) })),
@@ -281,12 +475,14 @@ export default function PrepPage() {
   useEffect(() => {
     setIsOffline(!navigator.onLine)
     setPendingCount(loadQueue().length)
-    load()
     loadSettings()
     loadCooks()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSettings, loadCooks])
 
+  // The single source of the initial prep-items load (and the activeOnly-change reload).
+  // Deliberately NOT also called in the effect above — doing so fired a second identical
+  // ~5s /api/prep/items request on every mount.
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
@@ -664,10 +860,16 @@ export default function PrepPage() {
     mutationSeq.current++
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item
+      const override = priority || null
       return {
         ...item,
-        manualPriorityOverride: priority || null,
-        priority: (priority as PrepItemRich['priority']) || item.priority,
+        manualPriorityOverride: override,
+        // On reset-to-auto (no override) recompute the effective priority from stock
+        // client-side so the row re-sorts instantly — this used to trigger a full ~5s
+        // /api/prep/items reload just to learn the auto priority.
+        priority: override
+          ? (priority as PrepItemRich['priority'])
+          : computePriority(item.onHand, item.parLevel, item.minThreshold, item.targetToday, null),
       }
     }))
     markSaving(itemId, true)
@@ -685,7 +887,6 @@ export default function PrepPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manualPriorityOverride: priority }),
       })
-      if (!priority) load()
     } catch {
       setActionError('Priority update failed — try again.')
       load()
@@ -700,7 +901,8 @@ export default function PrepPage() {
       setItems(prev => prev.filter(i => i.id !== itemId))
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
       if (selected?.id === itemId) setSelected(null)
-      load()
+      // No reload — the optimistic filter already removed the row; a full ~5s
+      // /api/prep/items refetch here just re-rendered the list a few seconds later.
     } catch {
       setActionError('Delete failed — try again.')
       load()
@@ -888,186 +1090,6 @@ export default function PrepPage() {
   }
 
   // ── Smart Prep item card (shared across urgency/category/station views) ──
-  function SmartPrepCard({ item }: { item: PrepItemRich }) {
-    const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
-    const parPct = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
-    const isCritical = item.priority === '911'
-    const isNeeded = item.priority === 'NEEDED_TODAY'
-    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
-    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-green-text'
-    const suggestAccent = isCritical ? 'text-red' : isNeeded ? 'text-gold' : 'text-green'
-    const isAdded = item.isOnList
-    const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
-    const edgeColor = isCritical ? '#dc2626' : isNeeded ? '#d97706' : '#16a34a'
-    const fmtN = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
-    const makeLabel = item.suggestedQty > 0 ? `make ${fmtN(item.suggestedQty)} ${item.unit}` : 'review stock'
-
-    return (
-      <>
-      {/* Mobile — compact row; tap opens the detail drawer (priority override lives there) */}
-      <button
-        type="button"
-        onClick={() => setSelected(item)}
-        className="md:hidden w-full text-left flex items-center gap-2.5 bg-paper border border-line rounded-xl pl-2.5 pr-2 py-2 active:bg-bg-2 transition-colors"
-        style={{ borderLeftWidth: 4, borderLeftColor: edgeColor }}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-semibold tracking-[-0.01em] text-ink truncate leading-tight">{item.name}</div>
-          <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
-            {item.category} · <b className="text-ink font-medium">{fmtN(item.onHand)}/{fmtN(item.parLevel)}</b>
-            {item.priority !== 'LATER'
-              ? <span className={suggestColor}> · {makeLabel}{item.estimatedPrepTime ? ` · ~${item.estimatedPrepTime}m` : ''}</span>
-              : <span className="text-green-text"> · on par</span>}
-          </div>
-        </div>
-
-        {/* Priority chip — shows current priority, tap to override (no full-drawer trip) */}
-        {(() => {
-          const eff = item.manualPriorityOverride ?? item.priority
-          const chip = eff === '911'
-            ? { label: 'Critical', cls: 'bg-red-soft text-red-text' }
-            : eff === 'NEEDED_TODAY'
-              ? { label: 'Needed', cls: 'bg-gold-soft text-gold-2' }
-              : { label: 'On par', cls: 'bg-green-soft text-green-text' }
-          const open = priorityMenuFor === item.id
-          return (
-            <span className="relative shrink-0">
-              <span
-                role="button"
-                tabIndex={0}
-                title="Change priority"
-                onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(open ? null : item.id) }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setPriorityMenuFor(open ? null : item.id) } }}
-                className={`inline-flex items-center gap-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-1.5 py-1 rounded-full active:scale-95 ${chip.cls}`}
-              >
-                {item.manualPriorityOverride && <span className="opacity-70">✎</span>}{chip.label}
-              </span>
-              {open && (
-                <>
-                  <span className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(null) }} />
-                  <span className="absolute right-0 top-[calc(100%+4px)] z-50 w-36 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1 flex flex-col" role="menu">
-                    {([['911', 'Critical'], ['NEEDED_TODAY', 'Needed today'], ['LATER', 'Later']] as const).map(([p, label]) => (
-                      <span key={p} role="menuitem" tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(null); handlePriorityChange(item.id, p) }}
-                        className={`px-3 py-2 text-[12.5px] active:bg-bg-2 ${eff === p ? 'text-ink font-semibold' : 'text-ink-2'}`}>
-                        {eff === p ? '✓ ' : ''}{label}
-                      </span>
-                    ))}
-                    {item.manualPriorityOverride && (
-                      <span role="menuitem" tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setPriorityMenuFor(null); handlePriorityChange(item.id, '') }}
-                        className="px-3 py-2 text-[12.5px] text-ink-3 border-t border-line active:bg-bg-2">
-                        Reset to auto
-                      </span>
-                    )}
-                  </span>
-                </>
-              )}
-            </span>
-          )
-        })()}
-
-        <span
-          role="button"
-          tabIndex={0}
-          title={isAdded ? "Remove from today's list" : "Add to today's list"}
-          onClick={(e) => { e.stopPropagation(); handleToggleOnList(item.id, !isAdded) }}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleToggleOnList(item.id, !isAdded) } }}
-          className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${isAdded ? 'bg-green-soft text-green-text' : 'bg-ink text-gold'}`}
-        >
-          {isAdded ? <Check size={16} /> : <Plus size={16} />}
-        </span>
-      </button>
-
-      {/* Desktop — full card (urgency columns) */}
-      <div className={`hidden md:flex bg-paper border ${cardBorder} rounded-[10px] p-3 sm:p-3.5 flex-col gap-2 sm:gap-2.5`}>
-        {/* Top: name + meta + Add button */}
-        <div className="flex items-start justify-between gap-2.5">
-          <button onClick={() => setSelected(item)} className="text-left min-w-0 flex-1 hover:opacity-80 transition-opacity">
-            <div className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink leading-[1.2]">{item.name}</div>
-            <div className="flex items-center gap-1.5 mt-1 flex-wrap whitespace-nowrap">
-              <span className="font-mono text-[10.5px] text-ink-3">{item.category}</span>
-              {item.station && (
-                <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded-[4px] bg-bg-2 text-ink-2 font-medium tracking-[0.02em] uppercase">{item.station}</span>
-              )}
-              {item.manualPriorityOverride && (
-                <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => handleToggleOnList(item.id, !isAdded)}
-            title={isAdded ? "Remove from today's list" : "Add to today's list"}
-            className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
-              isAdded
-                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red hover:bg-red-soft hover:text-red'
-                : 'bg-ink text-paper hover:bg-ink-2'
-            }`}
-          >
-            {isAdded
-              ? <><Check size={13} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
-              : <><span className="text-gold font-semibold">+</span> Add</>}
-          </button>
-        </div>
-
-        {/* Progress */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 flex-wrap">
-            <span className="whitespace-nowrap"><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
-            <span className={`whitespace-nowrap ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}`}>{parPct}% of par</span>
-          </div>
-          <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
-            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
-          </div>
-        </div>
-
-        {/* Suggestion */}
-        {item.priority !== 'LATER' ? (
-          item.manualPriorityOverride ? (
-            <div className="font-mono text-[11.5px] text-ink-3 line-through tracking-[0]">
-              System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
-            </div>
-          ) : (
-            <div className={`font-mono text-[11.5px] tracking-[0] flex items-start gap-1.5 ${suggestColor}`}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0 mt-[1px]`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
-              <span className="min-w-0">
-                System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
-                {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
-              </span>
-            </div>
-          )
-        ) : (
-          <div className="font-mono text-[11.5px] text-green-text tracking-[0]">At or above par — looking good</div>
-        )}
-
-        {/* Override pills */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-line">
-          <span className="font-mono text-[10px] text-ink-3 tracking-[0.02em] mr-0.5">OVERRIDE</span>
-          {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
-            const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
-            const isActive = (item.manualPriorityOverride ?? item.priority) === p
-            const activeCls = p === '911'
-              ? 'bg-red-soft text-red-text border-red-soft'
-              : p === 'NEEDED_TODAY'
-                ? 'bg-gold-soft text-gold-2 border-gold-soft'
-                : 'bg-bg-2 text-ink-2 border-bg-2'
-            return (
-              <button
-                key={p}
-                onClick={() => handlePriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
-                className={`font-mono text-[10px] px-2 py-1 rounded-full border font-medium tracking-[0] transition-colors ${
-                  isActive ? activeCls : 'bg-paper text-ink-2 border-line hover:border-ink-3'
-                }`}
-              >
-                {labels[p]}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      </>
-    )
-  }
 
   // ── Page JSX ──────────────────────────────────────────────────────────────
 
@@ -1495,7 +1517,7 @@ export default function PrepPage() {
                           <p className="text-[13px] text-ink-3 tracking-[-0.005em]">No critical items</p>
                         </div>
                       ) : (
-                        spCritical.map(item => <SmartPrepCard key={item.id} item={item} />)
+                        spCritical.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)
                       )}
                     </div>
                   </div>
@@ -1527,7 +1549,7 @@ export default function PrepPage() {
                           </p>
                         </div>
                       ) : (
-                        spNeeded.map(item => <SmartPrepCard key={item.id} item={item} />)
+                        spNeeded.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)
                       )}
                     </div>
                   </div>
@@ -1650,7 +1672,7 @@ export default function PrepPage() {
                           )}
                         </div>
                         <div className="pt-2 pb-1 flex flex-col gap-2">
-                          {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
+                          {rows.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)}
                         </div>
                       </div>
                     )
@@ -1683,7 +1705,7 @@ export default function PrepPage() {
                           )}
                         </div>
                         <div className="pt-2 pb-1 flex flex-col gap-2">
-                          {rows.map(item => <SmartPrepCard key={item.id} item={item} />)}
+                          {rows.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)}
                         </div>
                       </div>
                     )
