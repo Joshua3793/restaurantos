@@ -1,98 +1,86 @@
 // src/lib/service-hours.ts
-// Pure helpers — no DB. Compute the next service window and prep deadline for a
-// revenue center from its weekly service schedule. Day index: 0=Mon … 6=Sun.
+// Pure helpers — no DB. Resolve the current / next service for a revenue center
+// from its configured Service rows. Minute-of-day arithmetic throughout.
+//
+// This module is the single answer every surface renders. Before it existed the
+// prep header and the run sheet each computed "the next service" their own way
+// and disagreed on screen.
 
-export type ServiceWindow = { label: string; start: string; end: string } // start/end = "HH:MM"
-export type ServiceSchedule = Record<string, ServiceWindow[]>             // keys "0".."6"
-
-/** Minimal shape this lib needs from a revenue center. */
-export interface SchedulableRc {
-  schedulingMode: string                 // "FIXED" | "ON_DEMAND"
-  prepLeadMinutes: number | null
-  serviceSchedule: ServiceSchedule | null
+/** A configured service period. Callers pass ACTIVE services only. */
+export interface RcService {
+  id: string
+  name: string
+  timeMinutes: number        // start, minute-of-day (0..1439)
+  endMinutes: number | null  // end, minute-of-day; < start ⇒ crosses midnight
 }
 
-/** Our Monday-first day index for a Date (0=Mon … 6=Sun). */
-export function dayIndex(d: Date): number {
-  return (d.getDay() + 6) % 7
+export type ServiceStatus =
+  | { kind: 'upcoming'; service: RcService; minsUntil: number; prepByMin: number | null }
+  | { kind: 'underway'; service: RcService }
+  | { kind: 'none' }
+
+const byStart = (a: RcService, b: RcService) => a.timeMinutes - b.timeMinutes
+const wrap = (min: number) => ((min % 1440) + 1440) % 1440
+
+/** Earliest service starting strictly after `nowMin`. null once all have started. */
+export function nextService(services: RcService[], nowMin: number): RcService | null {
+  return [...services].sort(byStart).find(s => s.timeMinutes > nowMin) ?? null
 }
 
-function parseHM(hm: string): { h: number; m: number } | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(hm.trim())
-  if (!match) return null
-  const h = Number(match[1]); const m = Number(match[2])
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null
-  return { h, m }
-}
-
-/** Windows for a given Monday-first day index, sorted by start time. */
-function windowsForDay(rc: SchedulableRc, idx: number): ServiceWindow[] {
-  const list = rc.serviceSchedule?.[String(idx)] ?? []
-  return [...list].sort((a, b) => a.start.localeCompare(b.start))
-}
-
-function atTime(base: Date, hm: string): Date | null {
-  const p = parseHM(hm)
-  if (!p) return null
-  const out = new Date(base)
-  out.setHours(p.h, p.m, 0, 0)
-  return out
-}
-
-/**
- * Next service window START strictly after `now`. Scans today's remaining
- * windows, then following days, wrapping up to 7 days. null for ON_DEMAND,
- * no schedule, or an entirely empty week.
- */
-export function nextServiceStart(rc: SchedulableRc, now: Date): { start: Date; label: string } | null {
-  if (rc.schedulingMode !== 'FIXED' || !rc.serviceSchedule) return null
-  for (let offset = 0; offset < 7; offset++) {
-    const day = new Date(now)
-    day.setDate(now.getDate() + offset)
-    const idx = dayIndex(day)
-    for (const w of windowsForDay(rc, idx)) {
-      const start = atTime(day, w.start)
-      if (start && start.getTime() > now.getTime()) {
-        return { start, label: w.label }
-      }
-    }
+/** Service in progress (start ≤ now < end). A service with unknown hours is never underway. */
+export function currentService(services: RcService[], nowMin: number): RcService | null {
+  for (const s of [...services].sort(byStart)) {
+    if (s.endMinutes == null) continue
+    const crossesMidnight = s.endMinutes < s.timeMinutes
+    const inWindow = crossesMidnight
+      ? nowMin >= s.timeMinutes || nowMin < s.endMinutes
+      : nowMin >= s.timeMinutes && nowMin < s.endMinutes
+    if (inWindow) return s
   }
   return null
 }
 
-/**
- * The window in progress right now (start <= now < end), if any. Windows whose
- * end <= start are treated as crossing midnight (end on the next day).
- */
-export function currentWindow(rc: SchedulableRc, now: Date): { window: ServiceWindow; end: Date } | null {
-  if (rc.schedulingMode !== 'FIXED' || !rc.serviceSchedule) return null
-  // Check today and yesterday (a window started yesterday may still be running past midnight).
-  for (let offset = -1; offset <= 0; offset++) {
-    const day = new Date(now)
-    day.setDate(now.getDate() + offset)
-    const idx = dayIndex(day)
-    for (const w of windowsForDay(rc, idx)) {
-      const start = atTime(day, w.start)
-      let end = atTime(day, w.end)
-      if (!start || !end) continue
-      if (end.getTime() <= start.getTime()) end = new Date(end.getTime() + 24 * 3_600_000)
-      if (start.getTime() <= now.getTime() && now.getTime() < end.getTime()) {
-        return { window: w, end }
-      }
-    }
-  }
-  return null
-}
-
-/** nextServiceStart minus the center's prep lead. null if no upcoming start. */
-export function prepDeadline(rc: SchedulableRc, now: Date): Date | null {
-  const next = nextServiceStart(rc, now)
+/** Coarse prep deadline: the next service's start minus the RC's lead. */
+export function prepDeadlineMinutes(
+  services: RcService[], nowMin: number, leadMinutes: number | null,
+): number | null {
+  const next = nextService(services, nowMin)
   if (!next) return null
-  const lead = rc.prepLeadMinutes ?? 0
-  return new Date(next.start.getTime() - lead * 60_000)
+  return wrap(next.timeMinutes - (leadMinutes ?? 0))
 }
 
-/** "2h 30m", "45m", "1d 2h". Clamps negatives to "0m". */
+/**
+ * The single answer every header renders.
+ *
+ * Precedence: an UPCOMING service wins over one already underway — prep cares
+ * about the next deadline, and this matches the run sheet's `nextSvc` semantics.
+ * `underway` is the fallback for the last service of the day.
+ */
+export function serviceStatus(
+  services: RcService[], nowMin: number, leadMinutes: number | null,
+): ServiceStatus {
+  const next = nextService(services, nowMin)
+  if (next) {
+    return {
+      kind: 'upcoming',
+      service: next,
+      minsUntil: next.timeMinutes - nowMin,
+      prepByMin: prepDeadlineMinutes(services, nowMin, leadMinutes),
+    }
+  }
+  const current = currentService(services, nowMin)
+  if (current) return { kind: 'underway', service: current }
+  return { kind: 'none' }
+}
+
+/** "09:00–16:00", or just the start when the end is unknown. */
+export function fmtServiceHours(s: RcService): string {
+  const hhmm = (m: number) =>
+    `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  return s.endMinutes == null ? hhmm(s.timeMinutes) : `${hhmm(s.timeMinutes)}–${hhmm(s.endMinutes)}`
+}
+
+/** "2h 30m", "45m", "1d 2h". Clamps negatives to "0m". Takes MILLISECONDS. */
 export function fmtDuration(ms: number): string {
   if (ms <= 0) return '0m'
   const totalMin = Math.floor(ms / 60_000)
@@ -102,8 +90,4 @@ export function fmtDuration(ms: number): string {
   if (d > 0) return `${d}d ${h}h`
   if (h > 0) return `${h}h ${m}m`
   return `${m}m`
-}
-
-export function fmtWindow(w: ServiceWindow): string {
-  return `${w.start}–${w.end}`
 }
