@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const body = await req.json().catch(() => ({}))
-    const { name, timeMinutes, sortOrder, isActive } = body
+    const { name, timeMinutes, endMinutes, sortOrder, isActive } = body
 
     const data: Record<string, unknown> = {}
 
@@ -35,6 +35,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const timeErr = validateTimeMinutes(timeMinutes)
       if (timeErr) return NextResponse.json({ error: timeErr }, { status: 400 })
       data.timeMinutes = timeMinutes
+    }
+
+    if (endMinutes !== undefined && endMinutes !== null) {
+      const v = Number(endMinutes)
+      if (!Number.isInteger(v) || v < 0 || v > 1439) {
+        return NextResponse.json({ error: 'endMinutes must be an integer between 0 and 1439' }, { status: 400 })
+      }
+    }
+    if (endMinutes !== undefined) {
+      data.endMinutes = endMinutes === null ? null : Number(endMinutes)
     }
 
     if (sortOrder !== undefined) {

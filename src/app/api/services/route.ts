@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     await requireSession('ADMIN')
 
     const body = await req.json().catch(() => ({}))
-    const { revenueCenterId, name, timeMinutes, sortOrder } = body
+    const { revenueCenterId, name, timeMinutes, endMinutes, sortOrder } = body
 
     if (!revenueCenterId || typeof revenueCenterId !== 'string') {
       return NextResponse.json({ error: 'revenueCenterId is required' }, { status: 400 })
@@ -52,6 +52,10 @@ export async function POST(req: NextRequest) {
     }
     const timeErr = validateTimeMinutes(timeMinutes)
     if (timeErr) return NextResponse.json({ error: timeErr }, { status: 400 })
+    if (endMinutes !== undefined && endMinutes !== null) {
+      const endErr = validateTimeMinutes(endMinutes)
+      if (endErr) return NextResponse.json({ error: endErr.replace('timeMinutes', 'endMinutes') }, { status: 400 })
+    }
 
     const rc = await prisma.revenueCenter.findUnique({ where: { id: revenueCenterId } })
     if (!rc) return NextResponse.json({ error: 'revenueCenter not found' }, { status: 400 })
@@ -61,6 +65,7 @@ export async function POST(req: NextRequest) {
         revenueCenterId,
         name: name.trim(),
         timeMinutes,
+        endMinutes: endMinutes ?? null,
         sortOrder: typeof sortOrder === 'number' && Number.isInteger(sortOrder) ? sortOrder : 0,
       },
     })

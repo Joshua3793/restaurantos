@@ -16,7 +16,16 @@ export async function GET() {
     throw e
   }
 
-  let rcs = await prisma.revenueCenter.findMany({ orderBy: { createdAt: 'asc' } })
+  let rcs = await prisma.revenueCenter.findMany({
+    orderBy: { createdAt: 'asc' },
+    include: {
+      services: {
+        where: { isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
+        select: { id: true, name: true, timeMinutes: true, endMinutes: true },
+      },
+    },
+  })
 
   if (rcs.length === 0) {
     // Bootstrap an empty DB: a RevenueCenter now requires a Location, so wrap
@@ -37,7 +46,8 @@ export async function GET() {
         data: { name: 'Main Kitchen', color: 'blue', isDefault: true, locationId: loc.id },
       })
     })
-    rcs = [defaultRc]
+    // Freshly created — no services exist for it yet.
+    rcs = [{ ...defaultRc, services: [] }]
   }
 
   const allowed = await resolveScopedRcIds(user)

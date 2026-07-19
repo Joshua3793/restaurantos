@@ -11,7 +11,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
-  const rc = await prisma.revenueCenter.findUnique({ where: { id: params.id } })
+  const rc = await prisma.revenueCenter.findUnique({
+    where: { id: params.id },
+    include: {
+      services: {
+        where: { isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
+        select: { id: true, name: true, timeMinutes: true, endMinutes: true },
+      },
+    },
+  })
   if (!rc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(rc)
 }
