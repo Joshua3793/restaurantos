@@ -3,13 +3,21 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds } from '@/lib/rc-scope'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { buildScheduleFields } from '@/lib/rc-schedule'
 import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
 const LOCATION_TYPES = ['restaurant', 'catering', 'other'] as const
+
+// prepLeadMinutes is the only scheduling field left on Location that the app
+// still writes — service type + hours now live per-RC on Service rows instead.
+function normalizePrepLead(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.round(n)
+}
 
 export async function GET() {
   let user: User
@@ -67,9 +75,7 @@ export async function POST(req: NextRequest) {
   const resolvedColor = RC_COLORS.includes(color) ? color : 'blue'
   const resolvedType  = LOCATION_TYPES.includes(type) ? type : 'restaurant'
 
-  let scheduleFields
-  try { scheduleFields = buildScheduleFields(body) }
-  catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+  const prepLeadMinutes = normalizePrepLead(body.prepLeadMinutes)
 
   const loc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
@@ -85,9 +91,7 @@ export async function POST(req: NextRequest) {
         description: description || null,
         managerName: managerName || null,
         notes:       notes || null,
-        schedulingMode:  scheduleFields.schedulingMode,
-        prepLeadMinutes: scheduleFields.prepLeadMinutes,
-        serviceSchedule: scheduleFields.serviceSchedule ?? undefined,
+        prepLeadMinutes,
       },
     })
   })

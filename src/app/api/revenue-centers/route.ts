@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { buildScheduleFields } from '@/lib/rc-schedule'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds } from '@/lib/rc-scope'
 import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 const RC_LEAF_TYPES = ['FOOD', 'DRINK'] as const
+
+// prepLeadMinutes is the only scheduling field left on RevenueCenter that the
+// app still writes — service type + hours now live on Service rows instead.
+function normalizePrepLead(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.round(n)
+}
 
 export async function GET() {
   let user: User
@@ -92,9 +100,7 @@ export async function POST(req: NextRequest) {
     resolvedTargetFoodCostPct = parseFloat(targetFoodCostPct)
   }
 
-  let scheduleFields
-  try { scheduleFields = buildScheduleFields(body) }
-  catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+  const prepLeadMinutes = normalizePrepLead(body.prepLeadMinutes)
 
   const rc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
@@ -113,9 +119,7 @@ export async function POST(req: NextRequest) {
         targetCostPct:     resolvedTargetCostPct,
         targetFoodCostPct: resolvedTargetFoodCostPct,
         notes:             notes             || null,
-        schedulingMode:  scheduleFields.schedulingMode,
-        prepLeadMinutes: scheduleFields.prepLeadMinutes,
-        serviceSchedule: scheduleFields.serviceSchedule ?? undefined,
+        prepLeadMinutes,
       },
     })
   })
