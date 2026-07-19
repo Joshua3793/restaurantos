@@ -3,7 +3,7 @@
 // Ported from desktop.jsx's DRow (+ its inline claim popover, now the shared
 // ClaimPopover atom). Grid: 64px start-by | 1fr task | auto assignee | auto action.
 import { useState } from 'react'
-import { Lock, Zap } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
@@ -121,31 +121,24 @@ export function RunRow({
         )}
       </div>
 
-      {/* action */}
-      {blocked ? (
+      {/* action — a stock-out / blocked item is NOT gated: the badge above flags the
+          risk, but the cook can still start it (they may have uncounted stock, or be
+          prepping toward a later restock). Only the label is advisory, never a blocker. */}
+      <div className="flex items-center gap-[7px]">
         <button
-          disabled
-          className="inline-flex items-center gap-1.5 bg-bg-2 text-ink-4 border border-line rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-not-allowed"
+          onClick={() => onOpenRecipe(item)}
+          title="Recipe"
+          className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-line-2 grid place-items-center cursor-pointer shrink-0 text-ink-2"
         >
-          <Lock size={12} className="text-ink-4" /> Waiting
+          <IcRecipe size={15} />
         </button>
-      ) : (
-        <div className="flex items-center gap-[7px]">
-          <button
-            onClick={() => onOpenRecipe(item)}
-            title="Recipe"
-            className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-line-2 grid place-items-center cursor-pointer shrink-0 text-ink-2"
-          >
-            <IcRecipe size={15} />
-          </button>
-          <button
-            onClick={() => onStart(item)}
-            className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer"
-          >
-            <Zap size={12} className="text-gold" /> Start
-          </button>
-        </div>
-      )}
+        <button
+          onClick={() => onStart(item)}
+          className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer"
+        >
+          <Zap size={12} className="text-gold" /> Start
+        </button>
+      </div>
     </div>
   )
 }

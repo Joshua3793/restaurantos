@@ -27,6 +27,7 @@ import PrepTaskList from '@/components/prep/PrepTaskList'
 import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
 import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
@@ -853,12 +854,17 @@ export default function PrepPage() {
   // Complete the drawer's prep at the upscale slider's yield (drawerMakeQty). Unifies the
   // former modal's "Done · add X" with the drawer's completion: qty ≥ suggested → DONE,
   // else PARTIAL (same rule as the old numeric prompt). Credits inventory + deducts ingredients.
-  const onDrawerComplete = useCallback((item: PrepItemRich, qty: number) => {
+  //
+  // NOT memoized — same trap as onRowStatusChange above: it calls handleStatusChange, which
+  // reads the current `items`. The previous useCallback([toast]) froze the FIRST-render
+  // closure (items === []), so `items.find` returned undefined and every "Done · add X"
+  // early-returned — the drawer completion silently did nothing.
+  const onDrawerComplete = (item: PrepItemRich, qty: number) => {
     if (!qty || qty <= 0) return
     const status = qty >= item.suggestedQty ? 'DONE' : 'PARTIAL'
     handleStatusChange(item.id, status, qty)
     toast(`${status === 'DONE' ? 'Done' : 'Partial'} · added ${qty} ${item.unit}`)
-  }, [toast])
+  }
 
   // Keep the open drawer's item in sync across the auto-refresh poll
   useEffect(() => {
@@ -1303,6 +1309,16 @@ export default function PrepPage() {
               />
             </div>
           )}
+          {/* Prep tasks (checklist) — desktop Today. Task 13 replaced the shared
+              PrepBoard (whose tasksSlot carried this) with RunSheet, which has no
+              task slot of its own; restore the same conditional PrepTaskList the
+              board used for the 'today' view. Rendered ABOVE the run sheet so the
+              quick checklist reads first (the board put its tasks slot at the top). */}
+          {!loading && activeTaskRows.length > 0 && (
+            <div className="mb-3.5">
+              <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+            </div>
+          )}
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : (
@@ -1315,17 +1331,9 @@ export default function PrepPage() {
               onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
               onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
               onLog={setDoneSheetItem}
+              onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
               onClaim={handleClaim}
             />
-          )}
-          {/* Prep tasks (checklist) — desktop Today. Task 13 replaced the shared
-              PrepBoard (whose tasksSlot carried this) with RunSheet, which has no
-              task slot of its own; restore the same conditional PrepTaskList the
-              board used for the 'today' view so the checklist capability isn't lost. */}
-          {!loading && activeTaskRows.length > 0 && (
-            <div className="mt-3.5">
-              <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-            </div>
           )}
         </div>
       )}
@@ -1428,6 +1436,7 @@ export default function PrepPage() {
                 onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
                 onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
                 onLog={setDoneSheetItem}
+                onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
                 onClaim={handleClaim}
               />
             </div>
@@ -1806,6 +1815,20 @@ export default function PrepPage() {
 
       {/* Fused item drawer — item context + embedded cook-along (upscale / ingredients / method). */}
       {/* Mobile Tailwind drawer; desktop rebuilt board drawer. Both open from a row tap AND the Recipe button. */}
+      {/* A crash in any drawer/recipe modal (e.g. an error-shaped response while offline)
+          must not white-screen the whole page — the boundary closes the open modals and recovers. */}
+      <ErrorBoundary
+        resetKeys={[drawerItem?.id, subRecipeView?.recipeId, doneSheetItem?.id]}
+        onError={() => { closeDrawer(); setSubRecipeView(null); setDoneSheetItem(null) }}
+        fallback={
+          <div className="fixed inset-0 z-[95] grid place-items-center bg-[rgba(9,9,11,0.6)] p-6">
+            <div className="bg-paper rounded-2xl shadow-2xl px-6 py-5 max-w-sm text-center">
+              <p className="text-sm text-ink-2 mb-3">Something went wrong opening that item. It has been closed — please try again.</p>
+              <button className="bg-ink text-white px-4 py-2 rounded-lg text-sm font-medium" onClick={() => { closeDrawer(); setSubRecipeView(null); setDoneSheetItem(null) }}>Dismiss</button>
+            </div>
+          </div>
+        }
+      >
       <div className="md:hidden">
         <PrepDrawer
           item={drawerItem}
@@ -1863,6 +1886,7 @@ export default function PrepPage() {
           />
         </div>
       )}
+      </ErrorBoundary>
       {toastNode}
 
       {showAdd && (

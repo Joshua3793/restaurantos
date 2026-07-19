@@ -44,6 +44,7 @@ export function RunSheetMobile({
   onStart,
   onReopen,
   onLog,
+  onStop,
   onClaim,
   onOpenRecipe,
 }: {
@@ -54,6 +55,7 @@ export function RunSheetMobile({
   onStart: (item: PrepItemRich) => void
   onReopen: (item: PrepItemRich) => void
   onLog: (item: PrepItemRich) => void
+  onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
@@ -154,17 +156,13 @@ export function RunSheetMobile({
     )
   }
 
-  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()
-
   return (
     <div className="tracking-[-0.005em]">
-      {/* header */}
-      <div className="pt-1.5 pb-3">
-        <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 mb-1.5">
-          {todayLabel} · NOW {fmtClock(nowMin)}
-          {nextSvc ? ` · ${nextSvc.name} IN ${fmtDuration(nextSvc.timeMinutes - nowMin)}` : ''}
-        </div>
-        <h1 className="m-0 text-[28px] font-semibold tracking-[-0.035em] leading-none">Prep list</h1>
+      {/* The mobile page header already owns the "Prep List" title + date, so the run
+          sheet drops its duplicate title and keeps only its unique live timing line. */}
+      <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 pt-0.5 pb-2.5">
+        NOW {fmtClock(nowMin)}
+        {nextSvc ? ` · ${nextSvc.name} IN ${fmtDuration(nextSvc.timeMinutes - nowMin)}` : ''}
       </div>
 
       <Segmented<Mode>
@@ -204,7 +202,7 @@ export function RunSheetMobile({
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
           {/* full-bleed horizontal scroll rail */}
           <div className="-mx-4 px-4">
-            <InProgressRailMobile items={doing} nowMs={nowMs} onLog={onLog} onOpenRecipe={onOpenRecipe} />
+            <InProgressRailMobile items={doing} nowMs={nowMs} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
           </div>
         </>
       )}

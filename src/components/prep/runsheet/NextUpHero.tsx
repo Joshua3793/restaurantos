@@ -3,7 +3,7 @@
 // Ported from mobile.jsx's MHero. Dark full-width card leading the station
 // queue: start-by countdown, name, make/hands-on/ready-for line, then either
 // a gold Start-now button or a BLOCKED notice, plus a Recipe/scale-batch link.
-import { Lock, Zap, BookOpen } from 'lucide-react'
+import { AlertTriangle, Zap, BookOpen } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import { fmtClock, fmtDuration, runState } from '@/lib/prep-runsheet'
 
@@ -68,18 +68,19 @@ export function NextUpHero({
         {item.service ? ` · ready for ${item.service.name} ${fmtClock(item.service.timeMinutes)}` : ''}
       </div>
 
-      {blocked ? (
+      {/* Low-stock is advisory, not a blocker — surface the warning but still let the
+          cook start (they may have uncounted stock, or be prepping toward a restock). */}
+      {blocked && (
         <div className="flex items-center gap-2 bg-[#18181b] rounded-[10px] px-[13px] py-[11px] mt-3 font-mono text-[10.5px] text-gold">
-          <Lock size={13} className="text-gold" /> BLOCKED · {item.blockedReason ?? 'stock'}
+          <AlertTriangle size={13} className="text-gold" /> {item.blockedReason ?? 'Low stock'}
         </div>
-      ) : (
-        <button
-          onClick={() => onStart(item)}
-          className="flex items-center justify-center gap-2 w-full bg-gold text-ink border-none rounded-[11px] py-[13px] mt-[13px] text-[15px] font-semibold tracking-[-0.01em] cursor-pointer"
-        >
-          <Zap size={15} className="text-ink" /> Start now
-        </button>
       )}
+      <button
+        onClick={() => onStart(item)}
+        className="flex items-center justify-center gap-2 w-full bg-gold text-ink border-none rounded-[11px] py-[13px] mt-[13px] text-[15px] font-semibold tracking-[-0.01em] cursor-pointer"
+      >
+        <Zap size={15} className="text-ink" /> Start now
+      </button>
 
       <button
         onClick={() => onOpenRecipe(item)}
