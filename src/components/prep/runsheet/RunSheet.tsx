@@ -37,8 +37,7 @@ function minuteOfDay(iso: string): number {
 }
 
 // PARTIAL is a reachable resolved state (onDrawerComplete sets it when the logged
-// qty falls short of suggestedQty) — mirrors groupPrepItems' isDone in prep-utils.ts,
-// which already treats DONE/PARTIAL as done-equivalent.
+// qty falls short of suggestedQty) — treat DONE/PARTIAL as done-equivalent everywhere.
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)

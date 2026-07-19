@@ -1,10 +1,12 @@
 'use client'
 /**
  * PrepDoneSheet — lightweight mobile bottom sheet that captures the actual yield
- * when a chef marks an in-progress prep done straight from the compact row. It is
+ * when a chef marks an in-progress prep done without opening the full drawer. It is
  * the one-tap shortcut for the drawer's "How much did you make?" prompt: opening it
  * pre-fills the suggested qty (editable, Enter submits) and confirming logs DONE.
- * Rendered only while an item is set; triggered from PrepTaskRowCompact's "Mark done".
+ * Rendered only while an item is set; triggered from the run sheet's in-progress
+ * rail "Log" button (desktop InProgressRail / mobile InProgressRailMobile) and
+ * Smart Prep's PrepBoard quick-done action.
  */
 import { useEffect, useState } from 'react'
 import { IcCheck, IcX } from '@/components/prep/icons'

@@ -29,8 +29,8 @@ function fmtQty(q: number, u: string): string {
   return `${v} ${u}`
 }
 
-// PARTIAL is a reachable resolved state (mirrors groupPrepItems' isDone in
-// prep-utils.ts) — do NOT treat it as todo.
+// PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
+// treat it as todo.
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)

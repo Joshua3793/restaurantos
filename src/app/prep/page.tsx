@@ -1416,8 +1416,8 @@ export default function PrepPage() {
               <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
             </div>
           ) : (
-            /* Mobile run sheet — replaces the old PrepTaskRowCompact prep-item
-               ladder. Same wired callbacks as the desktop RunSheet (Task 13). */
+            /* Mobile run sheet — the Today surface (hero, in-progress rail, queue).
+               Same wired callbacks as the desktop RunSheet (Task 13). */
             <div className="pb-24 sm:pb-0">
               <RunSheetMobile
                 items={todayItems}
