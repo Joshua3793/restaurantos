@@ -201,7 +201,7 @@ export function RunSheetMobile({
       {/* in-progress rail */}
       {doing.length > 0 && (
         <>
-          <GroupHead dot="bg-gold" title="On the stove" count={doing.length} sub="tap done to log yield" />
+          <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
           {/* full-bleed horizontal scroll rail */}
           <div className="-mx-4 px-4">
             <InProgressRailMobile items={doing} nowMs={nowMs} onLog={onLog} onOpenRecipe={onOpenRecipe} />

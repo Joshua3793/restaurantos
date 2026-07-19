@@ -308,7 +308,7 @@ export function RunSheet({
       {/* in-progress rail */}
       {doing.length > 0 && (
         <>
-          <GroupHead dot="bg-gold" title="On the stove" count={doing.length} sub="parallel timers — mark done to log yield" />
+          <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
           <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onLog={onLog} onOpenRecipe={onOpenRecipe} />
         </>
       )}
