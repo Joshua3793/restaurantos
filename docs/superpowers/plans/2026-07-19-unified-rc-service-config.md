@@ -660,6 +660,21 @@ include: {
 ```
 If the call already uses a `select`, add `services: { … }` inside that `select` instead — `select` and `include` cannot be combined.
 
+- [ ] **Step 3b: Carry `services` through the RC context**
+
+`src/contexts/RevenueCenterContext.tsx` is how every page gets `activeRc`, so Task 5's `activeRc.services` only works if the context's type carries it. It currently imports the now-deleted `ServiceSchedule` type (line 3) and will not type-check until this is fixed.
+
+In `src/contexts/RevenueCenterContext.tsx`:
+- Delete the `import type { ServiceSchedule } from '@/lib/service-hours'` line entirely.
+- In the exported `RevenueCenter` interface, **remove** `schedulingMode` and `serviceSchedule`, **keep** `prepLeadMinutes`, and **add**:
+
+```ts
+  /** Active services for this RC, ascending by start. Empty ⇒ on-demand. */
+  services: { id: string; name: string; timeMinutes: number; endMinutes: number | null }[]
+```
+
+Leave every other field and all the context's behavior untouched.
+
 - [ ] **Step 4: Verify the API returns services**
 
 Start the dev server (`preview_start`, or `npm run dev`), then:
@@ -749,6 +764,16 @@ const prepBy = useMemo(() => {
   }
 }, [svcStatus, activeRc, nowMin])
 ```
+
+- [ ] **Step 1b: Retire `buildPrepCountdown` from `src/lib/prep-utils.ts`**
+
+`prep-utils.ts` still imports the deleted legacy helpers and will not type-check until this is done.
+
+- Delete line 1 entirely: `import { nextServiceStart, prepDeadline, type SchedulableRc } from './service-hours'`
+- Delete the whole `buildPrepCountdown` function (it starts at `export function buildPrepCountdown(rc: SchedulableRc | ...`) — the prep page now builds `countdown` itself from `serviceStatus`.
+- **KEEP** `export interface PrepCountdown { serviceLabel: string; minsToService: number; startByHHMM: string }` — `PrepShiftBand.tsx` and `PrepDrawer.tsx` both import that type and are not otherwise changed by this task.
+
+Leave the rest of `prep-utils.ts` untouched.
 
 - [ ] **Step 2: `/pass`**
 
