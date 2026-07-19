@@ -22,7 +22,18 @@ export async function GET() {
 
   const locations = await prisma.location.findMany({
     orderBy: { createdAt: 'asc' },
-    include: { revenueCenters: { orderBy: { createdAt: 'asc' } } },
+    include: {
+      revenueCenters: {
+        orderBy: { createdAt: 'asc' },
+        include: {
+          services: {
+            where: { isActive: true },
+            orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
+            select: { id: true, name: true, timeMinutes: true, endMinutes: true },
+          },
+        },
+      },
+    },
   })
 
   const filtered = allowed === null

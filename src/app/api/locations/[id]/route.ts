@@ -18,7 +18,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const loc = await prisma.location.findUnique({
     where: { id: params.id },
-    include: { revenueCenters: true },
+    include: {
+      revenueCenters: {
+        include: {
+          services: {
+            where: { isActive: true },
+            orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
+            select: { id: true, name: true, timeMinutes: true, endMinutes: true },
+          },
+        },
+      },
+    },
   })
   if (!loc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(loc)
