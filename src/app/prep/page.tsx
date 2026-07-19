@@ -638,16 +638,18 @@ export default function PrepPage() {
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
 
   // The single service-status answer — same source the run sheet uses, so the header
-  // and run sheet can no longer disagree about what's next.
+  // and run sheet can no longer disagree about what's next. Null when no RC is active
+  // ("All"/Location scope) — that's "unknown", NOT "on-demand" (svcStatus.kind === 'none'
+  // means "this RC has no services", which only applies to an actual RC).
   const svcStatus = useMemo(
-    () => serviceStatus((activeRc?.services ?? []) as RcService[], nowMin, activeRc?.prepLeadMinutes ?? null),
+    () => activeRc ? serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null) : null,
     [activeRc, nowMin],
   )
 
   // Prep countdown (minutes-to-service + start-by clock) derived from svcStatus.
   // Consumed by PrepShiftBand + PrepDrawer; null unless a service is upcoming.
   const countdown = useMemo(() => {
-    if (svcStatus.kind !== 'upcoming') return null
+    if (!svcStatus || svcStatus.kind !== 'upcoming') return null
     const m = svcStatus.prepByMin
     return {
       serviceLabel: fmtDuration(svcStatus.minsUntil * 60_000),
@@ -656,10 +658,12 @@ export default function PrepPage() {
     }
   }, [svcStatus])
 
-  // Compact prep-deadline label for the mobile header subtitle.
+  // Compact prep-deadline label for the mobile header subtitle. No active RC → render
+  // nothing (not "on-demand" — that's only true once we actually know the RC's schedule).
   const prepBy = useMemo(() => {
+    if (!activeRc || !svcStatus) return null
     if (svcStatus.kind === 'none') {
-      const lead = activeRc?.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
+      const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
       return { onDemand: true as const, time: null, left: null, lead }
     }
     if (svcStatus.kind !== 'upcoming' || svcStatus.prepByMin == null) return null
@@ -672,6 +676,19 @@ export default function PrepPage() {
       lead: null,
     }
   }, [svcStatus, activeRc, nowMin])
+
+  // Desktop header's service clause — computed once so the JSX doesn't need to
+  // guard `activeRc`/`svcStatus` null-ness inline (mirrors /pass's `serviceClause`).
+  const svcHeaderNode = useMemo<React.ReactNode>(() => {
+    if (!svcStatus) return null
+    if (svcStatus.kind === 'upcoming') {
+      return <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service in <b className="text-ink font-medium">{fmtDuration(svcStatus.minsUntil * 60_000)}</b></>
+    }
+    if (svcStatus.kind === 'underway') {
+      return <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service underway</>
+    }
+    return <> · on-demand</>
+  }, [svcStatus])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
   // Keep detail panel in sync with live data
@@ -1253,13 +1270,7 @@ export default function PrepPage() {
             <h1 className="text-[34px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              {svcStatus.kind === 'upcoming' && (
-                <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service in <b className="text-ink font-medium">{fmtDuration(svcStatus.minsUntil * 60_000)}</b></>
-              )}
-              {svcStatus.kind === 'underway' && (
-                <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service underway</>
-              )}
-              {svcStatus.kind === 'none' && <> · on-demand</>}
+              {svcHeaderNode}
             </p>
           </div>
 

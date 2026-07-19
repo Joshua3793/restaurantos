@@ -254,22 +254,28 @@ export default function PreshiftPage() {
 
   const now = new Date()
   const nowMin = now.getHours() * 60 + now.getMinutes()
-  const status = serviceStatus((activeRc?.services ?? []) as RcService[], nowMin, activeRc?.prepLeadMinutes ?? null)
+  // Null when no RC is active ("All"/Location scope) — that's "unknown", not "on-demand".
+  // svcStatus.kind === 'none' only means something (no service window) once we actually
+  // have a concrete RC's schedule to read.
+  const status = activeRc ? serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null) : null
   // MProgress's badge is `{countdown}{countdownLabel ? ' · ' + countdownLabel : ''}` — it only
-  // renders when `countdown` is truthy, so `underway` needs a non-null countdown too or the
-  // badge silently disappears and preshift stops agreeing with prep/pass that a service is on.
+  // renders when `countdown` is truthy, so both `underway` and the on-demand `none` state need
+  // a non-null countdown too, or the badge silently disappears (and preshift stops agreeing
+  // with prep/pass, which both render something for every state an active RC can be in).
   const serviceCountdown =
-    status.kind === 'upcoming' ? fmtDuration(status.minsUntil * 60_000)
+    !status ? null
+    : status.kind === 'upcoming' ? fmtDuration(status.minsUntil * 60_000)
     : status.kind === 'underway' ? 'underway'
-    : null
+    : 'on-demand'
   const countdownLabel =
-    status.kind === 'upcoming' ? `to ${status.service.name}`
+    !status ? null
+    : status.kind === 'upcoming' ? `to ${status.service.name}`
     : status.kind === 'underway' ? status.service.name
     : null
   // Desktop ProgressBand (below) wants the bare service name + in-service flag
   // separately — it builds its own "to {name}" / "{name}" caption.
-  const serviceName = status.kind === 'upcoming' || status.kind === 'underway' ? status.service.name : null
-  const isInServiceNow = status.kind === 'underway'
+  const serviceName = status && (status.kind === 'upcoming' || status.kind === 'underway') ? status.service.name : null
+  const isInServiceNow = status?.kind === 'underway'
 
   return (
     <>
@@ -495,18 +501,23 @@ function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountd
         </div>
       </div>
 
-      <div className="shrink-0 text-right border-l border-line pl-6">
-        <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">
-          {serviceCountdown ?? 'No window'}
+      {/* serviceCountdown is null only when there's no active RC (All/Location scope) —
+          render nothing rather than a misleading "on-demand"/"No window" placeholder.
+          'on-demand' is itself a real value here (RC active, no service window). */}
+      {serviceCountdown && (
+        <div className="shrink-0 text-right border-l border-line pl-6">
+          <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">
+            {serviceCountdown}
+          </div>
+          <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">
+            {serviceCountdown === 'on-demand'
+              ? 'no fixed service'
+              : isInService
+                ? serviceLabel ?? 'in service'
+                : serviceLabel ? `to ${serviceLabel}` : 'to service'}
+          </div>
         </div>
-        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">
-          {serviceCountdown == null
-            ? 'no fixed service'
-            : isInService
-              ? serviceLabel ?? 'in service'
-              : serviceLabel ? `to ${serviceLabel}` : 'to service'}
-        </div>
-      </div>
+      )}
     </div>
   )
 }
