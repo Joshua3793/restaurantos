@@ -59,8 +59,7 @@ async function main() {
     for (const svc of rc.services) {
       if (svc.endMinutes != null) continue
       const byName = windows.find(w => w.name.toLowerCase() === svc.name.toLowerCase() && w.end != null)
-      const byStart = windows.filter(w => w.end != null)
-        .sort((a, b) => Math.abs(a.start - svc.timeMinutes) - Math.abs(b.start - svc.timeMinutes))[0]
+      const byStart = windows.find(w => w.start === svc.timeMinutes && w.end != null)
       const match = byName ?? byStart
       if (!match?.end) { console.log(`  ! ${svc.name}: no window to source hours from — set it in the RC editor`); continue }
       await prisma.service.update({ where: { id: svc.id }, data: { endMinutes: match.end } })
