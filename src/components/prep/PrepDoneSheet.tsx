@@ -1,10 +1,12 @@
 'use client'
 /**
  * PrepDoneSheet — lightweight mobile bottom sheet that captures the actual yield
- * when a chef marks an in-progress prep done straight from the compact row. It is
+ * when a chef marks an in-progress prep done without opening the full drawer. It is
  * the one-tap shortcut for the drawer's "How much did you make?" prompt: opening it
  * pre-fills the suggested qty (editable, Enter submits) and confirming logs DONE.
- * Rendered only while an item is set; triggered from PrepTaskRowCompact's "Mark done".
+ * Rendered only while an item is set; triggered from the run sheet's in-progress
+ * rail "Log" button (desktop InProgressRail / mobile InProgressRailMobile) and
+ * Smart Prep's PrepBoard quick-done action.
  */
 import { useEffect, useState } from 'react'
 import { IcCheck, IcX } from '@/components/prep/icons'
@@ -48,7 +50,7 @@ export default function PrepDoneSheet({ item, onClose, onConfirm }: Props) {
           over the large prep page (which has a continuously-spinning in-progress loader
           and an always-mounted nav backdrop-filter behind it) forces the browser to
           re-blur the whole page every frame — that froze the app on weaker laptops.
-          See the same fix in RecipeCookAlongModal. A dim overlay is GPU-cheap. */}
+          The prep drawers apply the same fix. A dim overlay is GPU-cheap. */}
       <div onClick={onClose} className="fixed inset-0 z-40 bg-[rgba(9,9,11,0.6)]" aria-hidden="true" />
       <div
         role="dialog"

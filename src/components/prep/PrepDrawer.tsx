@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import {
   IcX,
   IcCheck,
@@ -8,20 +8,27 @@ import {
   IcUndo,
   IcAlert,
   IcClock,
-  IcChevron,
-  IcSync,
 } from '@/components/prep/icons'
-import { PrepItemRich, PrepItemDetail, PrepStatus } from '@/components/prep/types'
+import { PrepItemRich, PrepItemDetail, PrepStatus, RecipeStepsData } from '@/components/prep/types'
 import { PREP_STATE_META, formatShortAge, PrepCountdown } from '@/lib/prep-utils'
+import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 
 interface PrepDrawerProps {
   item: PrepItemRich | null
   detail: PrepItemDetail | null
   countdown: PrepCountdown | null
-  recipeCost: number | null
+  /** Linked recipe (steps + cost) for the embedded cook-along; null when the item has none. */
+  recipe: RecipeStepsData | null
+  recipeLoading: boolean
+  /** Make quantity from the cook-along slider (or the no-recipe qty input) — what "Done" credits. */
+  makeQty: number
+  onMakeQtyChange: (qty: number) => void
   onClose: () => void
   onStatusChange: (item: PrepItemRich, status: PrepStatus, actualQty?: number) => void
-  onOpenRecipe: (item: PrepItemRich) => void
+  /** Complete the prep at makeQty (host decides DONE vs PARTIAL by the suggested rule). */
+  onComplete: (item: PrepItemRich, qty: number) => void
+  /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
+  onOpenSubRecipe: (recipeId: string, name: string) => void
   /** Remove from today's list → back to Smart Prep (isOnList=false). No log written. */
   onRemove: (item: PrepItemRich) => void
 }
@@ -130,18 +137,16 @@ export default function PrepDrawer({
   item,
   detail,
   countdown,
-  recipeCost,
+  recipe,
+  recipeLoading,
+  makeQty,
+  onMakeQtyChange,
   onClose,
   onStatusChange,
-  onOpenRecipe,
+  onComplete,
+  onOpenSubRecipe,
   onRemove,
 }: PrepDrawerProps) {
-  const [showPartial, setShowPartial] = useState(false)
-  const [partialValue, setPartialValue] = useState('')
-  // doneMode = the qty prompt was opened by "Mark done" (pre-filled w/ suggested, always completes as DONE).
-  // Otherwise it's the "Log partial" path (DONE only if qty ≥ suggested, else PARTIAL).
-  const [doneMode, setDoneMode] = useState(false)
-
   const open = item !== null
 
   // Escape closes the drawer.
@@ -154,13 +159,6 @@ export default function PrepDrawer({
     return () => document.removeEventListener('keydown', handle)
   }, [open, onClose])
 
-  // Reset the partial-qty input whenever the drawer's item changes / closes.
-  useEffect(() => {
-    setShowPartial(false)
-    setPartialValue('')
-    setDoneMode(false)
-  }, [item?.id])
-
   const status: PrepStatus = item?.todayLog?.status ?? 'NOT_STARTED'
   const stateKey = PREP_STATE_META[status].key as StateKey
 
@@ -171,15 +169,12 @@ export default function PrepDrawer({
     item?.ingredientTotalCount ??
     0
 
-  const logQty = () => {
+  const complete = () => {
     if (!item) return
-    const v = parseFloat(partialValue)
-    if (!v || v <= 0) return
-    if (doneMode || v >= item.suggestedQty) onStatusChange(item, 'DONE', v)
-    else onStatusChange(item, 'PARTIAL', v)
-    setShowPartial(false)
-    setDoneMode(false)
+    onComplete(item, makeQty)
+    onClose()
   }
+  const doneLabel = `Done · add ${fmt(makeQty)} ${item?.unit ?? ''}`
 
   return (
     <>
@@ -188,7 +183,7 @@ export default function PrepDrawer({
         onClick={onClose}
         // Plain dim overlay — NO backdrop-blur. A full-viewport `backdrop-filter: blur()`
         // re-blurs the entire animating prep page every frame and stacks over the nav's
-        // own backdrop-filter, which froze the app on weaker laptops (see RecipeCookAlongModal).
+        // own backdrop-filter, which froze the app on weaker laptops (see PrepDoneSheet).
         className={`fixed inset-0 z-40 bg-[rgba(9,9,11,0.6)] transition-opacity ${
           open ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
@@ -240,10 +235,10 @@ export default function PrepDrawer({
             {/* IMPACT STRIP */}
             <div className="bg-ink text-paper px-[22px] py-[11px] flex items-center gap-5">
               <StatItem label="Make" value={`${fmt(item.suggestedQty)} ${item.unit}`} />
-              {recipeCost != null && (
+              {recipe && recipe.totalCost > 0 && (
                 <>
                   <Divider />
-                  <StatItem label="Product value" value={`$${recipeCost.toFixed(2)}`} />
+                  <StatItem label="Batch value" value={`$${recipe.totalCost.toFixed(2)}`} />
                 </>
               )}
               <Divider />
@@ -259,7 +254,7 @@ export default function PrepDrawer({
                 <span>
                   <b className="text-ink font-semibold">Stock changed since scheduling.</b>{' '}
                   {shortCount} of {totalCount} ingredients are now out — order stock or start with
-                  what's on hand.
+                  what&apos;s on hand.
                 </span>
               </div>
             )}
@@ -281,100 +276,21 @@ export default function PrepDrawer({
                 </div>
               </div>
 
-              {/* Recipe & method */}
+              {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}
               {item.linkedRecipeId && (
                 <div className="mb-[22px]">
                   <SecLabel>Recipe &amp; method</SecLabel>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onOpenRecipe(item)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onOpenRecipe(item)
-                      }
-                    }}
-                    className="flex items-center gap-3 bg-paper border border-line rounded-xl px-4 py-[13px] cursor-pointer hover:border-ink-3"
-                  >
-                    <span className="w-[34px] h-[34px] rounded-[9px] bg-ink text-gold grid place-items-center shrink-0">
-                      <IcSync size={16} />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13.5px] font-semibold tracking-[-0.01em] truncate">
-                        {item.linkedRecipe?.name ?? item.name}
-                      </div>
-                      <div className="font-mono text-[11px] text-ink-3 mt-[3px]">
-                        Base yield {item.linkedRecipe?.baseYieldQty ?? '—'}{' '}
-                        {item.linkedRecipe?.yieldUnit ?? ''} · tap to cook along
-                      </div>
-                    </div>
-                    <span className="text-[12.5px] font-semibold text-gold-2 inline-flex items-center gap-[5px] shrink-0">
-                      Open recipe
-                      <IcChevron size={14} />
-                    </span>
-                  </div>
+                  <PrepRecipeSection
+                    recipe={recipe}
+                    ingredients={detail?.ingredients ?? []}
+                    loading={recipeLoading}
+                    unit={item.unit}
+                    makeQty={makeQty}
+                    onMakeQtyChange={onMakeQtyChange}
+                    onOpenSubRecipe={onOpenSubRecipe}
+                  />
                 </div>
               )}
-
-              {/* Ingredients */}
-              <div className="mb-[22px]">
-                <SecLabel right={`${shortCount} short`}>Ingredients</SecLabel>
-                {detail == null ? (
-                  <div className="font-mono text-[11px] text-ink-3">Loading ingredients…</div>
-                ) : (
-                  <>
-                    <div className="bg-[#fff7ed] border border-[#fed7aa] rounded-[10px] px-3.5 py-2.5 flex items-center gap-3">
-                      <div className="flex gap-[3px] flex-wrap max-w-[104px]">
-                        {detail.ingredients.map((ing) => (
-                          <span
-                            key={ing.id}
-                            className={`w-2 h-2 rounded-[2px] ${ing.isAvailable ? 'bg-green' : 'bg-red'}`}
-                          />
-                        ))}
-                      </div>
-                      <div className="text-[12px] text-[#9a3412] leading-[1.35]">
-                        <b className="font-semibold text-ink">
-                          {shortCount} of {totalCount} ingredients out of stock.
-                        </b>
-                      </div>
-                    </div>
-
-                    <div className="bg-paper border border-line rounded-xl px-3.5 py-2 mt-3">
-                      {detail.ingredients.map((ing) => (
-                        <div
-                          key={ing.id}
-                          className="flex items-center gap-2.5 py-2 text-[13px] border-b border-bg-2 last:border-0"
-                        >
-                          <span
-                            className={`w-[18px] h-[18px] rounded-[5px] grid place-items-center shrink-0 ${
-                              ing.isAvailable
-                                ? 'bg-green-soft text-green-text'
-                                : 'bg-red-soft text-red-text'
-                            }`}
-                          >
-                            {ing.isAvailable ? <IcCheck size={12} /> : <IcX size={12} />}
-                          </span>
-                          <span className="flex-1 text-ink-2 font-medium min-w-0 truncate">
-                            {ing.itemName}
-                          </span>
-                          {!ing.isAvailable && (
-                            <span className="font-mono text-[9.5px] text-red-text bg-red-soft px-1.5 rounded">
-                              out
-                            </span>
-                          )}
-                          <span className="font-mono text-[12.5px] font-semibold shrink-0">
-                            {fmt(Number(ing.qtyBase))}
-                            <span className="text-ink-3 font-normal text-[10.5px] ml-0.5">
-                              {ing.unit}
-                            </span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
 
               {/* Stock context */}
               <div className="mb-[22px]">
@@ -394,42 +310,23 @@ export default function PrepDrawer({
 
             {/* FOOTER */}
             <div className="bg-paper border-t border-line px-[22px] py-3.5 flex flex-col gap-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)' }}>
-              {showPartial && (
+              {/* No-recipe items have no upscale slider — expose a plain qty input so the
+                  yield credited by "Done" is still editable. Recipe items use the slider. */}
+              {!item.linkedRecipeId && stateKey !== 'done' && stateKey !== 'skipped' && (
                 <div className="flex flex-col gap-[7px]">
-                  <label className="font-mono text-[10px] uppercase text-ink-3">
-                    {doneMode ? 'How much did you make' : 'Actual qty made'} ({item.unit})
-                  </label>
-                  <div className="flex gap-[7px]">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      autoFocus
-                      value={partialValue}
-                      onChange={(e) => setPartialValue(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') logQty() }}
-                      placeholder="e.g. 6.5"
-                      className="flex-1 min-w-0 border border-line-2 rounded-[9px] px-3 py-2.5 text-sm font-mono outline-none focus:border-ink-3"
-                    />
-                    <button
-                      type="button"
-                      onClick={logQty}
-                      className="bg-green text-white px-4 rounded-[9px] text-[13px] font-semibold whitespace-nowrap"
-                    >
-                      {doneMode ? 'Mark done' : 'Log'}
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setShowPartial(false); setDoneMode(false) }}
-                    className="self-start font-mono text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Cancel
-                  </button>
+                  <label className="font-mono text-[10px] uppercase text-ink-3">Make ({item.unit})</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={makeQty || ''}
+                    onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) || 0)}
+                    placeholder={`e.g. ${fmt(item.suggestedQty)}`}
+                    className="w-full border border-line-2 rounded-[9px] px-3 py-2.5 text-sm font-mono outline-none focus:border-ink-3"
+                  />
                 </div>
               )}
 
-              {/* primary actions hidden while the qty prompt is open */}
-              {!showPartial && stateKey === 'not-started' && (
+              {stateKey === 'not-started' && (
                 <>
                   <button
                     type="button"
@@ -441,10 +338,11 @@ export default function PrepDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setDoneMode(false); setPartialValue(''); setShowPartial(true) }}
-                    className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
+                    onClick={complete}
+                    className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
                   >
-                    Log partial
+                    <IcCheck size={16} />
+                    {doneLabel}
                   </button>
                   <button
                     type="button"
@@ -456,22 +354,15 @@ export default function PrepDrawer({
                 </>
               )}
 
-              {!showPartial && stateKey === 'in-progress' && (
+              {stateKey === 'in-progress' && (
                 <>
                   <button
                     type="button"
-                    onClick={() => { setDoneMode(true); setPartialValue(item.suggestedQty ? String(item.suggestedQty) : ''); setShowPartial(true) }}
+                    onClick={complete}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
                   >
                     <IcCheck size={16} />
-                    Mark done
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setDoneMode(false); setPartialValue(''); setShowPartial(true) }}
-                    className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-paper border border-line text-ink-2"
-                  >
-                    Log partial
+                    {doneLabel}
                   </button>
                   {/* Stop = abandon the in-progress prep without logging any qty (back to the
                       to-do list, still on it). Remove = take it off today's list → Smart Prep. */}
@@ -495,7 +386,7 @@ export default function PrepDrawer({
                 </>
               )}
 
-              {!showPartial && stateKey === 'done' && (
+              {stateKey === 'done' && (
                 <button
                   type="button"
                   onClick={() => onStatusChange(item, 'NOT_STARTED')}
@@ -506,7 +397,7 @@ export default function PrepDrawer({
                 </button>
               )}
 
-              {!showPartial && stateKey === 'skipped' && (
+              {stateKey === 'skipped' && (
                 <button
                   type="button"
                   onClick={() => onStatusChange(item, 'NOT_STARTED')}

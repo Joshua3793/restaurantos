@@ -195,31 +195,6 @@ export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlo
   return { total: items.length, done, inProgress, resolved, critical, blocked, onPar }
 }
 
-/** Split on-list items into the design's groups.
- * Completed items (today's log DONE/PARTIAL) are pulled out of the actionable
- * groups into `done` — they show in the "Done today" section, not on the list. */
-export function groupPrepItems<
-  T extends { priority: PrepPriority; todayLog?: { status?: string | null } | null }
->(items: T[]): { critical: T[]; needed: T[]; later: T[]; done: T[] } {
-  // Pin started (IN_PROGRESS) items to the top of each actionable group — mirrors
-  // the desktop board's startedFirst sort so mobile and desktop agree. Stable:
-  // non-started items keep their existing order.
-  const startedFirst = (rows: T[]) =>
-    [...rows].sort(
-      (a, b) =>
-        (a.todayLog?.status === 'IN_PROGRESS' ? 0 : 1) -
-        (b.todayLog?.status === 'IN_PROGRESS' ? 0 : 1),
-    )
-  const isDone = (i: T) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-  const actionable = items.filter(i => !isDone(i))
-  return {
-    critical: startedFirst(actionable.filter(i => i.priority === '911')),
-    needed:   startedFirst(actionable.filter(i => i.priority === 'NEEDED_TODAY')),
-    later:    actionable.filter(i => i.priority === 'LATER'),
-    done:     items.filter(isDone),
-  }
-}
-
 // ── Service-time countdown (bridges the RC session's service-hours helpers) ──
 
 /** View-model the prep header/band/rows consume for the service countdown. */

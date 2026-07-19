@@ -42,6 +42,18 @@ export async function PUT(
     }
   }
 
+  // Stamp start/completion on status transitions so the run sheet's live
+  // in-progress timers work. IN_PROGRESS sets startedAt once (never overwrites
+  // an existing start); an explicit completedAt:null in the same request clears
+  // completedAt (the "reopen" case). DONE stamps completedAt.
+  const now = new Date()
+  const stamp: { startedAt?: Date; completedAt?: Date | null } = {}
+  if (status === 'IN_PROGRESS') {
+    stamp.startedAt = existing.startedAt ?? now
+    if (body.completedAt === null) stamp.completedAt = null
+  }
+  if (status === 'DONE') stamp.completedAt = now
+
   const log = await prisma.prepLog.update({
     where: { id: params.id },
     data: {
@@ -51,6 +63,7 @@ export async function PUT(
       ...(dueTime       !== undefined && { dueTime }),
       ...(note          !== undefined && { note }),
       ...(blockedReason !== undefined && { blockedReason }),
+      ...stamp,
     },
   })
 

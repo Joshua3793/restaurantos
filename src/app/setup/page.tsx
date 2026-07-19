@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import {
-  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck,
+  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, Clock, ChefHat,
 } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -16,6 +16,8 @@ interface Card {
 const cards: Card[] = [
   { href: '/setup/suppliers',       label: 'Suppliers',        icon: Truck,    description: 'Vendor directory, price history, contact info.',                  built: true },
   { href: '/setup/revenue-centers', label: 'Revenue centers',  icon: Building2,description: 'Profit centers, allocations, food-cost targets.',                 built: true },
+  { href: '/setup/services',        label: 'Services',         icon: Clock,    description: 'When each service is ready — drives the prep run sheet.',        built: true },
+  { href: '/setup/kitchen-crew',    label: 'Kitchen crew',     icon: ChefHat,  description: 'Cooks & stations for the prep run sheet.',                        built: true },
   { href: '/setup/storage-areas',   label: 'Storage areas',    icon: MapPin,   description: 'Walk-ins, dry storage, bar. Drives count routing.',               built: true },
   { href: '/setup/categories',      label: 'Categories',       icon: Tag,      description: 'Inventory and recipe categories, accent colors.',                 built: true },
   { href: '/setup/users',           label: 'Users & roles',    icon: Users,    description: 'Invite teammates; ADMIN / MANAGER / STAFF.',                      built: true },

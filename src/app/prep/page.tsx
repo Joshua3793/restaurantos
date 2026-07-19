@@ -17,17 +17,18 @@ import './prep-board.css'
 import { PrepBoard } from '@/components/prep/board/PrepBoard'
 import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
-import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
+import { RunSheet } from '@/components/prep/runsheet/RunSheet'
+import { RunSheetMobile } from '@/components/prep/runsheet/RunSheetMobile'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import type { Cook } from '@/components/prep/runsheet/assignee'
 import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
 import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
 import PrepTaskList from '@/components/prep/PrepTaskList'
 import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
-import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
-import RecipeCookAlongModal from '@/components/prep/RecipeCookAlongModal'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { usePrepToast } from '@/components/prep/PrepToast'
-import { computeShiftSummary, groupPrepItems, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
+import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
@@ -39,6 +40,7 @@ export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc, activeRcId, activeKind, activeLocationId, isReadOnly } = useRc()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
+  const [cooks,        setCooks]        = useState<Cook[]>([])
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
   const [selected,     setSelected]     = useState<PrepItemRich | null>(null)
@@ -65,13 +67,21 @@ export default function PrepPage() {
   // Quick yield prompt from the compact row's "Mark done" (no full drawer).
   const [doneSheetItem, setDoneSheetItem] = useState<PrepItemRich | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
-  const [recipeModal, setRecipeModal] = useState<{ sourceItemId: string; recipe: RecipeStepsData; ings: IngredientAvailability[]; makeQty: number; unit: string; loading: boolean } | null>(null)
-  // Cache fetched cook-along data per prep item so reopening a recipe is instant.
+  // The fused drawer's cook-along data (steps + cost, fetched alongside the prep detail).
+  const [drawerRecipe, setDrawerRecipe] = useState<RecipeStepsData | null>(null)
+  const [drawerRecipeLoading, setDrawerRecipeLoading] = useState(false)
+  // Make quantity from the drawer's upscale slider — the single source of the yield that
+  // "Done · add X" credits. PrepRecipeSection resets it to the base batch on recipe load.
+  const [drawerMakeQty, setDrawerMakeQty] = useState(0)
+  // Cache fetched cook-along data per prep item so reopening the drawer is instant.
   const recipeCache = useRef<Map<string, { recipe: RecipeStepsData; ings: IngredientAvailability[] }>>(new Map())
   // Sub-recipe peek (e.g. opening "Custard" linked inside French Toast)
   const [subRecipeView, setSubRecipeView] = useState<{ recipeId: string; name: string } | null>(null)
   const [subRecipeChecked, setSubRecipeChecked] = useState<Set<string>>(new Set())
   const [alertDismissed, setAlertDismissed] = useState(false)
+
+  // Live Pacific-local clock for the desktop run sheet (start-by math + rail timers).
+  const { nowMs, nowMin } = useNowMinute()
 
   // View state
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
@@ -255,13 +265,26 @@ export default function PrepPage() {
     }
   }, [stations, filterStation])
 
+  // Kitchen crew for the run sheet's claim popover / crew strip. Cooks change
+  // rarely, so a one-shot load on mount is enough (no polling).
+  const loadCooks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/prep/cooks')
+      if (res.ok) {
+        const data = await res.json()
+        setCooks(Array.isArray(data) ? data : [])
+      }
+    } catch { /* silent degradation — run sheet still renders without cooks */ }
+  }, [])
+
   useEffect(() => {
     setIsOffline(!navigator.onLine)
     setPendingCount(loadQueue().length)
     load()
     loadSettings()
+    loadCooks()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadSettings])
+  }, [loadSettings, loadCooks])
 
   useEffect(() => { load() }, [load])
 
@@ -416,7 +439,6 @@ export default function PrepPage() {
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
-  const todayGroups = useMemo(() => groupPrepItems(filteredToday), [filteredToday])
   const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
   // Compact prep-deadline label for the mobile header subtitle (replaces the old full-width banner).
   const prepBy = useMemo(() => {
@@ -493,6 +515,8 @@ export default function PrepPage() {
               inventoryAdjusted: false,
               createdAt: now,
               updatedAt: now,
+              startedAt: null,
+              completedAt: null,
             },
       }
     }))
@@ -543,6 +567,93 @@ export default function PrepPage() {
       if (opChains.current.get(itemId) === runOp) {
         opChains.current.delete(itemId)
         markSaving(itemId, false)
+      }
+    })
+    return runOp
+  }
+
+  // Assign (or unassign) a cook to a prep item from the run sheet's claim popover.
+  // Mirrors handleStatusChange's log-ensure + per-item op chaining: create the day's
+  // PrepLog if there isn't one yet, then PUT the assignment. The assignee chip
+  // updates optimistically off the local `cooks` roster.
+  async function handleClaim(item: PrepItemRich, cookId: string | null) {
+    // Assigning writes a PrepLog (a stock-scoped row) — needs a concrete RC.
+    if (!item.revenueCenterId && !activeRcId) {
+      setActionError('Select a revenue center (not "All") to assign a cook.')
+      return
+    }
+    mutationSeq.current++
+
+    const c = cookId ? cooks.find(x => x.id === cookId) ?? null : null
+    const assignedCook = c ? { id: c.id, initials: c.initials, name: c.name, homeStation: c.homeStation } : null
+    // Mirror handleStatusChange's log-seed: without a todayLog to patch, the
+    // post-POST id patch-back below (`i.todayLog ? ... : i`) is a no-op, so an
+    // item with no prior log never mirrors its new log id locally and re-POSTs
+    // on every subsequent claim/status change until the next poll.
+    const now = new Date().toISOString()
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i
+      const existingLog = i.todayLog
+      return {
+        ...i,
+        assignedCook,
+        todayLog: existingLog
+          ? { ...existingLog, assignedTo: cookId }
+          : {
+              id: `_opt_${item.id}`,
+              prepItemId: item.id,
+              logDate: now.split('T')[0],
+              status: 'NOT_STARTED',
+              requiredQty: null,
+              actualPrepQty: null,
+              assignedTo: cookId,
+              dueTime: null,
+              note: null,
+              blockedReason: null,
+              inventoryAdjusted: false,
+              createdAt: now,
+              updatedAt: now,
+              startedAt: null,
+              completedAt: null,
+            },
+      }
+    }))
+    markSaving(item.id, true)
+
+    if (!navigator.onLine) {
+      // Claims aren't part of the offline mutation queue — best-effort online only.
+      markSaving(item.id, false)
+      return
+    }
+
+    const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        let logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId }),
+          }).then(r => r.json())
+          logId = log.id
+          setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
+        }
+        await fetch(`/api/prep/logs/${logId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignedTo: cookId }),
+        })
+      } catch {
+        setActionError('Assign failed — try again.')
+        load()
+      }
+    })
+    opChains.current.set(item.id, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(item.id) === runOp) {
+        opChains.current.delete(item.id)
+        markSaving(item.id, false)
       }
     })
     return runOp
@@ -664,42 +775,36 @@ export default function PrepPage() {
 
   // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
 
-  // Drawer open: set item, fetch its detail (ingredients + counts)
+  // Drawer open: set the item, then fetch BOTH its prep detail (ingredients + counts) and
+  // its linked recipe (steps + cost) so the embedded cook-along has everything. Header +
+  // stock paint instantly from the item; the recipe section shows skeletons until this lands.
+  // Reuses recipeCache for instant paint on reopen (still refetches to catch availability/cost drift).
   const openDrawer = useCallback(async (item: PrepItemRich) => {
     setDrawerItem(item)
     setDrawerDetail(null)
-    try {
-      const res = await fetch(`/api/prep/items/${item.id}`)
-      if (res.ok) setDrawerDetail(await res.json())
-    } catch { /* leave detail null → drawer shows loading */ }
-  }, [])
+    setDrawerMakeQty(item.suggestedQty)
 
-  const closeDrawer = useCallback(() => { setDrawerItem(null); setDrawerDetail(null) }, [])
+    if (!item.linkedRecipeId) {
+      setDrawerRecipe(null)
+      setDrawerRecipeLoading(false)
+      try {
+        const res = await fetch(`/api/prep/items/${item.id}`)
+        if (res.ok) setDrawerDetail(await res.json())
+      } catch { /* leave detail null → drawer shows loading */ }
+      return
+    }
 
-  // Recipe cook-along: needs steps+cost (from recipe) and ingredient availability (from prep detail)
-  const openRecipeModal = useCallback(async (item: PrepItemRich) => {
-    if (!item.linkedRecipeId) return
-    // 1) Paint the modal instantly. Use cached data if we have it; otherwise build a
-    //    partial header from the prep item itself (name + base yield are already loaded)
-    //    and show a loading skeleton for ingredients/steps/cost.
+    // Instant paint from cache (or a partial header built from the item), then refetch.
     const cached = recipeCache.current.get(item.id)
-    const partial: RecipeStepsData = {
+    setDrawerRecipe(cached?.recipe ?? {
       id: item.linkedRecipeId,
       name: item.linkedRecipe?.name ?? item.name,
       steps: [],
       baseYieldQty: Number(item.linkedRecipe?.baseYieldQty) || 0,
       yieldUnit: item.linkedRecipe?.yieldUnit ?? item.unit,
       totalCost: 0,
-    }
-    setRecipeModal({
-      sourceItemId: item.id,
-      recipe: cached?.recipe ?? partial,
-      ings: cached?.ings ?? [],
-      makeQty: item.suggestedQty,
-      unit: item.unit,
-      loading: !cached,
     })
-    // 2) Fetch fresh data in the background (even on a cache hit — availability/cost drift).
+    setDrawerRecipeLoading(!cached)
     try {
       const [rRes, dRes] = await Promise.all([
         fetch(`/api/recipes/${item.linkedRecipeId}`),
@@ -707,10 +812,8 @@ export default function PrepPage() {
       ])
       const r = rRes.ok ? await rRes.json() : null
       const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
-      if (!r) {
-        setRecipeModal(prev => prev && prev.sourceItemId === item.id ? { ...prev, loading: false } : prev)
-        return
-      }
+      if (d) setDrawerDetail(d)
+      if (!r) { setDrawerRecipeLoading(false); return }
       // Steps may be a structured array; otherwise fall back to parsing the recipe's
       // free-text notes (e.g. "Instructions: 1. … 2. …") so the method is always shown.
       const parsedSteps: string[] = (() => {
@@ -727,13 +830,16 @@ export default function PrepPage() {
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
       }
-      const ings = d?.ingredients ?? []
-      recipeCache.current.set(item.id, { recipe, ings })
-      // Only patch if this modal is still the one open (user may have closed/switched).
-      setRecipeModal(prev => prev && prev.sourceItemId === item.id ? { ...prev, recipe, ings, loading: false } : prev)
+      recipeCache.current.set(item.id, { recipe, ings: d?.ingredients ?? [] })
+      setDrawerRecipe(recipe)
+      setDrawerRecipeLoading(false)
     } catch {
-      setRecipeModal(prev => prev && prev.sourceItemId === item.id ? { ...prev, loading: false } : prev)
+      setDrawerRecipeLoading(false)
     }
+  }, [])
+
+  const closeDrawer = useCallback(() => {
+    setDrawerItem(null); setDrawerDetail(null); setDrawerRecipe(null); setDrawerRecipeLoading(false)
   }, [])
 
   // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)
@@ -744,23 +850,15 @@ export default function PrepPage() {
     handleStatusChange(item.id, status, qty)
   }
 
-  // Complete from the cook-along modal: marks the prep DONE with the made (yield)
-  // qty, which credits the output inventory item and deducts ingredients.
-  const onRecipeComplete = useCallback((qty: number) => {
-    const target = recipeModal?.sourceItemId ? items.find(i => i.id === recipeModal.sourceItemId) : null
-    if (!target) { toast(`Made ${qty}`); return }
-    handleStatusChange(target.id, 'DONE', qty)
-    toast(`Done · added ${qty} ${target.unit}`)
-  }, [recipeModal, items, toast])
-
-  // Stop from the cook-along modal: abandon the in-progress prep (no qty logged),
-  // returning it to the to-do list. No inventory effect (only DONE/PARTIAL credit).
-  const onRecipeStop = useCallback(() => {
-    const target = recipeModal?.sourceItemId ? items.find(i => i.id === recipeModal.sourceItemId) : null
-    if (!target) return
-    handleStatusChange(target.id, 'NOT_STARTED')
-    toast(`Stopped · ${target.name} back on the list`)
-  }, [recipeModal, items, toast])
+  // Complete the drawer's prep at the upscale slider's yield (drawerMakeQty). Unifies the
+  // former modal's "Done · add X" with the drawer's completion: qty ≥ suggested → DONE,
+  // else PARTIAL (same rule as the old numeric prompt). Credits inventory + deducts ingredients.
+  const onDrawerComplete = useCallback((item: PrepItemRich, qty: number) => {
+    if (!qty || qty <= 0) return
+    const status = qty >= item.suggestedQty ? 'DONE' : 'PARTIAL'
+    handleStatusChange(item.id, status, qty)
+    toast(`${status === 'DONE' ? 'Done' : 'Partial'} · added ${qty} ${item.unit}`)
+  }, [toast])
 
   // Keep the open drawer's item in sync across the auto-refresh poll
   useEffect(() => {
@@ -1189,12 +1287,12 @@ export default function PrepPage() {
           TODAY TAB
       ══════════════════════════════════════════════════════ */}
       {/* ══════════════════════════════════════════════════════
-          DESKTOP BOARD — dense redesign (To Do + Smart Prep)
-          Replaces the old desktop renderers below (now md:hidden).
+          DESKTOP TODAY — prep run sheet (Task 13). Replaces the old
+          desktop To Do board; Smart Prep + history keep their boards below.
       ══════════════════════════════════════════════════════ */}
-      {viewMode !== 'history' && (
+      {viewMode === 'today' && (
         <div className="pb hidden md:block" style={{ containerType: 'inline-size' }}>
-          {viewMode === 'today' && priorityAlerts.length > 0 && !alertDismissed && (
+          {priorityAlerts.length > 0 && !alertDismissed && (
             <div className="mb-2.5">
               <PrepAlertBanner
                 onDismiss={() => setAlertDismissed(true)}
@@ -1205,6 +1303,39 @@ export default function PrepPage() {
               />
             </div>
           )}
+          {loading ? (
+            <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
+          ) : (
+            <RunSheet
+              items={todayItems}
+              cooks={cooks}
+              nowMin={nowMin}
+              nowMs={nowMs}
+              onOpenRecipe={openDrawer}
+              onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+              onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+              onLog={setDoneSheetItem}
+              onClaim={handleClaim}
+            />
+          )}
+          {/* Prep tasks (checklist) — desktop Today. Task 13 replaced the shared
+              PrepBoard (whose tasksSlot carried this) with RunSheet, which has no
+              task slot of its own; restore the same conditional PrepTaskList the
+              board used for the 'today' view so the checklist capability isn't lost. */}
+          {!loading && activeTaskRows.length > 0 && (
+            <div className="mt-3.5">
+              <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          DESKTOP BOARD — dense redesign (Smart Prep)
+          Replaces the old desktop renderers below (now md:hidden).
+      ══════════════════════════════════════════════════════ */}
+      {viewMode === 'smartprep' && (
+        <div className="pb hidden md:block" style={{ containerType: 'inline-size' }}>
           <div className="toolbar">
             <div className="search">
               <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
@@ -1219,40 +1350,36 @@ export default function PrepPage() {
               {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <button className="ddown" onClick={() => setActiveOnly(a => !a)}><span className="cb">{activeOnly ? '✓' : ''}</span> Active only</button>
-            {viewMode === 'smartprep' && (
-              <div className="seg" style={{ marginLeft: 'auto' }}>
-                {(['urgency', 'category', 'station'] as const).map(g => (
-                  <div key={g} className={`s${smartPrepView === g ? ' active' : ''}`} onClick={() => setSmartPrepView(g)}>{g[0].toUpperCase() + g.slice(1)}</div>
-                ))}
-              </div>
-            )}
+            <div className="seg" style={{ marginLeft: 'auto' }}>
+              {(['urgency', 'category', 'station'] as const).map(g => (
+                <div key={g} className={`s${smartPrepView === g ? ' active' : ''}`} onClick={() => setSmartPrepView(g)}>{g[0].toUpperCase() + g.slice(1)}</div>
+              ))}
+            </div>
           </div>
-          <PrepSummaryLine items={viewMode === 'today' ? filteredToday : filteredSmart} view={viewMode === 'today' ? 'todo' : 'smart'} />
+          <PrepSummaryLine items={filteredSmart} view="smart" />
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : (
             <PrepBoard
-              view={viewMode === 'today' ? 'todo' : 'smart'}
+              view="smart"
               groupBy={smartPrepView}
               items={filteredSmart}
               todayItems={filteredToday}
-              handlers={{ onOpen: openDrawer, onOpenRecipe: openRecipeModal, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange, savingIds }}
+              handlers={{ onOpen: openDrawer, onOpenRecipe: openDrawer, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange, savingIds }}
               onAddAll={handleAddIds}
-              tasksSlot={viewMode === 'smartprep'
-                ? <PrepTaskLibrary
-                    asBlock
-                    rows={taskRows}
-                    inventory={inventoryForTasks}
-                    disabled={tasksDisabled}
-                    onCreate={createTask}
-                    onEdit={editTask}
-                    onToggleActive={setTaskActive}
-                    onDelete={deleteTask}
-                    onReorder={reorderTasks}
-                  />
-                : activeTaskRows.length > 0
-                  ? <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-                  : undefined}
+              tasksSlot={
+                <PrepTaskLibrary
+                  asBlock
+                  rows={taskRows}
+                  inventory={inventoryForTasks}
+                  disabled={tasksDisabled}
+                  onCreate={createTask}
+                  onEdit={editTask}
+                  onToggleActive={setTaskActive}
+                  onDelete={deleteTask}
+                  onReorder={reorderTasks}
+                />
+              }
             />
           )}
         </div>
@@ -1288,38 +1415,22 @@ export default function PrepPage() {
               <p className="text-ink-3 text-sm">Nothing on today&apos;s list yet.</p>
               <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
             </div>
-          ) : shiftSummary.resolved === shiftSummary.total ? (
-            <PrepRestState total={shiftSummary.total} />
           ) : (
-            <>
-              {todayGroups.critical.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
-              )}
-              {todayGroups.critical.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-              ))}
-              {todayGroups.needed.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
-              )}
-              {todayGroups.needed.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-              ))}
-              {todayGroups.later.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Later · <span className="text-ink font-semibold">if time allows</span></div>
-              )}
-              {todayGroups.later.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="later" onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-              ))}
-              {todayGroups.done.length > 0 && (
-                <div className="mt-5">
-                  <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Done today · <span className="text-ink font-semibold">{todayGroups.done.length} prepped</span></div>
-                  {todayGroups.done.map(item => (
-                    <PrepTaskRowCompact key={item.id} item={item} onOpen={openDrawer} onOpenRecipe={openRecipeModal} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-                  ))}
-                </div>
-              )}
-              <p className="text-center text-xs text-ink-4 mt-4 pb-24 sm:pb-0">This list carries over each day — items stay until marked done or removed.</p>
-            </>
+            /* Mobile run sheet — the Today surface (hero, in-progress rail, queue).
+               Same wired callbacks as the desktop RunSheet (Task 13). */
+            <div className="pb-24 sm:pb-0">
+              <RunSheetMobile
+                items={todayItems}
+                cooks={cooks}
+                nowMin={nowMin}
+                nowMs={nowMs}
+                onOpenRecipe={openDrawer}
+                onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+                onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+                onLog={setDoneSheetItem}
+                onClaim={handleClaim}
+              />
+            </div>
           )}
         </div>
       )}
@@ -1693,17 +1804,21 @@ export default function PrepPage() {
         />
       )}
 
-      {/* Redesigned To-do tab — drawer, cook-along modal, toast */}
-      {/* Mobile keeps the existing drawer; desktop uses the rebuilt board drawer. */}
+      {/* Fused item drawer — item context + embedded cook-along (upscale / ingredients / method). */}
+      {/* Mobile Tailwind drawer; desktop rebuilt board drawer. Both open from a row tap AND the Recipe button. */}
       <div className="md:hidden">
         <PrepDrawer
           item={drawerItem}
           detail={drawerDetail}
           countdown={countdown}
-          recipeCost={null}
+          recipe={drawerRecipe}
+          recipeLoading={drawerRecipeLoading}
+          makeQty={drawerMakeQty}
+          onMakeQtyChange={setDrawerMakeQty}
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
-          onOpenRecipe={openRecipeModal}
+          onComplete={onDrawerComplete}
+          onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           onRemove={(item) => { handleToggleOnList(item.id, false); closeDrawer() }}
         />
       </div>
@@ -1720,7 +1835,14 @@ export default function PrepPage() {
       <div className="hidden md:block">
         <PrepBoardDrawer
           item={drawerItem}
+          detail={drawerDetail}
           view={viewMode === 'today' ? 'todo' : 'smart'}
+          recipe={drawerRecipe}
+          recipeLoading={drawerRecipeLoading}
+          makeQty={drawerMakeQty}
+          onMakeQtyChange={setDrawerMakeQty}
+          onComplete={onDrawerComplete}
+          onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           onClose={closeDrawer}
           onToggleOnList={handleToggleOnList}
           onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
@@ -1728,31 +1850,15 @@ export default function PrepPage() {
           onEdit={(item) => { closeDrawer(); setEditing(item) }}
         />
       </div>
-      <RecipeCookAlongModal
-        open={recipeModal !== null}
-        recipe={recipeModal?.recipe ?? null}
-        ingredients={recipeModal?.ings ?? []}
-        loading={recipeModal?.loading ?? false}
-        initialMakeQty={recipeModal?.makeQty ?? 0}
-        unit={recipeModal?.unit ?? ''}
-        canStop={(() => {
-          const src = recipeModal?.sourceItemId ? items.find(i => i.id === recipeModal.sourceItemId) : null
-          return (src?.todayLog?.status ?? 'NOT_STARTED') === 'IN_PROGRESS'
-        })()}
-        onStop={onRecipeStop}
-        onClose={() => setRecipeModal(null)}
-        onComplete={onRecipeComplete}
-        onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
-      />
       {subRecipeView && (
-        // Higher stacking context so the sub-recipe peek sits above the
-        // cook-along modal (z-[60]) it was opened from.
-        <div className="relative z-[70]">
+        // Stacking context above BOTH drawers (mobile aside z-50, desktop .pb-drawer z-81)
+        // so the sub-recipe peek sits on top of whichever drawer opened it.
+        <div className="relative z-[90]">
           <RecipeViewModal
             recipeId={subRecipeView.recipeId}
             recipeName={subRecipeView.name}
             checkedIngredients={subRecipeChecked}
-            onToggleIngredient={(id) => setSubRecipeChecked(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })}
+            onToggleIngredient={(id) => setSubRecipeChecked(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })}
             onClose={() => setSubRecipeView(null)}
           />
         </div>

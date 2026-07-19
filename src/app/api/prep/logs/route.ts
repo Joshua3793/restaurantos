@@ -65,6 +65,23 @@ export async function POST(req: NextRequest) {
     if (err) return NextResponse.json({ error: err }, { status: 400 })
   }
 
+  // Stamp start/completion on status transitions so the run sheet's live
+  // in-progress timers work. IN_PROGRESS sets startedAt once (never overwrites
+  // an existing start); an explicit completedAt:null in the same request clears
+  // completedAt (the "reopen" case). DONE stamps completedAt.
+  const existing = await prisma.prepLog.findUnique({
+    where: { prepItemId_logDate: { prepItemId, logDate: date } },
+    select: { startedAt: true },
+  })
+
+  const now = new Date()
+  const stamp: { startedAt?: Date; completedAt?: Date | null } = {}
+  if (status === 'IN_PROGRESS') {
+    stamp.startedAt = existing?.startedAt ?? now
+    if (body.completedAt === null) stamp.completedAt = null
+  }
+  if (status === 'DONE') stamp.completedAt = now
+
   const log = await prisma.prepLog.upsert({
     where: { prepItemId_logDate: { prepItemId, logDate: date } },
     create: {
@@ -77,6 +94,7 @@ export async function POST(req: NextRequest) {
       assignedTo:   assignedTo   ?? null,
       dueTime:      dueTime      ?? null,
       note:         note         ?? null,
+      ...stamp,
     },
     update: {
       revenueCenterId,
@@ -86,6 +104,7 @@ export async function POST(req: NextRequest) {
       ...(assignedTo    !== undefined && { assignedTo }),
       ...(dueTime       !== undefined && { dueTime }),
       ...(note          !== undefined && { note }),
+      ...stamp,
     },
   })
 

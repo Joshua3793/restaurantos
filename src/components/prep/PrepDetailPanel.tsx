@@ -149,7 +149,7 @@ export function PrepDetailPanel({ item, onClose, onRefresh, onEdit }: Props) {
       onClick={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.mdown === 'true') onClose() }}
     >
       {/* Plain dim overlay — NO backdrop-blur (full-viewport blur over the prep page
-          re-blurs every frame and froze the app on weak laptops; see RecipeCookAlongModal). */}
+          re-blurs every frame and froze the app on weak laptops; see PrepDoneSheet). */}
       <div className="absolute inset-0 bg-black/50" aria-hidden />
       <div
         className="relative w-full max-w-md bg-bg shadow-2xl h-full overflow-y-auto flex flex-col"
