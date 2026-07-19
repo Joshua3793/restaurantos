@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { prepDeadline, fmtDuration } from '@/lib/service-hours'
+import { fmtDuration } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
@@ -29,7 +29,7 @@ import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
-import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown, computePriority } from '@/lib/prep-utils'
+import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
@@ -636,24 +636,46 @@ export default function PrepPage() {
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
-  const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
-  // Compact prep-deadline label for the mobile header subtitle (replaces the old full-width banner).
+
+  // The next upcoming service for this RC, taken from the Service model (item.service) —
+  // the SAME source the run sheet uses. The legacy rc.serviceSchedule drifted out of sync
+  // (it still held an evening window), which is why the header read "dinner service in …"
+  // on a Brunch RC. null once every service today has already started.
+  const nextService = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; timeMinutes: number }>()
+    for (const i of items) if (i.service) map.set(i.service.id, i.service)
+    return [...map.values()].filter(s => s.timeMinutes > nowMin).sort((a, b) => a.timeMinutes - b.timeMinutes)[0] ?? null
+  }, [items, nowMin])
+
+  // Prep countdown (minutes-to-service + start-by clock) derived from the real next service.
+  // Consumed by PrepShiftBand + PrepDrawer; null when ON_DEMAND or all services have started.
+  const countdown = useMemo(() => {
+    if (!activeRc || activeRc.schedulingMode === 'ON_DEMAND' || !nextService) return null
+    const minsToService = nextService.timeMinutes - nowMin
+    const lead = activeRc.prepLeadMinutes ?? 0
+    const startByMin = ((nextService.timeMinutes - lead) % 1440 + 1440) % 1440
+    const startByHHMM = `${String(Math.floor(startByMin / 60)).padStart(2, '0')}:${String(startByMin % 60).padStart(2, '0')}`
+    return { serviceLabel: fmtDuration(minsToService * 60_000), minsToService, startByHHMM }
+  }, [activeRc, nextService, nowMin])
+
+  // Compact prep-deadline label for the mobile header subtitle.
   const prepBy = useMemo(() => {
     if (!activeRc) return null
-    const now = new Date()
     if (activeRc.schedulingMode === 'ON_DEMAND') {
       const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
       return { onDemand: true as const, time: null, left: null, lead }
     }
-    const dl = prepDeadline(activeRc, now)
-    if (!dl) return null
+    if (!nextService) return null
+    const lead = activeRc.prepLeadMinutes ?? 0
+    const startByMin = ((nextService.timeMinutes - lead) % 1440 + 1440) % 1440
+    const dl = new Date(); dl.setHours(Math.floor(startByMin / 60), startByMin % 60, 0, 0)
     return {
       onDemand: false as const,
       time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      left: fmtDuration(dl.getTime() - now.getTime()),
+      left: fmtDuration(Math.max(0, startByMin - nowMin) * 60_000),
       lead: null,
     }
-  }, [activeRc])
+  }, [activeRc, nextService, nowMin])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
   // Keep detail panel in sync with live data
@@ -1235,7 +1257,7 @@ export default function PrepPage() {
             <h1 className="text-[34px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              {countdown && <> · dinner service in <b className="text-ink font-medium">{countdown.serviceLabel}</b></>}
+              {nextService && <> · <b className="text-ink font-medium">{nextService.name}</b> service in <b className="text-ink font-medium">{fmtDuration((nextService.timeMinutes - nowMin) * 60_000)}</b></>}
             </p>
           </div>
 

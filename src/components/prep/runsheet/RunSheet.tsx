@@ -182,7 +182,7 @@ export function RunSheet({
         )}
         {aft.length > 0 && (
           <div>
-            <GroupHead dot="bg-ink-4" title="Afternoon · for dinner" count={aft.length} sub={`${handsOn(aft)} hands-on`} />
+            <GroupHead dot="bg-ink-4" title="Afternoon" count={aft.length} sub={`${handsOn(aft)} hands-on`} />
             {rows(aft)}
           </div>
         )}
@@ -205,7 +205,11 @@ export function RunSheet({
           what's unique to it: the ordering rationale + the Kitchen / My-station toggle. */}
       <div className="flex items-center justify-between gap-4 mb-3.5">
         <p className="text-[12.5px] text-ink-3 tracking-[-0.005em] min-w-0">
-          Ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest, counted back from service
+          {group === 'time'
+            ? <>Ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest, counted back from service</>
+            : group === 'station'
+              ? <>Grouped by <b className="text-ink font-medium">station</b> — within each, earliest start-by first</>
+              : <>Grouped by <b className="text-ink font-medium">priority</b> — critical first</>}
         </p>
         <Segmented<Mode>
           value={mode}
