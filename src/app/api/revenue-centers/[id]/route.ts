@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
 import { buildScheduleFields } from '@/lib/rc-schedule'
 import { requireSession, AuthError } from '@/lib/auth'
+import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
 import { Prisma } from '@prisma/client'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -14,11 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const rc = await prisma.revenueCenter.findUnique({
     where: { id: params.id },
     include: {
-      services: {
-        where: { isActive: true },
-        orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
-        select: { id: true, name: true, timeMinutes: true, endMinutes: true },
-      },
+      services: ACTIVE_SERVICES_INCLUDE,
     },
   })
   if (!rc) return NextResponse.json({ error: 'Not found' }, { status: 404 })

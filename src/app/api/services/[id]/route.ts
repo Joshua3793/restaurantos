@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { validateTimeMinutes } from '../route'
 
 export const dynamic = 'force-dynamic'
-
-function validateTimeMinutes(value: unknown): string | null {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 1439) {
-    return 'timeMinutes must be an integer between 0 and 1439'
-  }
-  return null
-}
 
 // ── PATCH /api/services/[id] ───────────────────────────────────────────────
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -38,13 +32,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     if (endMinutes !== undefined && endMinutes !== null) {
-      const v = Number(endMinutes)
-      if (!Number.isInteger(v) || v < 0 || v > 1439) {
-        return NextResponse.json({ error: 'endMinutes must be an integer between 0 and 1439' }, { status: 400 })
-      }
+      const endErr = validateTimeMinutes(endMinutes)
+      if (endErr) return NextResponse.json({ error: endErr.replace('timeMinutes', 'endMinutes') }, { status: 400 })
     }
     if (endMinutes !== undefined) {
-      data.endMinutes = endMinutes === null ? null : Number(endMinutes)
+      data.endMinutes = endMinutes === null ? null : endMinutes
     }
 
     if (sortOrder !== undefined) {

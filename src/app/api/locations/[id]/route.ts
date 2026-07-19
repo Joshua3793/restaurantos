@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { RC_COLORS } from '@/lib/rc-colors'
 import { buildScheduleFields } from '@/lib/rc-schedule'
+import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
 import { Prisma, User } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -21,11 +22,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       revenueCenters: {
         include: {
-          services: {
-            where: { isActive: true },
-            orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
-            select: { id: true, name: true, timeMinutes: true, endMinutes: true },
-          },
+          services: ACTIVE_SERVICES_INCLUDE,
         },
       },
     },

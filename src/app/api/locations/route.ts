@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds } from '@/lib/rc-scope'
 import { RC_COLORS } from '@/lib/rc-colors'
 import { buildScheduleFields } from '@/lib/rc-schedule'
+import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -26,11 +27,7 @@ export async function GET() {
       revenueCenters: {
         orderBy: { createdAt: 'asc' },
         include: {
-          services: {
-            where: { isActive: true },
-            orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
-            select: { id: true, name: true, timeMinutes: true, endMinutes: true },
-          },
+          services: ACTIVE_SERVICES_INCLUDE,
         },
       },
     },

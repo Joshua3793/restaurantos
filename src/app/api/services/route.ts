@@ -4,7 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-function validateTimeMinutes(value: unknown): string | null {
+export function validateTimeMinutes(value: unknown): string | null {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 1439) {
     return 'timeMinutes must be an integer between 0 and 1439'
   }
