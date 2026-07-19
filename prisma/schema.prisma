@@ -639,6 +639,9 @@ model Service {
   revenueCenterId String
   name            String
   timeMinutes     Int
+  // Service END, minute-of-day. Nullable so this ships additively; the RC editor
+  // requires it on save. endMinutes < timeMinutes ⇒ the service crosses midnight.
+  endMinutes      Int?
   sortOrder       Int           @default(0)
   isActive        Boolean       @default(true)
   revenueCenter   RevenueCenter @relation("ServiceRC", fields: [revenueCenterId], references: [id])
