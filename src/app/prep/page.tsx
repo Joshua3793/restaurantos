@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { fmtDuration } from '@/lib/service-hours'
+import { fmtDuration, serviceStatus, type RcService } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
@@ -637,45 +637,41 @@ export default function PrepPage() {
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
 
-  // The next upcoming service for this RC, taken from the Service model (item.service) —
-  // the SAME source the run sheet uses. The legacy rc.serviceSchedule drifted out of sync
-  // (it still held an evening window), which is why the header read "dinner service in …"
-  // on a Brunch RC. null once every service today has already started.
-  const nextService = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; timeMinutes: number }>()
-    for (const i of items) if (i.service) map.set(i.service.id, i.service)
-    return [...map.values()].filter(s => s.timeMinutes > nowMin).sort((a, b) => a.timeMinutes - b.timeMinutes)[0] ?? null
-  }, [items, nowMin])
+  // The single service-status answer — same source the run sheet uses, so the header
+  // and run sheet can no longer disagree about what's next.
+  const svcStatus = useMemo(
+    () => serviceStatus((activeRc?.services ?? []) as RcService[], nowMin, activeRc?.prepLeadMinutes ?? null),
+    [activeRc, nowMin],
+  )
 
-  // Prep countdown (minutes-to-service + start-by clock) derived from the real next service.
-  // Consumed by PrepShiftBand + PrepDrawer; null when ON_DEMAND or all services have started.
+  // Prep countdown (minutes-to-service + start-by clock) derived from svcStatus.
+  // Consumed by PrepShiftBand + PrepDrawer; null unless a service is upcoming.
   const countdown = useMemo(() => {
-    if (!activeRc || activeRc.schedulingMode === 'ON_DEMAND' || !nextService) return null
-    const minsToService = nextService.timeMinutes - nowMin
-    const lead = activeRc.prepLeadMinutes ?? 0
-    const startByMin = ((nextService.timeMinutes - lead) % 1440 + 1440) % 1440
-    const startByHHMM = `${String(Math.floor(startByMin / 60)).padStart(2, '0')}:${String(startByMin % 60).padStart(2, '0')}`
-    return { serviceLabel: fmtDuration(minsToService * 60_000), minsToService, startByHHMM }
-  }, [activeRc, nextService, nowMin])
+    if (svcStatus.kind !== 'upcoming') return null
+    const m = svcStatus.prepByMin
+    return {
+      serviceLabel: fmtDuration(svcStatus.minsUntil * 60_000),
+      minsToService: svcStatus.minsUntil,
+      startByHHMM: m == null ? '' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`,
+    }
+  }, [svcStatus])
 
   // Compact prep-deadline label for the mobile header subtitle.
   const prepBy = useMemo(() => {
-    if (!activeRc) return null
-    if (activeRc.schedulingMode === 'ON_DEMAND') {
-      const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
+    if (svcStatus.kind === 'none') {
+      const lead = activeRc?.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
       return { onDemand: true as const, time: null, left: null, lead }
     }
-    if (!nextService) return null
-    const lead = activeRc.prepLeadMinutes ?? 0
-    const startByMin = ((nextService.timeMinutes - lead) % 1440 + 1440) % 1440
-    const dl = new Date(); dl.setHours(Math.floor(startByMin / 60), startByMin % 60, 0, 0)
+    if (svcStatus.kind !== 'upcoming' || svcStatus.prepByMin == null) return null
+    const m = svcStatus.prepByMin
+    const dl = new Date(); dl.setHours(Math.floor(m / 60), m % 60, 0, 0)
     return {
       onDemand: false as const,
       time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      left: fmtDuration(Math.max(0, startByMin - nowMin) * 60_000),
+      left: fmtDuration(Math.max(0, m - nowMin) * 60_000),
       lead: null,
     }
-  }, [activeRc, nextService, nowMin])
+  }, [svcStatus, activeRc, nowMin])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
   // Keep detail panel in sync with live data
@@ -1257,7 +1253,13 @@ export default function PrepPage() {
             <h1 className="text-[34px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              {nextService && <> · <b className="text-ink font-medium">{nextService.name}</b> service in <b className="text-ink font-medium">{fmtDuration((nextService.timeMinutes - nowMin) * 60_000)}</b></>}
+              {svcStatus.kind === 'upcoming' && (
+                <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service in <b className="text-ink font-medium">{fmtDuration(svcStatus.minsUntil * 60_000)}</b></>
+              )}
+              {svcStatus.kind === 'underway' && (
+                <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service underway</>
+              )}
+              {svcStatus.kind === 'none' && <> · on-demand</>}
             </p>
           </div>
 

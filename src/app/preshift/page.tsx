@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { nextServiceStart, currentWindow, fmtDuration } from '@/lib/service-hours'
+import { serviceStatus, fmtDuration, type RcService } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
@@ -253,12 +253,23 @@ export default function PreshiftPage() {
   }, [router])
 
   const now = new Date()
-  const inService = activeRc ? currentWindow(activeRc, now) : null
-  const next = activeRc ? nextServiceStart(activeRc, now) : null
-  const serviceCountdown = inService
-    ? 'in service'
-    : next ? fmtDuration(next.start.getTime() - now.getTime()) : null
-  const serviceLabel = inService ? inService.window.label : next?.label ?? null
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const status = serviceStatus((activeRc?.services ?? []) as RcService[], nowMin, activeRc?.prepLeadMinutes ?? null)
+  // MProgress's badge is `{countdown}{countdownLabel ? ' · ' + countdownLabel : ''}` — it only
+  // renders when `countdown` is truthy, so `underway` needs a non-null countdown too or the
+  // badge silently disappears and preshift stops agreeing with prep/pass that a service is on.
+  const serviceCountdown =
+    status.kind === 'upcoming' ? fmtDuration(status.minsUntil * 60_000)
+    : status.kind === 'underway' ? 'underway'
+    : null
+  const countdownLabel =
+    status.kind === 'upcoming' ? `to ${status.service.name}`
+    : status.kind === 'underway' ? status.service.name
+    : null
+  // Desktop ProgressBand (below) wants the bare service name + in-service flag
+  // separately — it builds its own "to {name}" / "{name}" caption.
+  const serviceName = status.kind === 'upcoming' || status.kind === 'underway' ? status.service.name : null
+  const isInServiceNow = status.kind === 'underway'
 
   return (
     <>
@@ -284,7 +295,7 @@ export default function PreshiftPage() {
         </div>
 
         <MGateBanner blockersOpen={blockersOpen} ready={ready} />
-        <MProgress done={doneCount} total={total} pct={pct} countdown={serviceCountdown} countdownLabel={inService != null ? (serviceLabel ?? 'in service') : (serviceLabel ? `to ${serviceLabel}` : null)} />
+        <MProgress done={doneCount} total={total} pct={pct} countdown={serviceCountdown} countdownLabel={countdownLabel} />
 
         {SECTIONS.map(sec => {
           const items = itemsBySection[sec.key]
@@ -353,8 +364,8 @@ export default function PreshiftPage() {
           blockersOpen={blockersOpen}
           lineCount={itemsBySection.line.length}
           serviceCountdown={serviceCountdown}
-          serviceLabel={serviceLabel}
-          isInService={inService != null}
+          serviceLabel={serviceName}
+          isInService={isInServiceNow}
         />
 
         <AddCheck onAdd={addCheck} />

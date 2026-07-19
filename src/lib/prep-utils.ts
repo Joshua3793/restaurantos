@@ -1,4 +1,3 @@
-import { nextServiceStart, prepDeadline, type SchedulableRc } from './service-hours'
 import { convertQty, sameDimension } from './uom'
 
 export type PrepPriority = '911' | 'NEEDED_TODAY' | 'LATER'
@@ -199,20 +198,3 @@ export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlo
 
 /** View-model the prep header/band/rows consume for the service countdown. */
 export interface PrepCountdown { serviceLabel: string; minsToService: number; startByHHMM: string }
-
-/**
- * Build the prep countdown from the active revenue center's service schedule.
- * Returns null when the RC has no usable upcoming service window (feature off,
- * on-demand center, or no schedule) — callers then hide the countdown UI.
- */
-export function buildPrepCountdown(rc: SchedulableRc | null | undefined, now: Date = new Date()): PrepCountdown | null {
-  if (!rc) return null
-  const next = nextServiceStart(rc, now)
-  if (!next) return null
-  const minsToService = Math.round((next.start.getTime() - now.getTime()) / 60_000)
-  if (minsToService < 0) return null
-  const startBy = prepDeadline(rc, now) ?? next.start
-  const startByHHMM = `${String(startBy.getHours()).padStart(2, '0')}:${String(startBy.getMinutes()).padStart(2, '0')}`
-  const hh = Math.floor(minsToService / 60), mm = minsToService % 60
-  return { serviceLabel: hh > 0 ? `${hh}h ${mm}m` : `${mm}m`, minsToService, startByHHMM }
-}
