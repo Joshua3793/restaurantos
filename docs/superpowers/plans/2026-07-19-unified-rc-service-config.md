@@ -315,21 +315,24 @@ Expected: a per-RC before/after table. Note any RC that reports `no window to so
 
 KITCHEN's legacy JSON holds an evening window, not Brunch, so the nearest-start match is wrong for it. Brunch is 09:00–16:00. Run:
 
+Run it over the pooler (the direct host is unreachable — see Global Constraints):
+
 ```bash
 export PATH="/Users/joshua/Desktop/node-install/node-v20.19.0-darwin-x64/bin:$PATH"
-cd /Users/joshua/dev/fergies-os
-export $(grep -E '^DIRECT_URL=' .env | sed 's/#.*//' | xargs)
-cat > /tmp/kitchen_brunch.sql <<'SQL'
-UPDATE "Service" s
-SET "endMinutes" = 960          -- 16:00
-FROM "RevenueCenter" rc
-WHERE s."revenueCenterId" = rc.id
-  AND lower(s.name) = 'brunch'
-  AND s."timeMinutes" = 540;    -- 09:00
-SQL
-npx prisma db execute --url "$DIRECT_URL" --file /tmp/kitchen_brunch.sql
+cd /Users/joshua/dev/fergies-os-svc-config
+cat > /tmp/kitchen_brunch.cjs <<'JS'
+const { PrismaClient } = require('@prisma/client'); const p = new PrismaClient()
+;(async () => {
+  const n = await p.$executeRawUnsafe(
+    `UPDATE "Service" SET "endMinutes" = 960
+      WHERE lower(name) = 'brunch' AND "timeMinutes" = 540`)
+  console.log(`rows updated: ${n}`)
+})().catch(e => { console.error('FAILED:', e.message); process.exit(1) })
+ .finally(() => p.$disconnect())
+JS
+node /tmp/kitchen_brunch.cjs && rm -f /tmp/kitchen_brunch.cjs
 ```
-Expected: `Script executed successfully.`
+Expected: `rows updated: 1` (or more if several RCs run Brunch at 09:00 — that is fine, 16:00 is correct for all of them).
 
 - [ ] **Step 4: Verify every active service now has hours**
 
