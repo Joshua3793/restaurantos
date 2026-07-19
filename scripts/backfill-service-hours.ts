@@ -69,14 +69,19 @@ async function main() {
     }
 
     // 2) Create a Service for any legacy window that has none.
+    // Seed from rc.services and append each newly created row, so a second
+    // window in this same run that shares a name/start with the first
+    // doesn't also pass the `exists` check and get duplicated.
+    const knownServices = [...rc.services]
     for (const w of windows) {
-      const exists = rc.services.some(
+      const exists = knownServices.some(
         s => s.name.toLowerCase() === w.name.toLowerCase() || s.timeMinutes === w.start,
       )
       if (exists) continue
-      await prisma.service.create({
+      const created_ = await prisma.service.create({
         data: { revenueCenterId: rc.id, name: w.name, timeMinutes: w.start, endMinutes: w.end ?? null },
       })
+      knownServices.push(created_)
       console.log(`  + created service ${w.name} ${hhmm(w.start)}-${w.end != null ? hhmm(w.end) : '?'}`)
       created++
     }
