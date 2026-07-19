@@ -960,9 +960,32 @@ cd /Users/joshua/dev/fergies-os && grep -rn "/setup/services" src/ --include=*.t
 ```
 Delete each link found (except the redirect page itself).
 
+- [ ] **Step 3b: Retire the RC scheduling write-path**
+
+*(Added 2026-07-19: `tsc` after Task 3 revealed this file; the plan originally covered only the read side.)*
+
+`src/lib/rc-schedule.ts` validates/normalizes the `schedulingMode` + `serviceSchedule` fields on RC writes and still imports the deleted `ServiceSchedule`/`ServiceWindow` types. It is imported by four routes: `src/app/api/revenue-centers/route.ts`, `src/app/api/revenue-centers/[id]/route.ts`, `src/app/api/locations/route.ts`, `src/app/api/locations/[id]/route.ts`.
+
+Now that services are the single source and the editor no longer sends those fields:
+- Delete `src/lib/rc-schedule.ts`.
+- In each of the four routes, remove the import and every use of its helpers, and stop reading/writing `schedulingMode` and `serviceSchedule` on create and update. Leave `prepLeadMinutes` handling intact — that field stays.
+- Leave each route's other behavior (RC scoping, ordering, the `services` include added in Task 4) untouched.
+
+The columns themselves are dropped in Task 7; this step only stops the app from reading or writing them.
+
 - [ ] **Step 4: Verify**
 
-Start the dev server. On `/setup/revenue-centers`: add a service, rename it, change its hours, remove it — each change persists across a reload. Confirm `/setup/services` redirects. Then reload `/prep` and confirm the header reflects the edited hours.
+Start the dev server on a non-default port (`PORT=3100 npm run dev`). On `/setup/revenue-centers`: add a service, rename it, change its hours, remove it — each change persists across a reload. Confirm `/setup/services` redirects. Then reload `/prep` and confirm the header reflects the edited hours.
+
+**This task makes the branch green again.** Confirm both:
+```
+npx tsc --noEmit -p tsconfig.json 2>&1 | grep -E "error TS"
+```
+Expected: no output — every consumer of the old service-hours API is now migrated.
+```
+rm -rf .next && npm run build 2>&1 | grep -E "Compiled successfully|Failed|Type error"
+```
+Expected: `✓ Compiled successfully`. (Stop the dev server first — building with it running corrupts `.next`.)
 
 - [ ] **Step 5: Commit**
 
