@@ -18,18 +18,17 @@ import { PrepBoard } from '@/components/prep/board/PrepBoard'
 import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import { RunSheet } from '@/components/prep/runsheet/RunSheet'
+import { RunSheetMobile } from '@/components/prep/runsheet/RunSheetMobile'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import type { Cook } from '@/components/prep/runsheet/assignee'
-import PrepTaskRowCompact from '@/components/prep/PrepTaskRowCompact'
 import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
 import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
 import PrepTaskList from '@/components/prep/PrepTaskList'
 import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
-import PrepRestState from '@/components/prep/PrepRestState'
 import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { usePrepToast } from '@/components/prep/PrepToast'
-import { computeShiftSummary, groupPrepItems, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
+import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
@@ -440,7 +439,6 @@ export default function PrepPage() {
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
-  const todayGroups = useMemo(() => groupPrepItems(filteredToday), [filteredToday])
   const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
   // Compact prep-deadline label for the mobile header subtitle (replaces the old full-width banner).
   const prepBy = useMemo(() => {
@@ -1417,38 +1415,22 @@ export default function PrepPage() {
               <p className="text-ink-3 text-sm">Nothing on today&apos;s list yet.</p>
               <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
             </div>
-          ) : shiftSummary.resolved === shiftSummary.total ? (
-            <PrepRestState total={shiftSummary.total} />
           ) : (
-            <>
-              {todayGroups.critical.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-1 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red" />Critical · <span className="text-ink font-semibold">make now</span></div>
-              )}
-              {todayGroups.critical.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="critical" onOpen={openDrawer} onOpenRecipe={openDrawer} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-              ))}
-              {todayGroups.needed.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gold" />Needed today</div>
-              )}
-              {todayGroups.needed.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="needed" onOpen={openDrawer} onOpenRecipe={openDrawer} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-              ))}
-              {todayGroups.later.length > 0 && (
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 mt-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Later · <span className="text-ink font-semibold">if time allows</span></div>
-              )}
-              {todayGroups.later.map(item => (
-                <PrepTaskRowCompact key={item.id} item={item} kind="later" onOpen={openDrawer} onOpenRecipe={openDrawer} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-              ))}
-              {todayGroups.done.length > 0 && (
-                <div className="mt-5">
-                  <div className="font-mono text-[10.5px] uppercase tracking-[0.05em] text-ink-3 mb-2.5 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green" />Done today · <span className="text-ink font-semibold">{todayGroups.done.length} prepped</span></div>
-                  {todayGroups.done.map(item => (
-                    <PrepTaskRowCompact key={item.id} item={item} onOpen={openDrawer} onOpenRecipe={openDrawer} onStatusChange={onRowStatusChange} onQuickDone={setDoneSheetItem} />
-                  ))}
-                </div>
-              )}
-              <p className="text-center text-xs text-ink-4 mt-4 pb-24 sm:pb-0">This list carries over each day — items stay until marked done or removed.</p>
-            </>
+            /* Mobile run sheet — replaces the old PrepTaskRowCompact prep-item
+               ladder. Same wired callbacks as the desktop RunSheet (Task 13). */
+            <div className="pb-24 sm:pb-0">
+              <RunSheetMobile
+                items={todayItems}
+                cooks={cooks}
+                nowMin={nowMin}
+                nowMs={nowMs}
+                onOpenRecipe={openDrawer}
+                onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+                onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
+                onLog={setDoneSheetItem}
+                onClaim={handleClaim}
+              />
+            </div>
           )}
         </div>
       )}
