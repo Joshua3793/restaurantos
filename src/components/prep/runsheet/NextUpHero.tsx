@@ -5,7 +5,7 @@
 // a gold Start-now button or a BLOCKED notice, plus a Recipe/scale-batch link.
 import { AlertTriangle, Zap, BookOpen } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
-import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` — same rule as RunRowMobile.tsx /
 // RunRow.tsx / InProgressRail.tsx.
@@ -53,7 +53,7 @@ export function NextUpHero({
             overdue ? 'text-[#fca5a5]' : 'text-paper'
           }`}
         >
-          {sb != null ? fmtClock(sb) : '—'}
+          {sb != null ? fmtStartBy(sb) : '—'}
         </span>
         <span className="min-w-0 pb-px">
           <span className="block text-[17px] font-semibold tracking-[-0.02em] whitespace-nowrap overflow-hidden text-ellipsis">

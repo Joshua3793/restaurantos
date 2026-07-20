@@ -72,6 +72,13 @@ export interface PrepItemRich {
   service: { id: string; name: string; timeMinutes: number; endMinutes: number | null } | null
   startByMinutes: number | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
+  /** RAW item-level overrides — what the edit form binds to. Distinct from the
+   *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back
+   *  to the linked recipe. Null here means "inherit from the recipe". */
+  targetServiceId: string | null
+  activeMinutesOverride: number | null
+  passiveMinutesOverride: number | null
+  passiveNoteOverride: string | null
 }
 
 export interface IngredientAvailability {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   resolveActive, resolvePassive, resolvePassiveNote, startByMinutes,
   runState, minutesBetween, fmtClock, fmtMins, stepFor, scaleRound, scaleQtyLabel,
+  dayOffset, fmtStartBy,
 } from '../prep-runsheet'
 
 const rec = (a: number|null, p: number|null, n: string|null) => ({ activeMinutes: a, passiveMinutes: p, passiveNote: n })
@@ -58,6 +59,28 @@ describe('runState', () => {
 
 describe('formatting', () => {
   it('fmtClock pads', () => { expect(fmtClock(615)).toBe('10:15'); expect(fmtClock(90)).toBe('01:30') })
+
+  // A 48h prep counted back from a 09:00 service lands at minute -2340. The naive
+  // formatter rendered "-39:00"; it must wrap to a real clock face instead.
+  it('fmtClock wraps negative and >24h values into a valid clock', () => {
+    expect(fmtClock(-2340)).toBe('09:00')   // 09:00 service − 48h ⇒ 09:00, two days back
+    expect(fmtClock(-15)).toBe('23:45')
+    expect(fmtClock(1440)).toBe('00:00')
+    expect(fmtClock(1500)).toBe('01:00')
+  })
+
+  it('dayOffset counts whole days outside today', () => {
+    expect(dayOffset(540)).toBe(0)
+    expect(dayOffset(-15)).toBe(-1)
+    expect(dayOffset(-2340)).toBe(-2)
+    expect(dayOffset(1500)).toBe(1)
+  })
+
+  it('fmtStartBy appends the day only when it is not today', () => {
+    expect(fmtStartBy(465)).toBe('07:45')        // same day — no suffix
+    expect(fmtStartBy(-15)).toBe('23:45 −1d')
+    expect(fmtStartBy(-2340)).toBe('09:00 −2d')  // the 48h brisket: start 09:00, two days out
+  })
   it('fmtMins', () => { expect(fmtMins(45)).toBe('45m'); expect(fmtMins(80)).toBe('1h20'); expect(fmtMins(120)).toBe('2h') })
   it('minutesBetween floors to minutes', () => { expect(minutesBetween(0, 90_000)).toBe(1) })
 })

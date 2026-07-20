@@ -4,6 +4,7 @@ import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
+import { numOrNull } from '@/lib/prep-utils'
 
 export async function GET(
   _req: NextRequest,
@@ -164,6 +165,15 @@ export async function PUT(
       ...(body.targetToday            !== undefined && { targetToday: body.targetToday ? parseFloat(String(body.targetToday)) : null }),
       ...(body.shelfLifeDays          !== undefined && { shelfLifeDays: body.shelfLifeDays ? parseInt(String(body.shelfLifeDays)) : null }),
       ...(body.estimatedPrepTime      !== undefined && { estimatedPrepTime: body.estimatedPrepTime ? parseInt(String(body.estimatedPrepTime)) : null }),
+      // Run-sheet timing + target service. These are the inputs `startByMinutes`
+      // counts back from (service − hands-on − passive); without them a row has no
+      // place on the time ladder. Empty string ⇒ null so "clear the field" works —
+      // for the minutes that means "fall back to the linked recipe", and for the
+      // service it means "no service, no start-by".
+      ...(body.targetServiceId        !== undefined && { targetServiceId: body.targetServiceId || null }),
+      ...(body.activeMinutesOverride  !== undefined && { activeMinutesOverride: numOrNull(body.activeMinutesOverride) }),
+      ...(body.passiveMinutesOverride !== undefined && { passiveMinutesOverride: numOrNull(body.passiveMinutesOverride) }),
+      ...(body.passiveNoteOverride    !== undefined && { passiveNoteOverride: body.passiveNoteOverride || null }),
       ...(body.notes                  !== undefined && { notes: body.notes || null }),
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
       ...(body.revenueCenterId        !== undefined && { revenueCenterId: body.revenueCenterId || null }),

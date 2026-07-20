@@ -32,8 +32,32 @@ export function runState(a: { startBy: number | null; blockedReason: string | nu
 
 export const minutesBetween = (fromMs: number, toMs: number): number => Math.max(0, Math.floor((toMs - fromMs) / 60000))
 
-export const fmtClock = (min: number): string =>
-  `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(Math.round(min) % 60).padStart(2, '0')}`
+/**
+ * Wall-clock label for a minute-of-day.
+ *
+ * Wraps ANY value into 0..1439. `startByMinutes` is legitimately out of range —
+ * a 48h brisket counted back from a 09:00 service starts two days earlier, i.e.
+ * at minute −2340 — and the naive formatter rendered that as the nonsense string
+ * "-39:00". Wrapping keeps the clock face honest; `dayOffset` carries the
+ * which-day part, so callers showing a start-by must render both.
+ */
+export const fmtClock = (min: number): string => {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
+/** Whole days a minute-of-day sits outside today. −1 = yesterday, +1 = tomorrow. */
+export const dayOffset = (min: number): number => Math.floor(min / 1440)
+
+/**
+ * Start-by label including the day when it isn't today, e.g. "18:00 −2d".
+ * Prep that takes longer than the runway to service genuinely had to start on an
+ * earlier day; hiding that reads as "start at 18:00 tonight", which is backwards.
+ */
+export function fmtStartBy(min: number): string {
+  const d = dayOffset(min)
+  return d === 0 ? fmtClock(min) : `${fmtClock(min)} ${d < 0 ? '−' : '+'}${Math.abs(d)}d`
+}
 
 /**
  * "45m", "1h20", "2h". Takes MINUTES.

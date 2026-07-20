@@ -69,6 +69,20 @@ export function computePriority(
   return 'LATER'
 }
 
+/**
+ * Coerce a run-sheet timing-override field to `number | null`.
+ *
+ * Deliberately NOT a falsy check: `0` is meaningful for these fields ("no passive
+ * phase", as distinct from "inherit the linked recipe's passive time"), so `0`
+ * must survive while `''` — a cleared input — must become null. Shared by the
+ * prep-items POST and PATCH handlers so the two paths can't diverge.
+ */
+export function numOrNull(v: unknown): number | null {
+  if (v === '' || v == null) return null
+  const n = parseInt(String(v), 10)
+  return Number.isFinite(n) ? n : null
+}
+
 /** max(parLevel - onHand, targetToday - onHand, 0) */
 export function computeSuggestedQty(
   onHand: number,
