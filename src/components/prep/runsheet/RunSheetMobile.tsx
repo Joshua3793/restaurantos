@@ -9,7 +9,7 @@
 // props. Flat Tailwind tokens replace the hex palette; mono via `font-mono`.
 import { useState, useMemo, useEffect } from 'react'
 import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
-import type { PrepItemRich } from '@/components/prep/types'
+import type { PrepItemRich, PrepPriority } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
 import { InProgressRailMobile } from './InProgressRailMobile'
@@ -22,6 +22,17 @@ import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
+// Mobile ladder grouping. The desktop RunSheet also offers 'station', which is
+// redundant here — My-station mode already IS the station filter.
+type Group = 'time' | 'priority'
+
+// Same buckets and copy the desktop priority ladder uses, kept in one place so
+// the two frames can't drift apart.
+const PRIORITY_GROUPS: { key: PrepPriority; dot: string; title: string; sub: string }[] = [
+  { key: '911',           dot: 'bg-red',   title: 'Critical',     sub: 'stock out — make first' },
+  { key: 'NEEDED_TODAY',  dot: 'bg-gold',  title: 'Needed today', sub: 'below par before service' },
+  { key: 'LATER',         dot: 'bg-ink-4', title: 'Later',        sub: 'can slip to the afternoon' },
+]
 
 // Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
 // fractional, everything else rounds to a whole. Same rule as the row/hero/rail.
@@ -36,6 +47,20 @@ const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
 const sbOr = (i: PrepItemRich) => i.startByMinutes ?? Infinity
+
+// Empty state for My-station mode. Module scope (not inline) so it doesn't
+// remount on every render — see CLAUDE.md's client-component note.
+function StationClear() {
+  return (
+    <div className="text-center px-5 py-10 text-ink-3">
+      <div className="w-[42px] h-[42px] rounded-full bg-bg-2 grid place-items-center mx-auto mb-2.5">
+        <ChefHat size={20} className="text-ink-4" />
+      </div>
+      <div className="text-[13.5px] font-semibold text-ink-2">Station queue clear</div>
+      <div className="text-[12px] mt-[3px]">Everything is started or done. Check the Kitchen tab to help out.</div>
+    </div>
+  )
+}
 
 export function RunSheetMobile({
   items,
@@ -67,6 +92,7 @@ export function RunSheetMobile({
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('station')
+  const [group, setGroup] = useState<Group>('time')
   const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
   const [showDone, setShowDone] = useState(false)
 
@@ -142,6 +168,28 @@ export function RunSheetMobile({
         />
       ))}
     </div>
+  )
+
+  // Priority ladder — critical → needed today → later. Shared by both modes;
+  // `kitchen` only drives the row meta line, exactly as in the time ladder.
+  const renderPriority = (list: PrepItemRich[], kitchen: boolean) => (
+    <>
+      {PRIORITY_GROUPS.map(({ key, dot, title, sub }) => {
+        const grp = list.filter(i => i.priority === key)
+        if (!grp.length) return null
+        return (
+          <div key={key}>
+            <GroupHead dot={dot} title={title} count={grp.length} sub={sub} />
+            {rows(grp, kitchen)}
+          </div>
+        )
+      })}
+      {!list.length && (
+        <div className="font-mono text-[11px] text-ink-4 text-center py-9">
+          LIST CLEAR — EVERYTHING STARTED OR DONE
+        </div>
+      )}
+    </>
   )
 
   // kitchen mode: time sections across the whole brigade.
@@ -230,26 +278,47 @@ export function RunSheetMobile({
         </>
       )}
 
+      {/* ladder grouping — the desktop run sheet's Time/Priority control, sized for
+          mobile. Hidden when there is nothing left to order. */}
+      {(mode === 'kitchen' ? todoAll.length : myTodo.length) > 0 && (
+        <div className="flex items-center gap-2 mt-4">
+          <span className="font-mono text-[9.5px] font-medium tracking-[0.06em] uppercase text-ink-4 shrink-0">
+            GROUP
+          </span>
+          <Segmented<Group>
+            value={group}
+            onPick={setGroup}
+            className="ml-auto"
+            options={[
+              { id: 'time', label: 'Time' },
+              { id: 'priority', label: 'Priority' },
+            ]}
+          />
+        </div>
+      )}
+
       {mode === 'station' ? (
-        <>
-          {hero ? (
-            <NextUpHero item={hero} nowMin={nowMin} onStart={onStart} onOpenRecipe={onOpenRecipe} />
-          ) : (
-            <div className="text-center px-5 py-10 text-ink-3">
-              <div className="w-[42px] h-[42px] rounded-full bg-bg-2 grid place-items-center mx-auto mb-2.5">
-                <ChefHat size={20} className="text-ink-4" />
-              </div>
-              <div className="text-[13.5px] font-semibold text-ink-2">Station queue clear</div>
-              <div className="text-[12px] mt-[3px]">Everything is started or done. Check the Kitchen tab to help out.</div>
-            </div>
-          )}
-          {queue.length > 0 && (
-            <>
-              <GroupHead dot="bg-ink-3" title="Coming up" count={queue.length} sub={`${handsOn(queue)} hands-on`} />
-              {rows(queue, false)}
-            </>
-          )}
-        </>
+        group === 'priority' ? (
+          // Priority mode drops the NextUpHero: the hero answers "what's next by the
+          // clock", which contradicts a list ordered by urgency instead.
+          myTodo.length > 0 ? renderPriority(myTodo, false) : <StationClear />
+        ) : (
+          <>
+            {hero ? (
+              <NextUpHero item={hero} nowMin={nowMin} onStart={onStart} onOpenRecipe={onOpenRecipe} />
+            ) : (
+              <StationClear />
+            )}
+            {queue.length > 0 && (
+              <>
+                <GroupHead dot="bg-ink-3" title="Coming up" count={queue.length} sub={`${handsOn(queue)} hands-on`} />
+                {rows(queue, false)}
+              </>
+            )}
+          </>
+        )
+      ) : group === 'priority' ? (
+        renderPriority(todoAll, true)
       ) : (
         renderKitchen()
       )}

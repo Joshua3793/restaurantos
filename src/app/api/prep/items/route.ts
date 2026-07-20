@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computePriority, computeSuggestedQty, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { computePriority, computeSuggestedQty, numOrNull, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
@@ -248,6 +248,14 @@ export async function GET(req: NextRequest) {
       ingredientShortCount,
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
       revenueCenterId: item.revenueCenterId ?? null,
+      // RAW overrides, alongside the resolved activeMinutes/passiveMinutes above.
+      // The edit form needs both: the resolved value is what the run sheet uses,
+      // but the form must edit the OVERRIDE — prefilling an inherited recipe time
+      // into the input would silently bake it in as an item-level override on save.
+      targetServiceId: item.targetServiceId ?? null,
+      activeMinutesOverride: item.activeMinutesOverride ?? null,
+      passiveMinutesOverride: item.passiveMinutesOverride ?? null,
+      passiveNoteOverride: item.passiveNoteOverride ?? null,
       activeMinutes,
       passiveMinutes,
       passiveNote,
@@ -293,6 +301,9 @@ export async function POST(req: NextRequest) {
     category, station, parLevel, unit, minThreshold,
     targetToday, shelfLifeDays, estimatedPrepTime, notes, manualPriorityOverride,
     revenueCenterId,
+    // Run-sheet timing + target service — the inputs `startByMinutes` counts back
+    // from. See the PATCH sibling for why `0` must survive but `''` must not.
+    targetServiceId, activeMinutesOverride, passiveMinutesOverride, passiveNoteOverride,
   } = body
 
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
@@ -330,6 +341,10 @@ export async function POST(req: NextRequest) {
       notes:                 notes || null,
       manualPriorityOverride: manualPriorityOverride || null,
       revenueCenterId:        revenueCenterId        || null,
+      targetServiceId:        targetServiceId        || null,
+      activeMinutesOverride:  numOrNull(activeMinutesOverride),
+      passiveMinutesOverride: numOrNull(passiveMinutesOverride),
+      passiveNoteOverride:    passiveNoteOverride    || null,
     },
   })
 
