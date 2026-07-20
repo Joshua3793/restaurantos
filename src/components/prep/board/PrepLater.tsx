@@ -3,26 +3,19 @@ import { useState } from 'react'
 import { BoardRow } from './prep-board-utils'
 import { PrepRow, RowHandlers } from './PrepRow'
 
+// Smart Prep's "on par / get ahead" strip. The `later` and `closed` variants
+// belonged to the To-Do board, which the run sheet replaced — both were
+// unreachable, so the variant discriminator is gone. See PrepRow for the note.
 export interface LaterProps {
-  // par    → Smart Prep "on par / get ahead" suggestions
-  // later  → To Do items the user added that are above par ("if time allows")
-  // closed → To Do items completed today
-  variant: 'par' | 'later' | 'closed'
   rows: BoardRow[]
   h: RowHandlers
 }
 
-const COPY: Record<LaterProps['variant'], { title: string; meta: string }> = {
-  par:    { title: 'ON PAR / LATER',         meta: '· at or above par — no action needed' },
-  later:  { title: 'LATER · IF TIME ALLOWS', meta: '· above par — added manually, do after the essentials' },
-  closed: { title: 'DONE TODAY',            meta: "· prepped this session — kept as today's record" },
-}
-
-export function PrepLater({ variant, rows, h }: LaterProps) {
-  // Default the "Later" block open (it's part of today's plan); keep the
-  // suggestion/done strips collapsed.
-  const [open, setOpen] = useState(variant === 'later')
-  const { title, meta } = COPY[variant]
+export function PrepLater({ rows, h }: LaterProps) {
+  // Collapsed by default — these are suggestions, not today's plan.
+  const [open, setOpen] = useState(false)
+  const title = 'ON PAR / LATER'
+  const meta  = '· at or above par — no action needed'
   return (
     <div className={`later${open ? ' open' : ''}`}>
       <div className="later-strip" onClick={() => setOpen(o => !o)}>
@@ -33,7 +26,7 @@ export function PrepLater({ variant, rows, h }: LaterProps) {
       </div>
       <div className="later-body">
         <div className="later-grid">{rows.map(r => <PrepRow key={r.id} row={r} h={h} />)}</div>
-        {variant === 'par' && <div className="later-note">ADD MANUALLY ONLY IF YOU HAVE AN EVENT OR KNOW SOMETHING THE SYSTEM DOESN&apos;T</div>}
+        <div className="later-note">ADD MANUALLY ONLY IF YOU HAVE AN EVENT OR KNOW SOMETHING THE SYSTEM DOESN&apos;T</div>
       </div>
     </div>
   )
