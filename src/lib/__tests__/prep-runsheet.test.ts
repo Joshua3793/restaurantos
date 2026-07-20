@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   resolveActive, resolvePassive, resolvePassiveNote, startByMinutes,
-  runState, minutesBetween, fmtClock, fmtDuration, stepFor, scaleRound, scaleQtyLabel,
+  runState, minutesBetween, fmtClock, fmtMins, stepFor, scaleRound, scaleQtyLabel,
 } from '../prep-runsheet'
 
 const rec = (a: number|null, p: number|null, n: string|null) => ({ activeMinutes: a, passiveMinutes: p, passiveNote: n })
@@ -58,7 +58,7 @@ describe('runState', () => {
 
 describe('formatting', () => {
   it('fmtClock pads', () => { expect(fmtClock(615)).toBe('10:15'); expect(fmtClock(90)).toBe('01:30') })
-  it('fmtDuration', () => { expect(fmtDuration(45)).toBe('45m'); expect(fmtDuration(80)).toBe('1h20'); expect(fmtDuration(120)).toBe('2h') })
+  it('fmtMins', () => { expect(fmtMins(45)).toBe('45m'); expect(fmtMins(80)).toBe('1h20'); expect(fmtMins(120)).toBe('2h') })
   it('minutesBetween floors to minutes', () => { expect(minutesBetween(0, 90_000)).toBe(1) })
 })
 

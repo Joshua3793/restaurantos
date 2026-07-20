@@ -641,9 +641,17 @@ export default function PrepPage() {
   // and run sheet can no longer disagree about what's next. Null when no RC is active
   // ("All"/Location scope) — that's "unknown", NOT "on-demand" (svcStatus.kind === 'none'
   // means "this RC has no services", which only applies to an actual RC).
+  // The active RC's configured (active) services — hoisted so the page header and
+  // the run sheet consume the exact same array. The run sheet used to derive its own
+  // service list from the prep items on the board; it now takes this as a prop.
+  const rcServices = useMemo(
+    () => (activeRc?.services ?? []) as RcService[],
+    [activeRc],
+  )
+
   const svcStatus = useMemo(
-    () => activeRc ? serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null) : null,
-    [activeRc, nowMin],
+    () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
+    [activeRc, rcServices, nowMin],
   )
 
   // The service prep is counting down to — the upcoming one, or the one queued
@@ -1413,6 +1421,8 @@ export default function PrepPage() {
             <RunSheet
               items={todayItems}
               cooks={cooks}
+              services={rcServices}
+              leadMinutes={activeRc?.prepLeadMinutes ?? null}
               nowMin={nowMin}
               nowMs={nowMs}
               onOpenRecipe={openDrawer}
@@ -1518,6 +1528,8 @@ export default function PrepPage() {
               <RunSheetMobile
                 items={todayItems}
                 cooks={cooks}
+                services={rcServices}
+                leadMinutes={activeRc?.prepLeadMinutes ?? null}
                 nowMin={nowMin}
                 nowMs={nowMs}
                 onOpenRecipe={openDrawer}

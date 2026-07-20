@@ -75,7 +75,11 @@ export async function GET(req: NextRequest) {
         select: { id: true, itemName: true, stockOnHand: true, baseUnit: true },
       },
       targetService: {
-        select: { id: true, name: true, timeMinutes: true },
+        // `isActive` + `endMinutes` are selected so the caller can tell a soft-removed
+        // service from a live one, and an underway service from an upcoming one.
+        // Without them a service removed in the RC editor kept showing up on the run
+        // sheet for as long as any PrepItem still pointed at it.
+        select: { id: true, name: true, timeMinutes: true, endMinutes: true, isActive: true },
       },
       logs: {
         where: { logDate: { gte: today, lt: tomorrow } },
@@ -168,10 +172,22 @@ export async function GET(req: NextRequest) {
     const activeMinutes  = resolveActive(times)
     const passiveMinutes = resolvePassive(times)
     const passiveNote    = resolvePassiveNote(times)
-    const service = item.targetService
-      ? { id: item.targetService.id, name: item.targetService.name, timeMinutes: item.targetService.timeMinutes }
+    // A soft-removed service (isActive:false) must not be NAMED anywhere — it is
+    // gone from the RC's configuration, so surfacing "for Dinner" on a row (or
+    // letting it drive a run-sheet caption) advertises a service that no longer
+    // exists. Null it out of the display payload.
+    const svc = item.targetService
+    const service = svc && svc.isActive
+      ? { id: svc.id, name: svc.name, timeMinutes: svc.timeMinutes, endMinutes: svc.endMinutes }
       : null
-    const startByMin = startByMinutes(service?.timeMinutes ?? null, activeMinutes, passiveMinutes)
+
+    // DELIBERATE: start-by still anchors on the stored target-service time even when
+    // that service is now inactive. `PrepItem.targetServiceId` semantics are out of
+    // scope here, and re-anchoring (or dropping the item) would silently reshuffle
+    // the board's ordering — or hide work — the moment a manager edits an RC. So the
+    // item keeps counting back from the time it was scheduled against; it just stops
+    // naming the retired service. Note this reads `svc`, NOT `service`.
+    const startByMin = startByMinutes(svc?.timeMinutes ?? null, activeMinutes, passiveMinutes)
     const cook = item.logs[0]?.assignedTo ? cookById.get(item.logs[0].assignedTo) : null
     const assignedCook = cook
       ? { id: cook.id, initials: cook.initials, name: cook.name, homeStation: cook.homeStation }

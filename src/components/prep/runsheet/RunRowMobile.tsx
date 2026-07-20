@@ -7,7 +7,7 @@ import { Zap } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
-import { fmtClock, fmtDuration, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
 // fractional, everything else rounds to a whole number. Same rule as
@@ -58,7 +58,7 @@ export function RunRowMobile({
   const metaText = blocked
     ? (item.blockedReason ?? 'low stock')
     : [
-        `${fmtDuration(active)}${passive > 0 ? ` + ${fmtDuration(passive)} ${item.passiveNote || 'rest'}` : ''}`,
+        `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}`,
         kitchen && item.station ? item.station : null,
         item.service ? `for ${item.service.name}` : null,
       ]
@@ -87,7 +87,7 @@ export function RunRowMobile({
                 overdue ? 'text-red-text' : 'text-ink-4'
               }`}
             >
-              {overdue ? `${fmtDuration(late)} late` : `in ${fmtDuration(-late)}`}
+              {overdue ? `${fmtMins(late)} late` : `in ${fmtMins(-late)}`}
             </div>
           </>
         ) : (

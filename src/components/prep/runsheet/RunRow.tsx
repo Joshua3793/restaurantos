@@ -9,7 +9,7 @@ import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
 import { StationTag, NeedChip, RunwayBar, StockOutBadge, BlockedBadge } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
-import { fmtClock, fmtDuration, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
 // fractional, everything else rounds to a whole number. No existing helper in
@@ -74,7 +74,7 @@ export function RunRow({
                 state === 'overdue' ? 'text-red-text' : 'text-ink-4'
               }`}
             >
-              {state === 'overdue' ? `${fmtDuration(late)} LATE` : `in ${fmtDuration(-late)}`}
+              {state === 'overdue' ? `${fmtMins(late)} LATE` : `in ${fmtMins(-late)}`}
             </div>
           </>
         ) : (

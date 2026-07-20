@@ -18,7 +18,8 @@ import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
-import { fmtClock, fmtDuration, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
 
@@ -39,6 +40,8 @@ const sbOr = (i: PrepItemRich) => i.startByMinutes ?? Infinity
 export function RunSheetMobile({
   items,
   cooks,
+  services,
+  leadMinutes,
   nowMin,
   nowMs,
   onStart,
@@ -50,6 +53,10 @@ export function RunSheetMobile({
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
+  /** The active RC's ACTIVE services (empty ⇒ on-demand) — same prop shape the
+   *  desktop RunSheet takes, so both frames render one answer. */
+  services: RcService[]
+  leadMinutes: number | null
   nowMin: number
   nowMs: number
   onStart: (item: PrepItemRich) => void
@@ -91,14 +98,30 @@ export function RunSheetMobile({
     [todoAll, nowMin],
   )
 
-  // Next upcoming service across the visible items.
-  const nextSvc = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; timeMinutes: number }>()
-    for (const i of items) if (i.service) map.set(i.service.id, i.service)
-    return [...map.values()].filter(s => s.timeMinutes > nowMin).sort((a, b) => a.timeMinutes - b.timeMinutes)[0] ?? null
-  }, [items, nowMin])
+  // The service caption on the NOW line. Same derivation as the desktop RunSheet's
+  // status band and /prep's page header: `serviceStatus` over the RC's CONFIGURED
+  // services, not over whatever items happen to be on the board. The casing is CSS
+  // (`uppercase` on the container), so the shared string needs no transform.
+  const svcCaption = useMemo(() => {
+    const status = serviceStatus(services, nowMin, leadMinutes)
+    switch (status.kind) {
+      case 'upcoming':
+      case 'underway': {
+        const f = formatServiceStatus(status)
+        return f ? (f.trail ? `${f.lead} · ${f.trail}` : f.lead) : null
+      }
+      case 'closed':
+        return null
+      case 'none':
+        return null
+      default: {
+        const _never: never = status
+        return _never
+      }
+    }
+  }, [services, nowMin, leadMinutes])
 
-  const handsOn = (list: PrepItemRich[]) => fmtDuration(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
+  const handsOn = (list: PrepItemRich[]) => fmtMins(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
 
   // Claim toggle — assign to the viewing cook, or unassign if already theirs
   // (mirrors the prototype's `claimTap`).
@@ -162,7 +185,7 @@ export function RunSheetMobile({
           sheet drops its duplicate title and keeps only its unique live timing line. */}
       <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 pt-0.5 pb-2.5">
         NOW {fmtClock(nowMin)}
-        {nextSvc ? ` · ${nextSvc.name} IN ${fmtDuration(nextSvc.timeMinutes - nowMin)}` : ''}
+        {svcCaption ? ` · ${svcCaption}` : ''}
       </div>
 
       <Segmented<Mode>

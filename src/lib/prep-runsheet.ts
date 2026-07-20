@@ -35,7 +35,17 @@ export const minutesBetween = (fromMs: number, toMs: number): number => Math.max
 export const fmtClock = (min: number): string =>
   `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(Math.round(min) % 60).padStart(2, '0')}`
 
-export function fmtDuration(min: number): string {
+/**
+ * "45m", "1h20", "2h". Takes MINUTES.
+ *
+ * Deliberately NOT named `fmtDuration`: `service-hours.ts` exports a
+ * `fmtDuration(ms)` that takes MILLISECONDS, and both are live in the same
+ * render tree (`/prep` imports the ms one, the run-sheet components import this
+ * one). Both are `(n: number) => string`, so a same-name collision is invisible
+ * to TypeScript — moving one line between parent and child would silently turn
+ * "5h" into "0m". The names must stay distinct.
+ */
+export function fmtMins(min: number): string {
   min = Math.max(0, Math.round(min))
   const h = Math.floor(min / 60), r = min % 60
   return h ? (r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h`) : `${min}m`

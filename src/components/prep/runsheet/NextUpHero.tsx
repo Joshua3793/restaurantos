@@ -5,7 +5,7 @@
 // a gold Start-now button or a BLOCKED notice, plus a Recipe/scale-batch link.
 import { AlertTriangle, Zap, BookOpen } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
-import { fmtClock, fmtDuration, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` — same rule as RunRowMobile.tsx /
 // RunRow.tsx / InProgressRail.tsx.
@@ -40,10 +40,10 @@ export function NextUpHero({
         <span className="font-mono text-[9.5px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP · START BY</span>
         {overdue ? (
           <span className="font-mono text-[9.5px] font-bold bg-red text-white px-2 py-0.5 rounded-full tracking-[0.03em]">
-            {fmtDuration(late)} LATE
+            {fmtMins(late)} LATE
           </span>
         ) : (
-          <span className="font-mono text-[9.5px] text-[#a1a1aa]">{sb != null ? `in ${fmtDuration(-late)}` : '—'}</span>
+          <span className="font-mono text-[9.5px] text-[#a1a1aa]">{sb != null ? `in ${fmtMins(-late)}` : '—'}</span>
         )}
       </div>
 
@@ -63,8 +63,8 @@ export function NextUpHero({
       </div>
 
       <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-[9px] leading-[1.5]">
-        make <b className="text-gold font-semibold">{fmtQty(qty, item.unit)}</b> · {fmtDuration(active)} hands-on
-        {passive > 0 ? ` + ${fmtDuration(passive)} ${item.passiveNote || 'rest'}` : ''}
+        make <b className="text-gold font-semibold">{fmtQty(qty, item.unit)}</b> · {fmtMins(active)} hands-on
+        {passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}
         {item.service ? ` · ready for ${item.service.name} ${fmtClock(item.service.timeMinutes)}` : ''}
       </div>
 
