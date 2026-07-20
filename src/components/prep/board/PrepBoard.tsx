@@ -5,12 +5,13 @@ import { PrepBlock } from './PrepBlock'
 import { PrepLater } from './PrepLater'
 import { RowHandlers } from './PrepRow'
 
+// SMART PREP ONLY. The To-Do board was replaced by the run sheet; this component
+// has only ever been rendered with view="smart" since, so the discriminator and
+// the todayItems it fed are gone. See PrepRow for the same note.
 export interface PrepBoardProps {
-  view: 'todo' | 'smart'
   groupBy: 'urgency' | 'category' | 'station'
   items: PrepItemRich[]          // already RC/active-filtered by the page
-  todayItems: PrepItemRich[]     // isOnList items (for To Do)
-  handlers: Omit<RowHandlers, 'view'>
+  handlers: RowHandlers
   onAddAll: (ids: string[]) => void
   tasksSlot?: React.ReactNode    // checklist Tasks block — rendered as the first grid cell
 }
@@ -21,32 +22,8 @@ const notOnListIds = (rows: BoardRow[]) => rows.filter(r => !r.onList).map(r => 
 const startedFirst = (rows: BoardRow[]) =>
   [...rows].sort((a, b) => (a.status === 'in-progress' ? 0 : 1) - (b.status === 'in-progress' ? 0 : 1))
 
-export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll, tasksSlot }: PrepBoardProps) {
-  const h: RowHandlers = { ...handlers, view }
-
-  if (view === 'todo') {
-    const list = todayItems.map(toBoardRow)
-    const open = (r: BoardRow) => r.status !== 'done' && r.status !== 'skipped'
-    const crit  = startedFirst(list.filter(r => r.urgency === 'critical' && open(r)))
-    const low   = startedFirst(list.filter(r => r.urgency === 'low'      && open(r)))
-    const later = startedFirst(list.filter(r => r.urgency === 'par'      && open(r)))
-    const closed = list.filter(r => r.status === 'done')
-    return (
-      <div className="board">
-        <div className="actionable">
-          <div className="col">
-            {tasksSlot}
-            <PrepBlock kind="crit" title="CRITICAL" rows={crit} h={h} emptyText="No critical items" />
-          </div>
-          <div className="col">
-            <PrepBlock kind="low" title="NEEDED TODAY" rows={low} h={h} emptyText="All par levels met" />
-            {later.length > 0 && <PrepLater variant="later" rows={later} h={h} />}
-            <PrepLater variant="closed" rows={closed} h={h} />
-          </div>
-        </div>
-      </div>
-    )
-  }
+export function PrepBoard({ groupBy, items, handlers, onAddAll, tasksSlot }: PrepBoardProps) {
+  const h: RowHandlers = handlers
 
   // SMART PREP
   const rows = items.map(toBoardRow)
@@ -63,7 +40,7 @@ export function PrepBoard({ view, groupBy, items, todayItems, handlers, onAddAll
           </div>
           <div className="col">
             <PrepBlock kind="low" title="LOW STOCK / NEEDED TODAY" rows={low} h={h} addAll onAddAll={() => onAddAll(notOnListIds(low))} />
-            <PrepLater variant="par" rows={par} h={h} />
+            <PrepLater rows={par} h={h} />
           </div>
         </div>
       </div>

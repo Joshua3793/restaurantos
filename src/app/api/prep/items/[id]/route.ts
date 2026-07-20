@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
+import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
+import { computePriority, computeSuggestedQty, numOrNull } from '@/lib/prep-utils'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { numOrNull } from '@/lib/prep-utils'
+
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const item = await prisma.prepItem.findUnique({
     where: { id: params.id },
     include: {
@@ -126,7 +137,37 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const body = await req.json()
+  // Authenticate BEFORE touching the body: an unauthenticated caller should not be
+  // able to make the server parse arbitrary input.
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
+  // A malformed body is a client error, not a server fault — `await req.json()`
+  // on its own throws a SyntaxError that surfaces as an opaque 500.
+  const body = await req.json().catch(() => null)
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  // Mirrors the RC guard that POST /api/prep/items already performs. Without it a
+  // scoped user could edit an item belonging to an RC they cannot write — and, by
+  // sending revenueCenterId, move an item INTO or OUT OF one. Both the current
+  // owner and the target are checked; a Shared item (null RC) has no owner to check.
+  try {
+    const current = await prisma.prepItem.findUnique({
+      where: { id: params.id },
+      select: { revenueCenterId: true },
+    })
+    if (current?.revenueCenterId) await assertRcWritable(user, current.revenueCenterId)
+    if (body.revenueCenterId) await assertRcWritable(user, body.revenueCenterId)
+  } catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
 
   // Resolve the unit defensively: a recipe-linked item inherits the recipe's yield
   // unit; a free-standing item's unit must be a known canonical token. This closes
@@ -189,6 +230,12 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   await prisma.prepItem.update({
     where: { id: params.id },
     data: { isActive: false },

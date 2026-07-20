@@ -10,11 +10,10 @@ export interface BlockProps {
   rows: BoardRow[]
   h: RowHandlers
   addAll?: boolean
-  emptyText?: string
   onAddAll?: () => void
 }
 
-export function PrepBlock({ kind, title, rows, h, addAll, emptyText, onAddAll }: BlockProps) {
+export function PrepBlock({ kind, title, rows, h, addAll, onAddAll }: BlockProps) {
   const mins = totalMin(rows)
   const meta = rows.length ? `· ${rows.length} item${rows.length > 1 ? 's' : ''}${mins ? ` · ~${fmtMin(mins)}` : ''}` : ''
   const dotCls = kind === 'crit' ? 'dot-red' : kind === 'low' ? 'dot-amber' : 'dot-gray'
@@ -31,7 +30,7 @@ export function PrepBlock({ kind, title, rows, h, addAll, emptyText, onAddAll }:
         {rows.length === 0 ? (
           <div className="bk-empty">
             <div className="ei"><Check /></div>
-            <div className="et">{emptyText || 'All clear'}</div>
+            <div className="et">All clear</div>
             <div className="es">Nothing needs prepping here.</div>
           </div>
         ) : rows.map(r => <PrepRow key={r.id} row={r} h={h} />)}

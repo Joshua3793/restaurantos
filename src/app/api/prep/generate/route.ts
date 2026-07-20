@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 import { computeSuggestedQty } from '@/lib/prep-utils'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { convertQty } from '@/lib/uom'
 
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json().catch(() => ({}))
   const dateStr = body.date as string | undefined
 

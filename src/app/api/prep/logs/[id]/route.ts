@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 import { validatePrepQty } from '@/lib/prep-utils'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
+
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
 
 const COMPLETION_STATUSES = new Set(['DONE', 'PARTIAL'])
 
@@ -9,6 +14,12 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const { status, actualPrepQty, assignedTo, dueTime, note, blockedReason } = body
 
@@ -95,6 +106,12 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const existing = await prisma.prepLog.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await prisma.prepLog.delete({ where: { id: params.id } })

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 import { PREP_CATEGORIES as DEFAULT_CATEGORIES, PREP_STATIONS as DEFAULT_STATIONS } from '@/lib/prep-utils'
 
 // CRITICAL: the GET handler below takes no `request` arg and uses no dynamic
@@ -29,6 +30,10 @@ function toPgTextArray(arr: string[]): string {
 
 export async function GET() {
   try {
+    // Any signed-in user: /prep is not role-gated, so STAFF legitimately read the
+    // station list to render the board. The guard exists to keep the route off the
+    // public internet, not to gate by role.
+    await requireSession()
     // Use only $queryRawUnsafe / $executeRawUnsafe — no ORM queries — so
     // pgBouncer transaction mode never sees named prepared statements.
     const rows = await prisma.$queryRawUnsafe<Array<{ categories: string[]; stations: string[] }>>(
@@ -54,6 +59,7 @@ export async function GET() {
       stations:   (rows[0].stations   ?? []).filter(Boolean),
     })
   } catch (err) {
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[prep/settings GET]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -61,6 +67,9 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
+    // Any signed-in user — the stations list is edited from PrepSettingsModal on
+    // /prep, which STAFF can reach. Escalating to ADMIN here would break them.
+    await requireSession()
     const body = await req.json()
 
     // Categories are managed exclusively by sync-from-recipes.
@@ -102,6 +111,9 @@ export async function PUT(req: NextRequest) {
       stations:   (updated[0]?.stations   ?? stations).filter(Boolean),
     })
   } catch (err) {
+    // Must precede the generic handler below — that one reports every error as a
+    // 500, which would mask a 401/403 as a server fault.
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[prep/settings PUT]', err)
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message }, { status: 500 })

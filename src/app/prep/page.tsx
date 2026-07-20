@@ -566,20 +566,6 @@ export default function PrepPage() {
     ),
   [items])
 
-  // Today filter (search + optional category/station filters)
-  const filteredToday = useMemo(() => {
-    return todayItems.filter(item => {
-      if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
-      if (filterCategory !== 'ALL' && item.category !== filterCategory) return false
-      if (filterStation === 'UNASSIGNED') {
-        if (item.station && item.station.trim() !== '') return false
-      } else if (filterStation !== 'ALL') {
-        if (item.station !== filterStation) return false
-      }
-      return true
-    })
-  }, [todayItems, search, filterCategory, filterStation])
-
   // Smart-prep filter (all active items respecting search + category/station).
   // Defined here (above the buckets/groups below) because every Smart Prep derivation
   // feeds off it — that's how the mobile search bar actually filters the list.
@@ -1462,16 +1448,14 @@ export default function PrepPage() {
               ))}
             </div>
           </div>
-          <PrepSummaryLine items={filteredSmart} view="smart" />
+          <PrepSummaryLine items={filteredSmart} />
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : (
             <PrepBoard
-              view="smart"
               groupBy={smartPrepView}
               items={filteredSmart}
-              todayItems={filteredToday}
-              handlers={{ onOpen: openDrawer, onOpenRecipe: openDrawer, onToggleOnList: handleToggleOnList, onStatusChange: onRowStatusChange, onQuickDone: setDoneSheetItem, onPriorityChange: handlePriorityChange, savingIds }}
+              handlers={{ onOpen: openDrawer, onOpenRecipe: openDrawer, onToggleOnList: handleToggleOnList, onPriorityChange: handlePriorityChange, savingIds }}
               onAddAll={handleAddIds}
               tasksSlot={
                 <PrepTaskLibrary

@@ -8,6 +8,11 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
 
+// GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
+// read is ever refactored away, a prerendered route would serve GET only and
+// return 405 for POST.
+export const dynamic = 'force-dynamic'
+
 const recipeInclude = {
   select: {
     id: true,
