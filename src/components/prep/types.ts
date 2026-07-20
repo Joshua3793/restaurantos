@@ -66,7 +66,10 @@ export interface PrepItemRich {
   activeMinutes: number | null
   passiveMinutes: number | null
   passiveNote: string | null
-  service: { id: string; name: string; timeMinutes: number } | null
+  /** The item's target service — ACTIVE only. The API nulls this when the service
+   *  has been soft-removed, so no surface can name a service that no longer exists.
+   *  `startByMinutes` still anchors on the stored time either way. */
+  service: { id: string; name: string; timeMinutes: number; endMinutes: number | null } | null
   startByMinutes: number | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
 }

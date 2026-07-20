@@ -3,7 +3,7 @@
 // the inline STOCK OUT / BLOCKED pills in desktop.jsx's DRow. Flat Tailwind
 // tokens replace the prototype's hex palette; mono via `font-mono`.
 import { AlertTriangle } from 'lucide-react'
-import { fmtDuration, fmtClock } from '@/lib/prep-runsheet'
+import { fmtMins, fmtClock } from '@/lib/prep-runsheet'
 
 // ─── StationTag ──────────────────────────────────────────────────────────
 // Small neutral "STATION" chip (PTTag).
@@ -56,7 +56,7 @@ export function RunwayBar({
         )}
       </span>
       <span className="font-mono text-[10px] text-ink-3 whitespace-nowrap">
-        {fmtDuration(active)} hands-on{passive > 0 ? ` + ${fmtDuration(passive)} ${passiveNote || 'rest'}` : ''}
+        {fmtMins(active)} hands-on{passive > 0 ? ` + ${fmtMins(passive)} ${passiveNote || 'rest'}` : ''}
       </span>
     </span>
   )

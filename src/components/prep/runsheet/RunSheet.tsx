@@ -17,7 +17,8 @@ import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
-import { fmtClock, fmtDuration, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
 type Group = 'time' | 'station' | 'priority'
@@ -46,6 +47,8 @@ const sbOr = (i: PrepItemRich) => i.startByMinutes ?? Infinity
 export function RunSheet({
   items,
   cooks,
+  services,
+  leadMinutes,
   nowMin,
   nowMs,
   onStart,
@@ -57,6 +60,11 @@ export function RunSheet({
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
+  /** The active RC's ACTIVE services (empty ⇒ on-demand). The run sheet's service
+   *  caption derives from the RC's configuration, never from what happens to be on
+   *  the board — see `svcCaption`. */
+  services: RcService[]
+  leadMinutes: number | null
   nowMin: number
   nowMs: number
   onStart: (item: PrepItemRich) => void
@@ -106,14 +114,36 @@ export function RunSheet({
   )
   const blockedN = todo.filter(i => i.isBlocked || !!i.blockedReason).length
 
-  // Next upcoming service across the visible items.
-  const nextSvc = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; timeMinutes: number }>()
-    for (const i of items) if (i.service) map.set(i.service.id, i.service)
-    return [...map.values()].filter(s => s.timeMinutes > nowMin).sort((a, b) => a.timeMinutes - b.timeMinutes)[0] ?? null
-  }, [items, nowMin])
+  // The service caption in the status band. Source of truth is the RC's configured
+  // services via `serviceStatus` — the SAME answer /prep's page header, /pass and
+  // /preshift render, so the band can no longer disagree with the header above it.
+  //
+  // This used to derive services from the prep items themselves and filter
+  // `timeMinutes > nowMin` (upcoming-only), which meant it had no concept of a
+  // service being underway, and its answer changed as items came on/off the board.
+  const svcCaption = useMemo(() => {
+    const status = serviceStatus(services, nowMin, leadMinutes)
+    switch (status.kind) {
+      case 'upcoming':
+      case 'underway': {
+        const f = formatServiceStatus(status)
+        return f ? (f.trail ? `${f.lead} · ${f.trail}` : f.lead) : null
+      }
+      // Configured services, none left today → render nothing (retires the old
+      // 'ALL SERVICES STARTED', vocabulary that existed nowhere else in the app).
+      case 'closed':
+        return null
+      // On-demand. The page header already says so; don't say it twice.
+      case 'none':
+        return null
+      default: {
+        const _never: never = status
+        return _never
+      }
+    }
+  }, [services, nowMin, leadMinutes])
 
-  const handsOn = (list: PrepItemRich[]) => fmtDuration(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
+  const handsOn = (list: PrepItemRich[]) => fmtMins(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
 
   const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim }
   const rows = (list: PrepItemRich[]) => (
@@ -182,7 +212,7 @@ export function RunSheet({
         )}
         {aft.length > 0 && (
           <div>
-            <GroupHead dot="bg-ink-4" title="Afternoon · for dinner" count={aft.length} sub={`${handsOn(aft)} hands-on`} />
+            <GroupHead dot="bg-ink-4" title="Afternoon" count={aft.length} sub={`${handsOn(aft)} hands-on`} />
             {rows(aft)}
           </div>
         )}
@@ -205,7 +235,11 @@ export function RunSheet({
           what's unique to it: the ordering rationale + the Kitchen / My-station toggle. */}
       <div className="flex items-center justify-between gap-4 mb-3.5">
         <p className="text-[12.5px] text-ink-3 tracking-[-0.005em] min-w-0">
-          Ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest, counted back from service
+          {group === 'time'
+            ? <>Ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest, counted back from service</>
+            : group === 'station'
+              ? <>Grouped by <b className="text-ink font-medium">station</b> — within each, earliest start-by first</>
+              : <>Grouped by <b className="text-ink font-medium">priority</b> — critical first</>}
         </p>
         <Segmented<Mode>
           value={mode}
@@ -239,9 +273,9 @@ export function RunSheet({
         </div>
         <div className="shrink-0 text-right border-l border-line pl-[22px]">
           <div className="font-mono text-[20px] font-semibold tracking-[-0.02em]">{fmtClock(nowMin)}</div>
-          <div className="font-mono text-[9.5px] text-ink-3 mt-[3px]">
-            {nextSvc ? `${nextSvc.name} in ${fmtDuration(nextSvc.timeMinutes - nowMin)}` : 'ALL SERVICES STARTED'}
-          </div>
+          {svcCaption && (
+            <div className="font-mono text-[9.5px] text-ink-3 mt-[3px]">{svcCaption}</div>
+          )}
         </div>
       </div>
 

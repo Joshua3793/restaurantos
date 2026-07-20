@@ -5,7 +5,7 @@
 // elapsed, queued count, hands-on load, and late-to-start count.
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
-import { fmtDuration, runState } from '@/lib/prep-runsheet'
+import { fmtMins, runState } from '@/lib/prep-runsheet'
 
 // `nowMin` (like the rest of the run sheet's clock math — see RunRow.tsx,
 // prep-runsheet.ts) is minutes-since-midnight, not an epoch timestamp. A
@@ -65,12 +65,12 @@ function CrewCard({ cook, items, nowMin }: { cook: Cook; items: PrepItemRich[]; 
             doing ? 'text-gold-2' : 'text-ink-3'
           }`}
         >
-          {doing ? `● ${doing.name} · ${fmtDuration(doingElapsed)}` : 'between tasks'}
+          {doing ? `● ${doing.name} · ${fmtMins(doingElapsed)}` : 'between tasks'}
         </span>
         <span
           className={`block font-mono text-[9.5px] mt-px whitespace-nowrap ${lateN ? 'text-red-text' : 'text-ink-4'}`}
         >
-          {queue.length} queued · {fmtDuration(load)} hands-on{lateN ? ` · ${lateN} late` : ''}
+          {queue.length} queued · {fmtMins(load)} hands-on{lateN ? ` · ${lateN} late` : ''}
         </span>
       </span>
     </div>

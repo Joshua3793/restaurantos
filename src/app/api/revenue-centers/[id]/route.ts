@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { buildScheduleFields } from '@/lib/rc-schedule'
 import { requireSession, AuthError } from '@/lib/auth'
-import { Prisma } from '@prisma/client'
+import { ACTIVE_SERVICES_INCLUDE, normalizePrepLead } from '@/lib/rc-service-select'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession() }
@@ -11,7 +10,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
-  const rc = await prisma.revenueCenter.findUnique({ where: { id: params.id } })
+  const rc = await prisma.revenueCenter.findUnique({
+    where: { id: params.id },
+    include: {
+      services: ACTIVE_SERVICES_INCLUDE,
+    },
+  })
   if (!rc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(rc)
 }
@@ -58,12 +62,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     targetCostUpdate.targetFoodCostPct = v
   }
 
-  const sendsSchedule = 'schedulingMode' in body || 'prepLeadMinutes' in body || 'serviceSchedule' in body
-  let scheduleFields: ReturnType<typeof buildScheduleFields> | null = null
-  if (sendsSchedule) {
-    try { scheduleFields = buildScheduleFields(body) }
-    catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
-  }
+  const sendsPrepLead = 'prepLeadMinutes' in body
+  const prepLeadMinutes = sendsPrepLead ? normalizePrepLead(body.prepLeadMinutes) : null
 
   const rc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
@@ -82,11 +82,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ...(managerName  !== undefined ? { managerName:       managerName       || null }      : {}),
         ...targetCostUpdate,
         ...(notes !== undefined      ? { notes: notes || null }                                : {}),
-        ...(scheduleFields ? {
-          schedulingMode:  scheduleFields.schedulingMode,
-          prepLeadMinutes: scheduleFields.prepLeadMinutes,
-          serviceSchedule: scheduleFields.serviceSchedule ?? Prisma.JsonNull,
-        } : {}),
+        ...(sendsPrepLead ? { prepLeadMinutes } : {}),
       },
     })
   })

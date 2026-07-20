@@ -1,6 +1,5 @@
 'use client'
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import type { ServiceSchedule } from '@/lib/service-hours'
 
 export interface RevenueCenter {
   id: string
@@ -15,9 +14,9 @@ export interface RevenueCenter {
   targetFoodCostPct: string | null  // Prisma Decimal → string in JSON (back-compat)
   targetCostPct: string | null      // Prisma Decimal → string in JSON
   notes: string | null
-  schedulingMode: string                       // "FIXED" | "ON_DEMAND"
   prepLeadMinutes: number | null
-  serviceSchedule: ServiceSchedule | null      // Prisma Json → real object (not a string)
+  /** Active services for this RC, ascending by start. Empty ⇒ on-demand. */
+  services: { id: string; name: string; timeMinutes: number; endMinutes: number | null }[]
   createdAt: string
 }
 

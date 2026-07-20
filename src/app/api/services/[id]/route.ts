@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { validateTimeMinutes, validateSpan } from '@/lib/service-validation'
 
 export const dynamic = 'force-dynamic'
-
-function validateTimeMinutes(value: unknown): string | null {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 1439) {
-    return 'timeMinutes must be an integer between 0 and 1439'
-  }
-  return null
-}
 
 // ── PATCH /api/services/[id] ───────────────────────────────────────────────
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -20,7 +14,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const body = await req.json().catch(() => ({}))
-    const { name, timeMinutes, sortOrder, isActive } = body
+    const { name, timeMinutes, endMinutes, sortOrder, isActive } = body
 
     const data: Record<string, unknown> = {}
 
@@ -35,6 +29,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const timeErr = validateTimeMinutes(timeMinutes)
       if (timeErr) return NextResponse.json({ error: timeErr }, { status: 400 })
       data.timeMinutes = timeMinutes
+    }
+
+    if (endMinutes !== undefined && endMinutes !== null) {
+      const endErr = validateTimeMinutes(endMinutes, 'endMinutes')
+      if (endErr) return NextResponse.json({ error: endErr }, { status: 400 })
+    }
+    if (endMinutes !== undefined) {
+      data.endMinutes = endMinutes === null ? null : endMinutes
+    }
+
+    // Check the span against the values the row will actually END UP with — a PATCH
+    // may move only one edge onto the other's existing value. Only run this when a
+    // time field is actually part of the PATCH — a legacy row can be stored with
+    // timeMinutes === endMinutes (this API accepted that until recently), and
+    // re-validating the span on every unrelated PATCH (rename, isActive toggle)
+    // would permanently block it from being renamed, removed, or restored.
+    if (timeMinutes !== undefined || endMinutes !== undefined) {
+      const effStart = timeMinutes !== undefined ? timeMinutes : existing.timeMinutes
+      const effEnd = endMinutes !== undefined ? endMinutes : existing.endMinutes
+      const spanErr = validateSpan(effStart, effEnd)
+      if (spanErr) return NextResponse.json({ error: spanErr }, { status: 400 })
     }
 
     if (sortOrder !== undefined) {

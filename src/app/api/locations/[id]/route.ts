@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { buildScheduleFields } from '@/lib/rc-schedule'
-import { Prisma, User } from '@prisma/client'
+import { ACTIVE_SERVICES_INCLUDE, normalizePrepLead } from '@/lib/rc-service-select'
+import { User } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +18,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const loc = await prisma.location.findUnique({
     where: { id: params.id },
-    include: { revenueCenters: true },
+    include: {
+      revenueCenters: {
+        include: {
+          services: ACTIVE_SERVICES_INCLUDE,
+        },
+      },
+    },
   })
   if (!loc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(loc)
@@ -54,12 +60,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     ? (LOCATION_TYPES.includes(type) ? type : existing.type)
     : undefined
 
-  const sendsSchedule = 'schedulingMode' in body || 'prepLeadMinutes' in body || 'serviceSchedule' in body
-  let scheduleFields: ReturnType<typeof buildScheduleFields> | null = null
-  if (sendsSchedule) {
-    try { scheduleFields = buildScheduleFields(body) }
-    catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
-  }
+  const sendsPrepLead = 'prepLeadMinutes' in body
+  const prepLeadMinutes = sendsPrepLead ? normalizePrepLead(body.prepLeadMinutes) : null
 
   const loc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
@@ -77,11 +79,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ...(managerName !== undefined   ? { managerName: managerName || null }           : {}),
         ...(notes !== undefined         ? { notes: notes || null }                       : {}),
         ...(defaultRevenueCenterId !== undefined ? { defaultRevenueCenterId: defaultRevenueCenterId || null } : {}),
-        ...(scheduleFields ? {
-          schedulingMode:  scheduleFields.schedulingMode,
-          prepLeadMinutes: scheduleFields.prepLeadMinutes,
-          serviceSchedule: scheduleFields.serviceSchedule ?? Prisma.JsonNull,
-        } : {}),
+        ...(sendsPrepLead ? { prepLeadMinutes } : {}),
       },
     })
   })

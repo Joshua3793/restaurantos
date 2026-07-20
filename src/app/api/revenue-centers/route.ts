@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { buildScheduleFields } from '@/lib/rc-schedule'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds } from '@/lib/rc-scope'
+import { ACTIVE_SERVICES_INCLUDE, normalizePrepLead } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 const RC_LEAF_TYPES = ['FOOD', 'DRINK'] as const
@@ -16,7 +16,12 @@ export async function GET() {
     throw e
   }
 
-  let rcs = await prisma.revenueCenter.findMany({ orderBy: { createdAt: 'asc' } })
+  let rcs = await prisma.revenueCenter.findMany({
+    orderBy: { createdAt: 'asc' },
+    include: {
+      services: ACTIVE_SERVICES_INCLUDE,
+    },
+  })
 
   if (rcs.length === 0) {
     // Bootstrap an empty DB: a RevenueCenter now requires a Location, so wrap
@@ -37,7 +42,8 @@ export async function GET() {
         data: { name: 'Main Kitchen', color: 'blue', isDefault: true, locationId: loc.id },
       })
     })
-    rcs = [defaultRc]
+    // Freshly created — no services exist for it yet.
+    rcs = [{ ...defaultRc, services: [] }]
   }
 
   const allowed = await resolveScopedRcIds(user)
@@ -85,9 +91,7 @@ export async function POST(req: NextRequest) {
     resolvedTargetFoodCostPct = parseFloat(targetFoodCostPct)
   }
 
-  let scheduleFields
-  try { scheduleFields = buildScheduleFields(body) }
-  catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+  const prepLeadMinutes = normalizePrepLead(body.prepLeadMinutes)
 
   const rc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
@@ -106,9 +110,7 @@ export async function POST(req: NextRequest) {
         targetCostPct:     resolvedTargetCostPct,
         targetFoodCostPct: resolvedTargetFoodCostPct,
         notes:             notes             || null,
-        schedulingMode:  scheduleFields.schedulingMode,
-        prepLeadMinutes: scheduleFields.prepLeadMinutes,
-        serviceSchedule: scheduleFields.serviceSchedule ?? undefined,
+        prepLeadMinutes,
       },
     })
   })

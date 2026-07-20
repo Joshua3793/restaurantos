@@ -1,14 +1,19 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, Copy, X, MapPin, UtensilsCrossed, Wine } from 'lucide-react'
-import type { ServiceSchedule, ServiceWindow } from '@/lib/service-hours'
-import { fmtWindow, fmtDuration, dayIndex } from '@/lib/service-hours'
+import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, MapPin, UtensilsCrossed, Wine } from 'lucide-react'
 import { RC_COLORS, rcHex } from '@/lib/rc-colors'
 import { getVocab } from '@/lib/rc-vocab'
 import { useRc } from '@/contexts/RevenueCenterContext'
 
-// The /api/locations payload includes the schedule fields (which the context's
-// slimmer Location type omits) — type them locally here.
+interface ServiceRow { id: string; name: string; timeMinutes: number; endMinutes: number | null; isActive: boolean }
+
+// The RC's services as embedded in /api/revenue-centers and /api/locations
+// payloads — pre-filtered to active-only server-side (ACTIVE_SERVICES_INCLUDE),
+// so isActive isn't selected there.
+type ApiRcService = Omit<ServiceRow, 'isActive'>
+
+// The /api/locations payload includes fields the context's slimmer types omit
+// (e.g. prepLeadMinutes on Location) — type them locally here.
 interface ApiRevenueCenter {
   id: string
   name: string
@@ -22,7 +27,10 @@ interface ApiRevenueCenter {
   targetFoodCostPct: string | null
   targetCostPct: string | null
   notes: string | null
+  prepLeadMinutes: number | null
   createdAt: string
+  /** Active services for this RC, ascending by start. Empty ⇒ on-demand. */
+  services: ApiRcService[]
 }
 
 interface ApiLocation {
@@ -36,9 +44,7 @@ interface ApiLocation {
   managerName: string | null
   notes: string | null
   defaultRevenueCenterId: string | null
-  schedulingMode: string             // 'FIXED' | 'ON_DEMAND'
   prepLeadMinutes: number | null
-  serviceSchedule: ServiceSchedule | null
   createdAt: string
   revenueCenters: ApiRevenueCenter[]
 }
@@ -54,82 +60,138 @@ const RC_TYPES = [
   { value: 'DRINK', label: 'Drink / Bar' },
 ] as const
 
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-const EMPTY_WINDOW: ServiceWindow = { label: '', start: '17:00', end: '22:00' }
+/* ─────────────────────────  Service period editor  ──────────────────────────
+   Service type + hours, per revenue center. This is the one place a human
+   configures them — /setup/services (weekday-window editor) is retired. */
 
-/* ─────────────────────────  Service schedule editor  ───────────────────────── */
+const toHHMM = (m: number | null) =>
+  m == null ? '' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+const fromHHMM = (v: string): number | null => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim())
+  if (!m) return null
+  const h = Number(m[1]), mm = Number(m[2])
+  if (h < 0 || h > 23 || mm < 0 || mm > 59) return null
+  return h * 60 + mm
+}
 
-function ServiceScheduleEditor({
-  schedule,
-  onChange,
-}: {
-  schedule: ServiceSchedule
-  onChange: (next: ServiceSchedule) => void
+function ServicePeriodEditor({ rcId, services, onChanged }: {
+  rcId: string
+  services: ServiceRow[]
+  onChanged: () => void
 }) {
-  const dayWindows = (idx: number): ServiceWindow[] => schedule[String(idx)] ?? []
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const setDay = (idx: number, windows: ServiceWindow[]) => {
-    const next = { ...schedule }
-    if (windows.length) next[String(idx)] = windows
-    else delete next[String(idx)]
-    onChange(next)
+  const save = async (fn: () => Promise<Response>) => {
+    setBusy(true); setError(null)
+    try {
+      const res = await fn()
+      if (!res.ok) setError((await res.json().catch(() => ({}))).error ?? 'Save failed')
+      else onChanged()
+    } catch { setError('Save failed — check your connection.') }
+    finally { setBusy(false) }
   }
 
-  const addWindow = (idx: number) => setDay(idx, [...dayWindows(idx), { ...EMPTY_WINDOW }])
-  const removeWindow = (idx: number, wi: number) => setDay(idx, dayWindows(idx).filter((_, i) => i !== wi))
-  const editWindow = (idx: number, wi: number, key: keyof ServiceWindow, val: string) =>
-    setDay(idx, dayWindows(idx).map((w, i) => (i === wi ? { ...w, [key]: val } : w)))
+  const addService = () => save(() => fetch('/api/services', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ revenueCenterId: rcId, name: 'Service', timeMinutes: 540, endMinutes: 960 }),
+  }))
 
-  const copyMondayToAll = () => {
-    const mon = dayWindows(0)
-    const next: ServiceSchedule = {}
-    for (let i = 0; i < 7; i++) if (mon.length) next[String(i)] = mon.map(w => ({ ...w }))
-    onChange(next)
-  }
+  const patch = (id: string, data: Partial<ServiceRow>) => save(() => fetch(`/api/services/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  }))
+
+  const remove = (id: string) => save(() => fetch(`/api/services/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isActive: false }),
+  }))
+
+  const restore = (id: string) => save(() => fetch(`/api/services/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isActive: true }),
+  }))
+
+  // GET /api/services (used by the refetch on every change) deliberately returns
+  // BOTH active and inactive rows — do not add a server-side filter, because this
+  // editor is the only surface that can bring a removed service back (/setup/services,
+  // which used to carry the Power toggle, is now just a redirect). Removing is a soft
+  // delete, so the inactive rows are the sole recovery path; they render dimmed below
+  // the active list with a Restore button.
+  const activeServices = services.filter(s => s.isActive)
+  const inactiveServices = services.filter(s => !s.isActive)
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="block text-xs font-medium text-ink-3">Weekly service hours</label>
-        <button type="button" onClick={copyMondayToAll}
-          className="flex items-center gap-1 text-[11px] text-ink-4 hover:text-ink-2">
-          <Copy size={11} /> Copy Mon → all
-        </button>
-      </div>
-      {DAY_LABELS.map((label, idx) => {
-        const windows = dayWindows(idx)
-        return (
-          <div key={label} className="border border-line rounded-xl p-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-ink-2 w-10">{label}</span>
-              {windows.length === 0 && <span className="text-[11px] text-ink-4">Closed</span>}
-              <button type="button" onClick={() => addWindow(idx)}
-                className="flex items-center gap-1 text-[11px] text-gold hover:text-gold-2">
-                <Plus size={11} /> Window
-              </button>
+    <div className="flex flex-col gap-2">
+      <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3">Services</div>
+      {activeServices.length === 0 && (
+        <p className="text-[12.5px] text-ink-3">
+          No services — this revenue center is treated as <b className="text-ink font-medium">on-demand</b> (no countdown shown).
+        </p>
+      )}
+      {activeServices.map(s => (
+        <div key={s.id} className="flex items-center gap-2">
+          <input
+            defaultValue={s.name}
+            disabled={busy}
+            onBlur={e => {
+              const v = e.target.value.trim()
+              if (!v) { setError('Name cannot be empty.'); e.target.value = s.name; return }
+              if (v !== s.name) patch(s.id, { name: v })
+            }}
+            placeholder="Brunch"
+            className="flex-1 min-w-0 border border-line rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+          />
+          <input
+            type="time" defaultValue={toHHMM(s.timeMinutes)}
+            disabled={busy}
+            onBlur={e => {
+              const v = fromHHMM(e.target.value)
+              if (v == null) { setError('Enter a valid start time.'); e.target.value = toHHMM(s.timeMinutes); return }
+              if (v !== s.timeMinutes) patch(s.id, { timeMinutes: v })
+            }}
+            className="border border-line rounded-lg px-2 py-2 text-sm disabled:opacity-50"
+          />
+          <span className="text-ink-4">–</span>
+          <input
+            type="time" defaultValue={toHHMM(s.endMinutes)}
+            disabled={busy}
+            onBlur={e => {
+              const v = fromHHMM(e.target.value)
+              if (v == null) { setError('Enter a valid end time.'); e.target.value = toHHMM(s.endMinutes); return }
+              if (v !== s.endMinutes) patch(s.id, { endMinutes: v })
+            }}
+            className="border border-line rounded-lg px-2 py-2 text-sm disabled:opacity-50"
+          />
+          <button type="button" onClick={() => remove(s.id)} disabled={busy}
+            className="px-2 py-2 text-ink-3 hover:text-red disabled:opacity-50" title="Remove service">✕</button>
+        </div>
+      ))}
+      <button type="button" onClick={addService} disabled={busy}
+        className="self-start px-3 py-2 rounded-lg border border-line text-[13px] text-ink-2 hover:border-ink-3 disabled:opacity-50">
+        + Add service
+      </button>
+
+      {/* Removed services — kept visible (dimmed, struck) and separated from the
+          active list so the active rows stay the primary reading, but reachable
+          so a mis-click on ✕ isn't a one-way trip requiring DB access. */}
+      {inactiveServices.length > 0 && (
+        <div className="flex flex-col gap-2 mt-2 pt-2.5 border-t border-line">
+          <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-4">Removed</div>
+          {inactiveServices.map(s => (
+            <div key={s.id} className="flex items-center gap-2 opacity-60">
+              <span className="flex-1 min-w-0 truncate text-[13px] text-ink-3 line-through">{s.name}</span>
+              <span className="font-mono text-[12px] text-ink-4 line-through shrink-0">
+                {toHHMM(s.timeMinutes)}–{s.endMinutes == null ? '—' : toHHMM(s.endMinutes)}
+              </span>
+              <button type="button" onClick={() => restore(s.id)} disabled={busy}
+                className="px-2.5 py-1.5 rounded-lg border border-line text-[12.5px] text-ink-2 hover:border-ink-3 disabled:opacity-50 shrink-0"
+                title="Restore service">Restore</button>
             </div>
-            {windows.map((w, wi) => (
-              <div key={wi} className="flex items-center gap-1.5 mt-2">
-                <input
-                  value={w.label}
-                  onChange={e => editWindow(idx, wi, 'label', e.target.value)}
-                  placeholder="Lunch"
-                  className="flex-1 min-w-0 border border-line rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold"
-                />
-                <input type="time" value={w.start} onChange={e => editWindow(idx, wi, 'start', e.target.value)}
-                  className="border border-line rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
-                <span className="text-ink-4 text-xs">–</span>
-                <input type="time" value={w.end} onChange={e => editWindow(idx, wi, 'end', e.target.value)}
-                  className="border border-line rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold" />
-                <button type="button" onClick={() => removeWindow(idx, wi)}
-                  className="p-1 text-ink-4 hover:text-red">
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )
-      })}
+          ))}
+        </div>
+      )}
+
+      {error && <p className="text-[12.5px] text-red-text">{error}</p>}
     </div>
   )
 }
@@ -146,16 +208,11 @@ interface LocationFormData {
   managerName: string
   notes: string
   defaultRevenueCenterId: string
-  schedulingMode: 'FIXED' | 'ON_DEMAND'
-  prepLeadH: string
-  prepLeadM: string
-  schedule: ServiceSchedule
 }
 
 const EMPTY_LOCATION_FORM: LocationFormData = {
   name: '', color: 'blue', type: 'restaurant', isDefault: false, isActive: true,
   description: '', managerName: '', notes: '', defaultRevenueCenterId: '',
-  schedulingMode: 'FIXED', prepLeadH: '', prepLeadM: '', schedule: {},
 }
 
 function LocationFormModal({
@@ -179,10 +236,6 @@ function LocationFormModal({
           managerName:    initial.managerName ?? '',
           notes:          initial.notes ?? '',
           defaultRevenueCenterId: initial.defaultRevenueCenterId ?? '',
-          schedulingMode: initial.schedulingMode === 'ON_DEMAND' ? 'ON_DEMAND' : 'FIXED',
-          prepLeadH:      initial.prepLeadMinutes != null ? String(Math.floor(initial.prepLeadMinutes / 60)) : '',
-          prepLeadM:      initial.prepLeadMinutes != null ? String(initial.prepLeadMinutes % 60) : '',
-          schedule:       initial.serviceSchedule ?? {},
         }
       : EMPTY_LOCATION_FORM
   )
@@ -196,10 +249,6 @@ function LocationFormModal({
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
-    const prepLeadMinutes =
-      form.prepLeadH === '' && form.prepLeadM === ''
-        ? null
-        : (parseInt(form.prepLeadH || '0', 10) * 60) + parseInt(form.prepLeadM || '0', 10)
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       color: form.color,
@@ -209,9 +258,6 @@ function LocationFormModal({
       description: form.description || null,
       managerName: form.managerName || null,
       notes: form.notes || null,
-      schedulingMode: form.schedulingMode,
-      prepLeadMinutes,
-      serviceSchedule: form.schedulingMode === 'ON_DEMAND' ? null : form.schedule,
     }
     // Default RC only applies once the location has child RCs (edit flow).
     if (initial) payload.defaultRevenueCenterId = form.defaultRevenueCenterId || null
@@ -327,52 +373,6 @@ function LocationFormModal({
               </div>
             )}
 
-            {/* Scheduling — lives on the Location */}
-            <div className="pt-2 border-t border-line space-y-3">
-              <div className="flex items-center gap-1.5">
-                <Clock size={13} className="text-ink-4" />
-                <span className="text-xs font-semibold text-ink-2">Service hours &amp; prep timing</span>
-              </div>
-
-              <div className="flex gap-1.5">
-                {(['FIXED', 'ON_DEMAND'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => f('schedulingMode', mode)}
-                    className={`flex-1 py-2 text-xs font-medium rounded-xl border transition-colors ${
-                      form.schedulingMode === mode
-                        ? 'border-gold bg-gold/10 text-ink'
-                        : 'border-line text-ink-3 hover:bg-bg'
-                    }`}
-                  >
-                    {mode === 'FIXED' ? 'Fixed hours' : 'On-demand / by booking'}
-                  </button>
-                ))}
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-ink-3 mb-1">Prep lead before service</label>
-                <div className="flex items-center gap-2">
-                  <input type="number" min="0" value={form.prepLeadH}
-                    onChange={e => f('prepLeadH', e.target.value)} placeholder="0"
-                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="text-xs text-ink-4">h</span>
-                  <input type="number" min="0" max="59" value={form.prepLeadM}
-                    onChange={e => f('prepLeadM', e.target.value)} placeholder="0"
-                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="text-xs text-ink-4">m</span>
-                </div>
-              </div>
-
-              {form.schedulingMode === 'FIXED' && (
-                <ServiceScheduleEditor
-                  schedule={form.schedule}
-                  onChange={next => setForm(prev => ({ ...prev, schedule: next }))}
-                />
-              )}
-            </div>
-
             <div className="flex flex-col gap-2 pt-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.isDefault}
@@ -417,11 +417,14 @@ interface RcFormData {
   description: string
   managerName: string
   notes: string
+  prepLeadH: string
+  prepLeadM: string
 }
 
 const EMPTY_RC_FORM: RcFormData = {
   name: '', color: 'blue', type: 'FOOD', targetCostPct: '',
   isDefault: false, isActive: true, description: '', managerName: '', notes: '',
+  prepLeadH: '', prepLeadM: '',
 }
 
 function RcFormModal({
@@ -458,11 +461,31 @@ function RcFormModal({
           description:   initial.description ?? '',
           managerName:   initial.managerName ?? '',
           notes:         initial.notes ?? '',
+          prepLeadH:     initial.prepLeadMinutes != null ? String(Math.floor(initial.prepLeadMinutes / 60)) : '',
+          prepLeadM:     initial.prepLeadMinutes != null ? String(initial.prepLeadMinutes % 60) : '',
         }
       : EMPTY_RC_FORM
   )
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+
+  // initial.services (from /api/revenue-centers) is pre-filtered active-only
+  // server-side, so isActive is always true for that seed. The refetch below
+  // hits the shared /api/services handler directly, which returns both active
+  // and inactive rows — the editor filters those to active-only when rendering
+  // (see activeServices), so a removed service disappears immediately.
+  const [services, setServices] = useState<ServiceRow[]>(
+    (initial?.services ?? []).map(s => ({ ...s, isActive: true }))
+  )
+  const loadServices = useCallback(async () => {
+    if (!initial) return
+    const res = await fetch(`/api/services?revenueCenterId=${initial.id}`)
+    if (res.ok) setServices(await res.json())
+  }, [initial])
+  useEffect(() => { loadServices() }, [loadServices])
+  // Editing services writes straight to the API (no Save button), but the
+  // parent's RC list / global RC context should stay in sync immediately.
+  const handleServicesChanged = () => { loadServices(); onSaved() }
 
   const f = (key: keyof RcFormData, val: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: val }))
@@ -473,6 +496,10 @@ function RcFormModal({
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
+    const prepLeadMinutes =
+      form.prepLeadH === '' && form.prepLeadM === ''
+        ? null
+        : (parseInt(form.prepLeadH || '0', 10) * 60) + parseInt(form.prepLeadM || '0', 10)
     // CRITICAL: create must include locationId or POST /api/revenue-centers 400s.
     // On edit, a changed locationId re-parents the RC to a different location.
     const payload: Record<string, unknown> = {
@@ -486,6 +513,7 @@ function RcFormModal({
       description: form.description || null,
       managerName: form.managerName || null,
       notes: form.notes || null,
+      prepLeadMinutes,
     }
     const res = await fetch(
       initial ? `/api/revenue-centers/${initial.id}` : '/api/revenue-centers',
@@ -617,6 +645,43 @@ function RcFormModal({
               />
             </div>
 
+            {/* Prep lead — sets the "prep by" deadline shown on Prep, Pass, and
+                Preshift, measured back from this RC's service start time. */}
+            <div className="pt-2 border-t border-line space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-ink-4" />
+                <span className="text-xs font-semibold text-ink-2">Prep lead</span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Prep lead before service</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" value={form.prepLeadH}
+                    onChange={e => f('prepLeadH', e.target.value)} placeholder="0"
+                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-ink-4">h</span>
+                  <input type="number" min="0" max="59" value={form.prepLeadM}
+                    onChange={e => f('prepLeadM', e.target.value)} placeholder="0"
+                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-ink-4">m</span>
+                </div>
+                <p className="text-[11px] text-ink-4 mt-1">
+                  Prep must be done this far before the first service starts. Leave blank for no deadline.
+                </p>
+              </div>
+            </div>
+
+            {/* Service type + hours — configured here, per revenue center.
+                Only meaningful once the RC exists (needs an id to attach to). */}
+            {initial ? (
+              <div className="pt-2 border-t border-line">
+                <ServicePeriodEditor rcId={initial.id} services={services} onChanged={handleServicesChanged} />
+              </div>
+            ) : (
+              <p className="pt-2 border-t border-line text-xs text-ink-4">
+                Add service hours after saving.
+              </p>
+            )}
+
             <div className="flex flex-col gap-2 pt-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.isDefault}
@@ -724,10 +789,6 @@ function LocationCard({
 }) {
   const [expanded, setExpanded] = useState(true)
   const typeLabel = LOCATION_TYPES.find(t => t.value === loc.type)?.label ?? loc.type
-  const todayIdx = dayIndex(new Date())
-  const todayWindows = loc.schedulingMode === 'FIXED' ? (loc.serviceSchedule?.[String(todayIdx)] ?? []) : []
-  const prepLeadLabel = loc.prepLeadMinutes != null && loc.prepLeadMinutes > 0
-    ? fmtDuration(loc.prepLeadMinutes * 60_000) : null
   const defaultRcName = loc.defaultRevenueCenterId
     ? loc.revenueCenters.find(rc => rc.id === loc.defaultRevenueCenterId)?.name ?? null
     : null
@@ -766,32 +827,6 @@ function LocationCard({
               )}
               {defaultRcName && (
                 <span className="flex items-center gap-1 text-xs text-ink-3"><Target size={11} /> Default: {defaultRcName}</span>
-              )}
-            </div>
-
-            {/* Service row */}
-            <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-              <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-ink-4 font-medium">
-                <Clock size={11} /> Service
-              </span>
-              {loc.schedulingMode === 'ON_DEMAND' ? (
-                <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-3">
-                  By booking
-                </span>
-              ) : todayWindows.length === 0 ? (
-                <span className="text-[11.5px] text-ink-4">Closed today</span>
-              ) : (
-                todayWindows.map((w, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-3">
-                    <span className="font-semibold text-ink-2">{w.label}</span>
-                    <span className="text-ink-4 font-mono text-[11px]">{fmtWindow(w)}</span>
-                  </span>
-                ))
-              )}
-              {prepLeadLabel && (
-                <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-4">
-                  Prep lead {prepLeadLabel}
-                </span>
               )}
             </div>
           </div>

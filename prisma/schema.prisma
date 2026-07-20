@@ -607,9 +607,7 @@ model RevenueCenter {
   type              String            @default("FOOD")
   locationId        String
   location          Location          @relation(fields: [locationId], references: [id], onDelete: Restrict)
-  schedulingMode    String            @default("FIXED")
   prepLeadMinutes   Int?
-  serviceSchedule   Json?
   toastGuid         String?           @unique // SUPERSEDED by ToastRevenueCenterMap (many Toast RCs → one app RC); unused, retained until dropped
   toastRcMaps       ToastRevenueCenterMap[] @relation("ToastRCMap")
   countSessions     CountSession[]    @relation("CountRC")
@@ -639,6 +637,9 @@ model Service {
   revenueCenterId String
   name            String
   timeMinutes     Int
+  // Service END, minute-of-day. Nullable so this ships additively; the RC editor
+  // requires it on save. endMinutes < timeMinutes ⇒ the service crosses midnight.
+  endMinutes      Int?
   sortOrder       Int           @default(0)
   isActive        Boolean       @default(true)
   revenueCenter   RevenueCenter @relation("ServiceRC", fields: [revenueCenterId], references: [id])

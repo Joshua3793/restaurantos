@@ -29,9 +29,10 @@ async function main() {
           managerName: rc.managerName,
           notes: rc.notes,
           description: rc.description,
-          schedulingMode: rc.schedulingMode,
+          // schedulingMode / serviceSchedule are no longer seeded from the RC:
+          // both columns were dropped from RevenueCenter once service type + hours
+          // moved to the Service model. Location keeps its own (now unread) copies.
           prepLeadMinutes: rc.prepLeadMinutes,
-          serviceSchedule: rc.serviceSchedule ?? undefined,
           isActive: rc.isActive,
         },
       })

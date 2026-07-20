@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { prepDeadline, fmtDuration } from '@/lib/service-hours'
+import { fmtDuration, serviceStatus, upcomingInfo, formatServiceStatus, type RcService } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
@@ -29,7 +29,7 @@ import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
-import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, buildPrepCountdown, computePriority } from '@/lib/prep-utils'
+import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
@@ -636,24 +636,94 @@ export default function PrepPage() {
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
-  const countdown = useMemo(() => buildPrepCountdown(activeRc, new Date()), [activeRc])
-  // Compact prep-deadline label for the mobile header subtitle (replaces the old full-width banner).
-  const prepBy = useMemo(() => {
-    if (!activeRc) return null
-    const now = new Date()
-    if (activeRc.schedulingMode === 'ON_DEMAND') {
-      const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
-      return { onDemand: true as const, time: null, left: null, lead }
-    }
-    const dl = prepDeadline(activeRc, now)
-    if (!dl) return null
+
+  // The single service-status answer — same source the run sheet uses, so the header
+  // and run sheet can no longer disagree about what's next. Null when no RC is active
+  // ("All"/Location scope) — that's "unknown", NOT "on-demand" (svcStatus.kind === 'none'
+  // means "this RC has no services", which only applies to an actual RC).
+  // The active RC's configured (active) services — hoisted so the page header and
+  // the run sheet consume the exact same array. The run sheet used to derive its own
+  // service list from the prep items on the board; it now takes this as a prop.
+  const rcServices = useMemo(
+    () => (activeRc?.services ?? []) as RcService[],
+    [activeRc],
+  )
+
+  const svcStatus = useMemo(
+    () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
+    [activeRc, rcServices, nowMin],
+  )
+
+  // The service prep is counting down to — the upcoming one, or the one queued
+  // behind a service that's already underway. Null once the day's last service
+  // has started (kind 'underway' with no next, 'closed', or 'none').
+  const svcNext = useMemo(() => upcomingInfo(svcStatus), [svcStatus])
+
+  // Prep countdown (minutes-to-service + start-by clock) derived from svcStatus.
+  // Consumed by PrepShiftBand + PrepDrawer; null unless a service is still ahead.
+  const countdown = useMemo(() => {
+    if (!svcNext) return null
+    const m = svcNext.prepByMin
     return {
-      onDemand: false as const,
-      time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      left: fmtDuration(dl.getTime() - now.getTime()),
-      lead: null,
+      serviceLabel: fmtDuration(svcNext.minsUntil * 60_000),
+      minsToService: svcNext.minsUntil,
+      startByHHMM: m == null ? '' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`,
     }
-  }, [activeRc])
+  }, [svcNext])
+
+  // Compact prep-deadline label for the mobile header subtitle. No active RC → render
+  // nothing (not "on-demand" — that's only true once we actually know the RC's schedule).
+  // 'closed' (services configured, day's services over) also renders nothing.
+  //
+  // `underway` used to fall through to the `!svcNext` null-return below whenever the
+  // underway service had no next one queued — so at noon under a single-Brunch config,
+  // desktop's svcHeaderNode said "Brunch service underway" while mobile said nothing.
+  // Routing `underway` (and `none`) through formatServiceStatus — the same function
+  // svcHeaderNode uses — makes that divergence structurally impossible now.
+  const prepBy = useMemo(() => {
+    if (!activeRc || !svcStatus) return null
+    if (svcStatus.kind === 'none') {
+      const formatted = formatServiceStatus(svcStatus)
+      const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
+      return { kind: 'onDemand' as const, text: formatted?.lead ?? 'on-demand', lead }
+    }
+    if (svcStatus.kind === 'underway') {
+      const formatted = formatServiceStatus(svcStatus)
+      if (!formatted) return null
+      return { kind: 'underway' as const, lead: formatted.lead, trail: formatted.trail }
+    }
+    if (svcStatus.kind === 'closed') return null
+    if (svcStatus.kind === 'upcoming') {
+      if (!svcNext || svcNext.prepByMin == null) return null
+      const m = svcNext.prepByMin
+      const dl = new Date(); dl.setHours(Math.floor(m / 60), m % 60, 0, 0)
+      return {
+        kind: 'deadline' as const,
+        time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        left: fmtDuration(Math.max(0, m - nowMin) * 60_000),
+      }
+    }
+    const _never: never = svcStatus
+    return _never
+  }, [svcStatus, svcNext, activeRc, nowMin])
+
+  // Desktop header's service clause — computed once so the JSX doesn't need to
+  // guard `activeRc`/`svcStatus` null-ness inline (mirrors /pass's `serviceClause`).
+  // Text comes from service-hours.ts's formatServiceStatus — the same function
+  // mobile's `prepBy` now calls — so this can no longer disagree with mobile.
+  const svcHeaderNode = useMemo<React.ReactNode>(() => {
+    if (!svcStatus) return null
+    if (svcStatus.kind === 'upcoming' || svcStatus.kind === 'underway' || svcStatus.kind === 'closed' || svcStatus.kind === 'none') {
+      const formatted = formatServiceStatus(svcStatus)
+      if (!formatted) return null
+      return <>
+        {' · '}<b className="text-ink font-medium">{formatted.lead}</b>
+        {formatted.trail && <>{' · '}<b className="text-ink font-medium">{formatted.trail}</b></>}
+      </>
+    }
+    const _never: never = svcStatus
+    return _never
+  }, [svcStatus])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
   // Keep detail panel in sync with live data
@@ -1108,8 +1178,12 @@ export default function PrepPage() {
               {prepBy && (
                 <>
                   <span className="text-ink-4">·</span>
-                  {prepBy.onDemand ? (
-                    <span className="text-ink-3">on-demand{prepBy.lead ? ` · lead ${prepBy.lead}` : ''}</span>
+                  {prepBy.kind === 'onDemand' ? (
+                    <span className="text-ink-3">{prepBy.text}{prepBy.lead ? ` · lead ${prepBy.lead}` : ''}</span>
+                  ) : prepBy.kind === 'underway' ? (
+                    <span className="inline-flex items-center gap-1 text-gold-2 font-medium">
+                      {prepBy.lead}{prepBy.trail ? ` · ${prepBy.trail}` : ''}
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-gold-2 font-medium">
                       <Clock size={11} /> prep by {prepBy.time}
@@ -1235,7 +1309,7 @@ export default function PrepPage() {
             <h1 className="text-[34px] font-semibold tracking-[-0.04em] leading-none text-ink mb-1.5">Prep list</h1>
             <p className="text-[13.5px] text-ink-3 tracking-[-0.005em]">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              {countdown && <> · dinner service in <b className="text-ink font-medium">{countdown.serviceLabel}</b></>}
+              {svcHeaderNode}
             </p>
           </div>
 
@@ -1347,6 +1421,8 @@ export default function PrepPage() {
             <RunSheet
               items={todayItems}
               cooks={cooks}
+              services={rcServices}
+              leadMinutes={activeRc?.prepLeadMinutes ?? null}
               nowMin={nowMin}
               nowMs={nowMs}
               onOpenRecipe={openDrawer}
@@ -1452,6 +1528,8 @@ export default function PrepPage() {
               <RunSheetMobile
                 items={todayItems}
                 cooks={cooks}
+                services={rcServices}
+                leadMinutes={activeRc?.prepLeadMinutes ?? null}
                 nowMin={nowMin}
                 nowMs={nowMs}
                 onOpenRecipe={openDrawer}

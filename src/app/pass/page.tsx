@@ -10,8 +10,9 @@ import { getVocab } from '@/lib/rc-vocab'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
-import { currentWindow, nextServiceStart, fmtDuration } from '@/lib/service-hours'
+import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 import { setScopeParams } from '@/lib/scope-params'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -338,24 +339,29 @@ export default function PassPage() {
   const greeting = greetingFor(new Date())
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
 
-  // Service window from the active RC's real schedule (not a hard-coded dinner
-  // service). In-progress window → time to close; otherwise the next upcoming
-  // window → time to open. Null for ON_DEMAND, no schedule, or all/location scope.
+  // Service status from the active RC's real schedule — the SAME serviceStatus()
+  // the prep header and run sheet use, so this can't disagree with them anymore.
+  // Null for all/location scope (no single RC to report on).
+  //
+  // `nowMin` comes from useNowMinute() (the hook /prep uses) and IS a dependency:
+  // computing the clock inside the memo froze this clause at mount, so /pass
+  // still read "Brunch in 30m" long after /prep had moved on to "underway".
+  const { nowMin } = useNowMinute()
   const serviceClause = useMemo<React.ReactNode>(() => {
     if (activeKind !== 'rc' || !activeRc) return null
-    const now = new Date()
-    const cur = currentWindow(activeRc, now)
-    if (cur) {
-      const left = fmtDuration(cur.end.getTime() - now.getTime())
-      return <>In <b>{cur.window.label}</b> service · <b>{left}</b> to close</>
+    const status = serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null)
+    // The text itself always comes from service-hours.ts's formatServiceStatus — the
+    // single rendering every surface shares. This chain only decides the JSX shape
+    // ("closed" renders nothing) and, via the exhaustiveness guard below, makes a
+    // future ServiceStatus member a compile error here instead of a silent "on-demand".
+    if (status.kind === 'upcoming' || status.kind === 'underway' || status.kind === 'closed' || status.kind === 'none') {
+      const formatted = formatServiceStatus(status)
+      if (!formatted) return null
+      return <><b>{formatted.lead}</b>{formatted.trail && <> · <b>{formatted.trail}</b></>}</>
     }
-    const next = nextServiceStart(activeRc, now)
-    if (next) {
-      const until = fmtDuration(next.start.getTime() - now.getTime())
-      return <><b>{next.label}</b> service in <b>{until}</b></>
-    }
-    return null
-  }, [activeKind, activeRc])
+    const _never: never = status
+    return _never
+  }, [activeKind, activeRc, nowMin])
 
   // ── Loop handoff: reconciled "yesterday" + carries from the close ──────────
   const snap = lastClose?.snapshot ?? null

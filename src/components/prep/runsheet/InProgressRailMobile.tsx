@@ -7,7 +7,7 @@ import { Flame, RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
 import { IcCheck } from '@/components/prep/icons'
-import { minutesBetween, fmtDuration } from '@/lib/prep-runsheet'
+import { minutesBetween, fmtMins } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` — same rule as RunRowMobile.tsx /
 // RunRow.tsx / InProgressRail.tsx.
@@ -74,11 +74,11 @@ function RailCardMobile({
       <div className="flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-gold-2 whitespace-nowrap">
           <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse shrink-0" />
-          {fmtDuration(elapsed)} ·{' '}
+          {fmtMins(elapsed)} ·{' '}
           {remaining >= 0 ? (
-            `~${fmtDuration(remaining)} left`
+            `~${fmtMins(remaining)} left`
           ) : (
-            <b className="text-red-text font-semibold">over {fmtDuration(-remaining)}</b>
+            <b className="text-red-text font-semibold">over {fmtMins(-remaining)}</b>
           )}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">

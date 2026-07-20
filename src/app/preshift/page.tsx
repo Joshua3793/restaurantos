@@ -8,7 +8,8 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { nextServiceStart, currentWindow, fmtDuration } from '@/lib/service-hours'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import { serviceStatus, fmtDuration, formatServiceStatus, serviceCaption, type RcService } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
@@ -252,13 +253,50 @@ export default function PreshiftPage() {
     return () => window.removeEventListener('keydown', h)
   }, [router])
 
-  const now = new Date()
-  const inService = activeRc ? currentWindow(activeRc, now) : null
-  const next = activeRc ? nextServiceStart(activeRc, now) : null
-  const serviceCountdown = inService
-    ? 'in service'
-    : next ? fmtDuration(next.start.getTime() - now.getTime()) : null
-  const serviceLabel = inService ? inService.window.label : next?.label ?? null
+  // `nowMin` from useNowMinute() (the hook /prep uses) so this page ticks instead of
+  // only recomputing when something else happens to re-render it — /pass and /preshift
+  // used to agree with /prep at mount and silently diverge a minute later.
+  const { nowMin } = useNowMinute()
+  // Null when no RC is active ("All"/Location scope) — that's "unknown", not "on-demand".
+  // svcStatus.kind === 'none' only means something (no service window) once we actually
+  // have a concrete RC's schedule to read.
+  const status = activeRc ? serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null) : null
+  // MProgress's badge is `{countdown}{countdownLabel ? ' · ' + countdownLabel : ''}` — it only
+  // renders when `countdown` is truthy, so `underway` and the on-demand `none` state need
+  // a non-null countdown too, or the badge silently disappears (and preshift stops agreeing
+  // with prep/pass). `closed` is the one state where rendering nothing IS the answer.
+  //
+  // The compound "{name} · {next.name} in {duration}" text (the underway caption both
+  // `countdownLabel` and `serviceName` need below) comes from service-hours.ts's
+  // `serviceCaption` — it used to be hand-transcribed twice in this file, which is
+  // exactly the kind of drift this branch is closing off. This if-chain still branches
+  // on `status.kind` itself (rather than fully delegating) so the exhaustiveness guard
+  // at the end is a real compile-time check in THIS file, not just inside the shared lib.
+  const svcDisplay = useMemo(() => {
+    if (!status) return { countdown: null as string | null, label: null as string | null, name: null as string | null, inService: false }
+    if (status.kind === 'upcoming') {
+      return { countdown: fmtDuration(status.minsUntil * 60_000), label: `to ${status.service.name}`, name: status.service.name, inService: false }
+    }
+    if (status.kind === 'underway') {
+      const cap = serviceCaption(status)
+      return { countdown: 'underway', label: cap, name: cap, inService: true }
+    }
+    if (status.kind === 'closed') {
+      return { countdown: null, label: null, name: null, inService: false }
+    }
+    if (status.kind === 'none') {
+      return { countdown: formatServiceStatus(status)?.lead ?? 'on-demand', label: null, name: null, inService: false }
+    }
+    const _never: never = status
+    return _never
+  }, [status])
+  const serviceCountdown = svcDisplay.countdown
+  const countdownLabel = svcDisplay.label
+  // Desktop ProgressBand (below) wants the bare service name (or, for `underway`, the
+  // compound "{name} · {next.name} in {duration}" caption above — NOT the bare name) +
+  // in-service flag separately; it builds its own "to {name}" / "{name}" caption on top.
+  const serviceName = svcDisplay.name
+  const isInServiceNow = svcDisplay.inService
 
   return (
     <>
@@ -284,7 +322,7 @@ export default function PreshiftPage() {
         </div>
 
         <MGateBanner blockersOpen={blockersOpen} ready={ready} />
-        <MProgress done={doneCount} total={total} pct={pct} countdown={serviceCountdown} countdownLabel={inService != null ? (serviceLabel ?? 'in service') : (serviceLabel ? `to ${serviceLabel}` : null)} />
+        <MProgress done={doneCount} total={total} pct={pct} countdown={serviceCountdown} countdownLabel={countdownLabel} />
 
         {SECTIONS.map(sec => {
           const items = itemsBySection[sec.key]
@@ -353,8 +391,8 @@ export default function PreshiftPage() {
           blockersOpen={blockersOpen}
           lineCount={itemsBySection.line.length}
           serviceCountdown={serviceCountdown}
-          serviceLabel={serviceLabel}
-          isInService={inService != null}
+          serviceLabel={serviceName}
+          isInService={isInServiceNow}
         />
 
         <AddCheck onAdd={addCheck} />
@@ -484,18 +522,23 @@ function ProgressBand({ done, total, pct, blockersOpen, lineCount, serviceCountd
         </div>
       </div>
 
-      <div className="shrink-0 text-right border-l border-line pl-6">
-        <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">
-          {serviceCountdown ?? 'No window'}
+      {/* serviceCountdown is null only when there's no active RC (All/Location scope) —
+          render nothing rather than a misleading "on-demand"/"No window" placeholder.
+          'on-demand' is itself a real value here (RC active, no service window). */}
+      {serviceCountdown && (
+        <div className="shrink-0 text-right border-l border-line pl-6">
+          <div className="text-[22px] font-semibold tracking-[-0.03em] font-mono">
+            {serviceCountdown}
+          </div>
+          <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">
+            {serviceCountdown === 'on-demand'
+              ? 'no fixed service'
+              : isInService
+                ? serviceLabel ?? 'in service'
+                : serviceLabel ? `to ${serviceLabel}` : 'to service'}
+          </div>
         </div>
-        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mt-[3px]">
-          {serviceCountdown == null
-            ? 'no fixed service'
-            : isInService
-              ? serviceLabel ?? 'in service'
-              : serviceLabel ? `to ${serviceLabel}` : 'to service'}
-        </div>
-      </div>
+      )}
     </div>
   )
 }

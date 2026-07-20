@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds } from '@/lib/rc-scope'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { buildScheduleFields } from '@/lib/rc-schedule'
+import { ACTIVE_SERVICES_INCLUDE, normalizePrepLead } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,14 @@ export async function GET() {
 
   const locations = await prisma.location.findMany({
     orderBy: { createdAt: 'asc' },
-    include: { revenueCenters: { orderBy: { createdAt: 'asc' } } },
+    include: {
+      revenueCenters: {
+        orderBy: { createdAt: 'asc' },
+        include: {
+          services: ACTIVE_SERVICES_INCLUDE,
+        },
+      },
+    },
   })
 
   const filtered = allowed === null
@@ -59,9 +66,7 @@ export async function POST(req: NextRequest) {
   const resolvedColor = RC_COLORS.includes(color) ? color : 'blue'
   const resolvedType  = LOCATION_TYPES.includes(type) ? type : 'restaurant'
 
-  let scheduleFields
-  try { scheduleFields = buildScheduleFields(body) }
-  catch { return NextResponse.json({ error: 'Invalid service schedule' }, { status: 400 }) }
+  const prepLeadMinutes = normalizePrepLead(body.prepLeadMinutes)
 
   const loc = await prisma.$transaction(async (tx) => {
     if (isDefault) {
@@ -77,9 +82,7 @@ export async function POST(req: NextRequest) {
         description: description || null,
         managerName: managerName || null,
         notes:       notes || null,
-        schedulingMode:  scheduleFields.schedulingMode,
-        prepLeadMinutes: scheduleFields.prepLeadMinutes,
-        serviceSchedule: scheduleFields.serviceSchedule ?? undefined,
+        prepLeadMinutes,
       },
     })
   })

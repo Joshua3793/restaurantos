@@ -9,7 +9,7 @@ import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
 import { IcCheck } from '@/components/prep/icons'
-import { minutesBetween, fmtDuration } from '@/lib/prep-runsheet'
+import { minutesBetween, fmtMins } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` (same rule RunRow.tsx uses for its
 // ladder rows: kg/L show one decimal only when fractional, everything else
@@ -76,11 +76,11 @@ function RailCard({
         </span>
         <span className="flex items-center gap-1.5 font-mono text-[10px] text-gold-2 mt-[3px] whitespace-nowrap">
           <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse shrink-0" />
-          {fmtDuration(elapsed)} in ·{' '}
+          {fmtMins(elapsed)} in ·{' '}
           {remaining >= 0 ? (
-            `~${fmtDuration(remaining)} to go`
+            `~${fmtMins(remaining)} to go`
           ) : (
-            <b className="text-red-text font-semibold">over by {fmtDuration(-remaining)}</b>
+            <b className="text-red-text font-semibold">over by {fmtMins(-remaining)}</b>
           )}
         </span>
       </span>
