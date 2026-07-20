@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Star, User, Target, ChevronDown, ChevronUp, Clock, MapPin, UtensilsCrossed, Wine } from 'lucide-react'
-import { fmtDuration } from '@/lib/service-hours'
 import { RC_COLORS, rcHex } from '@/lib/rc-colors'
 import { getVocab } from '@/lib/rc-vocab'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -28,6 +27,7 @@ interface ApiRevenueCenter {
   targetFoodCostPct: string | null
   targetCostPct: string | null
   notes: string | null
+  prepLeadMinutes: number | null
   createdAt: string
   /** Active services for this RC, ascending by start. Empty ⇒ on-demand. */
   services: ApiRcService[]
@@ -208,14 +208,11 @@ interface LocationFormData {
   managerName: string
   notes: string
   defaultRevenueCenterId: string
-  prepLeadH: string
-  prepLeadM: string
 }
 
 const EMPTY_LOCATION_FORM: LocationFormData = {
   name: '', color: 'blue', type: 'restaurant', isDefault: false, isActive: true,
   description: '', managerName: '', notes: '', defaultRevenueCenterId: '',
-  prepLeadH: '', prepLeadM: '',
 }
 
 function LocationFormModal({
@@ -239,8 +236,6 @@ function LocationFormModal({
           managerName:    initial.managerName ?? '',
           notes:          initial.notes ?? '',
           defaultRevenueCenterId: initial.defaultRevenueCenterId ?? '',
-          prepLeadH:      initial.prepLeadMinutes != null ? String(Math.floor(initial.prepLeadMinutes / 60)) : '',
-          prepLeadM:      initial.prepLeadMinutes != null ? String(initial.prepLeadMinutes % 60) : '',
         }
       : EMPTY_LOCATION_FORM
   )
@@ -254,10 +249,6 @@ function LocationFormModal({
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
-    const prepLeadMinutes =
-      form.prepLeadH === '' && form.prepLeadM === ''
-        ? null
-        : (parseInt(form.prepLeadH || '0', 10) * 60) + parseInt(form.prepLeadM || '0', 10)
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       color: form.color,
@@ -267,7 +258,6 @@ function LocationFormModal({
       description: form.description || null,
       managerName: form.managerName || null,
       notes: form.notes || null,
-      prepLeadMinutes,
     }
     // Default RC only applies once the location has child RCs (edit flow).
     if (initial) payload.defaultRevenueCenterId = form.defaultRevenueCenterId || null
@@ -383,29 +373,6 @@ function LocationFormModal({
               </div>
             )}
 
-            {/* Prep timing — lives on the Location. Service type + hours are
-                configured per revenue center, in the RC editor below. */}
-            <div className="pt-2 border-t border-line space-y-3">
-              <div className="flex items-center gap-1.5">
-                <Clock size={13} className="text-ink-4" />
-                <span className="text-xs font-semibold text-ink-2">Prep timing</span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-ink-3 mb-1">Prep lead before service</label>
-                <div className="flex items-center gap-2">
-                  <input type="number" min="0" value={form.prepLeadH}
-                    onChange={e => f('prepLeadH', e.target.value)} placeholder="0"
-                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="text-xs text-ink-4">h</span>
-                  <input type="number" min="0" max="59" value={form.prepLeadM}
-                    onChange={e => f('prepLeadM', e.target.value)} placeholder="0"
-                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
-                  <span className="text-xs text-ink-4">m</span>
-                </div>
-              </div>
-            </div>
-
             <div className="flex flex-col gap-2 pt-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.isDefault}
@@ -450,11 +417,14 @@ interface RcFormData {
   description: string
   managerName: string
   notes: string
+  prepLeadH: string
+  prepLeadM: string
 }
 
 const EMPTY_RC_FORM: RcFormData = {
   name: '', color: 'blue', type: 'FOOD', targetCostPct: '',
   isDefault: false, isActive: true, description: '', managerName: '', notes: '',
+  prepLeadH: '', prepLeadM: '',
 }
 
 function RcFormModal({
@@ -491,6 +461,8 @@ function RcFormModal({
           description:   initial.description ?? '',
           managerName:   initial.managerName ?? '',
           notes:         initial.notes ?? '',
+          prepLeadH:     initial.prepLeadMinutes != null ? String(Math.floor(initial.prepLeadMinutes / 60)) : '',
+          prepLeadM:     initial.prepLeadMinutes != null ? String(initial.prepLeadMinutes % 60) : '',
         }
       : EMPTY_RC_FORM
   )
@@ -524,6 +496,10 @@ function RcFormModal({
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
+    const prepLeadMinutes =
+      form.prepLeadH === '' && form.prepLeadM === ''
+        ? null
+        : (parseInt(form.prepLeadH || '0', 10) * 60) + parseInt(form.prepLeadM || '0', 10)
     // CRITICAL: create must include locationId or POST /api/revenue-centers 400s.
     // On edit, a changed locationId re-parents the RC to a different location.
     const payload: Record<string, unknown> = {
@@ -537,6 +513,7 @@ function RcFormModal({
       description: form.description || null,
       managerName: form.managerName || null,
       notes: form.notes || null,
+      prepLeadMinutes,
     }
     const res = await fetch(
       initial ? `/api/revenue-centers/${initial.id}` : '/api/revenue-centers',
@@ -668,6 +645,31 @@ function RcFormModal({
               />
             </div>
 
+            {/* Prep lead — sets the "prep by" deadline shown on Prep, Pass, and
+                Preshift, measured back from this RC's service start time. */}
+            <div className="pt-2 border-t border-line space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-ink-4" />
+                <span className="text-xs font-semibold text-ink-2">Prep lead</span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Prep lead before service</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" value={form.prepLeadH}
+                    onChange={e => f('prepLeadH', e.target.value)} placeholder="0"
+                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-ink-4">h</span>
+                  <input type="number" min="0" max="59" value={form.prepLeadM}
+                    onChange={e => f('prepLeadM', e.target.value)} placeholder="0"
+                    className="w-16 border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <span className="text-xs text-ink-4">m</span>
+                </div>
+                <p className="text-[11px] text-ink-4 mt-1">
+                  Prep must be done this far before the first service starts. Leave blank for no deadline.
+                </p>
+              </div>
+            </div>
+
             {/* Service type + hours — configured here, per revenue center.
                 Only meaningful once the RC exists (needs an id to attach to). */}
             {initial ? (
@@ -787,8 +789,6 @@ function LocationCard({
 }) {
   const [expanded, setExpanded] = useState(true)
   const typeLabel = LOCATION_TYPES.find(t => t.value === loc.type)?.label ?? loc.type
-  const prepLeadLabel = loc.prepLeadMinutes != null && loc.prepLeadMinutes > 0
-    ? fmtDuration(loc.prepLeadMinutes * 60_000) : null
   const defaultRcName = loc.defaultRevenueCenterId
     ? loc.revenueCenters.find(rc => rc.id === loc.defaultRevenueCenterId)?.name ?? null
     : null
@@ -829,19 +829,6 @@ function LocationCard({
                 <span className="flex items-center gap-1 text-xs text-ink-3"><Target size={11} /> Default: {defaultRcName}</span>
               )}
             </div>
-
-            {/* Prep lead row — service type + hours are configured per revenue
-                center now (see each RC's edit form below), not on the Location. */}
-            {prepLeadLabel && (
-              <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-ink-4 font-medium">
-                  <Clock size={11} /> Prep lead
-                </span>
-                <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-lg px-2 py-1 text-[11.5px] text-ink-4">
-                  {prepLeadLabel}
-                </span>
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
