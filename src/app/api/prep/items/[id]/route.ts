@@ -6,7 +6,6 @@ import { computePriority, computeSuggestedQty, numOrNull } from '@/lib/prep-util
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { numOrNull } from '@/lib/prep-utils'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
