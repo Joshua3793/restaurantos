@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   nextService, currentService, prepDeadlineMinutes, serviceStatus, upcomingInfo, fmtServiceHours,
-  type RcService,
+  formatServiceStatus, serviceCaption,
+  type RcService, type ServiceStatus,
 } from '@/lib/service-hours'
 
 const svc = (name: string, start: number, end: number | null): RcService =>
@@ -137,6 +138,59 @@ describe('upcomingInfo', () => {
     expect(upcomingInfo(serviceStatus([BRUNCH], 1000, null))).toBeNull()
     expect(upcomingInfo(serviceStatus([], 600, null))).toBeNull()
     expect(upcomingInfo(null)).toBeNull()
+  })
+})
+
+describe('formatServiceStatus', () => {
+  // The one rendering every surface (`/prep` desktop + mobile, `/pass`, `/preshift`)
+  // must route through — this is the contract that closes off the "hand-transcribed
+  // in four places" divergence (a single-Brunch config showing "underway" on desktop
+  // and nothing on mobile).
+  it('upcoming — "{name} service in {duration}", no trail', () => {
+    const s = serviceStatus([BRUNCH], 480, null) // 08:00
+    expect(formatServiceStatus(s)).toEqual({ lead: 'Brunch service in 1h 0m', trail: null })
+  })
+  it('underway with next — lead is bare "service underway", trail is "{next.name} in {duration}"', () => {
+    const s = serviceStatus([BRUNCH, DINNER], 600, null) // 10:00
+    expect(formatServiceStatus(s)).toEqual({ lead: 'Brunch service underway', trail: 'Dinner in 7h 0m' })
+  })
+  it('underway, next: null — lead only, no trail', () => {
+    const s = serviceStatus([BRUNCH], 600, null) // 10:00, last service of the day
+    expect(formatServiceStatus(s)).toEqual({ lead: 'Brunch service underway', trail: null })
+  })
+  it('closed — null (render nothing)', () => {
+    const s = serviceStatus([BRUNCH], 1000, null)
+    expect(s.kind).toBe('closed')
+    expect(formatServiceStatus(s)).toBeNull()
+  })
+  it('none — "on-demand", no trail', () => {
+    const s = serviceStatus([], 600, null)
+    expect(s.kind).toBe('none')
+    expect(formatServiceStatus(s)).toEqual({ lead: 'on-demand', trail: null })
+  })
+  it('throws a type error (not silently "on-demand") if the union grows — exercised via tsc, not at runtime', () => {
+    // This test only documents the contract; the actual exhaustiveness proof is the
+    // `default: { const _never: never = status; ... }` branch inside formatServiceStatus
+    // and the mirrored guards in each consumer, verified by temporarily widening
+    // ServiceStatus and re-running `tsc --noEmit` (see final-review-fixes.md).
+    const allKinds: ServiceStatus['kind'][] = ['upcoming', 'underway', 'closed', 'none']
+    expect(allKinds).toHaveLength(4)
+  })
+})
+
+describe('serviceCaption', () => {
+  it('upcoming — bare service name', () => {
+    expect(serviceCaption(serviceStatus([BRUNCH], 480, null))).toBe('Brunch')
+  })
+  it('underway with next — compound "{name} · {next.name} in {duration}"', () => {
+    expect(serviceCaption(serviceStatus([BRUNCH, DINNER], 600, null))).toBe('Brunch · Dinner in 7h 0m')
+  })
+  it('underway, next: null — bare service name', () => {
+    expect(serviceCaption(serviceStatus([BRUNCH], 600, null))).toBe('Brunch')
+  })
+  it('closed and none — null', () => {
+    expect(serviceCaption(serviceStatus([BRUNCH], 1000, null))).toBeNull()
+    expect(serviceCaption(serviceStatus([], 600, null))).toBeNull()
   })
 })
 

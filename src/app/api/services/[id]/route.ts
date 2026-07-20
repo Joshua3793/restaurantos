@@ -40,11 +40,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     // Check the span against the values the row will actually END UP with — a PATCH
-    // may move only one edge onto the other's existing value.
-    const effStart = timeMinutes !== undefined ? timeMinutes : existing.timeMinutes
-    const effEnd = endMinutes !== undefined ? endMinutes : existing.endMinutes
-    const spanErr = validateSpan(effStart, effEnd)
-    if (spanErr) return NextResponse.json({ error: spanErr }, { status: 400 })
+    // may move only one edge onto the other's existing value. Only run this when a
+    // time field is actually part of the PATCH — a legacy row can be stored with
+    // timeMinutes === endMinutes (this API accepted that until recently), and
+    // re-validating the span on every unrelated PATCH (rename, isActive toggle)
+    // would permanently block it from being renamed, removed, or restored.
+    if (timeMinutes !== undefined || endMinutes !== undefined) {
+      const effStart = timeMinutes !== undefined ? timeMinutes : existing.timeMinutes
+      const effEnd = endMinutes !== undefined ? endMinutes : existing.endMinutes
+      const spanErr = validateSpan(effStart, effEnd)
+      if (spanErr) return NextResponse.json({ error: spanErr }, { status: 400 })
+    }
 
     if (sortOrder !== undefined) {
       if (typeof sortOrder !== 'number' || !Number.isInteger(sortOrder)) {

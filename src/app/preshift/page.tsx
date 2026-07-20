@@ -9,7 +9,7 @@ import {
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
-import { serviceStatus, fmtDuration, type RcService } from '@/lib/service-hours'
+import { serviceStatus, fmtDuration, formatServiceStatus, serviceCaption, type RcService } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
@@ -265,30 +265,38 @@ export default function PreshiftPage() {
   // renders when `countdown` is truthy, so `underway` and the on-demand `none` state need
   // a non-null countdown too, or the badge silently disappears (and preshift stops agreeing
   // with prep/pass). `closed` is the one state where rendering nothing IS the answer.
-  const serviceCountdown =
-    !status ? null
-    : status.kind === 'upcoming' ? fmtDuration(status.minsUntil * 60_000)
-    : status.kind === 'underway' ? 'underway'
-    : status.kind === 'closed' ? null
-    : 'on-demand'
-  const countdownLabel =
-    !status ? null
-    : status.kind === 'upcoming' ? `to ${status.service.name}`
-    : status.kind === 'underway'
-      ? status.next
-        ? `${status.service.name} · ${status.next.service.name} in ${fmtDuration(status.next.minsUntil * 60_000)}`
-        : status.service.name
-    : null
-  // Desktop ProgressBand (below) wants the bare service name + in-service flag
-  // separately — it builds its own "to {name}" / "{name}" caption.
-  const serviceName =
-    status?.kind === 'upcoming' ? status.service.name
-    : status?.kind === 'underway'
-      ? status.next
-        ? `${status.service.name} · ${status.next.service.name} in ${fmtDuration(status.next.minsUntil * 60_000)}`
-        : status.service.name
-    : null
-  const isInServiceNow = status?.kind === 'underway'
+  //
+  // The compound "{name} · {next.name} in {duration}" text (the underway caption both
+  // `countdownLabel` and `serviceName` need below) comes from service-hours.ts's
+  // `serviceCaption` — it used to be hand-transcribed twice in this file, which is
+  // exactly the kind of drift this branch is closing off. This if-chain still branches
+  // on `status.kind` itself (rather than fully delegating) so the exhaustiveness guard
+  // at the end is a real compile-time check in THIS file, not just inside the shared lib.
+  const svcDisplay = useMemo(() => {
+    if (!status) return { countdown: null as string | null, label: null as string | null, name: null as string | null, inService: false }
+    if (status.kind === 'upcoming') {
+      return { countdown: fmtDuration(status.minsUntil * 60_000), label: `to ${status.service.name}`, name: status.service.name, inService: false }
+    }
+    if (status.kind === 'underway') {
+      const cap = serviceCaption(status)
+      return { countdown: 'underway', label: cap, name: cap, inService: true }
+    }
+    if (status.kind === 'closed') {
+      return { countdown: null, label: null, name: null, inService: false }
+    }
+    if (status.kind === 'none') {
+      return { countdown: formatServiceStatus(status)?.lead ?? 'on-demand', label: null, name: null, inService: false }
+    }
+    const _never: never = status
+    return _never
+  }, [status])
+  const serviceCountdown = svcDisplay.countdown
+  const countdownLabel = svcDisplay.label
+  // Desktop ProgressBand (below) wants the bare service name (or, for `underway`, the
+  // compound "{name} · {next.name} in {duration}" caption above — NOT the bare name) +
+  // in-service flag separately; it builds its own "to {name}" / "{name}" caption on top.
+  const serviceName = svcDisplay.name
+  const isInServiceNow = svcDisplay.inService
 
   return (
     <>

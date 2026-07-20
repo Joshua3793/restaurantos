@@ -113,6 +113,64 @@ export function upcomingInfo(status: ServiceStatus | null): NextServiceInfo | nu
   return null
 }
 
+/**
+ * The one rendering of a ServiceStatus. Every surface that shows a service
+ * clause (`/prep` desktop + mobile, `/pass`, `/preshift`) must route through
+ * this — hand-transcribing the table into each consumer is what let the prep
+ * header and prep mobile disagree ("Brunch service underway" vs nothing).
+ *
+ * `lead` is the primary clause; `trail` is the secondary "next service" clause
+ * (or null). A single-string consumer joins them with " · "; a two-slot layout
+ * can use the parts directly. `null` means render nothing (`closed`).
+ */
+export function formatServiceStatus(status: ServiceStatus): { lead: string; trail: string | null } | null {
+  switch (status.kind) {
+    case 'upcoming':
+      return { lead: `${status.service.name} service in ${fmtDuration(status.minsUntil * 60_000)}`, trail: null }
+    case 'underway':
+      return {
+        lead: `${status.service.name} service underway`,
+        trail: status.next
+          ? `${status.next.service.name} in ${fmtDuration(status.next.minsUntil * 60_000)}`
+          : null,
+      }
+    case 'closed':
+      return null
+    case 'none':
+      return { lead: 'on-demand', trail: null }
+    default: {
+      const _never: never = status
+      return _never
+    }
+  }
+}
+
+/**
+ * Bare service-name caption for two-slot widgets that already show
+ * "underway"/a duration in their own headline slot (preshift's ProgressBand
+ * big-number + caption) — unlike `formatServiceStatus.lead`, this omits the
+ * "service underway"/"service in" wording. "{name}" for upcoming or
+ * underway-with-no-next; "{name} · {next.name} in {duration}" for
+ * underway-with-next. null for closed/none.
+ */
+export function serviceCaption(status: ServiceStatus): string | null {
+  switch (status.kind) {
+    case 'upcoming':
+      return status.service.name
+    case 'underway':
+      return status.next
+        ? `${status.service.name} · ${status.next.service.name} in ${fmtDuration(status.next.minsUntil * 60_000)}`
+        : status.service.name
+    case 'closed':
+    case 'none':
+      return null
+    default: {
+      const _never: never = status
+      return _never
+    }
+  }
+}
+
 /** "09:00–16:00", or just the start when the end is unknown. */
 export function fmtServiceHours(s: RcService): string {
   const hhmm = (m: number) =>

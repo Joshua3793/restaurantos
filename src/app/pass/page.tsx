@@ -10,7 +10,7 @@ import { getVocab } from '@/lib/rc-vocab'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
-import { serviceStatus, fmtDuration, type RcService } from '@/lib/service-hours'
+import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 import { setScopeParams } from '@/lib/scope-params'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { SubNav } from '@/components/layout/SubNav'
@@ -350,19 +350,17 @@ export default function PassPage() {
   const serviceClause = useMemo<React.ReactNode>(() => {
     if (activeKind !== 'rc' || !activeRc) return null
     const status = serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null)
-    if (status.kind === 'upcoming') {
-      return <><b>{status.service.name}</b> service in <b>{fmtDuration(status.minsUntil * 60_000)}</b></>
+    // The text itself always comes from service-hours.ts's formatServiceStatus — the
+    // single rendering every surface shares. This chain only decides the JSX shape
+    // ("closed" renders nothing) and, via the exhaustiveness guard below, makes a
+    // future ServiceStatus member a compile error here instead of a silent "on-demand".
+    if (status.kind === 'upcoming' || status.kind === 'underway' || status.kind === 'closed' || status.kind === 'none') {
+      const formatted = formatServiceStatus(status)
+      if (!formatted) return null
+      return <><b>{formatted.lead}</b>{formatted.trail && <> · <b>{formatted.trail}</b></>}</>
     }
-    if (status.kind === 'underway') {
-      return <>
-        <b>{status.service.name}</b> service underway
-        {status.next && <> · <b>{status.next.service.name}</b> in <b>{fmtDuration(status.next.minsUntil * 60_000)}</b></>}
-      </>
-    }
-    // 'closed' — services are configured but the day's are over. Render nothing,
-    // the same as no active RC; "on-demand" would contradict the RC's config.
-    if (status.kind === 'closed') return null
-    return 'on-demand'
+    const _never: never = status
+    return _never
   }, [activeKind, activeRc, nowMin])
 
   // ── Loop handoff: reconciled "yesterday" + carries from the close ──────────

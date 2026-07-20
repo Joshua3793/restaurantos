@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { fmtDuration, serviceStatus, upcomingInfo, type RcService } from '@/lib/service-hours'
+import { fmtDuration, serviceStatus, upcomingInfo, formatServiceStatus, type RcService } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
@@ -666,42 +666,55 @@ export default function PrepPage() {
   // Compact prep-deadline label for the mobile header subtitle. No active RC → render
   // nothing (not "on-demand" — that's only true once we actually know the RC's schedule).
   // 'closed' (services configured, day's services over) also renders nothing.
+  //
+  // `underway` used to fall through to the `!svcNext` null-return below whenever the
+  // underway service had no next one queued — so at noon under a single-Brunch config,
+  // desktop's svcHeaderNode said "Brunch service underway" while mobile said nothing.
+  // Routing `underway` (and `none`) through formatServiceStatus — the same function
+  // svcHeaderNode uses — makes that divergence structurally impossible now.
   const prepBy = useMemo(() => {
     if (!activeRc || !svcStatus) return null
     if (svcStatus.kind === 'none') {
+      const formatted = formatServiceStatus(svcStatus)
       const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
-      return { onDemand: true as const, time: null, left: null, lead }
+      return { kind: 'onDemand' as const, text: formatted?.lead ?? 'on-demand', lead }
     }
-    if (!svcNext || svcNext.prepByMin == null) return null
-    const m = svcNext.prepByMin
-    const dl = new Date(); dl.setHours(Math.floor(m / 60), m % 60, 0, 0)
-    return {
-      onDemand: false as const,
-      time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      left: fmtDuration(Math.max(0, m - nowMin) * 60_000),
-      lead: null,
+    if (svcStatus.kind === 'underway') {
+      const formatted = formatServiceStatus(svcStatus)
+      if (!formatted) return null
+      return { kind: 'underway' as const, lead: formatted.lead, trail: formatted.trail }
     }
+    if (svcStatus.kind === 'closed') return null
+    if (svcStatus.kind === 'upcoming') {
+      if (!svcNext || svcNext.prepByMin == null) return null
+      const m = svcNext.prepByMin
+      const dl = new Date(); dl.setHours(Math.floor(m / 60), m % 60, 0, 0)
+      return {
+        kind: 'deadline' as const,
+        time: dl.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        left: fmtDuration(Math.max(0, m - nowMin) * 60_000),
+      }
+    }
+    const _never: never = svcStatus
+    return _never
   }, [svcStatus, svcNext, activeRc, nowMin])
 
   // Desktop header's service clause — computed once so the JSX doesn't need to
   // guard `activeRc`/`svcStatus` null-ness inline (mirrors /pass's `serviceClause`).
+  // Text comes from service-hours.ts's formatServiceStatus — the same function
+  // mobile's `prepBy` now calls — so this can no longer disagree with mobile.
   const svcHeaderNode = useMemo<React.ReactNode>(() => {
     if (!svcStatus) return null
-    if (svcStatus.kind === 'upcoming') {
-      return <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service in <b className="text-ink font-medium">{fmtDuration(svcStatus.minsUntil * 60_000)}</b></>
-    }
-    if (svcStatus.kind === 'underway') {
+    if (svcStatus.kind === 'upcoming' || svcStatus.kind === 'underway' || svcStatus.kind === 'closed' || svcStatus.kind === 'none') {
+      const formatted = formatServiceStatus(svcStatus)
+      if (!formatted) return null
       return <>
-        {' · '}<b className="text-ink font-medium">{svcStatus.service.name}</b> service underway
-        {svcStatus.next && <>
-          {' · '}<b className="text-ink font-medium">{svcStatus.next.service.name}</b> in <b className="text-ink font-medium">{fmtDuration(svcStatus.next.minsUntil * 60_000)}</b>
-        </>}
+        {' · '}<b className="text-ink font-medium">{formatted.lead}</b>
+        {formatted.trail && <>{' · '}<b className="text-ink font-medium">{formatted.trail}</b></>}
       </>
     }
-    // 'closed' — the day's services are over. Render nothing; asserting
-    // "on-demand" for an RC that plainly has services configured is a lie.
-    if (svcStatus.kind === 'closed') return null
-    return <> · on-demand</>
+    const _never: never = svcStatus
+    return _never
   }, [svcStatus])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
@@ -1157,8 +1170,12 @@ export default function PrepPage() {
               {prepBy && (
                 <>
                   <span className="text-ink-4">·</span>
-                  {prepBy.onDemand ? (
-                    <span className="text-ink-3">on-demand{prepBy.lead ? ` · lead ${prepBy.lead}` : ''}</span>
+                  {prepBy.kind === 'onDemand' ? (
+                    <span className="text-ink-3">{prepBy.text}{prepBy.lead ? ` · lead ${prepBy.lead}` : ''}</span>
+                  ) : prepBy.kind === 'underway' ? (
+                    <span className="inline-flex items-center gap-1 text-gold-2 font-medium">
+                      {prepBy.lead}{prepBy.trail ? ` · ${prepBy.trail}` : ''}
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-gold-2 font-medium">
                       <Clock size={11} /> prep by {prepBy.time}
