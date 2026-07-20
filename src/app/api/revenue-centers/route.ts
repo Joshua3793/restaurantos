@@ -3,19 +3,10 @@ import { prisma } from '@/lib/prisma'
 import { RC_COLORS } from '@/lib/rc-colors'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds } from '@/lib/rc-scope'
-import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
+import { ACTIVE_SERVICES_INCLUDE, normalizePrepLead } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 const RC_LEAF_TYPES = ['FOOD', 'DRINK'] as const
-
-// prepLeadMinutes is the only scheduling field left on RevenueCenter that the
-// app still writes — service type + hours now live on Service rows instead.
-function normalizePrepLead(raw: unknown): number | null {
-  if (raw == null || raw === '') return null
-  const n = Number(raw)
-  if (!Number.isFinite(n) || n < 0) return null
-  return Math.round(n)
-}
 
 export async function GET() {
   let user: User

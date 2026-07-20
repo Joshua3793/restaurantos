@@ -6,7 +6,12 @@ import { RC_COLORS, rcHex } from '@/lib/rc-colors'
 import { getVocab } from '@/lib/rc-vocab'
 import { useRc } from '@/contexts/RevenueCenterContext'
 
-interface ServiceRow { id: string; name: string; timeMinutes: number; endMinutes: number | null }
+interface ServiceRow { id: string; name: string; timeMinutes: number; endMinutes: number | null; isActive: boolean }
+
+// The RC's services as embedded in /api/revenue-centers and /api/locations
+// payloads — pre-filtered to active-only server-side (ACTIVE_SERVICES_INCLUDE),
+// so isActive isn't selected there.
+type ApiRcService = Omit<ServiceRow, 'isActive'>
 
 // The /api/locations payload includes fields the context's slimmer types omit
 // (e.g. prepLeadMinutes on Location) — type them locally here.
@@ -25,7 +30,7 @@ interface ApiRevenueCenter {
   notes: string | null
   createdAt: string
   /** Active services for this RC, ascending by start. Empty ⇒ on-demand. */
-  services: ServiceRow[]
+  services: ApiRcService[]
 }
 
 interface ApiLocation {
@@ -101,32 +106,53 @@ function ServicePeriodEditor({ rcId, services, onChanged }: {
     body: JSON.stringify({ isActive: false }),
   }))
 
+  // GET /api/services (used by the refetch on every change) returns both
+  // active and inactive rows — no filter in the shared handler, since other
+  // callers may rely on it returning everything. Filter to active-only here
+  // so a removed service disappears from the list immediately.
+  const activeServices = services.filter(s => s.isActive)
+
   return (
     <div className="flex flex-col gap-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3">Services</div>
-      {services.length === 0 && (
+      {activeServices.length === 0 && (
         <p className="text-[12.5px] text-ink-3">
           No services — this revenue center is treated as <b className="text-ink font-medium">on-demand</b> (no countdown shown).
         </p>
       )}
-      {services.map(s => (
+      {activeServices.map(s => (
         <div key={s.id} className="flex items-center gap-2">
           <input
             defaultValue={s.name}
-            onBlur={e => e.target.value.trim() && e.target.value !== s.name && patch(s.id, { name: e.target.value.trim() })}
+            disabled={busy}
+            onBlur={e => {
+              const v = e.target.value.trim()
+              if (!v) { setError('Name cannot be empty.'); e.target.value = s.name; return }
+              if (v !== s.name) patch(s.id, { name: v })
+            }}
             placeholder="Brunch"
-            className="flex-1 min-w-0 border border-line rounded-lg px-3 py-2 text-sm"
+            className="flex-1 min-w-0 border border-line rounded-lg px-3 py-2 text-sm disabled:opacity-50"
           />
           <input
             type="time" defaultValue={toHHMM(s.timeMinutes)}
-            onBlur={e => { const v = fromHHMM(e.target.value); if (v != null && v !== s.timeMinutes) patch(s.id, { timeMinutes: v }) }}
-            className="border border-line rounded-lg px-2 py-2 text-sm"
+            disabled={busy}
+            onBlur={e => {
+              const v = fromHHMM(e.target.value)
+              if (v == null) { setError('Enter a valid start time.'); e.target.value = toHHMM(s.timeMinutes); return }
+              if (v !== s.timeMinutes) patch(s.id, { timeMinutes: v })
+            }}
+            className="border border-line rounded-lg px-2 py-2 text-sm disabled:opacity-50"
           />
           <span className="text-ink-4">–</span>
           <input
             type="time" defaultValue={toHHMM(s.endMinutes)}
-            onBlur={e => { const v = fromHHMM(e.target.value); if (v != null && v !== s.endMinutes) patch(s.id, { endMinutes: v }) }}
-            className="border border-line rounded-lg px-2 py-2 text-sm"
+            disabled={busy}
+            onBlur={e => {
+              const v = fromHHMM(e.target.value)
+              if (v == null) { setError('Enter a valid end time.'); e.target.value = toHHMM(s.endMinutes); return }
+              if (v !== s.endMinutes) patch(s.id, { endMinutes: v })
+            }}
+            className="border border-line rounded-lg px-2 py-2 text-sm disabled:opacity-50"
           />
           <button type="button" onClick={() => remove(s.id)} disabled={busy}
             className="px-2 py-2 text-ink-3 hover:text-red disabled:opacity-50" title="Remove service">✕</button>
@@ -442,9 +468,14 @@ function RcFormModal({
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
 
-  // Services (active + inactive, so a removed one can be re-enabled here).
-  // rc.services from the RC context is active-only, so this refetches directly.
-  const [services, setServices] = useState<ServiceRow[]>(initial?.services ?? [])
+  // initial.services (from /api/revenue-centers) is pre-filtered active-only
+  // server-side, so isActive is always true for that seed. The refetch below
+  // hits the shared /api/services handler directly, which returns both active
+  // and inactive rows — the editor filters those to active-only when rendering
+  // (see activeServices), so a removed service disappears immediately.
+  const [services, setServices] = useState<ServiceRow[]>(
+    (initial?.services ?? []).map(s => ({ ...s, isActive: true }))
+  )
   const loadServices = useCallback(async () => {
     if (!initial) return
     const res = await fetch(`/api/services?revenueCenterId=${initial.id}`)
@@ -610,10 +641,14 @@ function RcFormModal({
 
             {/* Service type + hours — configured here, per revenue center.
                 Only meaningful once the RC exists (needs an id to attach to). */}
-            {initial && (
+            {initial ? (
               <div className="pt-2 border-t border-line">
                 <ServicePeriodEditor rcId={initial.id} services={services} onChanged={handleServicesChanged} />
               </div>
+            ) : (
+              <p className="pt-2 border-t border-line text-xs text-ink-4">
+                Add service hours after saving.
+              </p>
             )}
 
             <div className="flex flex-col gap-2 pt-1">

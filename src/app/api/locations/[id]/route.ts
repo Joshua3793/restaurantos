@@ -2,21 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { RC_COLORS } from '@/lib/rc-colors'
-import { ACTIVE_SERVICES_INCLUDE } from '@/lib/rc-service-select'
+import { ACTIVE_SERVICES_INCLUDE, normalizePrepLead } from '@/lib/rc-service-select'
 import { User } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
 const LOCATION_TYPES = ['restaurant', 'catering', 'other'] as const
-
-// prepLeadMinutes is the only scheduling field left on Location that the app
-// still writes — service type + hours now live per-RC on Service rows instead.
-function normalizePrepLead(raw: unknown): number | null {
-  if (raw == null || raw === '') return null
-  const n = Number(raw)
-  if (!Number.isFinite(n) || n < 0) return null
-  return Math.round(n)
-}
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession() }

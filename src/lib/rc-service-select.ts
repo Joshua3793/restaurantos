@@ -15,3 +15,13 @@ export const ACTIVE_SERVICES_INCLUDE: Prisma.RevenueCenter$servicesArgs = {
   orderBy: [{ sortOrder: 'asc' }, { timeMinutes: 'asc' }],
   select: { id: true, name: true, timeMinutes: true, endMinutes: true },
 }
+
+// prepLeadMinutes is the only scheduling field left on Location/RevenueCenter
+// that the app still writes — service type + hours now live on Service rows
+// instead. Shared by the locations and revenue-centers route handlers.
+export function normalizePrepLead(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.round(n)
+}
