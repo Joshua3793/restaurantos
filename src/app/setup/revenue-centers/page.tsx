@@ -106,11 +106,19 @@ function ServicePeriodEditor({ rcId, services, onChanged }: {
     body: JSON.stringify({ isActive: false }),
   }))
 
-  // GET /api/services (used by the refetch on every change) returns both
-  // active and inactive rows — no filter in the shared handler, since other
-  // callers may rely on it returning everything. Filter to active-only here
-  // so a removed service disappears from the list immediately.
+  const restore = (id: string) => save(() => fetch(`/api/services/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isActive: true }),
+  }))
+
+  // GET /api/services (used by the refetch on every change) deliberately returns
+  // BOTH active and inactive rows — do not add a server-side filter, because this
+  // editor is the only surface that can bring a removed service back (/setup/services,
+  // which used to carry the Power toggle, is now just a redirect). Removing is a soft
+  // delete, so the inactive rows are the sole recovery path; they render dimmed below
+  // the active list with a Restore button.
   const activeServices = services.filter(s => s.isActive)
+  const inactiveServices = services.filter(s => !s.isActive)
 
   return (
     <div className="flex flex-col gap-2">
@@ -162,6 +170,27 @@ function ServicePeriodEditor({ rcId, services, onChanged }: {
         className="self-start px-3 py-2 rounded-lg border border-line text-[13px] text-ink-2 hover:border-ink-3 disabled:opacity-50">
         + Add service
       </button>
+
+      {/* Removed services — kept visible (dimmed, struck) and separated from the
+          active list so the active rows stay the primary reading, but reachable
+          so a mis-click on ✕ isn't a one-way trip requiring DB access. */}
+      {inactiveServices.length > 0 && (
+        <div className="flex flex-col gap-2 mt-2 pt-2.5 border-t border-line">
+          <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-4">Removed</div>
+          {inactiveServices.map(s => (
+            <div key={s.id} className="flex items-center gap-2 opacity-60">
+              <span className="flex-1 min-w-0 truncate text-[13px] text-ink-3 line-through">{s.name}</span>
+              <span className="font-mono text-[12px] text-ink-4 line-through shrink-0">
+                {toHHMM(s.timeMinutes)}–{s.endMinutes == null ? '—' : toHHMM(s.endMinutes)}
+              </span>
+              <button type="button" onClick={() => restore(s.id)} disabled={busy}
+                className="px-2.5 py-1.5 rounded-lg border border-line text-[12.5px] text-ink-2 hover:border-ink-3 disabled:opacity-50 shrink-0"
+                title="Restore service">Restore</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {error && <p className="text-[12.5px] text-red-text">{error}</p>}
     </div>
   )

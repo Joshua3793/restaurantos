@@ -12,6 +12,7 @@ import { formatCurrency } from '@/lib/utils'
 import { startOfWeek } from '@/lib/dates'
 import { serviceStatus, fmtDuration, type RcService } from '@/lib/service-hours'
 import { setScopeParams } from '@/lib/scope-params'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -341,19 +342,28 @@ export default function PassPage() {
   // Service status from the active RC's real schedule — the SAME serviceStatus()
   // the prep header and run sheet use, so this can't disagree with them anymore.
   // Null for all/location scope (no single RC to report on).
+  //
+  // `nowMin` comes from useNowMinute() (the hook /prep uses) and IS a dependency:
+  // computing the clock inside the memo froze this clause at mount, so /pass
+  // still read "Brunch in 30m" long after /prep had moved on to "underway".
+  const { nowMin } = useNowMinute()
   const serviceClause = useMemo<React.ReactNode>(() => {
     if (activeKind !== 'rc' || !activeRc) return null
-    const now = new Date()
-    const nowMin = now.getHours() * 60 + now.getMinutes()
     const status = serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null)
     if (status.kind === 'upcoming') {
       return <><b>{status.service.name}</b> service in <b>{fmtDuration(status.minsUntil * 60_000)}</b></>
     }
     if (status.kind === 'underway') {
-      return <><b>{status.service.name}</b> service underway</>
+      return <>
+        <b>{status.service.name}</b> service underway
+        {status.next && <> · <b>{status.next.service.name}</b> in <b>{fmtDuration(status.next.minsUntil * 60_000)}</b></>}
+      </>
     }
+    // 'closed' — services are configured but the day's are over. Render nothing,
+    // the same as no active RC; "on-demand" would contradict the RC's config.
+    if (status.kind === 'closed') return null
     return 'on-demand'
-  }, [activeKind, activeRc])
+  }, [activeKind, activeRc, nowMin])
 
   // ── Loop handoff: reconciled "yesterday" + carries from the close ──────────
   const snap = lastClose?.snapshot ?? null

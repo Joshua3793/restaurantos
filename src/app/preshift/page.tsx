@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { serviceStatus, fmtDuration, type RcService } from '@/lib/service-hours'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
@@ -252,29 +253,41 @@ export default function PreshiftPage() {
     return () => window.removeEventListener('keydown', h)
   }, [router])
 
-  const now = new Date()
-  const nowMin = now.getHours() * 60 + now.getMinutes()
+  // `nowMin` from useNowMinute() (the hook /prep uses) so this page ticks instead of
+  // only recomputing when something else happens to re-render it — /pass and /preshift
+  // used to agree with /prep at mount and silently diverge a minute later.
+  const { nowMin } = useNowMinute()
   // Null when no RC is active ("All"/Location scope) — that's "unknown", not "on-demand".
   // svcStatus.kind === 'none' only means something (no service window) once we actually
   // have a concrete RC's schedule to read.
   const status = activeRc ? serviceStatus((activeRc.services ?? []) as RcService[], nowMin, activeRc.prepLeadMinutes ?? null) : null
   // MProgress's badge is `{countdown}{countdownLabel ? ' · ' + countdownLabel : ''}` — it only
-  // renders when `countdown` is truthy, so both `underway` and the on-demand `none` state need
+  // renders when `countdown` is truthy, so `underway` and the on-demand `none` state need
   // a non-null countdown too, or the badge silently disappears (and preshift stops agreeing
-  // with prep/pass, which both render something for every state an active RC can be in).
+  // with prep/pass). `closed` is the one state where rendering nothing IS the answer.
   const serviceCountdown =
     !status ? null
     : status.kind === 'upcoming' ? fmtDuration(status.minsUntil * 60_000)
     : status.kind === 'underway' ? 'underway'
+    : status.kind === 'closed' ? null
     : 'on-demand'
   const countdownLabel =
     !status ? null
     : status.kind === 'upcoming' ? `to ${status.service.name}`
-    : status.kind === 'underway' ? status.service.name
+    : status.kind === 'underway'
+      ? status.next
+        ? `${status.service.name} · ${status.next.service.name} in ${fmtDuration(status.next.minsUntil * 60_000)}`
+        : status.service.name
     : null
   // Desktop ProgressBand (below) wants the bare service name + in-service flag
   // separately — it builds its own "to {name}" / "{name}" caption.
-  const serviceName = status && (status.kind === 'upcoming' || status.kind === 'underway') ? status.service.name : null
+  const serviceName =
+    status?.kind === 'upcoming' ? status.service.name
+    : status?.kind === 'underway'
+      ? status.next
+        ? `${status.service.name} · ${status.next.service.name} in ${fmtDuration(status.next.minsUntil * 60_000)}`
+        : status.service.name
+    : null
   const isInServiceNow = status?.kind === 'underway'
 
   return (

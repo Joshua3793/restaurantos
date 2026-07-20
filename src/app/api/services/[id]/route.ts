@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { validateTimeMinutes } from '../route'
+import { validateTimeMinutes, validateSpan } from '@/lib/service-validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,12 +32,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     if (endMinutes !== undefined && endMinutes !== null) {
-      const endErr = validateTimeMinutes(endMinutes)
-      if (endErr) return NextResponse.json({ error: endErr.replace('timeMinutes', 'endMinutes') }, { status: 400 })
+      const endErr = validateTimeMinutes(endMinutes, 'endMinutes')
+      if (endErr) return NextResponse.json({ error: endErr }, { status: 400 })
     }
     if (endMinutes !== undefined) {
       data.endMinutes = endMinutes === null ? null : endMinutes
     }
+
+    // Check the span against the values the row will actually END UP with — a PATCH
+    // may move only one edge onto the other's existing value.
+    const effStart = timeMinutes !== undefined ? timeMinutes : existing.timeMinutes
+    const effEnd = endMinutes !== undefined ? endMinutes : existing.endMinutes
+    const spanErr = validateSpan(effStart, effEnd)
+    if (spanErr) return NextResponse.json({ error: spanErr }, { status: 400 })
 
     if (sortOrder !== undefined) {
       if (typeof sortOrder !== 'number' || !Number.isInteger(sortOrder)) {

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { fmtDuration, serviceStatus, type RcService } from '@/lib/service-hours'
+import { fmtDuration, serviceStatus, upcomingInfo, type RcService } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
@@ -646,28 +646,34 @@ export default function PrepPage() {
     [activeRc, nowMin],
   )
 
+  // The service prep is counting down to — the upcoming one, or the one queued
+  // behind a service that's already underway. Null once the day's last service
+  // has started (kind 'underway' with no next, 'closed', or 'none').
+  const svcNext = useMemo(() => upcomingInfo(svcStatus), [svcStatus])
+
   // Prep countdown (minutes-to-service + start-by clock) derived from svcStatus.
-  // Consumed by PrepShiftBand + PrepDrawer; null unless a service is upcoming.
+  // Consumed by PrepShiftBand + PrepDrawer; null unless a service is still ahead.
   const countdown = useMemo(() => {
-    if (!svcStatus || svcStatus.kind !== 'upcoming') return null
-    const m = svcStatus.prepByMin
+    if (!svcNext) return null
+    const m = svcNext.prepByMin
     return {
-      serviceLabel: fmtDuration(svcStatus.minsUntil * 60_000),
-      minsToService: svcStatus.minsUntil,
+      serviceLabel: fmtDuration(svcNext.minsUntil * 60_000),
+      minsToService: svcNext.minsUntil,
       startByHHMM: m == null ? '' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`,
     }
-  }, [svcStatus])
+  }, [svcNext])
 
   // Compact prep-deadline label for the mobile header subtitle. No active RC → render
   // nothing (not "on-demand" — that's only true once we actually know the RC's schedule).
+  // 'closed' (services configured, day's services over) also renders nothing.
   const prepBy = useMemo(() => {
     if (!activeRc || !svcStatus) return null
     if (svcStatus.kind === 'none') {
       const lead = activeRc.prepLeadMinutes != null ? fmtDuration(activeRc.prepLeadMinutes * 60_000) : null
       return { onDemand: true as const, time: null, left: null, lead }
     }
-    if (svcStatus.kind !== 'upcoming' || svcStatus.prepByMin == null) return null
-    const m = svcStatus.prepByMin
+    if (!svcNext || svcNext.prepByMin == null) return null
+    const m = svcNext.prepByMin
     const dl = new Date(); dl.setHours(Math.floor(m / 60), m % 60, 0, 0)
     return {
       onDemand: false as const,
@@ -675,7 +681,7 @@ export default function PrepPage() {
       left: fmtDuration(Math.max(0, m - nowMin) * 60_000),
       lead: null,
     }
-  }, [svcStatus, activeRc, nowMin])
+  }, [svcStatus, svcNext, activeRc, nowMin])
 
   // Desktop header's service clause — computed once so the JSX doesn't need to
   // guard `activeRc`/`svcStatus` null-ness inline (mirrors /pass's `serviceClause`).
@@ -685,8 +691,16 @@ export default function PrepPage() {
       return <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service in <b className="text-ink font-medium">{fmtDuration(svcStatus.minsUntil * 60_000)}</b></>
     }
     if (svcStatus.kind === 'underway') {
-      return <> · <b className="text-ink font-medium">{svcStatus.service.name}</b> service underway</>
+      return <>
+        {' · '}<b className="text-ink font-medium">{svcStatus.service.name}</b> service underway
+        {svcStatus.next && <>
+          {' · '}<b className="text-ink font-medium">{svcStatus.next.service.name}</b> in <b className="text-ink font-medium">{fmtDuration(svcStatus.next.minsUntil * 60_000)}</b>
+        </>}
+      </>
     }
+    // 'closed' — the day's services are over. Render nothing; asserting
+    // "on-demand" for an RC that plainly has services configured is a lie.
+    if (svcStatus.kind === 'closed') return null
     return <> · on-demand</>
   }, [svcStatus])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
