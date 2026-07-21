@@ -10,13 +10,13 @@ import { AuthError } from '@/lib/auth'
  * the app keeps working before any assignments exist. A scope assignment only
  * ever NARROWS access.
  *
- * - ADMIN                       → null (all)
+ * - OWNER / ADMIN              → null (all)
  * - user with no UserScope rows → null (all)
  * - scope row with locationId   → every RC under that location
  * - scope row with revenueCenterId → that RC
  */
 export async function resolveScopedRcIds(user: User): Promise<Set<string> | null> {
-  if (user.role === 'ADMIN') return null
+  if (user.role === 'OWNER' || user.role === 'ADMIN') return null
   const scopes = await prisma.userScope.findMany({ where: { userId: user.id } })
   if (scopes.length === 0) return null
 

@@ -2,6 +2,7 @@ import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { Role, User } from '@prisma/client'
+import { ROLE_RANK } from '@/lib/roles'
 
 export class AuthError extends Error {
   constructor(
@@ -11,13 +12,6 @@ export class AuthError extends Error {
     super(message)
     this.name = 'AuthError'
   }
-}
-
-// Role strength: ADMIN > MANAGER > STAFF
-const ROLE_RANK: Record<Role, number> = {
-  STAFF: 0,
-  MANAGER: 1,
-  ADMIN: 2,
 }
 
 /**
@@ -33,6 +27,7 @@ const DEV_AUTH_BYPASS =
 
 async function devBypassUser(): Promise<User | null> {
   return (
+    (await prisma.user.findFirst({ where: { role: 'OWNER', isActive: true } })) ??
     (await prisma.user.findFirst({ where: { role: 'ADMIN', isActive: true } })) ??
     (await prisma.user.findFirst({ where: { isActive: true } }))
   )
