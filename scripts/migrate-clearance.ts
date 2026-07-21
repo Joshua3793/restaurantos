@@ -1,8 +1,13 @@
 /**
  * One-time, idempotent clearance backfill. Run AFTER the code is deployed.
  *
- *   npx tsx scripts/migrate-clearance.ts            # dry run (default)
- *   npx tsx scripts/migrate-clearance.ts --apply    # perform it
+ * USAGE
+ *   npx tsx scripts/migrate-clearance.ts            # dry run (default, read-only, safe to re-run anytime)
+ *   npx tsx scripts/migrate-clearance.ts --apply    # perform it (mutates Prisma + Supabase)
+ *
+ * Requires a `.env` at the repo root (or a symlink to one) with DATABASE_URL,
+ * DIRECT_URL, NEXT_PUBLIC_SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY. Always
+ * run the dry run first and read its output before passing --apply.
  *
  * 1. Promote the oldest active ADMIN to OWNER in BOTH stores (Prisma +
  *    Supabase user_metadata). No-op when an OWNER already exists.
@@ -11,6 +16,29 @@
  *
  * Re-running is safe: both steps check current state first.
  */
+
+// Load .env explicitly, before anything below reads process.env. `tsx` does
+// not auto-load `.env` files on its own (there is no dotenv/loadEnvFile
+// logic in its CLI), and this script must not depend on some *other*
+// import in the graph incidentally populating process.env as a side effect
+// of its own unrelated env resolution (e.g. Prisma resolving DATABASE_URL
+// for the datasource) — that's undocumented, version-dependent behavior,
+// not a contract, and it happens to cover Prisma's own vars but nothing
+// guarantees it covers the Supabase vars this script also needs below. Do
+// not remove this call thinking it's redundant — it is the only reliable,
+// explicit source of these vars for this script.
+try {
+  process.loadEnvFile()
+} catch (err) {
+  console.error(
+    '\nFailed to load .env — this script needs one at the repo root ' +
+      '(DATABASE_URL, DIRECT_URL, NEXT_PUBLIC_SUPABASE_URL, ' +
+      'SUPABASE_SERVICE_ROLE_KEY) to run.\n' +
+      `Underlying error: ${err instanceof Error ? err.message : String(err)}\n`,
+  )
+  process.exit(1)
+}
+
 import { PrismaClient } from '@prisma/client'
 import { createClient } from '@supabase/supabase-js'
 
