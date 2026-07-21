@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Clock, Printer, ArrowLeft, Mail } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { PageHead } from '@/components/layout/PageHead'
 import { SubNav } from '@/components/layout/SubNav'
@@ -69,6 +70,11 @@ export interface EodCloseState {
 export default function EndOfDayPage() {
   const router = useRouter()
   const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, setActiveRcId } = useRc()
+  const { role, loading: userLoading } = useUser()
+  // A Lead runs the operational close but the clearance ladder is explicit
+  // that Leads see "no cost or money" — /api/eod/summary is MANAGER-only and
+  // would 403 for them, so skip the fetch entirely rather than let it fail.
+  const canSeeMoney = role !== 'LEAD' && role !== 'STAFF'
   const [data, setData] = useState<EodSummary | null>(null)
   const [closeState, setCloseState] = useState<EodCloseState | null>(null)
   const [tempUnits, setTempUnits] = useState<TempUnit[]>([])
@@ -77,6 +83,11 @@ export default function EndOfDayPage() {
   const isRcScoped = activeKind === 'rc' && !!activeRcId
 
   useEffect(() => {
+    // Wait for the role to resolve before deciding whether to fire the
+    // fetch — otherwise a Lead's first render (role still null while
+    // /api/me is in flight) would slip the request through.
+    if (userLoading) return
+    if (!canSeeMoney) { setData(null); return }
     const params = new URLSearchParams()
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const qs = params.toString()
@@ -84,7 +95,7 @@ export default function EndOfDayPage() {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setData(d) })
       .catch(() => {})
-  }, [activeRcId, activeRc, activeKind, activeLocationId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, canSeeMoney, userLoading])
 
   const loadClose = useCallback(() => {
     if (!isRcScoped) { setCloseState(null); setTempUnits([]); return }
@@ -238,12 +249,21 @@ export default function EndOfDayPage() {
           <span className="text-ink-3 tabular-nums">
             {closeState ? `${closeState.progress.done} / ${closeState.progress.total}` : '— / —'}
           </span>
-          <span className="w-px h-3.5 bg-line" />
-          <span className="text-ink-3">Food cost · today</span>
-          <span className={`tabular-nums font-semibold ${over ? 'text-red-text' : 'text-ink'}`}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</span>
-          <span className="w-px h-3.5 bg-line" />
-          <span className="text-ink-3">Net sales</span>
-          <span className="text-ink font-semibold tabular-nums">{data ? formatCurrency(data.netSales) : '—'}</span>
+          {canSeeMoney ? (
+            <>
+              <span className="w-px h-3.5 bg-line" />
+              <span className="text-ink-3">Food cost · today</span>
+              <span className={`tabular-nums font-semibold ${over ? 'text-red-text' : 'text-ink'}`}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</span>
+              <span className="w-px h-3.5 bg-line" />
+              <span className="text-ink-3">Net sales</span>
+              <span className="text-ink font-semibold tabular-nums">{data ? formatCurrency(data.netSales) : '—'}</span>
+            </>
+          ) : (
+            <>
+              <span className="w-px h-3.5 bg-line" />
+              <span className="text-ink-4">Sales and cost figures are managed by your manager.</span>
+            </>
+          )}
           <span className="flex-1" />
           <span className="text-ink-4">sign-off closes the loop · feeds tomorrow&apos;s <Link href="/pass" className="text-gold-2 border-b border-dashed border-current">Pass</Link></span>
         </div>
@@ -251,7 +271,13 @@ export default function EndOfDayPage() {
         <PageHead
           crumbs={<><Clock size={12} /> TODAY / END-OF-DAY</>}
           title={<>Service is <em className="font-fraunces italic font-medium text-gold-2">closed</em>.</>}
-          sub={data ? <>{data.covers} covers · <b>{formatCurrency(data.netSales)}</b> net · food cost ran <b className={over ? 'text-red-text' : ''}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</b>. Review the day, then sign off to open tomorrow with real numbers.</> : <>Loading today&apos;s close…</>}
+          sub={
+            !canSeeMoney
+              ? <>Sales and cost figures are managed by your manager. Run the checklist and temps, then sign off to hand over.</>
+              : data
+                ? <>{data.covers} covers · <b>{formatCurrency(data.netSales)}</b> net · food cost ran <b className={over ? 'text-red-text' : ''}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</b>. Review the day, then sign off to open tomorrow with real numbers.</>
+                : <>Loading today&apos;s close…</>
+          }
           actions={
             <>
               <Link href="/pass" className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
@@ -260,21 +286,25 @@ export default function EndOfDayPage() {
               <button onClick={() => window.print()} className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors">
                 <Printer size={13} /> Print report
               </button>
-              <button
-                onClick={emailOwner}
-                disabled={emailState === 'sending'}
-                className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <Mail size={13} />
-                {emailState === 'sending' ? 'Sending…' : emailState === 'sent' ? 'Sent ✓' : emailState === 'failed' ? 'Failed' : 'Email owner'}
-              </button>
+              {/* /api/eod/email is MANAGER-only and its payload is a sales/cost digest —
+                  a Lead has nothing to send here and the request would just 403. */}
+              {canSeeMoney && (
+                <button
+                  onClick={emailOwner}
+                  disabled={emailState === 'sending'}
+                  className="eod-no-print inline-flex items-center gap-1.5 border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <Mail size={13} />
+                  {emailState === 'sending' ? 'Sending…' : emailState === 'sent' ? 'Sent ✓' : emailState === 'failed' ? 'Failed' : 'Email owner'}
+                </button>
+              )}
             </>
           }
         />
 
         <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
           <div>
-            <EodKpiRow data={data} target={PH_TARGET_PCT} closeState={closeState} />
+            <EodKpiRow data={data} target={PH_TARGET_PCT} closeState={closeState} canSeeMoney={canSeeMoney} />
             <DayInReview data={data} target={PH_TARGET_PCT} />
             {isRcScoped ? (
               <CloseDown
@@ -285,13 +315,14 @@ export default function EndOfDayPage() {
             ) : (
               <RcPicker revenueCenters={revenueCenters} onPick={setActiveRcId} />
             )}
-            {isRcScoped && <SetsUpTomorrow rcId={activeRcId!} />}
+            {isRcScoped && <SetsUpTomorrow rcId={activeRcId!} canSeeMoney={canSeeMoney} />}
             <LoopStrip />
           </div>
           <CloseRail
             data={data}
             closeState={closeState}
             isRcScoped={isRcScoped}
+            canSeeMoney={canSeeMoney}
             signoffError={signoffError}
             onSaveHandover={saveHandover}
             onSaveClose={saveCloseFields}
