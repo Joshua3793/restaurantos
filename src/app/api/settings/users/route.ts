@@ -221,10 +221,6 @@ export async function POST(req: NextRequest) {
         await tx.userScope.createMany({
           data: assignments.map(a => ({ ...a, userId: existing.id })),
         })
-        await recordAccessEvent(tx, {
-          actor, target: { id: u.id, email, name: u.name },
-          action: 'REACTIVATED', detail: { to: role },
-        })
         return u
       })
 
@@ -251,6 +247,16 @@ export async function POST(req: NextRequest) {
         results.push({ email, status: 'failed', error: metaError.message })
         continue
       }
+
+      // Both stores have now committed: Prisma upsert + Supabase metadata.
+      // Record the reactivation audit event only after the Supabase write succeeds.
+      // If the metadata write had failed, the Prisma transaction reverted and
+      // no audit trail would exist—so this event fires only for actual, committed
+      // reactivations.
+      await recordAccessEvent(prisma, {
+        actor, target: { id: existing.id, email, name },
+        action: 'REACTIVATED', detail: { to: role },
+      })
 
       results.push({ email, status: 'reactivated' })
     } catch (e) {
