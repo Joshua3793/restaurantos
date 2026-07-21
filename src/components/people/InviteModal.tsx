@@ -13,6 +13,9 @@ interface Props {
   onInvited: () => void
 }
 
+const ZERO_ASSIGNMENT_ERROR =
+  'Assign at least one location or revenue center — a person with no assignments has no access.'
+
 export default function InviteModal({ locations, actorRole, onClose, onInvited }: Props) {
   const levels = assignableLevels(actorRole)
   const [emails, setEmails] = useState<string[]>([])
@@ -33,7 +36,7 @@ export default function InviteModal({ locations, actorRole, onClose, onInvited }
     const all = draft.trim() ? [...emails, draft.trim().toLowerCase()] : emails
     if (all.length === 0) { setError('Add at least one email address.'); return }
     if (assignments.length === 0) {
-      setError('Assign at least one location or revenue center — a person with no assignments has no access.')
+      setError(ZERO_ASSIGNMENT_ERROR)
       return
     }
     setSaving(true)
@@ -139,7 +142,14 @@ export default function InviteModal({ locations, actorRole, onClose, onInvited }
               value={assignments}
               primaryClearance={clearance}
               actorRole={actorRole}
-              onChange={setAssignments}
+              onChange={next => {
+                setAssignments(next)
+                // Only clear the zero-assignment banner — an unrelated error
+                // (e.g. a failed submit) should survive an assignment tweak.
+                if (next.length > 0) {
+                  setError(prev => (prev === ZERO_ASSIGNMENT_ERROR ? '' : prev))
+                }
+              }}
             />
           </div>
 

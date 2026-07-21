@@ -1,6 +1,5 @@
 import 'server-only'
 import type { Prisma, PrismaClient } from '@prisma/client'
-import { prisma } from '@/lib/prisma'
 
 export type AccessAction =
   | 'INVITED'
@@ -58,8 +57,3 @@ export async function recordAccessEvent(
     },
   })
 }
-
-/** Convenience for routes that are not already inside a transaction. */
-export const recordAccessEventStandalone = (
-  args: Parameters<typeof recordAccessEvent>[1],
-) => recordAccessEvent(prisma, args)

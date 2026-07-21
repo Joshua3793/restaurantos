@@ -74,8 +74,8 @@ export default function PeopleList({
       </div>
 
       {/* grouped people */}
-      {groups.map(({ location, people: rows }) => (
-        <div key={location?.id ?? 'unassigned'}>
+      {groups.map(({ location, people: rows, isGlobal }) => (
+        <div key={location?.id ?? (isGlobal ? 'global' : 'unassigned')}>
           <div className="flex items-center gap-2.5 px-5 pt-3 pb-2 bg-bg">
             <span
               className="w-5 h-5 rounded grid place-items-center text-white text-[11px]"
@@ -84,7 +84,7 @@ export default function PeopleList({
               ⌂
             </span>
             <span className="font-semibold text-[13px] text-ink">
-              {location?.name ?? 'No location assigned'}
+              {location?.name ?? (isGlobal ? 'All locations' : 'No location assigned')}
             </span>
             <span className="text-[10.5px] font-mono text-ink-4">
               {location ? `${location.revenueCenters.length} RCs · ` : ''}
@@ -93,7 +93,7 @@ export default function PeopleList({
           </div>
           {rows.map(p => (
             <PersonRow
-              key={`${location?.id ?? 'none'}-${p.id}`}
+              key={`${location?.id ?? (isGlobal ? 'global' : 'none')}-${p.id}`}
               person={p}
               isMe={p.id === currentUserId}
               onOpen={onOpenPerson}

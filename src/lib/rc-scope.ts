@@ -10,7 +10,7 @@ import { AuthError } from '@/lib/auth'
  * the app keeps working before any assignments exist. A scope assignment only
  * ever NARROWS access.
  *
- * - OWNER / ADMIN              → null (all)
+ * - OWNER / ADMIN               → null (all)
  * - user with no UserScope rows → null (all)
  * - scope row with locationId   → every RC under that location
  * - scope row with revenueCenterId → that RC

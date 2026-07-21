@@ -179,7 +179,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  await prisma.user.delete({ where: { id: params.id } }).catch(() => null)
+  const deleted = await prisma.user.delete({ where: { id: params.id } }).catch(() => null)
+  if (!deleted) {
+    // The Supabase account is already gone at this point, but the Prisma row
+    // survived — don't record a REMOVED/INVITE_REVOKED audit event for a
+    // removal that did not actually happen, and don't report ok: true.
+    return NextResponse.json(
+      { error: 'Removed the sign-in account, but could not remove the user record. Try again.' },
+      { status: 500 },
+    )
+  }
 
   // Same pending rule as GET /api/settings/users' `isPending` shaping: a row
   // created inactive at invite time and never activated (name still null) is

@@ -13,8 +13,9 @@ const ADMIN_PREFIXES = ['/settings', '/setup']
 const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals']
 
 // Routes a Shift Lead may reach. /end-of-day moved out of MANAGER_PREFIXES:
-// a Lead runs the operational close (checklist, temps, sign-off, handover).
-// The money endpoints behind that page stay MANAGER — see src/app/api/eod/*.
+// a Lead runs the operational close (checklist, temps, sign-off) and WRITES the
+// handover note (PATCH /api/eod/close), but does not read the handover money
+// recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.
 const LEAD_PREFIXES = ['/end-of-day']
 
 // v2 redesign: 301 redirects from old URLs to new IA.
@@ -102,7 +103,10 @@ export async function middleware(request: NextRequest) {
   // Role-based route restrictions (read from user_metadata — no DB query needed)
   // Unknown / missing metadata falls back to STAFF, the least privileged level.
   const rawRole = user.user_metadata?.role as string | undefined
-  const role: Role = rawRole && rawRole in ROLE_RANK ? (rawRole as Role) : 'STAFF'
+  const role: Role =
+    rawRole && Object.prototype.hasOwnProperty.call(ROLE_RANK, rawRole)
+      ? (rawRole as Role)
+      : 'STAFF'
 
   const needs = (prefixes: string[]) => prefixes.some((p) => pathname.startsWith(p))
 

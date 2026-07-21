@@ -28,20 +28,40 @@ export interface LocationNode {
   revenueCenters: Array<{ id: string; name: string; color: string }>
 }
 
+export interface LocationGroup {
+  location: LocationNode | null
+  people: Person[]
+  /**
+   * true for the synthetic "global access" bucket — OWNER/ADMIN people with
+   * no location-specific assignment. `location` is null here too, but unlike
+   * the genuinely-unassigned group this is NOT a warning state: OWNER/ADMIN
+   * reach every revenue center by role, regardless of assignments.
+   */
+  isGlobal?: boolean
+}
+
+const hasGlobalAccess = (p: Person) => p.role === 'OWNER' || p.role === 'ADMIN'
+
 /**
  * Group people under every location they touch. Somebody assigned to two
  * locations appears under both — the list is a map of who is where, not a
- * partition. People with no assignments land in the trailing `null` group.
+ * partition. OWNER/ADMIN people with no assignments land in the trailing
+ * "global access" group (they don't need one — access is unconditional).
+ * Everyone else with no assignments lands in the trailing unassigned group,
+ * which is a real warning: a non-global role with zero assignments has no
+ * access at all.
  */
 export function groupByLocation(
   people: Person[],
   locations: LocationNode[],
-): Array<{ location: LocationNode | null; people: Person[] }> {
-  const groups = locations.map(location => ({
-    location: location as LocationNode | null,
+): LocationGroup[] {
+  const groups: LocationGroup[] = locations.map(location => ({
+    location,
     people: people.filter(p => p.assignments.some(a => a.locationId === location.id)),
   }))
-  const unassigned = people.filter(p => p.assignments.length === 0)
+  const global = people.filter(p => hasGlobalAccess(p) && p.assignments.length === 0)
+  if (global.length) groups.push({ location: null, people: global, isGlobal: true })
+  const unassigned = people.filter(p => !hasGlobalAccess(p) && p.assignments.length === 0)
   if (unassigned.length) groups.push({ location: null, people: unassigned })
   return groups.filter(g => g.people.length > 0)
 }

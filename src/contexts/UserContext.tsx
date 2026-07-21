@@ -1,16 +1,16 @@
 'use client'
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import type { EffectiveEntry } from '@/lib/access-model'
 
 export type UserRole = 'OWNER' | 'ADMIN' | 'MANAGER' | 'LEAD' | 'STAFF'
 
-export interface EffectiveEntry {
-  rcId: string
-  rcName: string
-  locationId: string
-  locationName: string
-  clearance: UserRole
-  source: 'inherited' | 'override'
-}
+// Re-exported for callers that import EffectiveEntry from here — access-model.ts
+// (deliberately client-safe, no `server-only`) is the one authoritative
+// definition; its `clearance` is typed as Prisma's `Role`, which is
+// structurally identical to the UserRole union above.
+export type { EffectiveEntry }
+
+const EMPTY_ACCESS: EffectiveEntry[] = []
 
 export interface CurrentUser {
   id: string
@@ -61,7 +61,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { load() }, [load])
 
-  const effectiveAccess = user?.effectiveAccess ?? []
+  const effectiveAccess = user?.effectiveAccess ?? EMPTY_ACCESS
   const clearanceAt = useCallback(
     (rcId: string) => effectiveAccess.find(e => e.rcId === rcId)?.clearance ?? null,
     [effectiveAccess],

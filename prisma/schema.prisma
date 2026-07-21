@@ -24,6 +24,12 @@ enum Dimension {
   COUNT
 }
 
+// NOTE: at most one OWNER is enforced by a raw partial unique index —
+// "User_single_owner" ON "User" ("role") WHERE "role" = 'OWNER', hand-written
+// into the clearance_tables migration. Prisma can't express a partial index,
+// so nothing below mentions it. (Same can't-express-it-in-schema situation as
+// the "UserScope_user_node_unique" index below, just applied a different
+// way — via migration SQL here, vs. out-of-band via a script there.)
 model User {
   id                String             @id
   email             String             @unique
