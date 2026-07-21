@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import type { Role } from '@prisma/client'
+import { atLeast, ROLE_RANK } from '@/lib/roles'
 
 // Routes that never require authentication
 const PUBLIC_PREFIXES = ['/login', '/auth']
@@ -7,8 +9,13 @@ const PUBLIC_PREFIXES = ['/login', '/auth']
 // Routes that require ADMIN role
 const ADMIN_PREFIXES = ['/settings', '/setup']
 
-// Routes that require MANAGER or ADMIN role
-const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals', '/end-of-day']
+// Routes that require MANAGER or above
+const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals']
+
+// Routes a Shift Lead may reach. /end-of-day moved out of MANAGER_PREFIXES:
+// a Lead runs the operational close (checklist, temps, sign-off, handover).
+// The money endpoints behind that page stay MANAGER — see src/app/api/eod/*.
+const LEAD_PREFIXES = ['/end-of-day']
 
 // v2 redesign: 301 redirects from old URLs to new IA.
 // Order: longest match first.
@@ -93,17 +100,21 @@ export async function middleware(request: NextRequest) {
   }
 
   // Role-based route restrictions (read from user_metadata — no DB query needed)
-  const role = (user.user_metadata?.role as string | undefined) ?? 'STAFF'
+  // Unknown / missing metadata falls back to STAFF, the least privileged level.
+  const rawRole = user.user_metadata?.role as string | undefined
+  const role: Role = rawRole && rawRole in ROLE_RANK ? (rawRole as Role) : 'STAFF'
 
-  if (ADMIN_PREFIXES.some((p) => pathname.startsWith(p)) && role !== 'ADMIN') {
+  const needs = (prefixes: string[]) => prefixes.some((p) => pathname.startsWith(p))
+
+  if (needs(ADMIN_PREFIXES) && !atLeast(role, 'ADMIN')) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  if (
-    MANAGER_PREFIXES.some((p) => pathname.startsWith(p)) &&
-    role !== 'MANAGER' &&
-    role !== 'ADMIN'
-  ) {
+  if (needs(MANAGER_PREFIXES) && !atLeast(role, 'MANAGER')) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  if (needs(LEAD_PREFIXES) && !atLeast(role, 'LEAD')) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
