@@ -55,7 +55,20 @@ export async function POST(req: NextRequest) {
       data: { status: 'CLOSED', signedOffBy: user.id, signedOffByName: user.name ?? user.email ?? null, signedOffAt, snapshot },
       select: { id: true, status: true, signedOffByName: true, signedOffAt: true, snapshot: true },
     })
-    return NextResponse.json({ close: updated, progress })
+    return NextResponse.json({
+      close: {
+        id: updated.id, status: updated.status,
+        signedOffByName: updated.signedOffByName, signedOffAt: updated.signedOffAt,
+        // Shift Leads run the close but never see money (see the clearance
+        // ladder: "No cost or money"). `snapshot` still gets WRITTEN above —
+        // it's the point-in-time valuation the close captures — but a Lead
+        // signing off their own close must not have netSales/foodCostDollars/
+        // foodCostPct echoed straight back in the response body. Omitted
+        // entirely rather than nulled, matching GET .../close.
+        ...(user.role === 'LEAD' ? {} : { snapshot: updated.snapshot }),
+      },
+      progress,
+    })
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     console.error('POST /api/eod/close/signoff', e)
