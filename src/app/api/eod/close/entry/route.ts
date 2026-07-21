@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export async function PATCH(req: NextRequest) {
   try {
-    const user = await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const body = await req.json()
     const rcId = String(body.rcId ?? '')
     const itemId = String(body.itemId ?? '')

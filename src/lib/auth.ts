@@ -2,6 +2,7 @@ import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { Role, User } from '@prisma/client'
+import { ROLE_RANK } from '@/lib/roles'
 
 export class AuthError extends Error {
   constructor(
@@ -13,26 +14,21 @@ export class AuthError extends Error {
   }
 }
 
-// Role strength: ADMIN > MANAGER > STAFF
-const ROLE_RANK: Record<Role, number> = {
-  STAFF: 0,
-  MANAGER: 1,
-  ADMIN: 2,
-}
-
 /**
  * LOCAL-DEV ONLY auth bypass. Active only when BOTH:
  *   - NODE_ENV !== 'production'  (never true on a deployed Vercel build), and
  *   - DEV_AUTH_BYPASS === 'true' (opt-in via local .env)
  * When active and there is no real Supabase session, the app behaves as the
- * first ADMIN user so it can be used without logging in. This can never run in
- * production because the NODE_ENV gate fails there.
+ * first OWNER user, or falls back to the first ADMIN user if no OWNER exists,
+ * so it can be used without logging in. This can never run in production
+ * because the NODE_ENV gate fails there.
  */
 const DEV_AUTH_BYPASS =
   process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_BYPASS === 'true'
 
 async function devBypassUser(): Promise<User | null> {
   return (
+    (await prisma.user.findFirst({ where: { role: 'OWNER', isActive: true } })) ??
     (await prisma.user.findFirst({ where: { role: 'ADMIN', isActive: true } })) ??
     (await prisma.user.findFirst({ where: { isActive: true } }))
   )
@@ -66,7 +62,7 @@ export async function requireSession(minRole?: Role): Promise<User> {
     data: { user: authUser },
   } = await supabase.auth.getUser()
 
-  // Local-dev bypass: no real session → fall back to the first ADMIN user.
+  // Local-dev bypass: no real session → try OWNER, then ADMIN, then any active user.
   if (!authUser && DEV_AUTH_BYPASS) {
     const devUser = await devBypassUser()
     if (devUser) return devUser

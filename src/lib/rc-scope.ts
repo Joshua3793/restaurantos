@@ -2,6 +2,7 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { User } from '@prisma/client'
 import { AuthError } from '@/lib/auth'
+import { atLeast } from '@/lib/roles'
 
 /**
  * Resolves the set of leaf RevenueCenter ids a user may read.
@@ -10,13 +11,13 @@ import { AuthError } from '@/lib/auth'
  * the app keeps working before any assignments exist. A scope assignment only
  * ever NARROWS access.
  *
- * - ADMIN                       → null (all)
+ * - OWNER / ADMIN               → null (all)
  * - user with no UserScope rows → null (all)
  * - scope row with locationId   → every RC under that location
  * - scope row with revenueCenterId → that RC
  */
 export async function resolveScopedRcIds(user: User): Promise<Set<string> | null> {
-  if (user.role === 'ADMIN') return null
+  if (atLeast(user.role, 'ADMIN')) return null
   const scopes = await prisma.userScope.findMany({ where: { userId: user.id } })
   if (scopes.length === 0) return null
 
@@ -124,7 +125,7 @@ export async function scopeWhereFromParams(
 /**
  * Throws AuthError(403) if the user may not write to `rcId`.
  * Writes MUST target a leaf revenue center — a missing rcId (e.g. a write that
- * named only a location) is rejected. ADMIN / unscoped users pass any real rcId.
+ * named only a location) is rejected. OWNER / ADMIN / unscoped users pass any real rcId.
  */
 export async function assertRcWritable(user: User, rcId: string | null | undefined): Promise<void> {
   if (!rcId) {
