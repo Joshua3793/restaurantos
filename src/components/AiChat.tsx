@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { MessageCircle, X, Sparkles, Send, History, Trash2, ChevronLeft, Plus } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { isAuthRoute } from '@/lib/chrome-routes'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -100,6 +102,7 @@ function ThinkingDots() {
 }
 
 export function AiChat() {
+  const pathname = usePathname()
   const { activeRcId, activeRc } = useRc()
   const { isAnyDrawerOpen } = useDrawer()
   const [open, setOpen] = useState(false)
@@ -241,6 +244,9 @@ export function AiChat() {
       sendMessage(input)
     }
   }
+
+  // No app chrome on auth/standalone routes — same gate as CostChromeGate.
+  if (isAuthRoute(pathname)) return null
 
   return (
     <div className={`fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px)+0.75rem)] right-4 sm:bottom-6 sm:right-6 z-[55] ${isAnyDrawerOpen ? 'hidden' : ''}`}>

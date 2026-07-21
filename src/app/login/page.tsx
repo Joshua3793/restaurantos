@@ -1,6 +1,6 @@
 'use client'
 import { useState, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 
@@ -11,7 +11,6 @@ function LoginPageInner() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
   const searchParams = useSearchParams()
   const urlError = searchParams.get('error')
 
@@ -20,13 +19,37 @@ function LoginPageInner() {
     setLoading(true)
     setError('')
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       setError(error.message)
       setLoading(false)
-    } else {
-      router.push('/')
+      return
     }
+
+    // Land directly on the role/viewport home with a FULL page load.
+    //
+    // Why not router.push('/'): that is a soft navigation into a three-hop
+    // chain (/ server-redirects to /today, which client-redirects to /pass or
+    // /count). Next.js keeps the login form painted until the first hop's RSC
+    // payload comes back, and every hop re-runs middleware — so sign-in looked
+    // like it had silently failed for several seconds. A soft navigation also
+    // preserves the client providers mounted while logged out: UserProvider
+    // fetches /api/me once on mount, so `role` stayed null after sign-in,
+    // which sent STAFF users to /pass and bounced them back through
+    // middleware in a loop.
+    //
+    // A hard navigation resolves the destination up front from the session we
+    // already have in hand, and remounts every provider against the new cookie.
+    //
+    // The role is read from user_metadata and defaulted to STAFF exactly as
+    // middleware does — /pass is gated on that same value from that same store,
+    // so mirroring it is what guarantees we never land somewhere middleware
+    // bounces straight back.
+    const role = (data.user?.user_metadata?.role as string | undefined) ?? 'STAFF'
+    const isDesktop = window.innerWidth >= 768
+    window.location.assign(
+      isDesktop ? (role === 'STAFF' ? '/count' : '/pass') : '/today'
+    )
   }
 
   const handleForgot = async (e: React.FormEvent) => {
