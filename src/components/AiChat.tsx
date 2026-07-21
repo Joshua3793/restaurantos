@@ -156,8 +156,7 @@ export function AiChat() {
     setView('chat')
   }
 
-  const deleteConversation = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const deleteConversation = async (id: string) => {
     await fetch(`/api/chat/conversations/${id}`, { method: 'DELETE' })
     setConversations(prev => prev.filter(c => c.id !== id))
     if (conversationId === id) startNewConversation()
@@ -303,27 +302,33 @@ export function AiChat() {
                 </div>
               ) : (
                 <div className="divide-y divide-line">
+                  {/* Row is a plain div: the open + delete controls are sibling
+                      buttons. Nesting the delete <button> inside the row button
+                      is invalid HTML — React logs a validateDOMNesting error on
+                      every render of this list. */}
                   {conversations.map(conv => (
-                    <button
+                    <div
                       key={conv.id}
-                      onClick={() => loadConversation(conv.id)}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg transition-colors text-left group"
+                      className="flex items-center gap-3 px-4 hover:bg-bg transition-colors group"
                     >
-                      <div className="flex-1 min-w-0">
+                      <button
+                        onClick={() => loadConversation(conv.id)}
+                        className="flex-1 min-w-0 py-3 text-left"
+                      >
                         <p className="text-sm font-medium text-ink-2 truncate">{conv.title}</p>
                         <p className="text-xs text-ink-4 mt-0.5">
                           {new Date(conv.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           {' · '}{conv._count.messages} messages
                         </p>
-                      </div>
+                      </button>
                       <button
-                        onClick={(e) => deleteConversation(conv.id, e)}
+                        onClick={() => deleteConversation(conv.id)}
                         className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-all shrink-0"
                         title="Delete conversation"
                       >
                         <Trash2 size={14} />
                       </button>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
