@@ -35,6 +35,7 @@
 | `src/lib/access-model.ts` | **Pure**, no `server-only`. Types + `resolveEffective()`. Imported by both the server resolver and the client detail panel — the single definition of the conflict rules. |
 | `src/lib/access.ts` | Server-only. `effectiveAccess()` / `clearanceForRc()` Prisma wrappers around `resolveEffective`. |
 | `src/lib/access-audit.ts` | `recordAccessEvent()` — the single audit write point. |
+| `src/lib/assignment-input.ts` | Shared validation of incoming assignment rows — shape, referential integrity, AND per-row `clearance` bounds. Used by both the invite route and the assignments route so the authorization check cannot drift between them. |
 | `src/lib/__tests__/roles.test.ts` | Rank ordering, `assignableLevels`. |
 | `src/lib/__tests__/access.test.ts` | `resolveEffective` resolution rules. |
 | `src/app/api/settings/users/[id]/assignments/route.ts` | PUT — replace assignment set, diff, audit. |
@@ -1499,18 +1500,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { recordAccessEvent, type AccessAction } from '@/lib/access-audit'
-import { Role } from '@prisma/client'
+import {
+  validateAssignmentRows,
+  dedupeAssignmentRows,
+  keyOf,
+  type AssignmentInput,
+} from '@/lib/assignment-input'
 
 export const dynamic = 'force-dynamic'
-
-interface AssignmentInput {
-  locationId?: string | null
-  revenueCenterId?: string | null
-  clearance?: Role | null
-}
-
-const keyOf = (r: { locationId: string | null; revenueCenterId: string | null }) =>
-  `${r.locationId ?? ''}|${r.revenueCenterId ?? ''}`
 
 /**
  * PUT — replace a person's whole assignment set.
@@ -1545,50 +1542,21 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     )
   }
 
-  const locationIds = new Set<string>()
-  const rcIds = new Set<string>()
-  for (const r of incoming) {
-    const hasLoc = !!r.locationId
-    const hasRc = !!r.revenueCenterId
-    if (hasLoc === hasRc) {
-      return NextResponse.json(
-        { error: 'Each assignment must target exactly one location or one revenue center.' },
-        { status: 400 },
-      )
-    }
-    if (hasLoc) locationIds.add(r.locationId as string)
-    if (hasRc) rcIds.add(r.revenueCenterId as string)
+  // Shape + referential integrity + per-row clearance bounds. Uses the SAME
+  // validator as the invite route: a per-assignment `clearance` is a real
+  // authorization grant, so it must be bounded by assignableLevels(actor) just
+  // like the primary clearance. Without that check an admin could write
+  // `clearance: 'OWNER'` onto an assignment row and mint owner-level access at
+  // that node, bypassing the User_single_owner index entirely (that index
+  // guards User.role, not UserScope.clearance).
+  const validationError = await validateAssignmentRows(incoming, admin.role)
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 })
   }
-  if (locationIds.size) {
-    const found = await prisma.location.findMany({
-      where: { id: { in: [...locationIds] } }, select: { id: true },
-    })
-    if (found.length !== locationIds.size) {
-      return NextResponse.json({ error: 'One or more referenced locations do not exist.' }, { status: 400 })
-    }
-  }
-  if (rcIds.size) {
-    const found = await prisma.revenueCenter.findMany({
-      where: { id: { in: [...rcIds] } }, select: { id: true },
-    })
-    if (found.length !== rcIds.size) {
-      return NextResponse.json({ error: 'One or more referenced revenue centers do not exist.' }, { status: 400 })
-    }
-  }
+  const next = dedupeAssignmentRows(incoming)
 
-  const seen = new Set<string>()
-  const next = incoming
-    .map(r => ({
-      locationId: r.locationId ?? null,
-      revenueCenterId: r.revenueCenterId ?? null,
-      clearance: r.clearance ?? null,
-    }))
-    .filter(r => {
-      const k = keyOf(r)
-      if (seen.has(k)) return false
-      seen.add(k)
-      return true
-    })
+  const locationIds = new Set(next.map(r => r.locationId).filter((x): x is string => !!x))
+  const rcIds = new Set(next.map(r => r.revenueCenterId).filter((x): x is string => !!x))
 
   const before = await prisma.userScope.findMany({
     where: { userId: params.id },
