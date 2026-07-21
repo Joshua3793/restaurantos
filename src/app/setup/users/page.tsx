@@ -15,20 +15,29 @@ export default function PeopleAndAccessPage() {
   const [locations, setLocations] = useState<LocationNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [loadFailed, setLoadFailed] = useState(false)
   const [inviting, setInviting] = useState(false)
   const [selected, setSelected] = useState<Person | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const load = useCallback(async () => {
+  // Returns the freshly-fetched people list on success, or null on failure —
+  // callers that need to re-sync against current data (see refresh() below)
+  // must not assume `people` state has updated yet by the time they run.
+  const load = useCallback(async (): Promise<Person[] | null> => {
     setError('')
     try {
       const res = await fetch('/api/settings/users', { cache: 'no-store' })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Failed (${res.status})`)
       const data = await res.json()
-      setPeople(data.users ?? [])
+      const users: Person[] = data.users ?? []
+      setPeople(users)
       setLocations(data.locations ?? [])
+      setLoadFailed(false)
+      return users
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load people')
+      setLoadFailed(true)
+      return null
     } finally {
       setLoading(false)
     }
@@ -36,14 +45,36 @@ export default function PeopleAndAccessPage() {
 
   useEffect(() => { load() }, [load])
 
-  const refresh = () => { load(); setRefreshKey(k => k + 1) }
+  // Re-syncs the open detail panel's `selected` person from the freshly
+  // fetched list — otherwise Deactivate/Reactivate leaves the panel holding
+  // the stale `person` prop it was opened with. Cleared entirely if the
+  // person is no longer in the list (e.g. removed).
+  const refresh = useCallback(async () => {
+    const users = await load()
+    setRefreshKey(k => k + 1)
+    if (users) {
+      setSelected(prev => (prev ? users.find(u => u.id === prev.id) ?? null : prev))
+    }
+  }, [load])
 
   const resend = async (p: Person) => {
-    await fetch(`/api/settings/users/${p.id}/resend`, { method: 'POST' })
+    setError('')
+    const res = await fetch(`/api/settings/users/${p.id}/resend`, { method: 'POST' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(body.error ?? `Failed to resend invite (${res.status})`)
+      return
+    }
     refresh()
   }
   const revoke = async (p: Person) => {
-    await fetch(`/api/settings/users/${p.id}`, { method: 'DELETE' })
+    setError('')
+    const res = await fetch(`/api/settings/users/${p.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(body.error ?? `Failed to revoke invite (${res.status})`)
+      return
+    }
     refresh()
   }
 
@@ -58,8 +89,11 @@ export default function PeopleAndAccessPage() {
     )
   }
 
-  // T5 — empty state
-  const isEmpty = people.filter(p => p.id !== user?.id).length === 0
+  // T5 — empty state. Only genuine when the load actually succeeded: a failed
+  // load also leaves `people` at [], and without the loadFailed guard that
+  // reads as "this team is empty" underneath the error banner instead of
+  // "we couldn't load your team".
+  const isEmpty = !loadFailed && people.filter(p => p.id !== user?.id).length === 0
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -82,8 +116,16 @@ export default function PeopleAndAccessPage() {
         </div>
 
         {error && (
-          <div className="px-5 py-3 bg-red-soft border-b border-line">
+          <div className="px-5 py-3 bg-red-soft border-b border-line flex items-center justify-between gap-3">
             <p className="text-[12.5px] text-red-text">{error}</p>
+            {loadFailed && (
+              <button
+                onClick={() => load()}
+                className="shrink-0 text-[11.5px] font-semibold text-red-text underline hover:no-underline"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
@@ -113,6 +155,18 @@ export default function PeopleAndAccessPage() {
                 </Link>
               </p>
             )}
+          </div>
+        ) : loadFailed && people.length === 0 ? (
+          <div className="px-8 py-10 text-center">
+            <p className="text-[13px] text-ink-3 mb-4">
+              We couldn&apos;t load your team. Nothing shown below is a real count.
+            </p>
+            <button
+              onClick={() => load()}
+              className="px-4 py-2 rounded-[10px] border border-line text-[13px] font-medium text-ink-2 hover:bg-bg"
+            >
+              Retry
+            </button>
           </div>
         ) : (
           <PeopleList

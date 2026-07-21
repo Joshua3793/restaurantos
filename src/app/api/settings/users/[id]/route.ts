@@ -181,6 +181,15 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
   await prisma.user.delete({ where: { id: params.id } }).catch(() => null)
 
+  // Same pending rule as GET /api/settings/users' `isPending` shaping: a row
+  // created inactive at invite time and never activated (name still null) is
+  // a still-pending invite, not an established colleague. Cancelling one of
+  // those is a materially different action from deleting an accepted account
+  // — keep the two rules in lockstep so the list and the audit log never
+  // disagree about what counts as "pending".
+  const wasPending = !target.isActive && target.name === null
+  const action = wasPending ? 'INVITE_REVOKED' : 'REMOVED'
+
   // Written AFTER the delete: actorId survives, targetUserId is nulled by the
   // FK, and the denormalized email/name is what keeps the entry readable.
   // The delete has already genuinely succeeded, so a failure here must not
@@ -190,12 +199,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     await recordAccessEvent(prisma, {
       actor: { id: admin.id, email: admin.email, name: admin.name },
       target: { id: null, email: target.email, name: target.name },
-      action: 'REMOVED',
+      action,
     })
   } catch (auditError) {
     const auditMessage = auditError instanceof Error ? auditError.message : 'Unknown error'
     console.error(
-      `[settings/users/${params.id}] REMOVED audit write failed after the delete already ` +
+      `[settings/users/${params.id}] ${action} audit write failed after the delete already ` +
       `committed: ${auditMessage}`,
     )
     auditWarning = 'Removed, but the audit log entry failed to write.'

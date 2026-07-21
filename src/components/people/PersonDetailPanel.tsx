@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import type { Role } from '@prisma/client'
 import { X, Loader2, Pause, Trash2 } from 'lucide-react'
-import { assignableLevels, ROLE_LABELS, ROLE_COLORS, ROLE_DOT } from '@/lib/roles'
+import { assignableLevels, ROLE_LABELS, ROLE_COLORS, ROLE_DOT, ROLE_DESCRIPTIONS } from '@/lib/roles'
 import { resolveEffective, type EffectiveEntry, type RcNode } from '@/lib/access-model'
 import AssignmentEditor, { type AssignmentDraft } from './AssignmentEditor'
 import { initials, type LocationNode, type Person } from './people-utils'
@@ -55,11 +55,19 @@ export default function PersonDetailPanel({
 
   const call = async (fn: () => Promise<Response>, ok?: () => void) => {
     setError(''); setBusy(true)
-    const res = await fn()
-    const body = await res.json().catch(() => ({}))
-    setBusy(false)
-    if (!res.ok) { setError(body.error ?? 'Something went wrong'); return }
-    ok?.(); onChanged()
+    try {
+      const res = await fn()
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(body.error ?? 'Something went wrong'); return }
+      ok?.(); onChanged()
+    } catch (e) {
+      // A network rejection (offline, DNS blip) throws before any response
+      // exists — without this catch, `busy` would stay true forever with no
+      // escape short of closing and reopening the panel.
+      setError(e instanceof Error ? e.message : 'Network error — could not reach the server')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const save = () =>
@@ -101,7 +109,7 @@ export default function PersonDetailPanel({
           >
             {person.isActive ? 'Active' : 'Inactive'}
           </span>
-          <button onClick={onClose} className="text-ink-4 hover:text-ink-2 ml-1"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-ink-4 hover:text-ink-2 ml-1"><X size={16} /></button>
         </div>
 
         <div className="px-5 py-4 space-y-5">
@@ -112,25 +120,30 @@ export default function PersonDetailPanel({
           )}
 
           {/* primary clearance */}
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono uppercase tracking-[0.1em] text-ink-4">
-              Primary clearance
-            </span>
-            {locked ? (
-              <span className={`text-[12.5px] font-semibold px-3 py-1 rounded-full ${ROLE_COLORS[person.role]}`}>
-                {ROLE_LABELS[person.role]}
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-[0.1em] text-ink-4">
+                Primary clearance
               </span>
-            ) : (
-              <select
-                value={clearance}
-                onChange={e => setClearance(e.target.value as Role)}
-                className={`text-[12.5px] font-semibold px-3 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gold ${ROLE_COLORS[clearance]}`}
-              >
-                {assignableLevels(actorRole).map(r => (
-                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                ))}
-              </select>
-            )}
+              {locked ? (
+                <span className={`text-[12.5px] font-semibold px-3 py-1 rounded-full ${ROLE_COLORS[person.role]}`}>
+                  {ROLE_LABELS[person.role]}
+                </span>
+              ) : (
+                <select
+                  value={clearance}
+                  onChange={e => setClearance(e.target.value as Role)}
+                  className={`text-[12.5px] font-semibold px-3 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gold ${ROLE_COLORS[clearance]}`}
+                >
+                  {assignableLevels(actorRole).map(r => (
+                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <p className="mt-2 text-[11.5px] text-ink-4 leading-relaxed">
+              {ROLE_DESCRIPTIONS[locked ? person.role : clearance]}
+            </p>
           </div>
 
           {/* assignments */}
@@ -233,32 +246,61 @@ export default function PersonDetailPanel({
                 </span>
               </button>
 
-              <button
-                onClick={() =>
-                  confirmRemove
-                    ? call(() => fetch(`/api/settings/users/${person.id}`, { method: 'DELETE' }), onClose)
-                    : setConfirmRemove(true)
-                }
-                disabled={busy}
-                className={`w-full flex items-start gap-3 text-left border rounded-lg px-3.5 py-3 disabled:opacity-50 ${
-                  confirmRemove ? 'border-red bg-red-soft' : 'border-red/30 hover:bg-red-soft/40'
-                }`}
-              >
-                <Trash2 size={15} className="text-red-text mt-0.5 shrink-0" />
-                <span className="flex-1">
-                  <span className="flex items-center justify-between">
-                    <b className="text-[13px] text-red-text">
-                      {confirmRemove ? 'Tap again to permanently remove' : 'Remove permanently'}
-                    </b>
-                    <span className="text-[10px] font-mono text-red-text bg-red-soft px-2 py-0.5 rounded-full">
-                      cannot undo
+              {confirmRemove ? (
+                <div className="border border-red bg-red-soft rounded-lg px-3.5 py-3 space-y-2.5">
+                  <div className="flex items-start gap-3">
+                    <Trash2 size={15} className="text-red-text mt-0.5 shrink-0" />
+                    <span className="flex-1">
+                      <span className="flex items-center justify-between">
+                        <b className="text-[13px] text-red-text">Remove permanently?</b>
+                        <span className="text-[10px] font-mono text-red-text bg-red-soft px-2 py-0.5 rounded-full">
+                          cannot undo
+                        </span>
+                      </span>
+                      <span className="block text-[12px] text-ink-3 leading-relaxed mt-0.5">
+                        Deletes the account and all assignments. Activity stays in the audit log.
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmRemove(false)}
+                      disabled={busy}
+                      className="flex-1 py-2 rounded-lg border border-line text-[12.5px] font-medium text-ink-2 hover:bg-bg disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() =>
+                        call(() => fetch(`/api/settings/users/${person.id}`, { method: 'DELETE' }), onClose)
+                      }
+                      disabled={busy}
+                      className="flex-1 py-2 rounded-lg bg-red text-white text-[12.5px] font-semibold disabled:opacity-50"
+                    >
+                      Confirm remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmRemove(true)}
+                  disabled={busy}
+                  className="w-full flex items-start gap-3 text-left border border-red/30 rounded-lg px-3.5 py-3 hover:bg-red-soft/40 disabled:opacity-50"
+                >
+                  <Trash2 size={15} className="text-red-text mt-0.5 shrink-0" />
+                  <span className="flex-1">
+                    <span className="flex items-center justify-between">
+                      <b className="text-[13px] text-red-text">Remove permanently</b>
+                      <span className="text-[10px] font-mono text-red-text bg-red-soft px-2 py-0.5 rounded-full">
+                        cannot undo
+                      </span>
+                    </span>
+                    <span className="block text-[12px] text-ink-3 leading-relaxed mt-0.5">
+                      Deletes the account and all assignments. Activity stays in the audit log.
                     </span>
                   </span>
-                  <span className="block text-[12px] text-ink-3 leading-relaxed mt-0.5">
-                    Deletes the account and all assignments. Activity stays in the audit log.
-                  </span>
-                </span>
-              </button>
+                </button>
+              )}
             </div>
           )}
         </div>

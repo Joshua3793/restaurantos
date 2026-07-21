@@ -37,21 +37,29 @@ export default function InviteModal({ locations, actorRole, onClose, onInvited }
       return
     }
     setSaving(true)
-    const res = await fetch('/api/settings/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: all, clearance, assignments }),
-    })
-    const body = await res.json().catch(() => ({}))
-    setSaving(false)
-    if (!res.ok) { setError(body.error ?? 'Failed to send invite'); return }
-    const failed = (body.results ?? []).filter((r: { status: string }) => r.status === 'failed')
-    if (failed.length) {
-      setError(failed.map((f: { email: string; error: string }) => `${f.email}: ${f.error}`).join('; '))
-      return
+    try {
+      const res = await fetch('/api/settings/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: all, clearance, assignments }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(body.error ?? 'Failed to send invite'); return }
+      const failed = (body.results ?? []).filter((r: { status: string }) => r.status === 'failed')
+      if (failed.length) {
+        setError(failed.map((f: { email: string; error: string }) => `${f.email}: ${f.error}`).join('; '))
+        return
+      }
+      onInvited()
+      onClose()
+    } catch (e) {
+      // A network rejection (offline, DNS blip) throws before any response
+      // exists — without this catch, `saving` would stay true forever with no
+      // escape short of closing and reopening the modal.
+      setError(e instanceof Error ? e.message : 'Network error — could not reach the server')
+    } finally {
+      setSaving(false)
     }
-    onInvited()
-    onClose()
   }
 
   return (
@@ -60,7 +68,7 @@ export default function InviteModal({ locations, actorRole, onClose, onInvited }
       <div className="relative bg-paper rounded-xl border border-line shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h2 className="font-fraunces text-[17px] font-semibold text-ink">Invite people</h2>
-          <button onClick={onClose} className="text-ink-4 hover:text-ink-2"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-ink-4 hover:text-ink-2"><X size={16} /></button>
         </div>
 
         <div className="px-5 py-5 space-y-5">
@@ -73,7 +81,11 @@ export default function InviteModal({ locations, actorRole, onClose, onInvited }
               {emails.map(e => (
                 <span key={e} className="inline-flex items-center gap-1.5 bg-bg-2 rounded-sm px-2 py-1 text-[12.5px]">
                   {e}
-                  <button onClick={() => setEmails(emails.filter(x => x !== e))} className="text-ink-4 hover:text-red">
+                  <button
+                    onClick={() => setEmails(emails.filter(x => x !== e))}
+                    aria-label={`Remove ${e}`}
+                    className="text-ink-4 hover:text-red"
+                  >
                     <X size={11} />
                   </button>
                 </span>

@@ -23,11 +23,15 @@ const keyOf = (d: { locationId: string | null; revenueCenterId: string | null })
 
 /** Per-node override picker. Rendered inline on a selected row. */
 function OverridePicker({
-  current, primary, actorRole, onPick,
+  current, primary, actorRole, place, onPick,
 }: {
   current: Role | null
   primary: Role
   actorRole: Role
+  /** The location/RC name this control applies to — a screen reader otherwise
+   * only hears the selected option text, with no indication of which row's
+   * override it's editing. */
+  place: string
   onPick: (r: Role | null) => void
 }) {
   const options = assignableLevels(actorRole)
@@ -36,6 +40,7 @@ function OverridePicker({
       value={current ?? ''}
       onChange={e => onPick(e.target.value ? (e.target.value as Role) : null)}
       onClick={e => e.stopPropagation()}
+      aria-label={`Clearance override for ${place}`}
       className="ml-auto text-[10px] font-mono rounded-full border border-line bg-paper px-2 py-1 text-ink-3 focus:outline-none focus:ring-2 focus:ring-gold"
     >
       <option value="">inherit · {ROLE_LABELS[primary]}</option>
@@ -104,6 +109,7 @@ export default function AssignmentEditor({
                   current={locSelected.clearance}
                   primary={primaryClearance}
                   actorRole={actorRole}
+                  place={`${loc.name} (whole location)`}
                   onPick={r => setClearance(locDraft, r)}
                 />
               )}
@@ -147,6 +153,7 @@ export default function AssignmentEditor({
                         current={rcSelected.clearance}
                         primary={primaryClearance}
                         actorRole={actorRole}
+                        place={rc.name}
                         onPick={r => setClearance(rcDraft, r)}
                       />
                     )}
