@@ -1,11 +1,14 @@
 'use client'
 import { useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { ChevronDown, Check, LayoutGrid, MapPin } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 import { AlertsBell } from '@/components/AlertsBell'
+import { isAuthRoute } from '@/lib/chrome-routes'
 
 export function MobileRcBar() {
+  const pathname = usePathname()
   const {
     locations, revenueCenters,
     activeKind, activeRcId, activeRc, activeLocationId, activeLocation,
@@ -15,6 +18,8 @@ export function MobileRcBar() {
   // Picking a location applies a read-only location lens to the current page.
   const pickLocation = (id: string) => { setActiveLocation(id) }
 
+  // No app chrome on auth/standalone routes — same gate as CostChromeGate.
+  if (isAuthRoute(pathname)) return null
   if (revenueCenters.length === 0 && locations.length === 0) return null
 
   const isAll = activeKind === 'all'

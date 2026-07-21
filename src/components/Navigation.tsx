@@ -176,6 +176,11 @@ function NavigationInner() {
   const visibleSetupItems = setupItems.filter(i => canSeeNavItem(i, role))
   const allNavItems = navGroups.flatMap(g => g.items)
 
+  // No app chrome on auth/standalone routes — same gate as CostChromeGate.
+  // Rendering the sidebar on /login not only looked wrong, it prefetched every
+  // protected route while logged out and kept polling the badge endpoints.
+  if (isAuthRoute(pathname)) return null
+
   return (
     <>
       {/* ── Desktop Sidebar (v2) ─────────────────────────────────── */}
