@@ -37,6 +37,9 @@ const config: Config = {
         blue:          '#2563eb',  // blue-600
         'blue-soft':   '#dbeafe',  // blue-100
         'blue-text':   '#1d4ed8',  // blue-700
+        teal:          '#0d9488',  // teal-600  — Shift Lead
+        'teal-soft':   '#ccfbf1',  // teal-100
+        'teal-text':   '#0f766e',  // teal-700
         // ── Legacy (keep during migration) ─────────────────────────────────
         background: "var(--background)",
         foreground: "var(--foreground)",
