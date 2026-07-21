@@ -2,6 +2,7 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { User } from '@prisma/client'
 import { AuthError } from '@/lib/auth'
+import { atLeast } from '@/lib/roles'
 
 /**
  * Resolves the set of leaf RevenueCenter ids a user may read.
@@ -16,7 +17,7 @@ import { AuthError } from '@/lib/auth'
  * - scope row with revenueCenterId → that RC
  */
 export async function resolveScopedRcIds(user: User): Promise<Set<string> | null> {
-  if (user.role === 'OWNER' || user.role === 'ADMIN') return null
+  if (atLeast(user.role, 'ADMIN')) return null
   const scopes = await prisma.userScope.findMany({ where: { userId: user.id } })
   if (scopes.length === 0) return null
 

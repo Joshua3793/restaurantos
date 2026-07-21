@@ -39,7 +39,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     redirectTo: `${appUrl}/auth/callback`,
   })
   if (error || !data?.user) {
-    return NextResponse.json({ error: error?.message ?? 'Failed to re-send invite' }, { status: 400 })
+    // The stale auth user (if any) was already deleted above, so this person
+    // now has NO auth account at all — a bare "failed to re-send" reads like
+    // a harmless no-op when it is not: someone must retry, or they can never
+    // sign in.
+    return NextResponse.json(
+      {
+        error: error?.message
+          ? `The previous invite was removed, and the new invite failed to send: ${error.message}. Retry the resend — this person currently has no sign-in account.`
+          : 'The previous invite was removed, but the new invite failed to send. Retry the resend — this person currently has no sign-in account.',
+      },
+      { status: 400 },
+    )
   }
 
   const newId = data.user.id
@@ -52,16 +63,40 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // can interleave such that the delete isn't visible to the insert, causing
   // a P2002 unique violation on email. Delete + create + recreate scopes ride
   // inside one interactive transaction to avoid that.
-  await prisma.$transaction(async (tx) => {
-    await tx.user.deleteMany({ where: { email: target.email } })
-    await tx.user.create({
-      data: {
-        id: newId, email: target.email, name: target.name,
-        role: target.role, isActive: false,
-      },
+  //
+  // If this transaction throws, the new auth UUID above already exists and
+  // has an invite sitting in it, but there is no Prisma row for it: the
+  // person could set a password and pass middleware, then 403 on every API
+  // call (requireSession reads Prisma), and a retry of this endpoint would
+  // hit the "already has an account" branch above instead of repairing it.
+  // Surface that explicitly rather than letting it fall through as a bare 500.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.deleteMany({ where: { email: target.email } })
+      await tx.user.create({
+        data: {
+          id: newId, email: target.email, name: target.name,
+          role: target.role, isActive: false,
+        },
+      })
+      await tx.userScope.createMany({ data: scopes.map(s => ({ ...s, userId: newId })) })
     })
-    await tx.userScope.createMany({ data: scopes.map(s => ({ ...s, userId: newId })) })
-  })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Unknown error'
+    console.error(
+      `[settings/users/${params.id}/resend] Prisma re-key failed for ${target.email} after ` +
+      `the Supabase invite already sent to auth user ${newId}: ${message}`,
+    )
+    return NextResponse.json(
+      {
+        error:
+          `The invite email was sent, but this person's account record could not be updated ` +
+          `(${message}). They may be able to sign in but nothing in the app will work for them ` +
+          `yet. An admin should retry this resend, or fix the account manually before they log in.`,
+      },
+      { status: 500 },
+    )
+  }
 
   // Both stores have now committed: Supabase invite + Prisma re-key. The
   // audit write is secondary to that — by this point the re-invite has

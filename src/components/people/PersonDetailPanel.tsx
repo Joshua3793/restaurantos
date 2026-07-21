@@ -2,10 +2,10 @@
 import { useState } from 'react'
 import type { Role } from '@prisma/client'
 import { X, Loader2, Pause, Trash2 } from 'lucide-react'
-import { assignableLevels, ROLE_LABELS, ROLE_COLORS, ROLE_DOT, ROLE_DESCRIPTIONS } from '@/lib/roles'
+import { assignableLevels, atLeast, ROLE_LABELS, ROLE_COLORS, ROLE_DOT, ROLE_DESCRIPTIONS } from '@/lib/roles'
 import { resolveEffective, type EffectiveEntry, type RcNode } from '@/lib/access-model'
 import AssignmentEditor, { type AssignmentDraft } from './AssignmentEditor'
-import { initials, type LocationNode, type Person } from './people-utils'
+import { initials, summarizeAccess, type LocationNode, type Person } from './people-utils'
 
 interface Props {
   person: Person
@@ -52,6 +52,13 @@ export default function PersonDetailPanel({
 
   const locked = isOwner || isMe
   const preview = effectivePreview(drafts, clearance, locations)
+  // src/lib/access.ts short-circuits OWNER/ADMIN to every revenue center
+  // regardless of assignments — resolveEffective()'s per-RC preview would
+  // otherwise contradict the row's "All locations" summary for these two
+  // clearances. Mirror that short-circuit here, keyed off the currently
+  // selected clearance (not just person.role) so the preview updates live as
+  // an admin edits.
+  const previewIsGlobal = atLeast(clearance, 'ADMIN')
 
   const call = async (fn: () => Promise<Response>, ok?: () => void) => {
     setError(''); setBusy(true)
@@ -168,7 +175,11 @@ export default function PersonDetailPanel({
               <div className="text-[10px] font-mono uppercase tracking-[0.1em] text-ink-4 mb-2.5">
                 Effective access
               </div>
-              {preview.length === 0 ? (
+              {previewIsGlobal ? (
+                <p className="text-[12px] text-gold-2">
+                  {summarizeAccess({ ...person, role: clearance })} — {ROLE_LABELS[clearance]} clearance reaches every revenue center regardless of assignments.
+                </p>
+              ) : preview.length === 0 ? (
                 <p className="text-[12px] text-gold-2">
                   No assignments — this person currently sees all revenue centers.
                 </p>

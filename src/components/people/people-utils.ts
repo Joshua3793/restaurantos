@@ -1,5 +1,5 @@
 import type { Role } from '@prisma/client'
-import { ROLE_LABELS } from '@/lib/roles'
+import { atLeast, ROLE_LABELS } from '@/lib/roles'
 
 export interface Assignment {
   id: string
@@ -40,7 +40,7 @@ export interface LocationGroup {
   isGlobal?: boolean
 }
 
-const hasGlobalAccess = (p: Person) => p.role === 'OWNER' || p.role === 'ADMIN'
+const hasGlobalAccess = (p: Person) => atLeast(p.role, 'ADMIN')
 
 /**
  * Group people under every location they touch. Somebody assigned to two
@@ -74,7 +74,7 @@ export function assignmentLabel(a: Assignment): string {
 
 /** One-line access summary for a person row. */
 export function summarizeAccess(p: Person): string {
-  if (p.role === 'OWNER' || p.role === 'ADMIN') return 'All locations'
+  if (hasGlobalAccess(p)) return 'All locations'
   if (p.assignments.length === 0) return 'No assignments'
   const overrides = p.assignments.filter(a => a.clearance).length
   const base = p.assignments.length === 1

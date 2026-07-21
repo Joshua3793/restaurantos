@@ -6,6 +6,7 @@ import { Clock, Printer, ArrowLeft, Mail } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { setScopeParams } from '@/lib/scope-params'
+import { atLeast } from '@/lib/roles'
 import { PageHead } from '@/components/layout/PageHead'
 import { SubNav } from '@/components/layout/SubNav'
 import { formatCurrency } from '@/lib/utils'
@@ -185,7 +186,10 @@ export default function EndOfDayPage() {
       .then(async r => {
         const body = await r.json().catch(() => null)
         if (r.ok) {
-          router.push('/pass')
+          // /pass is MANAGER-gated — a Lead sent there would bounce straight
+          // back out through middleware into a redirect loop. /today is the
+          // role-aware home and resolves correctly for everyone.
+          router.push(role != null && atLeast(role, 'MANAGER') ? '/pass' : '/today')
           return
         }
         if (r.status === 409 && body) {
@@ -196,7 +200,7 @@ export default function EndOfDayPage() {
         }
       })
       .catch(() => setSignoffError('Failed to sign off'))
-  }, [activeRcId, router])
+  }, [activeRcId, router, role])
 
   const reopen = useCallback(() => {
     if (!activeRcId) return

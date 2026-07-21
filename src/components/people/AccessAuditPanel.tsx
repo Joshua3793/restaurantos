@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { ROLE_LABELS } from '@/lib/roles'
 import { initials, relativeTime } from './people-utils'
 
 interface AuditEvent {
@@ -27,14 +28,22 @@ const VERB: Record<string, string> = {
   REMOVED: 'permanently removed',
 }
 
+/** Renders a role value with its label when it's a known role; falls back to
+ *  the raw string otherwise (audit `detail` is untyped JSON, so a role field
+ *  could in principle hold something else). */
+function roleLabel(value: string | null | undefined): string {
+  if (!value) return ''
+  return (ROLE_LABELS as Partial<Record<string, string>>)[value] ?? value
+}
+
 function describe(e: AuditEvent): string {
   const d = (e.detail ?? {}) as Record<string, string | null>
   const place = d.rcName ?? d.locationName ?? null
   switch (e.action) {
-    case 'CLEARANCE_CHANGED': return `from ${d.from} → ${d.to}`
+    case 'CLEARANCE_CHANGED': return `from ${roleLabel(d.from)} → ${roleLabel(d.to)}`
     case 'INVITED':
-    case 'REINVITED': return d.to ? `as ${d.to}` : ''
-    case 'OVERRIDE_SET': return place ? `${d.to} at ${place}` : `${d.to}`
+    case 'REINVITED': return d.to ? `as ${roleLabel(d.to)}` : ''
+    case 'OVERRIDE_SET': return place ? `${roleLabel(d.to)} at ${place}` : roleLabel(d.to)
     case 'OVERRIDE_CLEARED': return place ? `back to inherited at ${place}` : 'back to inherited'
     case 'ASSIGNMENT_ADDED':
     case 'ASSIGNMENT_REMOVED': return place ?? ''

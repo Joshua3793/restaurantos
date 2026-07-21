@@ -1,6 +1,6 @@
 'use client'
 import type { Person } from './people-utils'
-import { ROLE_COLORS, ROLE_LABELS } from '@/lib/roles'
+import { atLeast, ROLE_COLORS, ROLE_LABELS } from '@/lib/roles'
 import { initials, chipLabel, chipClearance } from './people-utils'
 
 interface Props {
@@ -10,8 +10,7 @@ interface Props {
 }
 
 export default function PersonRow({ person, isMe, onOpen }: Props) {
-  const unassigned = person.assignments.length === 0
-    && person.role !== 'OWNER' && person.role !== 'ADMIN'
+  const unassigned = person.assignments.length === 0 && !atLeast(person.role, 'ADMIN')
 
   return (
     <button
@@ -49,7 +48,7 @@ export default function PersonRow({ person, isMe, onOpen }: Props) {
           <span className="text-[11px] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full">
             No assignments — sees all revenue centers
           </span>
-        ) : person.role === 'OWNER' || person.role === 'ADMIN' ? (
+        ) : atLeast(person.role, 'ADMIN') ? (
           <span className="text-[11px] bg-bg-2 text-ink-3 px-2 py-0.5 rounded-full">
             All locations
           </span>

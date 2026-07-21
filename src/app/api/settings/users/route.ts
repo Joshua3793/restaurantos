@@ -189,6 +189,21 @@ export async function POST(req: NextRequest) {
         continue
       }
 
+      // The owner's Prisma row is the single-occupancy seat (User_single_owner
+      // partial unique index). This loop's "accepted before → reactivate in
+      // place" branch below would otherwise happily overwrite that row's role
+      // and replace its UserScope rows — and since assignableLevels() never
+      // returns OWNER, there is no in-app way back once that happens. Reject
+      // before either the re-invite branch (deletes the Supabase user) or the
+      // reactivate branch writes anything.
+      const existingPrismaUser = await prisma.user.findUnique({
+        where: { id: existing.id }, select: { role: true },
+      })
+      if (existingPrismaUser?.role === 'OWNER') {
+        results.push({ email, status: 'failed', error: 'The owner cannot be changed. Transfer ownership first.' })
+        continue
+      }
+
       if (!hasAcceptedInvite(existing)) {
         await supabaseAdmin.auth.admin.deleteUser(existing.id)
         const retry = await sendInvite('REINVITED')

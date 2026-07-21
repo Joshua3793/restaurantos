@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Role, User } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { atLeast } from '@/lib/roles'
 import { resolveEffective, type EffectiveEntry, type RcNode } from '@/lib/access-model'
 
 export type { ScopeRow, RcNode, EffectiveEntry } from '@/lib/access-model'
@@ -30,7 +31,7 @@ async function allRcNodes(): Promise<RcNode[]> {
 export async function effectiveAccess(user: User): Promise<EffectiveEntry[]> {
   const rcs = await allRcNodes()
 
-  if (user.role === 'OWNER' || user.role === 'ADMIN') {
+  if (atLeast(user.role, 'ADMIN')) {
     return rcs.map(rc => ({
       rcId: rc.id,
       rcName: rc.name,
