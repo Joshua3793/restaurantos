@@ -97,10 +97,19 @@ model AccessAuditEvent {
 Enforced in the schema, using the same partial-index pattern as `isPrimary` on supplier offers:
 
 ```sql
-CREATE UNIQUE INDEX "User_single_owner" ON "User" ((true)) WHERE role = 'OWNER';
+CREATE UNIQUE INDEX "User_single_owner" ON "User" ("role") WHERE "role" = 'OWNER';
 ```
 
-Every `OWNER` row collides on the same key, so at most one can exist. Prisma cannot express this, so it lives in raw SQL alongside the existing `UserScope_user_node_unique` index.
+The index covers only rows where `role = 'OWNER'`, and every such row has the identical key value `'OWNER'` — so a second one collides. Prisma cannot express a partial index, so it lives in raw SQL alongside the existing `UserScope_user_node_unique` index.
+
+### Conflict resolution when assignments overlap
+
+The design says effective access is "the union of every assignment, each evaluated at its own clearance" but does not say what happens when two assignments cover the same RC (e.g. a whole-location assignment *and* an RC-level override beneath it — which is exactly the T3 example). Rule:
+
+1. **More specific wins.** An RC-level assignment beats a location-level one for that RC.
+2. **At equal specificity, higher clearance wins.**
+
+This is what makes "Manager at Downtown, Staff at Rooftop Bar" resolve to Staff at Rooftop rather than ambiguous.
 
 The existing `UserScope_user_node_unique` index is unaffected — adding a `clearance` column does not change the `(userId, locationId, revenueCenterId)` tuple it covers.
 
