@@ -58,11 +58,13 @@ export interface EodCloseState {
     handoverNote: string | null
     signedOffByName: string | null
     signedOffAt: string | null
-    snapshot: unknown
-    labourCost: number | null
-    grossSales: number | null
-    compsVoids: number | null
-    discounts: number | null
+    // Omitted from the API response entirely for a Lead (money — see the GET
+    // handler in api/eod/close/route.ts), alongside the four fields below.
+    snapshot?: unknown
+    labourCost?: number | null
+    grossSales?: number | null
+    compsVoids?: number | null
+    discounts?: number | null
   }
   progress: EodProgressDTO
 }
@@ -72,9 +74,17 @@ export default function EndOfDayPage() {
   const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, setActiveRcId } = useRc()
   const { role, loading: userLoading } = useUser()
   // A Lead runs the operational close but the clearance ladder is explicit
-  // that Leads see "no cost or money" — /api/eod/summary is MANAGER-only and
-  // would 403 for them, so skip the fetch entirely rather than let it fail.
+  // that Leads see "no cost or money" — /api/eod/summary and /api/eod/orders
+  // are MANAGER-only and would 403 for them, so skip those fetches entirely
+  // rather than let them fail.
   const canSeeMoney = role !== 'LEAD' && role !== 'STAFF'
+  // role starts out null while /api/me is in flight, and `null !== 'LEAD'`
+  // is true — so canSeeMoney is true during that window for EVERY role,
+  // Lead included. showMoney folds the loading gate into the same flag so
+  // every money fetch/UI check below only has one thing to test, instead of
+  // each call site having to remember to AND in userLoading itself (the
+  // summary effect used to be the only one that did).
+  const showMoney = !userLoading && canSeeMoney
   const [data, setData] = useState<EodSummary | null>(null)
   const [closeState, setCloseState] = useState<EodCloseState | null>(null)
   const [tempUnits, setTempUnits] = useState<TempUnit[]>([])
@@ -83,11 +93,10 @@ export default function EndOfDayPage() {
   const isRcScoped = activeKind === 'rc' && !!activeRcId
 
   useEffect(() => {
-    // Wait for the role to resolve before deciding whether to fire the
-    // fetch — otherwise a Lead's first render (role still null while
-    // /api/me is in flight) would slip the request through.
-    if (userLoading) return
-    if (!canSeeMoney) { setData(null); return }
+    // showMoney is false for the whole userLoading window, so this can't
+    // fire before we know the real role; once loading flips to false it's
+    // in the dependency array below, so a MANAGER's data still loads.
+    if (!showMoney) { setData(null); return }
     const params = new URLSearchParams()
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const qs = params.toString()
@@ -95,7 +104,7 @@ export default function EndOfDayPage() {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setData(d) })
       .catch(() => {})
-  }, [activeRcId, activeRc, activeKind, activeLocationId, canSeeMoney, userLoading])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, showMoney])
 
   const loadClose = useCallback(() => {
     if (!isRcScoped) { setCloseState(null); setTempUnits([]); return }
@@ -249,7 +258,7 @@ export default function EndOfDayPage() {
           <span className="text-ink-3 tabular-nums">
             {closeState ? `${closeState.progress.done} / ${closeState.progress.total}` : '— / —'}
           </span>
-          {canSeeMoney ? (
+          {showMoney ? (
             <>
               <span className="w-px h-3.5 bg-line" />
               <span className="text-ink-3">Food cost · today</span>
@@ -272,7 +281,7 @@ export default function EndOfDayPage() {
           crumbs={<><Clock size={12} /> TODAY / END-OF-DAY</>}
           title={<>Service is <em className="font-fraunces italic font-medium text-gold-2">closed</em>.</>}
           sub={
-            !canSeeMoney
+            !showMoney
               ? <>Sales and cost figures are managed by your manager. Run the checklist and temps, then sign off to hand over.</>
               : data
                 ? <>{data.covers} covers · <b>{formatCurrency(data.netSales)}</b> net · food cost ran <b className={over ? 'text-red-text' : ''}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</b>. Review the day, then sign off to open tomorrow with real numbers.</>
@@ -287,8 +296,10 @@ export default function EndOfDayPage() {
                 <Printer size={13} /> Print report
               </button>
               {/* /api/eod/email is MANAGER-only and its payload is a sales/cost digest —
-                  a Lead has nothing to send here and the request would just 403. */}
-              {canSeeMoney && (
+                  a Lead has nothing to send here and the request would just 403.
+                  showMoney (not canSeeMoney) so this stays hidden through the
+                  loading window too, not just once role resolves to LEAD. */}
+              {showMoney && (
                 <button
                   onClick={emailOwner}
                   disabled={emailState === 'sending'}
@@ -304,7 +315,7 @@ export default function EndOfDayPage() {
 
         <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
           <div>
-            <EodKpiRow data={data} target={PH_TARGET_PCT} closeState={closeState} canSeeMoney={canSeeMoney} />
+            <EodKpiRow data={data} target={PH_TARGET_PCT} closeState={closeState} canSeeMoney={showMoney} />
             <DayInReview data={data} target={PH_TARGET_PCT} />
             {isRcScoped ? (
               <CloseDown
@@ -315,14 +326,18 @@ export default function EndOfDayPage() {
             ) : (
               <RcPicker revenueCenters={revenueCenters} onPick={setActiveRcId} />
             )}
-            {isRcScoped && <SetsUpTomorrow rcId={activeRcId!} canSeeMoney={canSeeMoney} />}
+            {/* SetsUpTomorrow's canSeeMoney gates whether OrderSuggestionsCard mounts and
+                fires its own GET /api/eod/orders (MANAGER-only) in a mount effect — pass
+                showMoney, not canSeeMoney, so that fetch can't slip through while role is
+                still resolving (activeRcId can be truthy before /api/me returns). */}
+            {isRcScoped && <SetsUpTomorrow rcId={activeRcId!} canSeeMoney={showMoney} />}
             <LoopStrip />
           </div>
           <CloseRail
             data={data}
             closeState={closeState}
             isRcScoped={isRcScoped}
-            canSeeMoney={canSeeMoney}
+            canSeeMoney={showMoney}
             signoffError={signoffError}
             onSaveHandover={saveHandover}
             onSaveClose={saveCloseFields}

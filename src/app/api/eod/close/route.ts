@@ -40,11 +40,17 @@ export async function GET(req: NextRequest) {
       doneItemIds: [...doneIds],
       close: {
         id: close.id, status: close.status, handoverNote: close.handoverNote,
-        signedOffByName: close.signedOffByName, signedOffAt: close.signedOffAt, snapshot: close.snapshot,
+        signedOffByName: close.signedOffByName, signedOffAt: close.signedOffAt,
         // Shift Leads run the close but never see money (see the clearance
-        // ladder: "No cost or money"). Omitted entirely rather than nulled, so
-        // the client cannot mistake "hidden" for "not yet entered".
+        // ladder: "No cost or money"). `snapshot` is the sign-off money
+        // capture written by POST .../signoff (netSales/foodCostDollars/
+        // foodCostPct, etc) — since sign-off is now LEAD-accessible, it must
+        // be omitted here too or a Lead could sign off their own close and
+        // read the $ figures straight back out of this GET. Omitted entirely
+        // rather than nulled, so the client cannot mistake "hidden" for "not
+        // yet entered".
         ...(user.role === 'LEAD' ? {} : {
+          snapshot: close.snapshot,
           labourCost: close.labourCost == null ? null : Number(close.labourCost),
           grossSales: close.grossSales == null ? null : Number(close.grossSales),
           compsVoids: close.compsVoids == null ? null : Number(close.compsVoids),

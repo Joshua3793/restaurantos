@@ -526,6 +526,7 @@ export function CloseRail({ data, closeState, isRcScoped, canSeeMoney, signoffEr
       <GateCard
         closeState={closeState}
         isRcScoped={isRcScoped}
+        canSeeMoney={canSeeMoney}
         signoffError={signoffError}
         onSignOff={onSignOff}
         onReopen={onReopen}
@@ -566,9 +567,10 @@ export function CloseRail({ data, closeState, isRcScoped, canSeeMoney, signoffEr
   )
 }
 
-function GateCard({ closeState, isRcScoped, signoffError, onSignOff, onReopen }: {
+function GateCard({ closeState, isRcScoped, canSeeMoney, signoffError, onSignOff, onReopen }: {
   closeState: EodCloseState | null
   isRcScoped: boolean
+  canSeeMoney: boolean
   signoffError: string | null
   onSignOff: () => void
   onReopen: () => void
@@ -633,12 +635,19 @@ function GateCard({ closeState, isRcScoped, signoffError, onSignOff, onReopen }:
         <div className="text-[11px] text-red-text font-medium mt-2">{signoffError}</div>
       )}
       {closed ? (
-        <button
-          onClick={onReopen}
-          className="w-full mt-3 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors"
-        >
-          <RotateCcw size={13} /> Reopen
-        </button>
+        // Reopen stays MANAGER-only at the route (/api/eod/close/reopen) — a
+        // Lead's click would just 403 with no explanation, so hide the button
+        // for them here too, same as the money fields above it on this page.
+        canSeeMoney ? (
+          <button
+            onClick={onReopen}
+            className="w-full mt-3 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors"
+          >
+            <RotateCcw size={13} /> Reopen
+          </button>
+        ) : (
+          <p className="text-[11.5px] text-ink-3 mt-3">Ask a manager to reopen the day.</p>
+        )
       ) : (
         <button
           onClick={onSignOff}
