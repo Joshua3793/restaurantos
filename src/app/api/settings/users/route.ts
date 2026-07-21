@@ -119,14 +119,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Cannot invite yourself' }, { status: 400 })
   }
 
-  const assignments = dedupeAssignmentRows(Array.isArray(rawAssignments) ? rawAssignments : [])
-  const assignmentError = await validateAssignmentRows(assignments, admin.role)
+  // Validate BEFORE dedupe: dedupe keeps only the first row for a given node,
+  // so if the same node is submitted twice with different `clearance` values,
+  // validate-first checks BOTH rows before either is dropped, while
+  // dedupe-first would silently discard the second row's clearance unchecked.
+  // /api/settings/users/[id]/assignments uses the same two helpers in this
+  // order — keep both routes consistent.
+  const rawAssignmentRows = Array.isArray(rawAssignments) ? rawAssignments : []
+  const assignmentError = await validateAssignmentRows(rawAssignmentRows, admin.role)
   if (assignmentError) return NextResponse.json({ error: assignmentError }, { status: 400 })
+  const assignments = dedupeAssignmentRows(rawAssignmentRows)
 
   const role = clearance as Role
   const supabaseAdmin = createAdminClient()
   const actor = { id: admin.id, email: admin.email, name: admin.name }
-  const results: Array<{ email: string; status: string; error?: string }> = []
+  const results: Array<{ email: string; status: string; error?: string; warning?: string }> = []
 
   for (const email of emails) {
     // Isolate each email's work: a thrown error (transaction failure against
@@ -224,41 +231,97 @@ export async function POST(req: NextRequest) {
         return u
       })
 
-      const { error: metaError } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
-        user_metadata: { role, isActive: true, name },
-      })
-      if (metaError) {
-        await prisma.$transaction(async (tx) => {
-          if (priorUser) {
-            await tx.user.update({
-              where: { id: existing.id },
-              data: { name: priorUser.name, role: priorUser.role, isActive: priorUser.isActive },
-            })
-          } else {
-            await tx.user.deleteMany({ where: { id: existing.id } })
-          }
-          await tx.userScope.deleteMany({ where: { userId: existing.id } })
-          if (priorScopes.length) {
-            await tx.userScope.createMany({
-              data: priorScopes.map(s => ({ ...s, userId: existing.id })),
-            })
-          }
+      // updateUserById can fail two ways: it RETURNS { error }, or it THROWS
+      // (network blip, Supabase 5xx). Both leave the same divergence — Prisma
+      // already holds the new role/scopes, Supabase still has the old
+      // metadata — so both must run the exact same compensation below. If a
+      // throw were left to propagate to the outer catch instead, the revert
+      // would never run: Prisma would stay committed to the new state, and
+      // the caller would just be told 'failed', hiding a real, uncompensated
+      // divergence between the two stores.
+      let metaError: { message: string } | null = null
+      try {
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+          user_metadata: { role, isActive: true, name },
         })
-        results.push({ email, status: 'failed', error: metaError.message })
+        metaError = error
+      } catch (e) {
+        metaError = { message: e instanceof Error ? e.message : 'Supabase metadata update threw' }
+      }
+
+      if (metaError) {
+        // The revert is itself a $transaction against the same pgBouncer
+        // transaction-mode pooler documented elsewhere in this repo as an
+        // intermittent write-failure source (see CLAUDE.md). If IT throws,
+        // Prisma is left holding the new role/scopes while Supabase still has
+        // the old metadata, and nothing here will retry it — that's a strictly
+        // worse, silently-diverged outcome than "invite failed," so it must be
+        // reported as its own loud, distinct result rather than falling into
+        // the generic 'failed' message below or the outer catch's generic text.
+        try {
+          await prisma.$transaction(async (tx) => {
+            if (priorUser) {
+              await tx.user.update({
+                where: { id: existing.id },
+                data: { name: priorUser.name, role: priorUser.role, isActive: priorUser.isActive },
+              })
+            } else {
+              await tx.user.deleteMany({ where: { id: existing.id } })
+            }
+            await tx.userScope.deleteMany({ where: { userId: existing.id } })
+            if (priorScopes.length) {
+              await tx.userScope.createMany({
+                data: priorScopes.map(s => ({ ...s, userId: existing.id })),
+              })
+            }
+          })
+          results.push({ email, status: 'failed', error: metaError.message })
+        } catch (revertError) {
+          const revertMessage = revertError instanceof Error ? revertError.message : 'Unknown error'
+          console.error(
+            `[settings/users] reactivate revert failed for ${email} (user ${existing.id}): ` +
+            `Prisma committed the new role/scopes, the Supabase metadata write failed ` +
+            `(${metaError.message}), and the compensating revert transaction also failed ` +
+            `(${revertMessage}). The two stores are now permanently diverged until an admin ` +
+            `fixes this row by hand.`,
+          )
+          results.push({
+            email,
+            status: 'inconsistent',
+            error:
+              `${email}'s account is now in an inconsistent state: this person's app access ` +
+              `and sign-in access disagree, and the automatic recovery failed. An admin must ` +
+              `intervene manually.`,
+          })
+        }
         continue
       }
 
       // Both stores have now committed: Prisma upsert + Supabase metadata.
-      // Record the reactivation audit event only after the Supabase write succeeds.
-      // If the metadata write had failed, the Prisma transaction reverted and
-      // no audit trail would exist—so this event fires only for actual, committed
-      // reactivations.
-      await recordAccessEvent(prisma, {
-        actor, target: { id: existing.id, email, name },
-        action: 'REACTIVATED', detail: { to: role },
-      })
+      // The audit write is secondary to that — by this point the reactivation
+      // has genuinely succeeded, so a failure here must not flip it to
+      // 'failed' and must not be swallowed either. Log it loudly and surface
+      // it as a non-fatal warning on the result so the caller can see the
+      // audit trail is incomplete, without losing the real success.
+      let auditWarning: string | undefined
+      try {
+        await recordAccessEvent(prisma, {
+          actor, target: { id: existing.id, email, name },
+          action: 'REACTIVATED', detail: { to: role },
+        })
+      } catch (auditError) {
+        const auditMessage = auditError instanceof Error ? auditError.message : 'Unknown error'
+        console.error(
+          `[settings/users] REACTIVATED audit write failed for ${email} (user ${existing.id}) ` +
+          `after both stores already committed the reactivation: ${auditMessage}`,
+        )
+        auditWarning = 'Reactivated, but the audit log entry failed to write.'
+      }
 
-      results.push({ email, status: 'reactivated' })
+      results.push({
+        email, status: 'reactivated',
+        ...(auditWarning ? { warning: auditWarning } : {}),
+      })
     } catch (e) {
       results.push({
         email,
@@ -268,7 +331,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const failed = results.filter(r => r.status === 'failed')
+  // 'inconsistent' is not a success either — count it alongside 'failed' for
+  // the summary tally even though it's reported with its own distinct status
+  // string and message so the caller can tell "invite failed" apart from
+  // "the two stores are now diverged and need manual fixing."
+  const failed = results.filter(r => r.status === 'failed' || r.status === 'inconsistent')
   return NextResponse.json(
     { results, invited: results.length - failed.length, failed: failed.length },
     { status: failed.length === results.length ? 400 : 201 },
