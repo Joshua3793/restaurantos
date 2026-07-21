@@ -9,8 +9,10 @@ datasource db {
 }
 
 enum Role {
+  OWNER
   ADMIN
   MANAGER
+  LEAD
   STAFF
 }
 
@@ -32,6 +34,29 @@ model User {
   updatedAt         DateTime           @updatedAt
   chatConversations ChatConversation[]
   scopes            UserScope[]
+  auditEventsActed    AccessAuditEvent[] @relation("AuditActor")
+  auditEventsReceived AccessAuditEvent[] @relation("AuditTarget")
+}
+
+// Append-only log of access changes. Actor and target ids are SetNull so a
+// hard-deleted user blanks the id but leaves the row; the denormalized
+// email/name columns are what keep the entry readable afterwards.
+model AccessAuditEvent {
+  id           String   @id @default(cuid())
+  actorId      String?
+  actor        User?    @relation("AuditActor",  fields: [actorId],      references: [id], onDelete: SetNull)
+  actorEmail   String
+  actorName    String?
+  targetUserId String?
+  target       User?    @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetEmail  String
+  targetName   String?
+  action       String
+  detail       Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetUserId])
 }
 
 model StorageArea {
@@ -661,6 +686,7 @@ model UserScope {
   userId          String
   locationId      String?
   revenueCenterId String?
+  clearance       Role?          // null = inherit the user's primary clearance
   createdAt       DateTime       @default(now())
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   location        Location?      @relation(fields: [locationId], references: [id], onDelete: Cascade)
