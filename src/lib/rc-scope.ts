@@ -124,7 +124,7 @@ export async function scopeWhereFromParams(
 /**
  * Throws AuthError(403) if the user may not write to `rcId`.
  * Writes MUST target a leaf revenue center — a missing rcId (e.g. a write that
- * named only a location) is rejected. ADMIN / unscoped users pass any real rcId.
+ * named only a location) is rejected. OWNER / ADMIN / unscoped users pass any real rcId.
  */
 export async function assertRcWritable(user: User, rcId: string | null | undefined): Promise<void> {
   if (!rcId) {

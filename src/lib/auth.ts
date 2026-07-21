@@ -19,8 +19,9 @@ export class AuthError extends Error {
  *   - NODE_ENV !== 'production'  (never true on a deployed Vercel build), and
  *   - DEV_AUTH_BYPASS === 'true' (opt-in via local .env)
  * When active and there is no real Supabase session, the app behaves as the
- * first ADMIN user so it can be used without logging in. This can never run in
- * production because the NODE_ENV gate fails there.
+ * first OWNER user, or falls back to the first ADMIN user if no OWNER exists,
+ * so it can be used without logging in. This can never run in production
+ * because the NODE_ENV gate fails there.
  */
 const DEV_AUTH_BYPASS =
   process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_BYPASS === 'true'
@@ -61,7 +62,7 @@ export async function requireSession(minRole?: Role): Promise<User> {
     data: { user: authUser },
   } = await supabase.auth.getUser()
 
-  // Local-dev bypass: no real session → fall back to the first ADMIN user.
+  // Local-dev bypass: no real session → try OWNER, then ADMIN, then any active user.
   if (!authUser && DEV_AUTH_BYPASS) {
     const devUser = await devBypassUser()
     if (devUser) return devUser
