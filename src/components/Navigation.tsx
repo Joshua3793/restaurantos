@@ -7,14 +7,15 @@ import {
   Sun, Package, FileText, Trash2, BarChart3,
   BookOpen, UtensilsCrossed,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
-  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer,
+  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer, Clock,
 } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
-import { useUser } from '@/contexts/UserContext'
+import { useUser, type UserRole } from '@/contexts/UserContext'
 import { createClient } from '@/lib/supabase/client'
+import { atLeast } from '@/lib/roles'
 
 type NavItem = {
   href: string
@@ -22,7 +23,16 @@ type NavItem = {
   icon: React.ComponentType<{ size?: number | string; color?: string }>
   exact?: boolean
   adminOnly?: boolean
+  /** Minimum clearance to see this item — omit for everyone (STAFF+). */
+  minRole?: UserRole
   badgeKey?: 'invoicesReview' | 'priceAlerts'
+}
+
+/** True while role is null (still loading /api/me) never grants a gated item. */
+function canSeeNavItem(item: Pick<NavItem, 'adminOnly' | 'minRole'>, role: UserRole | null): boolean {
+  if (item.adminOnly && !(role != null && atLeast(role, 'ADMIN'))) return false
+  if (item.minRole && !(role != null && atLeast(role, item.minRole))) return false
+  return true
 }
 
 type NavGroup = {
@@ -34,11 +44,12 @@ const navGroups: NavGroup[] = [
   {
     label: 'TODAY',
     items: [
-      { href: '/pass',     label: 'Pass',      icon: Sun },
-      { href: '/preshift', label: 'Pre-shift', icon: Flame },
-      { href: '/prep',     label: 'Prep',      icon: ChefHat },
-      { href: '/count',    label: 'Count',     icon: ClipboardList },
-      { href: '/temps',    label: 'Temps',     icon: Thermometer },
+      { href: '/pass',        label: 'Pass',        icon: Sun },
+      { href: '/preshift',    label: 'Pre-shift',   icon: Flame },
+      { href: '/prep',        label: 'Prep',        icon: ChefHat },
+      { href: '/count',       label: 'Count',       icon: ClipboardList },
+      { href: '/temps',       label: 'Temps',       icon: Thermometer },
+      { href: '/end-of-day',  label: 'End-of-day',  icon: Clock, minRole: 'LEAD' },
     ],
   },
   {
@@ -162,7 +173,7 @@ function NavigationInner() {
     router.push('/login')
   }
 
-  const visibleSetupItems = setupItems.filter(i => !i.adminOnly || role === 'ADMIN')
+  const visibleSetupItems = setupItems.filter(i => canSeeNavItem(i, role))
   const allNavItems = navGroups.flatMap(g => g.items)
 
   // No app chrome on auth/standalone routes — same gate as CostChromeGate.
@@ -185,7 +196,7 @@ function NavigationInner() {
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto -mx-0.5 px-0.5 flex flex-col gap-[6px]">
           {navGroups.map(group => {
-            const visibleItems = group.items.filter(i => !i.adminOnly || role === 'ADMIN')
+            const visibleItems = group.items.filter(i => canSeeNavItem(i, role))
             return (
               <div key={group.label} className="flex flex-col gap-[2px]">
                 <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
@@ -313,7 +324,7 @@ function NavigationInner() {
             </div>
 
             {[...navGroups, { label: 'SETUP', items: visibleSetupItems }].map(group => {
-              const visibleItems = group.items.filter(i => !i.adminOnly || role === 'ADMIN')
+              const visibleItems = group.items.filter(i => canSeeNavItem(i, role))
               if (visibleItems.length === 0) return null
               return (
                 <div key={group.label}>

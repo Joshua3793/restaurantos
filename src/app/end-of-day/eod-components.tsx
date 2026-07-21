@@ -18,7 +18,15 @@ const railCard = 'bg-paper border border-line rounded-[12px] p-[18px] mb-4'
 export const PH_TARGET_PCT = 27
 
 // ── KPI row ──────────────────────────────────────────────────────────────────
-export function EodKpiRow({ data, target, closeState }: { data: EodSummary | null; target: number; closeState: EodCloseState | null }) {
+export function EodKpiRow({ data, target, closeState, canSeeMoney }: { data: EodSummary | null; target: number; closeState: EodCloseState | null; canSeeMoney: boolean }) {
+  if (!canSeeMoney) {
+    return (
+      <div className="mb-6 px-5 py-4 bg-paper border border-line rounded-[12px]">
+        <p className="text-[12.5px] text-ink-3">Sales and cost figures are managed by your manager.</p>
+      </div>
+    )
+  }
+
   const fc = data?.foodCostPct ?? null
   const over = fc != null && fc > target
 
@@ -319,12 +327,14 @@ interface EodOrdersDTO {
   total: number
 }
 
-export function SetsUpTomorrow({ rcId }: { rcId: string }) {
+export function SetsUpTomorrow({ rcId, canSeeMoney }: { rcId: string; canSeeMoney: boolean }) {
   return (
     <div className="mt-1">
       <BandLabel title="Sets up tomorrow" note="SUGGESTED FROM PAR + DEPLETION" />
       <PrepForTomorrowCard rcId={rcId} />
-      <OrderSuggestionsCard rcId={rcId} />
+      {/* Order suggestions carry $ costs and read /api/eod/orders, which is
+          MANAGER-only — skip both the cost display and the 403 for a Lead. */}
+      {canSeeMoney && <OrderSuggestionsCard rcId={rcId} />}
     </div>
   )
 }
@@ -497,10 +507,11 @@ function OrderSuggestionsCard({ rcId }: { rcId: string }) {
 // ── Right rail · close ─────────────────────────────────────────────────────────
 const GATE_C = 2 * Math.PI * 44
 
-export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHandover, onSaveClose, onSignOff, onReopen }: {
+export function CloseRail({ data, closeState, isRcScoped, canSeeMoney, signoffError, onSaveHandover, onSaveClose, onSignOff, onReopen }: {
   data: EodSummary | null
   closeState: EodCloseState | null
   isRcScoped: boolean
+  canSeeMoney: boolean
   signoffError: string | null
   onSaveHandover: (text: string) => void
   onSaveClose: (fields: { labourCost?: number | null; grossSales?: number | null; compsVoids?: number | null; discounts?: number | null }) => void
@@ -515,40 +526,51 @@ export function CloseRail({ data, closeState, isRcScoped, signoffError, onSaveHa
       <GateCard
         closeState={closeState}
         isRcScoped={isRcScoped}
+        canSeeMoney={canSeeMoney}
         signoffError={signoffError}
         onSignOff={onSignOff}
         onReopen={onReopen}
       />
 
-      {/* Day summary — net sales + food cost are LIVE (derived); the rest are manual entries */}
+      {/* Day summary — net sales + food cost are LIVE (derived); the rest are manual entries.
+          A Lead never sees these: the clearance ladder gives Leads "no cost or money", and
+          /api/eod/close already omits labourCost/grossSales/compsVoids/discounts for them. */}
       <div className={railCard}>
         <h4 className="text-[12px] font-semibold text-ink mb-2.5 flex items-center justify-between">Day summary <span className="font-mono text-[10px] text-ink-3 font-normal">closes loop</span></h4>
-        <EditSumRow rowKey={close?.id ?? 'none'} label="Gross sales" value={close?.grossSales ?? null}
-          onChange={v => onSaveClose({ grossSales: v })} disabled={!isRcScoped || locked} />
-        <EditSumRow rowKey={close?.id ?? 'none'} label="Comps & voids" value={close?.compsVoids ?? null}
-          onChange={v => onSaveClose({ compsVoids: v })} disabled={!isRcScoped || locked} />
-        <EditSumRow rowKey={close?.id ?? 'none'} label="Discounts" value={close?.discounts ?? null}
-          onChange={v => onSaveClose({ discounts: v })} disabled={!isRcScoped || locked} />
-        <EditSumRow rowKey={close?.id ?? 'none'} label="Labour cost" value={close?.labourCost ?? null}
-          onChange={v => onSaveClose({ labourCost: v })} disabled={!isRcScoped || locked} />
-        <SumRow l="Net sales" v={data ? formatCurrency(data.netSales) : '—'} />
-        <div className="flex items-center justify-between pt-2 mt-1 border-t border-line">
-          <span className="text-[12px] text-ink font-medium">Food cost</span>
-          <span className="font-mono text-[12px] font-semibold text-red-text tabular-nums">
-            {data ? formatCurrency(data.foodCostDollars) : '—'}{data?.foodCostPct != null ? ` · ${data.foodCostPct.toFixed(1)}%` : ''}
-          </span>
-        </div>
+        {canSeeMoney ? (
+          <>
+            <EditSumRow rowKey={close?.id ?? 'none'} label="Gross sales" value={close?.grossSales ?? null}
+              onChange={v => onSaveClose({ grossSales: v })} disabled={!isRcScoped || locked} />
+            <EditSumRow rowKey={close?.id ?? 'none'} label="Comps & voids" value={close?.compsVoids ?? null}
+              onChange={v => onSaveClose({ compsVoids: v })} disabled={!isRcScoped || locked} />
+            <EditSumRow rowKey={close?.id ?? 'none'} label="Discounts" value={close?.discounts ?? null}
+              onChange={v => onSaveClose({ discounts: v })} disabled={!isRcScoped || locked} />
+            <EditSumRow rowKey={close?.id ?? 'none'} label="Labour cost" value={close?.labourCost ?? null}
+              onChange={v => onSaveClose({ labourCost: v })} disabled={!isRcScoped || locked} />
+            <SumRow l="Net sales" v={data ? formatCurrency(data.netSales) : '—'} />
+            <div className="flex items-center justify-between pt-2 mt-1 border-t border-line">
+              <span className="text-[12px] text-ink font-medium">Food cost</span>
+              <span className="font-mono text-[12px] font-semibold text-red-text tabular-nums">
+                {data ? formatCurrency(data.foodCostDollars) : '—'}{data?.foodCostPct != null ? ` · ${data.foodCostPct.toFixed(1)}%` : ''}
+              </span>
+            </div>
+          </>
+        ) : (
+          <p className="text-[12px] text-ink-3">Sales and cost figures are managed by your manager.</p>
+        )}
       </div>
 
-      {/* Handover — live, persists to tomorrow's Pass via PATCH /api/eod/close */}
+      {/* Handover — live, persists to tomorrow's Pass via PATCH /api/eod/close. Not a money
+          field: a Lead can write this. */}
       <HandoverCard closeState={closeState} isRcScoped={isRcScoped} onSave={onSaveHandover} />
     </aside>
   )
 }
 
-function GateCard({ closeState, isRcScoped, signoffError, onSignOff, onReopen }: {
+function GateCard({ closeState, isRcScoped, canSeeMoney, signoffError, onSignOff, onReopen }: {
   closeState: EodCloseState | null
   isRcScoped: boolean
+  canSeeMoney: boolean
   signoffError: string | null
   onSignOff: () => void
   onReopen: () => void
@@ -613,12 +635,19 @@ function GateCard({ closeState, isRcScoped, signoffError, onSignOff, onReopen }:
         <div className="text-[11px] text-red-text font-medium mt-2">{signoffError}</div>
       )}
       {closed ? (
-        <button
-          onClick={onReopen}
-          className="w-full mt-3 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors"
-        >
-          <RotateCcw size={13} /> Reopen
-        </button>
+        // Reopen stays MANAGER-only at the route (/api/eod/close/reopen) — a
+        // Lead's click would just 403 with no explanation, so hide the button
+        // for them here too, same as the money fields above it on this page.
+        canSeeMoney ? (
+          <button
+            onClick={onReopen}
+            className="w-full mt-3 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-[9px] border border-line bg-paper text-ink-2 text-[13px] font-medium hover:border-ink-3 transition-colors"
+          >
+            <RotateCcw size={13} /> Reopen
+          </button>
+        ) : (
+          <p className="text-[11.5px] text-ink-3 mt-3">Ask a manager to reopen the day.</p>
+        )
       ) : (
         <button
           onClick={onSignOff}

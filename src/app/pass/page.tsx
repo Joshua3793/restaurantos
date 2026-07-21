@@ -15,6 +15,7 @@ import { setScopeParams } from '@/lib/scope-params'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
+import { atLeast } from '@/lib/roles'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -440,7 +441,7 @@ export default function PassPage() {
           </>}
           actions={
             <>
-              {(role === 'ADMIN' || role === 'MANAGER') && (
+              {role != null && atLeast(role, 'MANAGER') && (
                 <div className="inline-flex items-center gap-2">
                   {syncNote && (
                     <span className={`text-[12px] font-medium ${syncNote.ok ? 'text-ink-3' : 'text-red-text'}`}>
