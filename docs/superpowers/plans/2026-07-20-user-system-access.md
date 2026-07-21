@@ -32,7 +32,8 @@
 | Path | Responsibility |
 |---|---|
 | `src/lib/roles.ts` | Pure rank table, labels, colors, `atLeast()`, `assignableLevels()`. No `server-only`. |
-| `src/lib/access.ts` | Server-only. `resolveEffective()` (pure) + `effectiveAccess()` / `clearanceForRc()` Prisma wrappers. |
+| `src/lib/access-model.ts` | **Pure**, no `server-only`. Types + `resolveEffective()`. Imported by both the server resolver and the client detail panel — the single definition of the conflict rules. |
+| `src/lib/access.ts` | Server-only. `effectiveAccess()` / `clearanceForRc()` Prisma wrappers around `resolveEffective`. |
 | `src/lib/access-audit.ts` | `recordAccessEvent()` — the single audit write point. |
 | `src/lib/__tests__/roles.test.ts` | Rank ordering, `assignableLevels`. |
 | `src/lib/__tests__/access.test.ts` | `resolveEffective` resolution rules. |
@@ -418,21 +419,26 @@ git commit -m "feat(access): expand Role enum, UserScope.clearance, AccessAuditE
 
 ---
 
-### Task 3: `access.ts` — effective-access resolution
+### Task 3: `access-model.ts` + `access.ts` — effective-access resolution
 
 **Files:**
+- Create: `src/lib/access-model.ts`
 - Create: `src/lib/access.ts`
 - Create: `src/lib/__tests__/access.test.ts`
 
 **Interfaces:**
-- Consumes: `ROLE_RANK`, `atLeast` from `src/lib/roles.ts`.
-- Produces:
+- Consumes: `ROLE_RANK` from `src/lib/roles.ts`.
+- Produces, from `src/lib/access-model.ts` (**pure — no `server-only`**, so client components can import it):
   - `interface ScopeRow { locationId: string | null; revenueCenterId: string | null; clearance: Role | null }`
   - `interface RcNode { id: string; name: string; locationId: string; locationName: string }`
   - `interface EffectiveEntry { rcId: string; rcName: string; locationId: string; locationName: string; clearance: Role; source: 'inherited' | 'override' }`
-  - `resolveEffective(primary: Role, scopes: ScopeRow[], rcs: RcNode[]): EffectiveEntry[]` — pure
+  - `resolveEffective(primary: Role, scopes: ScopeRow[], rcs: RcNode[]): EffectiveEntry[]`
+- Produces, from `src/lib/access.ts` (server-only):
   - `effectiveAccess(user: User): Promise<EffectiveEntry[]>`
   - `clearanceForRc(user: User, rcId: string): Promise<Role | null>`
+  - re-exports the `access-model` types for server callers
+
+**Why two files:** the conflict rules must be defined exactly once. `PersonDetailPanel` (Task 18) previews effective access in the browser as the admin edits assignments, and `access.ts` carries `server-only`, so a client component cannot import it. The pure half lives in `access-model.ts` and both sides import that.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -440,7 +446,7 @@ Create `src/lib/__tests__/access.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import { resolveEffective, type RcNode, type ScopeRow } from '../access'
+import { resolveEffective, type RcNode, type ScopeRow } from '../access-model'
 
 // Downtown has two RCs, Uptown has one.
 const RCS: RcNode[] = [
@@ -531,14 +537,16 @@ describe('resolveEffective', () => {
 Run: `npm test -- access`
 Expected: FAIL — `Cannot find module '../access'`
 
-- [ ] **Step 3: Implement `access.ts`**
+- [ ] **Step 3: Implement the pure half — `access-model.ts`**
 
-Create `src/lib/access.ts`:
+Create `src/lib/access-model.ts`. No `server-only` marker: `PersonDetailPanel` imports `resolveEffective` from here to preview effective access in the browser, so the conflict rules exist in exactly one place.
 
 ```ts
-import 'server-only'
-import type { Role, User } from '@prisma/client'
-import { prisma } from '@/lib/prisma'
+// Pure effective-access model. Deliberately NO `server-only` and no Prisma
+// runtime import: both the server resolver (src/lib/access.ts) and the client
+// PersonDetailPanel import resolveEffective from here, so the conflict rules
+// are defined exactly once.
+import type { Role } from '@prisma/client'
 import { ROLE_RANK } from '@/lib/roles'
 
 export interface ScopeRow {
@@ -624,6 +632,20 @@ export function resolveEffective(primary: Role, scopes: ScopeRow[], rcs: RcNode[
     }
   })
 }
+```
+
+- [ ] **Step 4: Implement the server half — `access.ts`**
+
+Create `src/lib/access.ts`:
+
+```ts
+import 'server-only'
+import type { Role, User } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
+import { resolveEffective, type EffectiveEntry, type RcNode } from '@/lib/access-model'
+
+export type { ScopeRow, RcNode, EffectiveEntry } from '@/lib/access-model'
+export { resolveEffective } from '@/lib/access-model'
 
 /** Every active RC in the business, shaped for `resolveEffective`. */
 async function allRcNodes(): Promise<RcNode[]> {
@@ -674,20 +696,20 @@ export async function clearanceForRc(user: User, rcId: string): Promise<Role | n
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `npm test -- access`
 Expected: PASS — all 9 tests.
 
-- [ ] **Step 5: Run the whole suite for regressions**
+- [ ] **Step 6: Run the whole suite for regressions**
 
 Run: `npm test`
-Expected: PASS — the pre-existing uom / item-model / recipeCosts tests plus the new ones.
+Expected: PASS — the pre-existing suites plus the new ones.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/access.ts src/lib/__tests__/access.test.ts
+git add src/lib/access-model.ts src/lib/access.ts src/lib/__tests__/access.test.ts
 git commit -m "feat(access): effective-access resolution with per-assignment overrides"
 ```
 
@@ -2924,6 +2946,7 @@ import { useState } from 'react'
 import type { Role } from '@prisma/client'
 import { X, Loader2, Pause, Trash2 } from 'lucide-react'
 import { assignableLevels, ROLE_LABELS, ROLE_COLORS, ROLE_DOT } from '@/lib/roles'
+import { resolveEffective, type EffectiveEntry, type RcNode } from '@/lib/access-model'
 import AssignmentEditor, { type AssignmentDraft } from './AssignmentEditor'
 import { initials, type LocationNode, type Person } from './people-utils'
 
@@ -2936,33 +2959,22 @@ interface Props {
   onChanged: () => void
 }
 
-/** Mirror of resolveEffective() for display. Same two rules: more specific
- *  wins, then higher clearance. Kept in sync with src/lib/access.ts. */
+/**
+ * Live preview of effective access as the admin edits.
+ *
+ * Calls the SAME resolveEffective() the server uses (src/lib/access-model.ts is
+ * the pure half, importable from a client component) so the preview can never
+ * disagree with what actually gets enforced.
+ */
 function effectivePreview(
   drafts: AssignmentDraft[], primary: Role, locations: LocationNode[],
-) {
-  const RANK: Record<Role, number> = { STAFF: 0, LEAD: 1, MANAGER: 2, ADMIN: 3, OWNER: 4 }
-  const rcs = locations.flatMap(l =>
-    l.revenueCenters.map(rc => ({ ...rc, locationId: l.id, locationName: l.name })),
+): EffectiveEntry[] {
+  const rcs: RcNode[] = locations.flatMap(l =>
+    l.revenueCenters.map(rc => ({
+      id: rc.id, name: rc.name, locationId: l.id, locationName: l.name,
+    })),
   )
-  const best = new Map<string, { clearance: Role; specificity: number }>()
-  const offer = (rcId: string, clearance: Role, specificity: number) => {
-    const cur = best.get(rcId)
-    if (!cur || specificity > cur.specificity
-      || (specificity === cur.specificity && RANK[clearance] > RANK[cur.clearance])) {
-      best.set(rcId, { clearance, specificity })
-    }
-  }
-  for (const d of drafts) {
-    const clearance = d.clearance ?? primary
-    if (d.revenueCenterId) { offer(d.revenueCenterId, clearance, 1); continue }
-    if (d.locationId) {
-      rcs.filter(r => r.locationId === d.locationId).forEach(r => offer(r.id, clearance, 0))
-    }
-  }
-  return rcs
-    .filter(r => best.has(r.id))
-    .map(r => ({ ...r, clearance: best.get(r.id)!.clearance }))
+  return resolveEffective(primary, drafts, rcs)
 }
 
 export default function PersonDetailPanel({
@@ -3093,11 +3105,14 @@ export default function PersonDetailPanel({
               ) : (
                 <div className="flex flex-col gap-1.5">
                   {preview.map(e => (
-                    <div key={e.id} className="flex items-center gap-2 text-[12px]">
+                    <div key={e.rcId} className="flex items-center gap-2 text-[12px]">
                       <span className={`w-2 h-2 rounded-full ${ROLE_DOT[e.clearance]}`} />
-                      <span className="text-ink-2">{e.name}</span>
+                      <span className="text-ink-2">{e.rcName}</span>
                       <span className="text-ink-4">·</span>
                       <b className="text-ink">{ROLE_LABELS[e.clearance]}</b>
+                      {e.source === 'override' && (
+                        <span className="text-[10px] font-mono text-gold-2">override</span>
+                      )}
                     </div>
                   ))}
                 </div>
