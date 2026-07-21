@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   try {
-    await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const rcId = new URL(req.url).searchParams.get('rcId')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     const date = businessDateLocal()
@@ -41,10 +41,15 @@ export async function GET(req: NextRequest) {
       close: {
         id: close.id, status: close.status, handoverNote: close.handoverNote,
         signedOffByName: close.signedOffByName, signedOffAt: close.signedOffAt, snapshot: close.snapshot,
-        labourCost: close.labourCost == null ? null : Number(close.labourCost),
-        grossSales: close.grossSales == null ? null : Number(close.grossSales),
-        compsVoids: close.compsVoids == null ? null : Number(close.compsVoids),
-        discounts: close.discounts == null ? null : Number(close.discounts),
+        // Shift Leads run the close but never see money (see the clearance
+        // ladder: "No cost or money"). Omitted entirely rather than nulled, so
+        // the client cannot mistake "hidden" for "not yet entered".
+        ...(user.role === 'LEAD' ? {} : {
+          labourCost: close.labourCost == null ? null : Number(close.labourCost),
+          grossSales: close.grossSales == null ? null : Number(close.grossSales),
+          compsVoids: close.compsVoids == null ? null : Number(close.compsVoids),
+          discounts: close.discounts == null ? null : Number(close.discounts),
+        }),
       },
       progress,
     }, { headers: { 'Cache-Control': 'no-store' } })
@@ -65,7 +70,7 @@ function parseOptionalNumber(v: unknown): number | null | undefined {
 
 export async function PATCH(req: NextRequest) {
   try {
-    await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const body = await req.json()
     const rcId = String(body.rcId ?? '')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
@@ -76,6 +81,19 @@ export async function PATCH(req: NextRequest) {
     const compsVoids = parseOptionalNumber(body.compsVoids)
     const discounts = parseOptionalNumber(body.discounts)
     const handoverNote = body.handoverNote === undefined ? undefined : String(body.handoverNote ?? '')
+
+    // A Lead may write the handover note, nothing else on this route — the
+    // clearance ladder gives Leads "No cost or money".
+    if (user.role === 'LEAD') {
+      const attempted = [labourCost, grossSales, compsVoids, discounts]
+        .some(v => v !== undefined)
+      if (attempted) {
+        return NextResponse.json(
+          { error: 'Shift Leads cannot record labour, sales, comps or discounts.' },
+          { status: 403 },
+        )
+      }
+    }
 
     const data = {
       ...(handoverNote !== undefined ? { handoverNote } : {}),

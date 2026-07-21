@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const rcId = String((await req.json()).rcId ?? '')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     const date = businessDateLocal()
