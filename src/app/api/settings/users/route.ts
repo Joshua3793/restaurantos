@@ -6,6 +6,11 @@ import { findAuthUserByEmail, hasAcceptedInvite, isAlreadyRegisteredError } from
 import { Role } from '@prisma/client'
 import { assignableLevels } from '@/lib/roles'
 import { recordAccessEvent } from '@/lib/access-audit'
+import {
+  type AssignmentInput,
+  validateAssignmentRows,
+  dedupeAssignmentRows,
+} from '@/lib/assignment-input'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,61 +76,6 @@ export async function GET() {
   return NextResponse.json({ users: shaped, locations })
 }
 
-interface AssignmentInput {
-  locationId?: string | null
-  revenueCenterId?: string | null
-  clearance?: Role | null
-}
-
-/** Validates shape + referential integrity. Returns an error string or null. */
-async function validateAssignments(rows: AssignmentInput[]): Promise<string | null> {
-  if (rows.length === 0) {
-    return 'Assign at least one location or revenue center — a person with no assignments has no access.'
-  }
-  const locationIds = new Set<string>()
-  const rcIds = new Set<string>()
-  for (const r of rows) {
-    const hasLoc = !!r.locationId
-    const hasRc = !!r.revenueCenterId
-    if (hasLoc === hasRc) {
-      return 'Each assignment must target exactly one location or one revenue center.'
-    }
-    if (hasLoc) locationIds.add(r.locationId as string)
-    if (hasRc) rcIds.add(r.revenueCenterId as string)
-  }
-  if (locationIds.size) {
-    const found = await prisma.location.findMany({
-      where: { id: { in: [...locationIds] } }, select: { id: true },
-    })
-    if (found.length !== locationIds.size) return 'One or more referenced locations do not exist.'
-  }
-  if (rcIds.size) {
-    const found = await prisma.revenueCenter.findMany({
-      where: { id: { in: [...rcIds] } }, select: { id: true },
-    })
-    if (found.length !== rcIds.size) return 'One or more referenced revenue centers do not exist.'
-  }
-  return null
-}
-
-/** Dedup by target node; the DB index is NULLS NOT DISTINCT but dedup keeps
- *  createMany from throwing on an obvious double-click. */
-function dedupeAssignments(rows: AssignmentInput[]) {
-  const seen = new Set<string>()
-  return rows
-    .map(r => ({
-      locationId: r.locationId ?? null,
-      revenueCenterId: r.revenueCenterId ?? null,
-      clearance: r.clearance ?? null,
-    }))
-    .filter(r => {
-      const key = `${r.locationId ?? ''}|${r.revenueCenterId ?? ''}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-}
-
 // POST — invite one or more people (ADMIN only)
 // Body: { emails: string[], clearance: Role, assignments: AssignmentInput[], name?: string }
 //
@@ -169,8 +119,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Cannot invite yourself' }, { status: 400 })
   }
 
-  const assignments = dedupeAssignments(Array.isArray(rawAssignments) ? rawAssignments : [])
-  const assignmentError = await validateAssignments(assignments)
+  const assignments = dedupeAssignmentRows(Array.isArray(rawAssignments) ? rawAssignments : [])
+  const assignmentError = await validateAssignmentRows(assignments, admin.role)
   if (assignmentError) return NextResponse.json({ error: assignmentError }, { status: 400 })
 
   const role = clearance as Role
@@ -179,93 +129,137 @@ export async function POST(req: NextRequest) {
   const results: Array<{ email: string; status: string; error?: string }> = []
 
   for (const email of emails) {
-    const inviteMeta = { role, isActive: true, name }
+    // Isolate each email's work: a thrown error (transaction failure against
+    // the pooler, an audit write failure, …) must not abort the whole request
+    // and discard the outcomes of emails already committed earlier in the loop.
+    try {
+      const inviteMeta = { role, isActive: true, name }
 
-    const sendInvite = async () => {
-      const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: inviteMeta,
-        redirectTo: `${appUrl}/auth/callback`,
-      })
-      if (error || !data?.user) return { error }
-      const newId = data.user.id
-      // A re-invite mints a NEW auth UUID for an unchanged email, so any stale
-      // Prisma row must be cleared before inserting the row keyed to the new
-      // UUID. Both in ONE interactive transaction: under the pgBouncer
-      // transaction-mode pooler two auto-commit statements can land such that
-      // the delete isn't visible to the insert, yielding P2002 on email.
-      const user = await prisma.$transaction(async (tx) => {
-        await tx.user.deleteMany({ where: { email } })
-        const created = await tx.user.create({
-          data: { id: newId, email, name, role, isActive: false },
+      const sendInvite = async (action: 'INVITED' | 'REINVITED') => {
+        const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+          data: inviteMeta,
+          redirectTo: `${appUrl}/auth/callback`,
         })
-        await tx.userScope.createMany({
-          data: assignments.map(a => ({ ...a, userId: newId })),
+        if (error || !data?.user) return { error }
+        const newId = data.user.id
+        // A re-invite mints a NEW auth UUID for an unchanged email, so any stale
+        // Prisma row must be cleared before inserting the row keyed to the new
+        // UUID. Both in ONE interactive transaction: under the pgBouncer
+        // transaction-mode pooler two auto-commit statements can land such that
+        // the delete isn't visible to the insert, yielding P2002 on email. The
+        // audit write rides the same tx — it's part of the same Prisma-side
+        // mutation and Supabase has already committed by this point.
+        const user = await prisma.$transaction(async (tx) => {
+          await tx.user.deleteMany({ where: { email } })
+          const created = await tx.user.create({
+            data: { id: newId, email, name, role, isActive: false },
+          })
+          await tx.userScope.createMany({
+            data: assignments.map(a => ({ ...a, userId: newId })),
+          })
+          await recordAccessEvent(tx, {
+            actor, target: { id: created.id, email, name },
+            action, detail: { to: role },
+          })
+          return created
         })
-        return created
-      })
-      return { user }
-    }
-
-    const first = await sendInvite()
-    if (first.user) {
-      await recordAccessEvent(prisma, {
-        actor, target: { id: first.user.id, email, name },
-        action: 'INVITED', detail: { to: role },
-      })
-      results.push({ email, status: 'invited' })
-      continue
-    }
-    if (!isAlreadyRegisteredError(first.error)) {
-      results.push({ email, status: 'failed', error: first.error?.message ?? 'Failed to send invite' })
-      continue
-    }
-
-    const existing = await findAuthUserByEmail(supabaseAdmin, email)
-    if (!existing) {
-      results.push({ email, status: 'failed', error: 'Email already has an unresolvable account.' })
-      continue
-    }
-
-    if (!hasAcceptedInvite(existing)) {
-      await supabaseAdmin.auth.admin.deleteUser(existing.id)
-      const retry = await sendInvite()
-      if (retry.user) {
-        await recordAccessEvent(prisma, {
-          actor, target: { id: retry.user.id, email, name },
-          action: 'REINVITED', detail: { to: role },
-        })
-        results.push({ email, status: 'reinvited' })
-      } else {
-        results.push({ email, status: 'failed', error: retry.error?.message ?? 'Failed to re-invite' })
+        return { user }
       }
-      continue
-    }
 
-    // Accepted before → reactivate in place. Both stores, or neither.
-    const { error: metaError } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
-      user_metadata: { role, isActive: true, name },
-    })
-    if (metaError) {
-      results.push({ email, status: 'failed', error: metaError.message })
-      continue
-    }
-    const user = await prisma.$transaction(async (tx) => {
-      const u = await tx.user.upsert({
+      const first = await sendInvite('INVITED')
+      if (first.user) {
+        results.push({ email, status: 'invited' })
+        continue
+      }
+      if (!isAlreadyRegisteredError(first.error)) {
+        results.push({ email, status: 'failed', error: first.error?.message ?? 'Failed to send invite' })
+        continue
+      }
+
+      const existing = await findAuthUserByEmail(supabaseAdmin, email)
+      if (!existing) {
+        results.push({ email, status: 'failed', error: 'Email already has an unresolvable account.' })
+        continue
+      }
+
+      if (!hasAcceptedInvite(existing)) {
+        await supabaseAdmin.auth.admin.deleteUser(existing.id)
+        const retry = await sendInvite('REINVITED')
+        if (retry.user) {
+          results.push({ email, status: 'reinvited' })
+        } else {
+          results.push({ email, status: 'failed', error: retry.error?.message ?? 'Failed to re-invite' })
+        }
+        continue
+      }
+
+      // Accepted before → reactivate in place. Both stores, or neither.
+      //
+      // Prisma is authoritative for API access (requireSession reads it), so
+      // it's written FIRST; Supabase user_metadata (what middleware reads for
+      // page access) is written second. If Supabase then fails, we revert the
+      // Prisma row + scopes to their prior values rather than leave Prisma
+      // saying "reactivated with the new role" while Supabase still has the
+      // old metadata — that combination lets requireSession authorize the new
+      // role while middleware is still gating on the old one.
+      const priorUser = await prisma.user.findUnique({
         where: { id: existing.id },
-        create: { id: existing.id, email, name, role, isActive: true },
-        update: { role, name, isActive: true },
+        select: { name: true, role: true, isActive: true },
       })
-      await tx.userScope.deleteMany({ where: { userId: existing.id } })
-      await tx.userScope.createMany({
-        data: assignments.map(a => ({ ...a, userId: existing.id })),
+      const priorScopes = await prisma.userScope.findMany({
+        where: { userId: existing.id },
+        select: { locationId: true, revenueCenterId: true, clearance: true },
       })
-      return u
-    })
-    await recordAccessEvent(prisma, {
-      actor, target: { id: user.id, email, name: user.name },
-      action: 'REACTIVATED', detail: { to: role },
-    })
-    results.push({ email, status: 'reactivated' })
+
+      await prisma.$transaction(async (tx) => {
+        const u = await tx.user.upsert({
+          where: { id: existing.id },
+          create: { id: existing.id, email, name, role, isActive: true },
+          update: { role, name, isActive: true },
+        })
+        await tx.userScope.deleteMany({ where: { userId: existing.id } })
+        await tx.userScope.createMany({
+          data: assignments.map(a => ({ ...a, userId: existing.id })),
+        })
+        await recordAccessEvent(tx, {
+          actor, target: { id: u.id, email, name: u.name },
+          action: 'REACTIVATED', detail: { to: role },
+        })
+        return u
+      })
+
+      const { error: metaError } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+        user_metadata: { role, isActive: true, name },
+      })
+      if (metaError) {
+        await prisma.$transaction(async (tx) => {
+          if (priorUser) {
+            await tx.user.update({
+              where: { id: existing.id },
+              data: { name: priorUser.name, role: priorUser.role, isActive: priorUser.isActive },
+            })
+          } else {
+            await tx.user.deleteMany({ where: { id: existing.id } })
+          }
+          await tx.userScope.deleteMany({ where: { userId: existing.id } })
+          if (priorScopes.length) {
+            await tx.userScope.createMany({
+              data: priorScopes.map(s => ({ ...s, userId: existing.id })),
+            })
+          }
+        })
+        results.push({ email, status: 'failed', error: metaError.message })
+        continue
+      }
+
+      results.push({ email, status: 'reactivated' })
+    } catch (e) {
+      results.push({
+        email,
+        status: 'failed',
+        error: e instanceof Error ? e.message : 'Unexpected error while processing this invite',
+      })
+    }
   }
 
   const failed = results.filter(r => r.status === 'failed')
