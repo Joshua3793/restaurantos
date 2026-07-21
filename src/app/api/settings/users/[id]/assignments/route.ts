@@ -57,13 +57,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   const next = dedupeAssignmentRows(incoming)
 
-  const locationIds = new Set(next.map(r => r.locationId).filter((x): x is string => !!x))
-  const rcIds = new Set(next.map(r => r.revenueCenterId).filter((x): x is string => !!x))
-
   const before = await prisma.userScope.findMany({
     where: { userId: params.id },
     select: { locationId: true, revenueCenterId: true, clearance: true },
   })
+
+  // Collect location/RC ids from both before and after: removed assignments are
+  // keyed by rows present only in before, so their names must resolve from the
+  // union. Audit events need readable names for both additions and removals.
+  const allRows = [...next, ...before]
+  const locationIds = new Set(allRows.map(r => r.locationId).filter((x): x is string => !!x))
+  const rcIds = new Set(allRows.map(r => r.revenueCenterId).filter((x): x is string => !!x))
 
   await prisma.$transaction([
     prisma.userScope.deleteMany({ where: { userId: params.id } }),
