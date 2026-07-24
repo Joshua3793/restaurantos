@@ -830,6 +830,13 @@ export default function PrepPage() {
   // PrepLog if there isn't one yet, then PUT the assignment. The assignee chip
   // updates optimistically off the local `cooks` roster.
   async function handleClaim(item: PrepItemRich, cookId: string | null) {
+    // No crew set up yet → the claim pill has nobody to assign, so both the desktop
+    // popover (only an UNASSIGN row) and the mobile tap (cookId resolves to null)
+    // would silently do nothing. Tell the user where to add cooks instead of no-op.
+    if (cooks.length === 0) {
+      setActionError('No kitchen crew yet — add cooks in Setup → Kitchen crew to assign prep.')
+      return
+    }
     // Assigning writes a PrepLog (a stock-scoped row) — needs a concrete RC.
     if (!item.revenueCenterId && !activeRcId) {
       setActionError('Select a revenue center (not "All") to assign a cook.')

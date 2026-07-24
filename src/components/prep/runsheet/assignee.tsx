@@ -72,6 +72,16 @@ export function ClaimPopover({
         className="fixed -top-[100vh] -bottom-[100vh] -left-[100vw] -right-[100vw] z-40"
       />
       <div className="absolute right-0 top-[34px] z-[41] bg-paper border border-line-2 rounded-[11px] shadow-[0_12px_32px_rgba(0,0,0,0.14)] p-1 w-[172px]">
+        {cooks.length === 0 && (
+          // No crew yet → the picker would otherwise show a lone UNASSIGN row and the
+          // pill looks broken ("nothing happens"). Point the user at where to add cooks.
+          <a
+            href="/setup/kitchen-crew"
+            className="block rounded-[8px] px-[10px] py-2 text-[12px] text-ink-3 leading-snug hover:bg-bg-2"
+          >
+            No kitchen crew yet — <span className="text-gold-2 font-medium">add cooks in Setup&nbsp;→&nbsp;Kitchen&nbsp;crew</span>
+          </a>
+        )}
         {cooks.map(c => (
           <button
             key={c.id}
@@ -84,13 +94,15 @@ export function ClaimPopover({
             <span className="font-mono text-[9px] text-ink-4 ml-auto">{c.homeStation ?? ''}</span>
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => onPick(null)}
-          className="block w-full text-left bg-transparent border-t border-line px-[10px] py-2 cursor-pointer font-mono text-[10px] text-ink-3"
-        >
-          UNASSIGN
-        </button>
+        {cooks.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onPick(null)}
+            className="block w-full text-left bg-transparent border-t border-line px-[10px] py-2 cursor-pointer font-mono text-[10px] text-ink-3"
+          >
+            UNASSIGN
+          </button>
+        )}
       </div>
     </>
   )
