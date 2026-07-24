@@ -2,7 +2,7 @@
 // Prep run-sheet — desktop ladder row.
 // Ported from desktop.jsx's DRow (+ its inline claim popover, now the shared
 // ClaimPopover atom). Grid: 64px start-by | 1fr task | auto assignee | auto action.
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Zap } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
@@ -45,6 +45,7 @@ export function RunRow({
   dense?: boolean
 }) {
   const [claimOpen, setClaimOpen] = useState(false)
+  const claimAnchor = useRef<HTMLDivElement>(null)
 
   const sb = item.startByMinutes
   const blocked = item.isBlocked || !!item.blockedReason
@@ -106,10 +107,11 @@ export function RunRow({
       </div>
 
       {/* assignee + claim popover */}
-      <div className="relative">
+      <div ref={claimAnchor} className="relative">
         <AssigneeChip cook={item.assignedCook} onClick={() => setClaimOpen(o => !o)} />
         {claimOpen && (
           <ClaimPopover
+            anchorRef={claimAnchor}
             cooks={cooks}
             currentId={item.assignedCook?.id ?? null}
             onPick={cookId => {

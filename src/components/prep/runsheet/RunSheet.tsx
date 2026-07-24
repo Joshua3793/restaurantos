@@ -342,7 +342,7 @@ export function RunSheet({
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
-          <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+          <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onClaim={onClaim} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
         </>
       )}
 
