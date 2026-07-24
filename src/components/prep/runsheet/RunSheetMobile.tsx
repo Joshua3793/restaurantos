@@ -273,7 +273,7 @@ export function RunSheetMobile({
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
           {/* full-bleed horizontal scroll rail */}
           <div className="-mx-4 px-4">
-            <InProgressRailMobile items={doing} nowMs={nowMs} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+            <InProgressRailMobile items={doing} nowMs={nowMs} onClaim={claimTap} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
           </div>
         </>
       )}

@@ -3,6 +3,8 @@
 // Ported from shared.jsx's PTAv (AssigneeChip) and the claim popover markup
 // inlined in desktop.jsx's DRow (ClaimPopover). Uses handlers, so this file
 // is a Client Component.
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 
 // Matches the shape returned by GET /api/prep/cooks and PrepItemRich.assignedCook.
 export type Cook = {
@@ -50,28 +52,59 @@ export function AssigneeChip({
 }
 
 // ─── ClaimPopover ────────────────────────────────────────────────────────
-// Full-viewport click-away backdrop + a right-aligned menu of cooks (initials,
-// first name, home station) with an UNASSIGN row. Positioned absolutely —
-// the caller wraps the trigger (AssigneeChip) + this popover in a
-// `relative` container.
+// Click-away backdrop + a right-aligned menu of cooks (initials, first name,
+// home station) with an UNASSIGN row. Rendered in a portal on document.body and
+// positioned `fixed` off the trigger's rect, so it is never clipped by an
+// ancestor's overflow (e.g. the in-progress rail's horizontal scroller) or
+// contained by the page's `container-type` context.
 export function ClaimPopover({
   cooks,
   currentId,
   onPick,
   onClose,
+  anchorRef,
 }: {
   cooks: Cook[]
   currentId: string | null
   onPick: (cookId: string | null) => void
   onClose: () => void
+  /** The trigger's wrapper element — the menu positions itself below/right of it. */
+  anchorRef: RefObject<HTMLElement | null>
 }) {
-  return (
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current
+    const menu = menuRef.current
+    if (!anchor || !menu) return
+    const a = anchor.getBoundingClientRect()
+    const h = menu.offsetHeight
+    const WIDTH = 172
+    let left = a.right - WIDTH
+    if (left < 8) left = 8
+    if (left + WIDTH > window.innerWidth - 8) left = window.innerWidth - 8 - WIDTH
+    // Below the trigger by default; flip above if it would run off the viewport bottom.
+    let top = a.bottom + 4
+    if (top + h > window.innerHeight - 8) top = Math.max(8, a.top - h - 4)
+    setPos({ top, left })
+  }, [anchorRef, cooks.length])
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
     <>
+      <div onClick={onClose} className="fixed inset-0 z-[60]" />
       <div
-        onClick={onClose}
-        className="fixed -top-[100vh] -bottom-[100vh] -left-[100vw] -right-[100vw] z-40"
-      />
-      <div className="absolute right-0 top-[34px] z-[41] bg-paper border border-line-2 rounded-[11px] shadow-[0_12px_32px_rgba(0,0,0,0.14)] p-1 w-[172px]">
+        ref={menuRef}
+        style={{
+          position: 'fixed',
+          top: pos?.top ?? 0,
+          left: pos?.left ?? 0,
+          visibility: pos ? 'visible' : 'hidden',
+        }}
+        className="z-[61] bg-paper border border-line-2 rounded-[11px] shadow-[0_12px_32px_rgba(0,0,0,0.14)] p-1 w-[172px]"
+      >
         {cooks.length === 0 && (
           // No crew yet → the picker would otherwise show a lone UNASSIGN row and the
           // pill looks broken ("nothing happens"). Point the user at where to add cooks.
@@ -104,6 +137,7 @@ export function ClaimPopover({
           </button>
         )}
       </div>
-    </>
+    </>,
+    document.body,
   )
 }

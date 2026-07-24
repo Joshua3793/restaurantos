@@ -19,12 +19,15 @@ function fmtQty(q: number, u: string): string {
 export function InProgressRailMobile({
   items,
   nowMs,
+  onClaim,
   onLog,
   onStop,
   onOpenRecipe,
 }: {
   items: PrepItemRich[]
   nowMs: number
+  /** Tap-to-claim for the assignee chip (same claim-toggle the ladder rows use). */
+  onClaim?: (item: PrepItemRich) => void
   onLog: (item: PrepItemRich) => void
   /** Abandon an in-progress prep (no yield logged) → back onto the run sheet. */
   onStop: (item: PrepItemRich) => void
@@ -33,7 +36,7 @@ export function InProgressRailMobile({
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">
       {items.map(item => (
-        <RailCardMobile key={item.id} item={item} nowMs={nowMs} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+        <RailCardMobile key={item.id} item={item} nowMs={nowMs} onClaim={onClaim} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
       ))}
     </div>
   )
@@ -42,12 +45,14 @@ export function InProgressRailMobile({
 function RailCardMobile({
   item,
   nowMs,
+  onClaim,
   onLog,
   onStop,
   onOpenRecipe,
 }: {
   item: PrepItemRich
   nowMs: number
+  onClaim?: (item: PrepItemRich) => void
   onLog: (item: PrepItemRich) => void
   onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
@@ -69,7 +74,11 @@ function RailCardMobile({
           </span>
           <span className="block font-mono text-[9.5px] text-gold-2 mt-0.5">{fmtQty(qty, item.unit)}</span>
         </span>
-        <AssigneeChip cook={item.assignedCook} size="sm" />
+        {/* stopPropagation so tapping the chip claims the item instead of opening the
+            recipe (the whole row above is the recipe-open target). */}
+        <span onClick={e => e.stopPropagation()} className="shrink-0">
+          <AssigneeChip cook={item.assignedCook} size="sm" onClick={onClaim ? () => onClaim(item) : undefined} />
+        </span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-gold-2 whitespace-nowrap">

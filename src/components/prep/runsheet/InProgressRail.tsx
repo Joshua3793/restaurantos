@@ -4,10 +4,11 @@
 // todayLog.status === 'IN_PROGRESS' by the parent; each shows a flame badge,
 // name + qty, a pulsing elapsed/remaining line, the assignee chip, and a
 // "Done" button that opens the log-yield flow.
+import { useRef, useState } from 'react'
 import { Flame, RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
-import { AssigneeChip } from './assignee'
+import { AssigneeChip, ClaimPopover } from './assignee'
 import { IcCheck } from '@/components/prep/icons'
 import { minutesBetween, fmtMins } from '@/lib/prep-runsheet'
 
@@ -23,16 +24,18 @@ function fmtQty(q: number, u: string): string {
 export function InProgressRail({
   items,
   nowMs,
+  cooks = [],
+  onClaim,
   onLog,
   onStop,
   onOpenRecipe,
 }: {
   items: PrepItemRich[]
   nowMs: number
-  // Accepted for interface parity with the brief (each card's assignee is
-  // already resolved on the item via `assignedCook`, so the roster itself
-  // isn't needed here — unlike RunRow, this card has no claim popover).
+  // Roster for the assignee chip's claim popover — an in-progress item can still
+  // be (re)assigned, same as a ladder row.
   cooks?: Cook[]
+  onClaim?: (item: PrepItemRich, cookId: string | null) => void
   onLog: (item: PrepItemRich) => void
   /** Abandon an in-progress prep (no yield logged) → back onto the run sheet. */
   onStop: (item: PrepItemRich) => void
@@ -41,7 +44,7 @@ export function InProgressRail({
   return (
     <div className="flex gap-2.5 overflow-x-auto pb-1">
       {items.map(item => (
-        <RailCard key={item.id} item={item} nowMs={nowMs} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+        <RailCard key={item.id} item={item} nowMs={nowMs} cooks={cooks} onClaim={onClaim} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
       ))}
     </div>
   )
@@ -50,16 +53,22 @@ export function InProgressRail({
 function RailCard({
   item,
   nowMs,
+  cooks,
+  onClaim,
   onLog,
   onStop,
   onOpenRecipe,
 }: {
   item: PrepItemRich
   nowMs: number
+  cooks: Cook[]
+  onClaim?: (item: PrepItemRich, cookId: string | null) => void
   onLog: (item: PrepItemRich) => void
   onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
+  const [claimOpen, setClaimOpen] = useState(false)
+  const claimAnchor = useRef<HTMLDivElement>(null)
   const startedAt = item.todayLog?.startedAt
   const elapsed = startedAt ? minutesBetween(new Date(startedAt).getTime(), nowMs) : 0
   const remaining = (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0) - elapsed
@@ -84,7 +93,28 @@ function RailCard({
           )}
         </span>
       </span>
-      <AssigneeChip cook={item.assignedCook} size="sm" />
+      {/* Assignee chip — clickable (claim popover) when an onClaim handler is wired,
+          so an in-progress item can still be claimed/reassigned. Without a handler it
+          falls back to a read-only chip rather than a dead "+ CLAIM" button. */}
+      {onClaim ? (
+        <div ref={claimAnchor} className="relative shrink-0">
+          <AssigneeChip cook={item.assignedCook} size="sm" onClick={() => setClaimOpen(o => !o)} />
+          {claimOpen && (
+            <ClaimPopover
+              anchorRef={claimAnchor}
+              cooks={cooks}
+              currentId={item.assignedCook?.id ?? null}
+              onPick={cookId => {
+                onClaim(item, cookId)
+                setClaimOpen(false)
+              }}
+              onClose={() => setClaimOpen(false)}
+            />
+          )}
+        </div>
+      ) : (
+        <AssigneeChip cook={item.assignedCook} size="sm" />
+      )}
       {/* Stop = abandon this in-progress prep (no yield logged) → back onto the run sheet.
           Sits beside Done so a mistakenly-started item can be backed out without the drawer. */}
       <button
