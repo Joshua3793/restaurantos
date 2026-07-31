@@ -48,6 +48,72 @@ describe('parseSalesWorkbook', () => {
     expect(() => parseSalesWorkbook(book({ Summary: [['nope']] })))
       .toThrow(/Sales by day/)
   })
+
+  // ── CRITICAL 1: a malformed date-shaped number/string must reject, not misparse ──
+
+  it('rejects a numeric date with an out-of-range month instead of silently misparsing it as an Excel serial', () => {
+    const buf = book({
+      'Sales by day': [['Date', 'Net sales'], [20261399, 100]], // month 13
+    })
+    expect(() => parseSalesWorkbook(buf)).toThrow(/20261399/)
+  })
+
+  it('rejects a string-form date with an out-of-range day the same way as the numeric form', () => {
+    const buf = book({
+      'Sales by day': [['Date', 'Net sales'], ['20260732', 100]], // day 32
+    })
+    expect(() => parseSalesWorkbook(buf)).toThrow(/20260732/)
+  })
+
+  // ── CRITICAL 2: the tips column match must be anchored and unambiguous ──
+
+  it('does NOT adopt a column that merely contains "tip" as a substring (e.g. "Non-tip amount")', () => {
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales', 'Non-tip amount'],
+        [20260712, 100, 999],
+      ],
+    }))
+    expect(r.tips).toBeNull()
+  })
+
+  it('throws when more than one column looks like a tips column, naming the candidates', () => {
+    const buf = book({
+      'Sales by day': [
+        ['Date', 'Net sales', 'Tip Amount', 'Tip Total'],
+        [20260712, 100, 10, 12],
+      ],
+    })
+    expect(() => parseSalesWorkbook(buf)).toThrow(/Tip Amount/)
+    expect(() => parseSalesWorkbook(buf)).toThrow(/Tip Total/)
+  })
+
+  // ── IMPORTANT 3: accounting-format negatives and unparseable figures ──
+
+  it('reads an accounting-format negative like "($1,234.56)" as -1234.56, keeping the day', () => {
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales'],
+        [20260712, '($1,234.56)'],
+        [20260713, 500],
+      ],
+    }))
+    expect(r.iso).toEqual(['2026-07-12', '2026-07-13'])
+    expect(r.sales).toEqual([-1234.56, 500])
+  })
+
+  it('surfaces a genuinely unparseable net-sales figure via unparsedRows instead of silently dropping the day', () => {
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales'],
+        [20260712, 'N/A'],
+        [20260713, 500],
+      ],
+    }))
+    expect(r.iso).toEqual(['2026-07-13'])
+    expect(r.sales).toEqual([500])
+    expect(r.unparsedRows).toBe(1)
+  })
 })
 
 describe('parseClocksWorkbook', () => {
@@ -83,5 +149,39 @@ describe('parseClocksWorkbook', () => {
   it('throws when the header row is not the Clocks Summary layout', () => {
     expect(() => parseClocksWorkbook(book({ Sheet1: [['a', 'b']] }), '2026-07-12', 14))
       .toThrow(/Clocks Summary/)
+  })
+
+  // ── CRITICAL 1: a malformed date-shaped Date In value must reject, not become dayIndex NaN ──
+
+  it('rejects a numeric Date In with an out-of-range month instead of letting it through as dayIndex NaN', () => {
+    const badRows = [
+      ['First Name', 'Last Name', 'Clock ID', 'Date In', 'Total Less Break', 'Status'],
+      ['Liam', 'Sjogren', '706', 20261399, 9.62, 'Approved'], // month 13
+    ]
+    expect(() => parseClocksWorkbook(book({ Sheet1: badRows }), '2026-07-12', 14))
+      .toThrow(/20261399/)
+  })
+
+  it('rejects a string-form Date In with an out-of-range day the same way as the numeric form', () => {
+    const badRows = [
+      ['First Name', 'Last Name', 'Clock ID', 'Date In', 'Total Less Break', 'Status'],
+      ['Liam', 'Sjogren', '706', '20260732', 9.62, 'Approved'], // day 32
+    ]
+    expect(() => parseClocksWorkbook(book({ Sheet1: badRows }), '2026-07-12', 14))
+      .toThrow(/20260732/)
+  })
+
+  // ── IMPORTANT 3: an unparseable hours figure must be surfaced, not silently drop the punch ──
+
+  it('surfaces a genuinely unparseable hours figure via unparsedRows instead of silently dropping the punch', () => {
+    const partial = [
+      ['First Name', 'Last Name', 'Clock ID', 'Date In', 'Total Less Break', 'Status'],
+      ['Liam', 'Sjogren', '706', '2026-07-12', 'N/A', 'Approved'],
+      ['Thaign', 'Lillie', '1155', '2026-07-13', 10, 'Approved'],
+    ]
+    const r = parseClocksWorkbook(book({ Sheet1: partial }), '2026-07-12', 14)
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0].clockId).toBe('1155')
+    expect(r.unparsedRows).toBe(1)
   })
 })

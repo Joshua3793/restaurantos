@@ -20,13 +20,51 @@ function sheetRows(wb: XLSX.WorkBook, name: string): Row[] | null {
   return XLSX.utils.sheet_to_json<Row>(wb.Sheets[key], { header: 1, defval: null, raw: true })
 }
 
+/**
+ * `num()` needs to treat `(1,234.56)` — the standard accounting notation for
+ * a negative figure — as `-1234.56`, not as garbage. `$`/`,`/whitespace are
+ * stripped as before; parentheses are stripped too, but only after they've
+ * been read as a negation sign.
+ */
 function num(v: unknown): number {
   if (v == null) return NaN
   if (typeof v === 'number') return v
-  return parseFloat(String(v).replace(/[$,\s]/g, ''))
+  const s = String(v).trim()
+  const negative = /^\(.*\)$/.test(s)
+  const cleaned = s.replace(/[()$,\s]/g, '')
+  if (!cleaned || cleaned === '-') return NaN
+  const n = parseFloat(cleaned)
+  if (isNaN(n)) return NaN
+  return negative ? -Math.abs(n) : n
 }
 
-/** Excel serial (or a parseable date string) → 'YYYY-MM-DD'. */
+/**
+ * Thrown by `toIsoDate` when a value is date-shaped (8 digits, laid out like
+ * yyyyMMdd) but the month or day is out of range — a malformed date, not a
+ * missing one. Callers must NOT treat this like the `null` return (which
+ * means "not a date at all, skip the row") — a date-shaped value that fails
+ * validation must reject the row/file outright rather than silently fall
+ * through to Excel-serial arithmetic, which turns it into an unrelated,
+ * wrong-but-truthy date with no error anywhere.
+ */
+export class MalformedDateError extends Error {
+  constructor(public readonly raw: unknown) {
+    super(`"${String(raw)}" is not a valid date`)
+    this.name = 'MalformedDateError'
+  }
+}
+
+function compactDateBounds(mm: number, dd: number): boolean {
+  return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31
+}
+
+/**
+ * Excel serial (or a parseable date string) → 'YYYY-MM-DD'.
+ * Returns null when `v` doesn't look like a date at all (caller skips the
+ * row). Throws `MalformedDateError` when `v` IS date-shaped (an 8-digit
+ * yyyyMMdd number or string) but out of range — that case must never reach
+ * the serial-math branch below.
+ */
 function toIsoDate(v: unknown): string | null {
   // Toast writes the day key as yyyyMMdd. SheetJS hands back a plain number
   // for a numeric-looking cell (raw: true), so this has to be checked before
@@ -38,9 +76,10 @@ function toIsoDate(v: unknown): string | null {
     if (compact) {
       const mm = Number(compact[2])
       const dd = Number(compact[3])
-      if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      if (compactDateBounds(mm, dd)) {
         return `${compact[1]}-${compact[2]}-${compact[3]}`
       }
+      throw new MalformedDateError(v)
     }
   }
   if (typeof v === 'number' && v > 1000) {
@@ -50,12 +89,31 @@ function toIsoDate(v: unknown): string | null {
   const s = String(v ?? '').trim()
   // Toast writes the day key as yyyyMMdd
   const compact = s.match(/^(\d{4})(\d{2})(\d{2})$/)
-  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`
+  if (compact) {
+    const mm = Number(compact[2])
+    const dd = Number(compact[3])
+    if (compactDateBounds(mm, dd)) {
+      return `${compact[1]}-${compact[2]}-${compact[3]}`
+    }
+    throw new MalformedDateError(v)
+  }
   const iso = s.match(/^(\d{4}-\d{2}-\d{2})/)
   if (iso) return iso[1]
   const d = new Date(s)
   if (isNaN(d.getTime())) return null
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString().slice(0, 10)
+}
+
+/** Runs `toIsoDate`, turning a `MalformedDateError` into a manager-readable message naming the row. */
+function readDate(v: unknown, where: string): string | null {
+  try {
+    return toIsoDate(v)
+  } catch (e) {
+    if (e instanceof MalformedDateError) {
+      throw new Error(`${where}: “${String(v)}” is not a valid date (month or day out of range). Fix the date and re-export.`)
+    }
+    throw e
+  }
 }
 
 export interface ParsedSales {
@@ -69,6 +127,13 @@ export interface ParsedSales {
   tips: number[] | null
   /** "Net sales" from the Revenue summary sheet, when present — a cross-check. */
   reportedNet: number | null
+  /**
+   * Rows that had a valid day key but a net-sales figure `num()` could not
+   * parse (garbage text, a stray symbol) — excluded from `iso`/`sales`
+   * without a trace unless the caller checks this. Non-zero means the
+   * workbook is missing at least one day's sales silently; surface it.
+   */
+  unparsedRows: number
 }
 
 /**
@@ -83,17 +148,31 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
     throw new Error('No “Sales by day” sheet — export the Sales Summary with day detail turned on.')
   }
 
-  // Optional tips column, located by header text rather than position.
-  const header = (rows[0] ?? []).map(c => String(c ?? '').trim().toLowerCase())
-  const tipCol = header.findIndex(h => /^tips?$/.test(h) || /tip (amount|total)/.test(h))
+  // Optional tips column, located by header text rather than position. Anchored
+  // to a whole-header match — an unanchored /tip (amount|total)/ would also
+  // match a column explicitly meaning NOT tips (e.g. "Non-tip amount"), and
+  // silently feed it into the pool basis.
+  const rawHeader = rows[0] ?? []
+  const header = rawHeader.map(c => String(c ?? '').trim().toLowerCase())
+  const tipHeaderRe = /^(tips?|tip amount|tip total)$/
+  const tipMatches = header
+    .map((h, i) => ({ h, i }))
+    .filter(({ h }) => tipHeaderRe.test(h))
+  if (tipMatches.length > 1) {
+    const names = tipMatches.map(({ i }) => `"${String(rawHeader[i] ?? '').trim()}"`).join(', ')
+    throw new Error(`“Sales by day” has more than one column that looks like tips (${names}) — rename all but one and re-export.`)
+  }
+  const tipCol = tipMatches.length ? tipMatches[0].i : -1
 
   const iso: string[] = []
   const sales: number[] = []
   const tips: number[] = []
-  for (const r of rows.slice(1)) {
-    const day = toIsoDate(r?.[0])
+  let unparsedRows = 0
+  for (const [i, r] of rows.slice(1).entries()) {
+    const day = readDate(r?.[0], `“Sales by day” row ${i + 2}`)
+    if (!day) continue
     const net = num(r?.[1])
-    if (!day || isNaN(net)) continue
+    if (isNaN(net)) { unparsedRows++; continue }
     iso.push(day)
     sales.push(Math.round(net * 100) / 100)
     if (tipCol >= 0) {
@@ -101,7 +180,11 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
       tips.push(isNaN(t) ? 0 : Math.round(t * 100) / 100)
     }
   }
-  if (!iso.length) throw new Error('“Sales by day” had no usable rows.')
+  if (!iso.length) {
+    throw new Error(unparsedRows > 0
+      ? `“Sales by day” had no usable rows — ${unparsedRows} row(s) had a date but an unreadable net sales figure.`
+      : '“Sales by day” had no usable rows.')
+  }
 
   let reportedNet: number | null = null
   const rev = sheetRows(wb, 'Revenue summary')
@@ -113,7 +196,7 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
     }
   }
 
-  return { iso, sales, tips: tipCol >= 0 ? tips : null, reportedNet }
+  return { iso, sales, tips: tipCol >= 0 ? tips : null, reportedNet, unparsedRows }
 }
 
 export interface ParsedClocks {
@@ -123,6 +206,13 @@ export interface ParsedClocks {
   /** Punches whose date falls outside the period window. Kept, flagged by the audit. */
   outside: number
   pending: number
+  /**
+   * Rows that had a Clock ID and a date but an hours figure `num()` could not
+   * parse — excluded from `rows` without a trace unless the caller checks
+   * this. Non-zero means the workbook is silently missing at least one
+   * punch's hours ("hidden hours").
+   */
+  unparsedRows: number
 }
 
 /**
@@ -165,17 +255,26 @@ export function parseClocksWorkbook(
   }
 
   const out: PunchRow[] = []
-  for (const r of rows.slice(headerIdx + 1)) {
+  let unparsedRows = 0
+  for (const [i, r] of rows.slice(headerIdx + 1).entries()) {
     const first = String(r?.[C.first] ?? '').trim()
-    if (!first || /^totals?$/i.test(first)) continue
+    const last = String(r?.[C.last] ?? '').trim()
     const code = String(r?.[C.code] ?? '').trim()
+    // A row named "Totals"/"Total" is the export's own footer sum, not a
+    // punch — but only when it ALSO carries no identity (no last name, no
+    // clock ID), the way every real footer row does. A real employee named
+    // "Totals" still has a last name and a clock ID, so this stays a strict
+    // subset of the old, unqualified check — never more aggressive.
+    if (!first || (/^totals?$/i.test(first) && !last && !code)) continue
     const hours = Math.round(num(r?.[C.hours]) * 100) / 100
-    const iso = toIsoDate(r?.[C.dateIn])
-    if (!code || isNaN(hours) || !iso) continue
+    const rowNum = headerIdx + i + 2
+    const iso = readDate(r?.[C.dateIn], `Clocks Summary row ${rowNum} (${first}, clock #${code || '—'})`)
+    if (!code || !iso) continue
+    if (isNaN(hours)) { unparsedRows++; continue }
     out.push({
       clockId: code,
       firstName: first,
-      lastName: C.last >= 0 ? String(r?.[C.last] ?? '').trim() : '',
+      lastName: last,
       position: C.pos >= 0 ? String(r?.[C.pos] ?? '').trim() : '',
       department: C.dept >= 0 ? String(r?.[C.dept] ?? '').trim() : '',
       dayIndex: dayIndexOf(startDate, iso),
@@ -184,7 +283,11 @@ export function parseClocksWorkbook(
       note: C.notes.map(i => r?.[i]).filter(Boolean).join(' · ') || null,
     })
   }
-  if (!out.length) throw new Error('No punches found in that workbook.')
+  if (!out.length) {
+    throw new Error(unparsedRows > 0
+      ? `No punches found in that workbook — ${unparsedRows} row(s) had a Clock ID and a date but an unreadable hours figure.`
+      : 'No punches found in that workbook.')
+  }
 
   return {
     rows: out,
@@ -192,5 +295,6 @@ export function parseClocksWorkbook(
     peopleCount: new Set(out.map(r => r.clockId)).size,
     outside: out.filter(r => r.dayIndex < 0 || r.dayIndex >= dayCount).length,
     pending: out.filter(r => !/approved/i.test(r.status)).length,
+    unparsedRows,
   }
 }
