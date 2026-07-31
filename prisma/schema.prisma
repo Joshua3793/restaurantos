@@ -332,6 +332,17 @@ model SalesEntry {
   createdAt       DateTime       @default(now())
   revenueCenterId String
   source          String         @default("manual") // 'manual' | 'toast' — schema-only (Toast feature paused; tables exist in DB)
+  // Customer tips for the day — the FOH pot the BOH pool is withdrawn from.
+  // Kept as TWO columns because houses disagree about whether auto-gratuity is
+  // a tip or revenue: tipsCollected is the sum of payment tips, autoGratuity is
+  // the sum of service charges flagged gratuity. TipSettings.includeAutoGratuity
+  // decides whether to add them AT READ TIME, so flipping the house rule
+  // restates every period without re-syncing Toast.
+  // NULLABLE ON PURPOSE: null means "we have no tip data for this day", which is
+  // a blocking error when the pool basis is TIPS_COLLECTED. Zero means the day
+  // genuinely took no tips. Never conflate the two.
+  tipsCollected   Decimal?
+  autoGratuity    Decimal?
   lineItems       SaleLineItem[]
   revenueCenter   RevenueCenter  @relation("SalesRC", fields: [revenueCenterId], references: [id])
 
@@ -661,6 +672,7 @@ model RevenueCenter {
   eodCheckItems     EodCheckItem[]    @relation("EodCheckItemRC")
   eodCloses         EodClose[]        @relation("EodCloseRC")
   services          Service[]         @relation("ServiceRC")
+  tipPeriods        TipPeriod[]       @relation("TipPeriodRC")
 }
 
 model Service {
@@ -685,6 +697,20 @@ model Cook {
   homeStation String?
   isActive    Boolean @default(true)
   sortOrder   Int     @default(0)
+  // ── tip payroll (see TipPeriod) ──
+  lastName    String?
+  clockId     String? @unique // POS employee number; the ONLY key hours match on
+  wage        Decimal?        // reference only — never affects the split
+  // Contracted shift length, in hours. Hours clocked ABOVE this on any single
+  // day are not paid tips. Assigned per person, not house-wide: some of the
+  // crew are on 10 h agreements and some on 8 h. Null = this person is uncapped.
+  // Prefilled from TipSettings.defaultDailyHourCap when a roster row is created.
+  dailyHourCap Decimal?
+  tipRoleId   String?
+  onTipPool   Boolean @default(true)
+  posPosition String?         // last Position seen on the clock file
+  tipRole     TipRole?           @relation(fields: [tipRoleId], references: [id], onDelete: SetNull)
+  tipAdjustments TipDayAdjustment[]
 }
 
 model UserScope {
@@ -985,4 +1011,122 @@ model EodCheckEntry {
   item          EodCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@unique([closeId, itemId])
+}
+
+// ─────────────────────────── TIP PAYOUTS ───────────────────────────
+// One tip pool run = one TipPeriod. Daily net sales are NOT stored on the
+// period: they are read live from SalesEntry through the scope configured in
+// TipSettings (which is deliberately independent of the pool's own RC — tips
+// for RC "Kitchen" are commonly driven by sales for the whole "Cafe" location).
+// salesOverride only exists for days the app has no SalesEntry row for.
+
+model TipSettings {
+  id                String   @id @default("singleton")
+  // What the pool rate is a percentage OF.
+  //   'NET_SALES'      → day pool = that day's net sales × rate
+  //   'TIPS_COLLECTED' → day pool = the tips customers left that day × rate
+  // The second is the direct FOH→BOH tip-out; the first sizes the same
+  // withdrawal off sales instead. Both draw from the same FOH pot.
+  poolBasis         String   @default("NET_SALES")
+  // Count auto-gratuity (a service charge with gratuity = true) as customer
+  // tips. Houses differ: some pay it out with the tip pot, some treat it as
+  // revenue. Only affects tipsCollected, never net sales.
+  includeAutoGratuity Boolean @default(true)
+  poolRatePct       Decimal  @default(5)
+  // PREFILL ONLY — never a live cap. The cap that actually applies is
+  // Cook.dailyHourCap, because it is a contract term per person (some crew are
+  // on 10 h agreements, some on 8 h). This value is only copied into a new
+  // roster row's cap when one is created; changing it restates nothing.
+  defaultDailyHourCap Decimal?
+  rewardTiers       Json     @default("[1.25, 1.5, 2]")
+  roundingStepCents Int      @default(100)
+  periodDays        Int      @default(14)
+  periodStartDow    Int      @default(0) // 0 = Sunday
+  // Sales basis. mode 'LOCATION' → every active RC under salesLocationId.
+  // mode 'RC' → exactly the ids in salesRcIds.
+  salesSourceMode   String   @default("LOCATION")
+  salesLocationId   String?
+  salesRcIds        Json     @default("[]")
+  // Which RC the pool itself belongs to (the crew side). Used for period keys
+  // and access scoping — never for the sales basis.
+  poolRevenueCenterId String?
+  denoms            Json     @default("[{\"v\":10000,\"l\":\"$100\",\"on\":false},{\"v\":5000,\"l\":\"$50\",\"on\":true},{\"v\":2000,\"l\":\"$20\",\"on\":true},{\"v\":1000,\"l\":\"$10\",\"on\":true},{\"v\":500,\"l\":\"$5\",\"on\":true},{\"v\":200,\"l\":\"$2\",\"on\":true},{\"v\":100,\"l\":\"$1\",\"on\":true},{\"v\":25,\"l\":\"25¢\",\"on\":true},{\"v\":10,\"l\":\"10¢\",\"on\":true},{\"v\":5,\"l\":\"5¢\",\"on\":true}]")
+  posMap            Json     @default("{}") // clock Position → TipRole.id
+  poolDepartments   Json     @default("[\"Back of House\"]")
+  updatedAt         DateTime @updatedAt
+}
+
+model TipRole {
+  id         String  @id @default(cuid())
+  name       String
+  multiplier Decimal @default(1)
+  sortOrder  Int     @default(0)
+  isActive   Boolean @default(true)
+  cooks      Cook[]
+}
+
+model TipPeriod {
+  id                String   @id @default(cuid())
+  revenueCenterId   String
+  startDate         String   // 'YYYY-MM-DD', local business date
+  endDate           String   // 'YYYY-MM-DD', inclusive
+  status            String   @default("DRAFT") // 'DRAFT' | 'PAID'
+  // Frozen from TipSettings when the period opens, so changing the house rule
+  // later never silently restates a period somebody has already been paid for.
+  poolBasis         String   @default("NET_SALES") // 'NET_SALES' | 'TIPS_COLLECTED'
+  poolRatePct       Decimal
+  // NO period-wide hour cap. The cap is a per-person contract term and lives on
+  // Cook.dailyHourCap; what each person's cap WAS at payment time is preserved
+  // in `snapshot`, which stores the resolved cap on every SplitPerson.
+  roundingStepCents Int      @default(100)
+  salesOverride     Json?    // number[] length = day count, or null
+  tipsOverride      Json?    // number[] length = day count, or null
+  salesFileName     String?
+  clockFileName     String?
+  salesImportedAt   DateTime?
+  clockImportedAt   DateTime?
+  ignoredClockIds   Json     @default("[]")
+  paidAt            DateTime?
+  paidByName        String?
+  snapshot          Json?    // frozen SplitResult + audit at the moment of payment
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  revenueCenter     RevenueCenter      @relation("TipPeriodRC", fields: [revenueCenterId], references: [id])
+  punches           TipPunch[]
+  adjustments       TipDayAdjustment[]
+
+  @@unique([revenueCenterId, startDate])
+  @@index([revenueCenterId, status])
+}
+
+model TipPunch {
+  id         String    @id @default(cuid())
+  periodId   String
+  clockId    String
+  firstName  String
+  lastName   String
+  position   String
+  department String
+  dayIndex   Int
+  hours      Decimal
+  status     String    @default("Approved")
+  note       String?
+  period     TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([periodId])
+  @@index([periodId, clockId])
+}
+
+model TipDayAdjustment {
+  id       String    @id @default(cuid())
+  periodId String
+  cookId   String
+  dayIndex Int
+  hours    Decimal?  // null = use the clocked hours
+  boost    Decimal   @default(1)
+  period   TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  cook     Cook      @relation(fields: [cookId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, cookId, dayIndex])
+  @@index([periodId])
 }
