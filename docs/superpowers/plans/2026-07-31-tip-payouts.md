@@ -1199,13 +1199,15 @@ function run(people: TipPerson[], punches: PunchRow[], over: Record<string, unkn
 
 describe('auditPeriod', () => {
   it('is all clear when every punch matches a roster member', () => {
+    // Ana must work BOTH days: a day with a basis and nobody on shift is an
+    // orphan-day error by design, which would make "all clear" unreachable.
     const r = run(
-      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })],
-      [punch({ clockId: '706', hours: 8 })],
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })],
+      [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })],
     )
     expect(r.counts.error).toBe(0)
     expect(r.counts.missingHours).toBeCloseTo(0, 6)
-    expect(r.counts.shifts).toBe(1)
+    expect(r.counts.shifts).toBe(2)
   })
 
   it('raises an error for hours clocked by somebody not on the roster', () => {
@@ -1335,8 +1337,10 @@ describe('auditPeriod', () => {
 })
 
 describe('the FOH → BOH tip-out', () => {
-  const worker = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })]
-  const punches = [punch({ clockId: '706', hours: 8 })]
+  // Both days worked, so the whole pool is distributed and no orphan-day error
+  // muddies the error counts these tests assert on.
+  const worker = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })]
+  const punches = [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })]
 
   it('reports the pool as a share of the tips customers actually left', () => {
     // pool = 10% of [1000, 1000] = $200; tips collected = $800 → 25%
@@ -1360,7 +1364,7 @@ describe('the FOH → BOH tip-out', () => {
   })
 
   it('never overdraws when the basis IS the tip pot', () => {
-    const people = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })]
+    const people = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })]
     const split = computeSplit({
       basis: [400, 400], poolRatePct: 10,
       roundingStepCents: 100, roles: ROLES, people,
@@ -1678,24 +1682,27 @@ export function auditPeriod(input: AuditInput): AuditResult {
   const tipDays = tipsCollected.filter((t): t is number => t != null)
   if (tipDays.length) {
     const tipPot = r2(tipDays.reduce((a, b) => a + b, 0))
-    const takeoutPct = tipPot > 0 ? (split.poolTotal / tipPot) * 100 : 0
+    // What front of house actually hands over is what the cooks receive —
+    // distributedTotal — not poolTotal, which can include a day pool nobody
+    // was on shift to earn and which therefore never leaves the pot.
+    const takeoutPct = tipPot > 0 ? (split.distributedTotal / tipPot) * 100 : 0
     if (poolBasis === 'NET_SALES' && tipDays.length === tipsCollected.length) {
       // Sizing the withdrawal off sales can outrun the pot it is drawn from.
       // That is not a rounding nit — it means FOH cannot fund the tip-out.
-      if (split.poolTotal > tipPot + 0.005) {
+      if (split.distributedTotal > tipPot + 0.005) {
         add('error', 'overdraw', 'The BOH pool is larger than the tips customers left',
-          `The pool is ${money(split.poolTotal)} but only ${money(tipPot)} was collected in tips this period. Front of house cannot fund a ${takeoutPct.toFixed(0)}% tip-out. Lower the pool rate or switch the basis to tips collected.`)
+          `The kitchen is owed ${money(split.distributedTotal)} but only ${money(tipPot)} was collected in tips this period. Front of house cannot fund a ${takeoutPct.toFixed(0)}% tip-out. Lower the pool rate or switch the basis to tips collected.`)
       } else if (takeoutPct > 50) {
         add('warn', 'bigtakeout', `The tip-out is ${takeoutPct.toFixed(0)}% of the tip pot`,
-          `${money(split.poolTotal)} of the ${money(tipPot)} customers left goes to the kitchen, leaving ${money(tipPot - split.poolTotal)} for front of house. Worth a sanity check against the house agreement.`)
+          `${money(split.distributedTotal)} of the ${money(tipPot)} customers left goes to the kitchen, leaving ${money(tipPot - split.distributedTotal)} for front of house. Worth a sanity check against the house agreement.`)
       } else {
         add('info', 'takeout', `The tip-out is ${takeoutPct.toFixed(0)}% of the tip pot`,
-          `${money(split.poolTotal)} to the kitchen, ${money(tipPot - split.poolTotal)} left for front of house out of ${money(tipPot)} collected.`)
+          `${money(split.distributedTotal)} to the kitchen, ${money(tipPot - split.distributedTotal)} left for front of house out of ${money(tipPot)} collected.`)
       }
     }
     if (poolBasis === 'TIPS_COLLECTED') {
       add('info', 'takeout', `The tip-out is ${takeoutPct.toFixed(0)}% of the tip pot`,
-        `${money(split.poolTotal)} to the kitchen, ${money(tipPot - split.poolTotal)} left for front of house out of ${money(tipPot)} collected.`)
+        `${money(split.distributedTotal)} to the kitchen, ${money(tipPot - split.distributedTotal)} left for front of house out of ${money(tipPot)} collected.`)
     }
   } else if (poolBasis === 'NET_SALES') {
     add('info', 'notips', 'No tip data for this period',
