@@ -29,7 +29,7 @@ function run(people: TipPerson[], punches: PunchRow[], over: Record<string, unkn
   })
   return auditPeriod({
     dayLabels: DAYS, basis: [1000, 1000], poolBasis: 'NET_SALES',
-    sales: [1000, 1000], tipsCollected: [null, null],
+    tipsCollected: [null, null],
     roles: ROLES, people, punches, split,
     roundingStepCents: 100, poolDepartments: ['Back of House'],
     ignoredClockIds: [], missingBasisDays: [], ...over,
@@ -378,6 +378,95 @@ describe('punch bucketing order', () => {
   })
 })
 
+// ── IMPORTANT 1 (regression from the last pass) ────────────────────────────
+// Moving the ignore test ahead of the roster lookup fixed the false block on
+// an ignored+pending punch, but it also let an ignored code that IS on the
+// roster divert that person's punches into `bucket.ignored` — a stale
+// "Not kitchen" call from before they were hired, now shadowing them.
+describe('stale ignored codes', () => {
+  it('reconciles a roster member normally even if their code is also ignored', () => {
+    // Week 1: code 706 was unknown and ignored. Week 3: that person is hired
+    // and given clockId 706 — the ignore is now stale.
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })],
+      [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })],
+      { ignoredClockIds: ['706'] },
+    )
+    // The punches must reach eligible/clockedByCode, not `bucket.ignored`.
+    expect(r.ledger.find(l => l.label === 'Excluded on purpose')!.value).toBeCloseTo(0, 6)
+    expect(r.ledger.find(l => l.label === 'Eligible hours')!.value).toBeCloseTo(16, 6)
+    expect(r.findings.some(f => f.id === 'hours-706')).toBe(false)
+    expect(r.counts.error).toBe(0)
+    expect(r.counts.missingHours).toBeCloseTo(0, 6)
+  })
+
+  it('still ignores the code for anyone who is genuinely not on the roster', () => {
+    // The earlier fix must survive: an ignored, pending, non-roster code
+    // still reaches bucket.ignored, not a blocking `unapproved` error.
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })],
+      [
+        punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 }),
+        punch({ clockId: '959', hours: 6, status: 'Pending' }),
+      ],
+      { ignoredClockIds: ['959'] },
+    )
+    expect(r.findings.some(f => f.id === 'unapproved-959')).toBe(false)
+    expect(r.counts.error).toBe(0)
+    expect(r.ledger.find(l => l.label === 'Excluded on purpose')!.value).toBeCloseTo(-6, 6)
+  })
+})
+
+// ── MINOR 5 ─────────────────────────────────────────────────────────────────
+// An on-pool member's pending punch lands in bucket.unapproved and never
+// reaches clockedByCode. If the roster's hours[] includes that punch, both
+// `unapproved-<code>` and `hours-<code>` used to fire for the SAME hours.
+describe('unapproved hours do not double up with a hours- mismatch', () => {
+  it('fully suppresses the hours- finding when a gap is entirely pending approval', () => {
+    // Ana's roster hours [8, 0] include a punch that is still pending: 5 h
+    // approved + 3 h pending on day 0 sum to the roster's 8 h.
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })],
+      [
+        punch({ clockId: '706', hours: 5 }),
+        punch({ clockId: '706', hours: 3, status: 'Pending' }),
+      ],
+    )
+    expect(r.findings.some(f => f.id === 'hours-706')).toBe(false)
+    expect(r.findings.find(f => f.id === 'unapproved-706')!.severity).toBe('error')
+    expect(r.counts.unreconciledHours).toBeCloseTo(0, 6)
+  })
+
+  it('still raises the hours- finding for the remainder beyond the pending hours', () => {
+    // Only 2 h of the 3 h gap is pending approval; 1 h is unexplained by
+    // anything and must still surface.
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })],
+      [
+        punch({ clockId: '706', hours: 5 }),
+        punch({ clockId: '706', hours: 2, status: 'Pending' }),
+      ],
+    )
+    const f = r.findings.find(x => x.id === 'hours-706')!
+    expect(f.severity).toBe('error')
+    expect(f.detail).toContain('1.00 h')
+    expect(r.counts.unreconciledHours).toBeCloseTo(1, 6)
+  })
+
+  it('does not net a positive gap (clock ahead of the split) against pending hours', () => {
+    // c=8 (all approved) > s=0 (roster pays nothing) — nothing pending to
+    // net against, and the direction is the opposite of what pending hours
+    // could ever explain.
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [0, 0] })],
+      [punch({ clockId: '706', hours: 8 })],
+    )
+    const f = r.findings.find(x => x.id === 'hours-706')!
+    expect(f.severity).toBe('error')
+    expect(r.counts.unreconciledHours).toBeCloseTo(8, 6)
+  })
+})
+
 // ── IMPORTANT 5 ─────────────────────────────────────────────────────────────
 describe('malformed punch rows', () => {
   it('rejects non-finite hours and day indexes instead of letting NaN through', () => {
@@ -410,6 +499,57 @@ describe('malformed punch rows', () => {
     )
     expect(r.counts.eligible).toBeCloseTo(16, 6)
     expect(r.findings.find(f => f.id === 'malformed')!.severity).toBe('error')
+  })
+})
+
+// ── IMPORTANT 2 ─────────────────────────────────────────────────────────────
+// The malformed-PUNCH guard above does not cover the roster side. A NaN
+// boost or a NaN roster hour must raise a blocking error and must not let a
+// NaN reach `counts` — before the fix, a NaN boost raised NO error at all
+// (every share the engine computes quietly zeroes instead of NaN-ing), and a
+// NaN roster hour poisoned `inPool`/`unexplained`/`unreconciledHours`.
+describe('malformed roster values', () => {
+  it('guards a non-finite roster hour and keeps every count finite', () => {
+    const p = person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [NaN, 8] })
+    const r = run(
+      [p],
+      [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })],
+    )
+    const f = r.findings.find(x => x.id === 'malformed-roster')!
+    expect(f.severity).toBe('error')
+    expect(f.detail).toContain('Ana')
+    expect(r.counts.error).toBeGreaterThan(0)
+    expect(Number.isFinite(r.counts.inPool)).toBe(true)
+    expect(Number.isFinite(r.counts.unexplained)).toBe(true)
+    expect(Number.isFinite(r.counts.unreconciledHours)).toBe(true)
+    expect(r.ledger.every(row => Number.isFinite(row.value))).toBe(true)
+  })
+
+  it('guards a non-finite reward boost and still raises a blocking error', () => {
+    // Before the fix this raised counts.error === 0: the engine's own `> 0`
+    // guards turn a NaN weighted-day into a silently zeroed share, not a
+    // NaN one, so nothing downstream ever noticed.
+    const p = person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })
+    p.boosts = [NaN, 1]
+    const r = run(
+      [
+        p,
+        person({ cookId: 'b', name: 'Bo', clockId: '559', hours: [8, 8] }),
+      ],
+      [
+        punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 }),
+        punch({ clockId: '559', hours: 8 }), punch({ clockId: '559', hours: 8, dayIndex: 1 }),
+      ],
+    )
+    const f = r.findings.find(x => x.id === 'malformed-roster')!
+    expect(f.severity).toBe('error')
+    expect(r.counts.error).toBeGreaterThan(0)
+    expect(Number.isFinite(r.counts.inPool)).toBe(true)
+    expect(Number.isFinite(r.counts.unexplained)).toBe(true)
+    expect(Number.isFinite(r.counts.unreconciledHours)).toBe(true)
+    // The sanitized boost (×1, i.e. none) must not also appear as an info
+    // "reward boost applied" finding — it is reported once, as malformed.
+    expect(r.findings.some(x => x.id === 'boosts')).toBe(false)
   })
 })
 
@@ -454,13 +594,71 @@ describe('reward boosts', () => {
   })
 })
 
+// ── IMPORTANT 3 ─────────────────────────────────────────────────────────────
+// `bucket.dept` on its own is unflagged and unfindinged: a mis-tagged
+// department (`'BOH'` where settings say `'Back of House'`) excludes both the
+// punches AND — if the roster's hours[] was derived with the same filter —
+// that person's roster hours, so no gap ever reaches the per-person
+// reconciliation and nobody is paid with nothing pointing at why.
+describe('mis-tagged department', () => {
+  it('names the excluded department instead of leaving a mis-tagged $0 payout silent', () => {
+    const r = run(
+      [
+        person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] }),
+        // Bo's roster hours were derived with the same department filter
+        // that excluded his punches, so there is no gap to reconcile.
+        person({ cookId: 'b', name: 'Bo', clockId: '559', hours: [0, 0] }),
+      ],
+      [
+        punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 }),
+        punch({ clockId: '559', hours: 8, department: 'BOH' }),
+        punch({ clockId: '559', hours: 8, dayIndex: 1, department: 'BOH' }),
+      ],
+    )
+    expect(r.findings.some(f => f.id === 'hours-559')).toBe(false)
+    const f = r.findings.find(x => x.id === 'deptexcluded')!
+    expect(f.detail).toContain('BOH')
+    expect(f.detail).toContain('16.00 h')
+  })
+
+  it('warns instead of info when the excluded hours exceed the eligible ones', () => {
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [2, 0] })],
+      [
+        punch({ clockId: '706', hours: 2 }),
+        punch({ clockId: '900', hours: 20, department: 'BOH' }),
+      ],
+    )
+    expect(r.findings.find(x => x.id === 'deptexcluded')!.severity).toBe('warn')
+  })
+
+  it('reports info when the excluded hours are a small share of the eligible ones', () => {
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })],
+      [
+        punch({ clockId: '706', hours: 8 }),
+        punch({ clockId: '900', hours: 1, department: 'BOH' }),
+      ],
+    )
+    expect(r.findings.find(x => x.id === 'deptexcluded')!.severity).toBe('info')
+  })
+
+  it('says nothing when every punch is in a configured pool department', () => {
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 0] })],
+      [punch({ clockId: '706', hours: 8 })],
+    )
+    expect(r.findings.some(f => f.id === 'deptexcluded')).toBe(false)
+  })
+})
+
 describe('basis days', () => {
   it('separates a negative basis day from one that simply took nothing', () => {
     const people = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })]
     const punches = [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })]
     const neg = auditPeriod({
       dayLabels: DAYS, basis: [1000, -500], poolBasis: 'NET_SALES',
-      sales: [1000, -500], tipsCollected: [null, null], roles: ROLES, people, punches,
+      tipsCollected: [null, null], roles: ROLES, people, punches,
       split: computeSplit({ basis: [1000, -500], poolRatePct: 10, roundingStepCents: 100, roles: ROLES, people }),
       roundingStepCents: 100, poolDepartments: ['Back of House'],
       ignoredClockIds: [], missingBasisDays: [],
@@ -473,7 +671,7 @@ describe('basis days', () => {
 
     const zero = auditPeriod({
       dayLabels: DAYS, basis: [1000, 0], poolBasis: 'NET_SALES',
-      sales: [1000, 0], tipsCollected: [null, null], roles: ROLES, people, punches,
+      tipsCollected: [null, null], roles: ROLES, people, punches,
       split: computeSplit({ basis: [1000, 0], poolRatePct: 10, roundingStepCents: 100, roles: ROLES, people }),
       roundingStepCents: 100, poolDepartments: ['Back of House'],
       ignoredClockIds: [], missingBasisDays: [],
@@ -502,7 +700,7 @@ describe('finding presentation', () => {
     const split = computeSplit({ basis: [1001, 1000], poolRatePct: 10, roundingStepCents: 250, roles: ROLES, people })
     const r = auditPeriod({
       dayLabels: DAYS, basis: [1001, 1000], poolBasis: 'NET_SALES',
-      sales: [1001, 1000], tipsCollected: [null, null], roles: ROLES, people,
+      tipsCollected: [null, null], roles: ROLES, people,
       punches: [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })],
       split, roundingStepCents: 250, poolDepartments: ['Back of House'],
       ignoredClockIds: [], missingBasisDays: [],
@@ -560,7 +758,7 @@ describe('the FOH → BOH tip-out', () => {
     })
     const r = auditPeriod({
       dayLabels: DAYS, basis: [400, 400], poolBasis: 'TIPS_COLLECTED',
-      sales: [1000, 1000], tipsCollected: [400, 400], roles: ROLES, people,
+      tipsCollected: [400, 400], roles: ROLES, people,
       punches, split, roundingStepCents: 100,
       poolDepartments: ['Back of House'], ignoredClockIds: [], missingBasisDays: [],
     })

@@ -9,7 +9,7 @@
  * check is NOT ported — Cook.clockId carries a unique index, so two roster rows
  * cannot share a code.
  */
-import { cappedAway } from './engine'
+import { cappedAway, effectiveHours } from './engine'
 import type { PoolBasis, SplitResult, TipPerson, TipRoleDef } from './types'
 
 export interface PunchRow {
@@ -39,7 +39,14 @@ export interface Finding {
   title: string
   detail: string
   actions?: FindingAction[]
-  /** Hours or dollars at stake — used only to rank findings of equal severity. */
+  /**
+   * Hours or dollars at stake — used only to rank findings of equal
+   * severity. Exception: `malformed` and `malformed-roster` pass a row/value
+   * COUNT here instead, since an unreadable row has no hours or dollars to
+   * report — the count is still a reasonable severity-within-error ranking
+   * (more unreadable rows outranks fewer), just not the same unit as every
+   * other finding's `amount`.
+   */
   amount?: number
 }
 
@@ -61,8 +68,6 @@ export interface AuditInput {
   basis: number[]
   /** Which of the two `basis` is. Only changes the wording of the findings. */
   poolBasis: PoolBasis
-  /** Daily net sales — always supplied, even when the basis is TIPS_COLLECTED. */
-  sales: number[]
   /**
    * Daily customer tips. `null` on a day the app has no tip data for.
    *
@@ -166,6 +171,15 @@ export function auditPeriod(input: AuditInput): AuditResult {
   const unapproved = new Map<string, { code: string; name: string; last: string; h: number; n: number }>()
   /** Eligible clocked hours per roster code per day — the per-person reconciliation basis. */
   const clockedByCode = new Map<string, number[]>()
+  /**
+   * Pending hours per roster code per day — lets the per-person reconciliation
+   * below net a gap against the person's OWN unapproved punches instead of
+   * raising a second, contradictory finding for hours `unapproved-<code>`
+   * already explains.
+   */
+  const unapprovedByCode = new Map<string, number[]>()
+  /** Excluded hours per literal department string — names a mis-tagged one. */
+  const deptExcluded = new Map<string, number>()
   let eligible = 0
   let shifts = 0
   let malformed = 0
@@ -181,10 +195,19 @@ export function auditPeriod(input: AuditInput): AuditResult {
     if (!Number.isFinite(h) || !Number.isFinite(r.dayIndex)) { malformed++; continue }
     counted++
     clockedTotal = r2(clockedTotal + h)
-    if (poolDepartments.length && !poolDepartments.includes(r.department)) { bucket.dept = r2(bucket.dept + h); continue }
+    if (poolDepartments.length && !poolDepartments.includes(r.department)) {
+      bucket.dept = r2(bucket.dept + h)
+      deptExcluded.set(r.department, r2((deptExcluded.get(r.department) ?? 0) + h))
+      continue
+    }
     if (r.dayIndex < 0 || r.dayIndex >= dayCount) { bucket.period = r2(bucket.period + h); continue }
-    if (ignoredClockIds.includes(code)) { bucket.ignored = r2(bucket.ignored + h); continue }
     const match = byCode.get(code)
+    // A stale ignore — a code marked "Not kitchen" back when it belonged to
+    // nobody, later hired and given that very clockId — must not divert a
+    // roster member's punches away from reconciliation. Only a code that is
+    // STILL not on the roster can be ignored; once it matches somebody, the
+    // ignore is stale and the punch falls through to the normal match path.
+    if (!match && ignoredClockIds.includes(code)) { bucket.ignored = r2(bucket.ignored + h); continue }
     if (!match) {
       bucket.unknown = r2(bucket.unknown + h)
       const u = unknown.get(code) ?? { code, name: r.firstName, last: r.lastName, pos: r.position, h: 0, n: 0 }
@@ -201,6 +224,9 @@ export function auditPeriod(input: AuditInput): AuditResult {
       bucket.unapproved = r2(bucket.unapproved + h)
       const u = unapproved.get(code) ?? { code, name: r.firstName, last: r.lastName, h: 0, n: 0 }
       u.h = r2(u.h + h); u.n++; unapproved.set(code, u)
+      const perDay = unapprovedByCode.get(code) ?? new Array<number>(dayCount).fill(0)
+      perDay[r.dayIndex] = r2(perDay[r.dayIndex] + h)
+      unapprovedByCode.set(code, perDay)
       continue
     }
     eligible = r2(eligible + h)
@@ -211,7 +237,33 @@ export function auditPeriod(input: AuditInput): AuditResult {
   }
 
   // ── the ledger ────────────────────────────────────────────────────────────
-  const pooled = roster.filter(p => p.onPool)
+  // A non-finite hours or reward-boost value on the roster (a blank manual
+  // edit, a bad import) poisons every downstream sum the same way a
+  // malformed punch row does — except nothing upstream of `pooled` screens
+  // for it. Left unguarded, `rawHours`/`capAdj` below go NaN outright, and a
+  // NaN boost sends `weightedByDay[d]` NaN in the engine, which zeroes
+  // (rather than NaN's) every `> 0` gate downstream — so a whole day's pool
+  // silently drops out of the payout with no error anywhere in this audit.
+  // Screen it here, exactly like the malformed-punch guard above: report it,
+  // then neutralize it (0 h / ×1 boost) so nothing below ever computes on a
+  // NaN, whatever engine.ts's own guards do or don't catch.
+  const malformedRoster: Array<{ name: string; day: number; field: 'hours' | 'boost' }> = []
+  const pooled = roster.filter(p => p.onPool).map(p => {
+    let dirty = false
+    const hours = p.hours.map((h, d) => {
+      if (Number.isFinite(h)) return h
+      malformedRoster.push({ name: p.name, day: d, field: 'hours' })
+      dirty = true
+      return 0
+    })
+    const boosts = p.boosts.map((b, d) => {
+      if (b == null || Number.isFinite(b)) return b
+      malformedRoster.push({ name: p.name, day: d, field: 'boost' })
+      dirty = true
+      return 1
+    })
+    return dirty ? { ...p, hours, boosts } : p
+  })
   const rawHours = r2(pooled.reduce((a, p) => a + p.hours.reduce((x, y) => x + y, 0), 0))
   const capAdj = r2(pooled.reduce(
     (a, p) => a + p.hours.reduce((x, _y, d) => x + cappedAway(p, d), 0), 0))
@@ -244,6 +296,14 @@ export function auditPeriod(input: AuditInput): AuditResult {
       [{ label: 'Open Import data', kind: 'goto', arg: 'import' }], malformed)
   }
 
+  // ── roster values the split could not compute on ──────────────────────────
+  if (malformedRoster.length) {
+    const names = [...new Set(malformedRoster.map(m => m.name))]
+    add('error', 'malformed-roster', `${plural(malformedRoster.length, 'roster value')} could not be read`,
+      `${people(names.length)} — ${names.join(', ')} — ${names.length === 1 ? 'has' : 'have'} an hours or reward-boost value on the roster that is not a number: blank, “–”, or a bad manual edit. Treated as 0 h / ×1 until fixed, so nothing below is computed on a broken number, but that day is not being paid correctly either way. Fix the value in Tip settings.`,
+      [{ label: 'Open Tip settings', kind: 'goto', arg: 'settings' }], malformedRoster.length)
+  }
+
   // ── hours that vanished ───────────────────────────────────────────────────
   ;[...unknown.values()].sort((a, b) => b.h - a.h).forEach(u => {
     add('error', `unknown-${u.code}`,
@@ -271,15 +331,21 @@ export function auditPeriod(input: AuditInput): AuditResult {
   // Bo's phantom eight hours cancel, and a period in which one person is paid
   // nothing for a shift she worked reads as perfectly balanced. Reconciling per
   // person per day is what actually proves nobody's hours were dropped, swapped,
-  // or carried over from the last period's roster. Days flagged `edited` are the
+  // or carried over from the last period's roster — for hours that reach this
+  // loop at all. It proves nothing about hours excluded earlier in the bucketing
+  // pass (a mis-tagged department, say — see `deptexcluded` below): those never
+  // reach `pooled`'s per-day comparison, so a gap they create is invisible here
+  // by construction, not reconciled away. Days flagged `edited` are the
   // manager's own overrides and are excluded — those are what the house-wide
   // "Manual edits on the split" ledger row exists to report.
   let unreconciledHours = 0
   for (const p of pooled) {
     if (!p.clockId) continue // cannot be matched at all — reported as `nocode`
-    const clocked = clockedByCode.get(String(p.clockId)) ?? new Array<number>(dayCount).fill(0)
+    const code = String(p.clockId)
+    const clocked = clockedByCode.get(code) ?? new Array<number>(dayCount).fill(0)
+    const pending = unapprovedByCode.get(code) ?? new Array<number>(dayCount).fill(0)
     let clockedSum = 0
-    let splitSum = 0
+    let paidSum = 0
     let gap = 0
     const days: string[] = []
     for (let d = 0; d < dayCount; d++) {
@@ -287,8 +353,16 @@ export function auditPeriod(input: AuditInput): AuditResult {
       const c = clocked[d] ?? 0
       const s = p.hours[d] ?? 0
       clockedSum = r2(clockedSum + c)
-      splitSum = r2(splitSum + s)
-      const diff = r2(c - s)
+      paidSum = r2(paidSum + effectiveHours(p, d))
+      let diff = r2(c - s)
+      // The split's own `s` can include hours still pending approval — the
+      // SAME hours `unapproved-<code>` already blocks and explains. Net out
+      // only the portion this person's own pending punches explain, so the
+      // two findings don't tell contradictory stories about one shortfall;
+      // any gap beyond what pending hours explain still fires below.
+      if (diff < 0 && pending[d] > 0) {
+        diff = r2(diff + Math.min(-diff, pending[d]))
+      }
       if (Math.abs(diff) < 0.005) continue
       gap = r2(gap + Math.abs(diff))
       days.push(`${dayLabels[d] ?? `day ${d + 1}`} ${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)} h`)
@@ -297,7 +371,7 @@ export function auditPeriod(input: AuditInput): AuditResult {
     unreconciledHours = r2(unreconciledHours + gap)
     add('error', `hours-${p.clockId}`,
       `${p.name}’s hours do not match the clock file`,
-      `The clock file has ${hrs(clockedSum)} where the split pays ${hrs(splitSum)} — ${days.slice(0, 4).join(', ')}${days.length > 4 ? ` +${days.length - 4} more` : ''}. ` +
+      `The clock file has ${hrs(clockedSum)} where the split pays ${hrs(paidSum)} — ${days.slice(0, 4).join(', ')}${days.length > 4 ? ` +${days.length - 4} more` : ''}. ` +
       'Nothing on the split records that change, so somebody is being paid the wrong hours. Re-import the hours file, or record the difference as a manual adjustment if it is deliberate.',
       [{ label: 'Open Import data', kind: 'goto', arg: 'import' }], gap)
   }
@@ -323,6 +397,28 @@ export function auditPeriod(input: AuditInput): AuditResult {
       (clipped.length > 4 ? ` +${clipped.length - 4} more` : '') +
       '. Hours above a person’s contracted shift are not paid tips. Raise their cap in Tip settings to include them.',
       [{ label: 'Open Tip settings', kind: 'goto', arg: 'settings' }], capAdj)
+  }
+
+  // ── hours excluded by department ───────────────────────────────────────────
+  // `bucket.dept` alone tells nobody anything actionable: an exact,
+  // case-sensitive match against `poolDepartments` silently drops a whole
+  // department's hours with no flag on the ledger row and no finding. If the
+  // roster's own hours[] was derived with that same department filter, the
+  // gap this creates never reaches the per-person reconciliation above
+  // either — no punch, no roster hour, nothing to diff, so `hours-<code>`
+  // stays silent too. The result is a person paid $0 with nothing anywhere
+  // pointing at why. Name the excluded department(s) and the hours so a
+  // typo (`'BOH'` vs the configured `'Back of House'`) is visible on sight.
+  if (deptExcluded.size) {
+    const rows = [...deptExcluded.entries()].sort((a, b) => b[1] - a[1])
+    const total = r2(rows.reduce((a, [, h]) => a + h, 0))
+    const big = total > eligible
+    add(big ? 'warn' : 'info', 'deptexcluded', `${plural(deptExcluded.size, 'department')} excluded from the pool`,
+      `${rows.map(([d, h]) => `${d} (${hrs(h)})`).join(', ')} — not in the configured pool departments, so those hours never entered the split. ` +
+      (big
+        ? 'That is more hours than are eligible for this period — check for a mis-tagged or misspelled department name before paying.'
+        : 'If one of these should be included, check the department name against Tip settings.'),
+      [{ label: 'Open Tip settings', kind: 'goto', arg: 'settings' }])
   }
 
   // ── the same person under two codes ───────────────────────────────────────
@@ -419,7 +515,7 @@ export function auditPeriod(input: AuditInput): AuditResult {
   if (poolBasis === 'NET_SALES' && noTipDays.length) {
     const all = noTipDays.length === tipsCollected.length
     add('info', 'notips',
-      all ? 'No tip data for this period' : `${plural(noTipDays.length, 'day')} have no tip data`,
+      all ? 'No tip data for this period' : `${plural(noTipDays.length, 'day')} ${noTipDays.length === 1 ? 'has' : 'have'} no tip data`,
       (all ? '' : `${noTipDays.map(d => dayLabels[d]).join(', ')} are missing tip totals. `) +
       'The pool is sized off sales, so the payout is unaffected — but without tip totals ' +
       `${all ? 'the split cannot show' : 'the split cannot reliably show'} what share of the front-of-house pot the kitchen is taking. Re-run the Toast sync to capture ${all ? 'it' : 'them'}.`)
@@ -461,11 +557,20 @@ export function auditPeriod(input: AuditInput): AuditResult {
   // invisible in every other check — the ledger still closes, the split still
   // balances — so every boost is enumerated and any value the house has not
   // configured as a tier is called out.
+  //
+  // Scoped to `pooled` (on-pool, and — via the sanitized `pooled` above —
+  // never a non-finite value; those are reported once as `malformed-roster`
+  // instead of here), not the full roster: an off-pool person's hours are
+  // zeroed by the engine, so their boost multiplies nothing and raises
+  // nobody else's share either. Enumerating it off `roster` used to leave a
+  // stale boost warning nothing could clear — switching the person back
+  // onto the pool (the `offpool` finding's own remedy) is what makes the
+  // boost real again, and this check fires fresh once that happens.
   const boosts: Array<{ label: string; tiered: boolean }> = []
-  for (const p of roster) {
+  for (const p of pooled) {
     for (let d = 0; d < dayCount; d++) {
       const b = p.boosts[d] ?? 1
-      if (b === 1 || !Number.isFinite(b)) continue
+      if (b === 1) continue
       boosts.push({
         label: `${p.name} · ${dayLabels[d] ?? `day ${d + 1}`} ×${b}`,
         // No configured tiers means the app cannot tell a sanctioned boost from
