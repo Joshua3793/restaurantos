@@ -837,7 +837,7 @@ describe('computeSplit', () => {
       ],
     })
     const sum = r.people.reduce((a, p) => a + p.tip, 0)
-    expect(Math.abs(sum - r.poolTotal)).toBeLessThan 0.005
+    expect(Math.abs(sum - r.poolTotal)).toBeLessThan(0.005)
   })
 
   it('applies the reward multiplier only on the boosted day', () => {
@@ -940,8 +940,6 @@ describe('sortPeople', () => {
   })
 })
 ```
-
-> Note for the implementer: the line `expect(Math.abs(sum - r.poolTotal)).toBeLessThan 0.005` above is missing its parentheses — write it as `expect(Math.abs(sum - r.poolTotal)).toBeLessThan(0.005)`.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
