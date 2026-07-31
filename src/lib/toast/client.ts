@@ -285,7 +285,14 @@ const DEAD_PAYMENT_STATUS = new Set(['VOIDED', 'DENIED', 'ERROR'])
  *
  * Returns payment tips and gratuity service charges SEPARATELY so the two can
  * be stored in separate columns — whether auto-gratuity counts as a tip is a
- * house policy that must stay changeable without re-syncing Toast.
+ * house policy applied AT READ TIME (`TipSettings.includeAutoGratuity`, see
+ * `foldDailyTotals` in `src/lib/tips/sales.ts`).
+ *
+ * The sync must therefore ALWAYS pass `includeAutoGratuity: true` — storing a
+ * policy-filtered 0 would make `autoGratuity: 0` mean both "no auto-grat was
+ * charged" and "auto-grat was charged while the policy was off", and flipping
+ * the house rule would then need a full Toast re-sync. The parameter exists for
+ * read-side/preview callers that want the policy pre-applied.
  */
 export function checkTipTotals(
   check: ToastCheck,
@@ -294,6 +301,11 @@ export function checkTipTotals(
   let tips = 0
   for (const p of check.payments ?? []) {
     if (p.voidInfo) continue
+    // Only VOIDED/DENIED/ERROR are dropped. Counting OPEN/PROCESSING/AUTHORIZED
+    // tips is DELIBERATE: an authorised-not-yet-captured tip is the normal state
+    // of a card payment at close, and this figure is a payout basis — excluding
+    // them would systematically under-pay the day's staff. The trade-off is that
+    // an authorisation later reversed is caught only by a re-sync of that day.
     if (p.paymentStatus && DEAD_PAYMENT_STATUS.has(p.paymentStatus)) continue
     const net = (p.tipAmount ?? 0) - (p.refund?.tipRefundAmount ?? 0)
     if (net > 0) tips += net

@@ -23,8 +23,7 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { fetchOrdersForBusinessDateInt, type ToastOrder } from '@/lib/toast/client'
-import { checkTipTotals } from './client'
+import { fetchOrdersForBusinessDateInt, checkTipTotals, type ToastOrder } from '@/lib/toast/client'
 import { classifyGroup } from '@/lib/toast/food-classify'
 
 const TZ = 'America/Los_Angeles'
@@ -74,6 +73,85 @@ interface RcBucket {
   covers: number
   qtyByRecipe: Map<string, number>
   unmatched: Map<string, number> // toastItemGuid → qty (sold but no recipe mapping)
+}
+
+// ── Tip attribution ──────────────────────────────────────────────────────────
+
+export interface TipSplitInput {
+  /** Revenue this check routed, per RC — the weights the tip is split by. */
+  checkRcRevenue: Map<string, number>
+  /** The order's revenue center, if it resolved to one. */
+  orderRc: string | undefined
+  /** Whether a bucket for that RC ALREADY exists (i.e. it took revenue today). */
+  bucketExists: (rcId: string) => boolean
+  tips: number
+  gratuity: number
+}
+
+export interface TipSplit {
+  /** rcId → the slice of `tips`/`gratuity` that RC earned. Never negative. */
+  perRc: Map<string, { tips: number; gratuity: number }>
+  /** Whatever could not be attributed to any RC. Reported, never dropped. */
+  unattributed: number
+}
+
+/**
+ * Split one check's tip across the revenue centers it sold into.
+ *
+ * Weighted by each RC's share of the check's revenue, with three deliberate
+ * guards (each one is a bug we shipped and fixed):
+ *
+ *  1. NEGATIVE weights are skipped. A check routing +$100 to one RC and −$20 to
+ *     another (an adjustment line) must not hand the second RC a negative tip.
+ *  2. ZERO total weight still attributes when the RC is knowable — a fully
+ *     comped check that was still tipped has a known RC, so prefer the single
+ *     RC it routed to, then the order's RC.
+ *  3. The order-RC fallback only fires when that RC ALREADY has a bucket. A tip
+ *     must never CONJURE a revenue center into the day: an empty bucket goes on
+ *     to delete that RC's manual sales entry and replace it with $0.
+ *
+ * Shares are returned unrounded — callers accumulate across checks and round
+ * once at write time. `sum(perRc) + unattributed === tips + gratuity`.
+ */
+export function splitTipAcrossRcs({
+  checkRcRevenue, orderRc, bucketExists, tips, gratuity,
+}: TipSplitInput): TipSplit {
+  const perRc = new Map<string, { tips: number; gratuity: number }>()
+  const total = tips + gratuity
+  if (total === 0) return { perRc, unattributed: 0 }
+
+  // (1) Only positive revenue earns a share of the tip.
+  const weights = new Map<string, number>()
+  let totalWeight = 0
+  for (const [rcId, revenue] of checkRcRevenue) {
+    if (revenue <= 0) continue
+    weights.set(rcId, revenue)
+    totalWeight += revenue
+  }
+
+  if (totalWeight > 0) {
+    for (const [rcId, weight] of weights) {
+      const share = weight / totalWeight
+      perRc.set(rcId, { tips: tips * share, gratuity: gratuity * share })
+    }
+    return { perRc, unattributed: 0 }
+  }
+
+  // (2) No positive revenue, but exactly one RC was routed to (a comped check) —
+  // that RC's bucket necessarily exists, since routing a line created it.
+  if (checkRcRevenue.size === 1) {
+    const [rcId] = [...checkRcRevenue.keys()]
+    perRc.set(rcId, { tips, gratuity })
+    return { perRc, unattributed: 0 }
+  }
+
+  // (3) Fall back to the order's RC — but only if it already took revenue today.
+  if (orderRc && bucketExists(orderRc)) {
+    perRc.set(orderRc, { tips, gratuity })
+    return { perRc, unattributed: 0 }
+  }
+
+  return { perRc, unattributed: total }
 }
 
 export interface DaySyncResult {
@@ -151,9 +229,6 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   const buckets = new Map<string, RcBucket>()
   let skippedUnmappedRcOrders = 0
   let unattributedTips = 0
-  const includeAutoGratuity =
-    (await prisma.tipSettings.findUnique({ where: { id: 'singleton' }, select: { includeAutoGratuity: true } }))
-      ?.includeAutoGratuity ?? true
 
   const getBucket = (rcId: string): RcBucket => {
     let b = buckets.get(rcId)
@@ -213,25 +288,20 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
       }
 
       // A tip belongs to the CHECK, not to a line, so split it across the RCs
-      // this check actually sold into, weighted by their share of its revenue.
-      // No routed revenue → fall back to the order's RC; still nothing → count
-      // it as unattributed rather than dropping it on the floor.
-      const { tips, gratuity } = checkTipTotals(check, includeAutoGratuity)
+      // this check actually sold into (see splitTipAcrossRcs). ALWAYS computed
+      // with auto-gratuity included — `TipSettings.includeAutoGratuity` is a
+      // read-time policy, and storing a filtered 0 here would be lossy.
+      const { tips, gratuity } = checkTipTotals(check, true)
       if (tips > 0 || gratuity > 0) {
-        const weights = checkRcRevenue.size
-          ? checkRcRevenue
-          : orderRc ? new Map([[orderRc, 1]]) : new Map<string, number>()
-        const totalWeight = [...weights.values()].reduce((a, b) => a + b, 0)
-        if (totalWeight > 0) {
-          for (const [rcId, weight] of weights) {
-            const share = weight / totalWeight
-            const b = getBucket(rcId)
-            b.tips += tips * share
-            b.gratuity += gratuity * share
-          }
-        } else {
-          unattributedTips += tips + gratuity
+        const split = splitTipAcrossRcs({
+          checkRcRevenue, orderRc, bucketExists: (rcId) => buckets.has(rcId), tips, gratuity,
+        })
+        for (const [rcId, amounts] of split.perRc) {
+          const b = getBucket(rcId)
+          b.tips += amounts.tips
+          b.gratuity += amounts.gratuity
         }
+        unattributedTips += split.unattributed
       }
     }
 
@@ -252,6 +322,18 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   for (const bucket of buckets.values()) {
     const foodSalesPct = bucket.totalRevenue > 0 ? bucket.foodRevenue / bucket.totalRevenue : 0
     const lineItems = [...bucket.qtyByRecipe.entries()].map(([recipeId, qtySold]) => ({ recipeId, qtySold }))
+
+    // Belt and braces against a PHANTOM bucket. The transaction below deletes the
+    // RC's same-day manual entry before writing the Toast row — an RC that saw no
+    // Toast activity at all must never reach it, or a manager's manual entry is
+    // replaced with $0. (splitTipAcrossRcs already refuses to create one; this
+    // catches any other path that might.) Tips are re-reported, not dropped.
+    const hasActivity =
+      bucket.totalRevenue !== 0 || bucket.covers > 0 || lineItems.length > 0 || bucket.unmatched.size > 0
+    if (!hasActivity) {
+      unattributedTips += bucket.tips + bucket.gratuity
+      continue
+    }
 
     const supersededManual = await prisma.$transaction(async (tx) => {
       // Toast is authoritative for a day it has data. A MANUAL entry on the same
@@ -325,16 +407,18 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     })
   }
 
+  const unattributedTipsTotal = Math.round(unattributedTips * 100) / 100
+
   if (manualConflicts.length) console.warn(`[toast-sync ${yyyymmdd}] manual/Toast conflicts left in place:\n  ${manualConflicts.join('\n  ')}`)
-  if (unattributedTips > 0.005) console.warn(`[toast-sync ${yyyymmdd}] ${unattributedTips.toFixed(2)} in tips could not be attributed to a revenue center`)
+  if (unattributedTipsTotal > 0) console.warn(`[toast-sync ${yyyymmdd}] ${unattributedTipsTotal.toFixed(2)} in tips could not be attributed to a revenue center`)
 
   return {
     businessDate: yyyymmdd,
     ordersPulled: orders.length,
-    status: buckets.size ? 'ok' : 'skipped',
+    status: perRc.length ? 'ok' : 'skipped',
     perRc,
     skippedUnmappedRcOrders,
-    unattributedTips,
+    unattributedTips: unattributedTipsTotal,
     ...(manualConflicts.length ? { manualConflicts } : {}),
   }
 }

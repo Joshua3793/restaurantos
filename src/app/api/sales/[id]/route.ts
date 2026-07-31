@@ -42,6 +42,23 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
+  // Customer tips — TRI-STATE, mirroring POST. The key being ABSENT means "leave
+  // the column alone" (an API caller that doesn't know about tips must not wipe
+  // them); '' or null means "clear it" (null = "no tip data for this day", which
+  // a TIPS_COLLECTED-basis payout treats as a blocking error, not as zero); a
+  // number is stored. The /sales form always sends the key, so an edited figure
+  // now persists instead of being silently discarded.
+  const tipsSent =
+    Object.prototype.hasOwnProperty.call(rest, 'tipsCollected') && rest.tipsCollected !== undefined
+  let tipsCollected: number | null = null
+  if (tipsSent && rest.tipsCollected !== null && rest.tipsCollected !== '') {
+    const v = Number(rest.tipsCollected)
+    if (!isFinite(v) || v < 0) {
+      return NextResponse.json({ error: 'tipsCollected must be zero or a positive number' }, { status: 400 })
+    }
+    tipsCollected = Math.round(v * 100) / 100
+  }
+
   // Replace all line items
   await prisma.saleLineItem.deleteMany({ where: { saleId: params.id } })
 
@@ -52,6 +69,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       totalRevenue: parseFloat(rest.totalRevenue) || 0,
       foodSalesPct: parseFloat(rest.foodSalesPct) || 0.7,
       covers:       rest.covers ? parseInt(rest.covers) : null,
+      ...(tipsSent ? { tipsCollected } : {}),
       notes:        rest.notes || null,
       periodType:   rest.periodType ?? 'day',
       endDate:      rest.endDate ? new Date(rest.endDate) : null,

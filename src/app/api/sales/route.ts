@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   if (rest.tipsCollected !== undefined && rest.tipsCollected !== null && rest.tipsCollected !== '') {
     const v = Number(rest.tipsCollected)
     if (!isFinite(v) || v < 0) {
-      return NextResponse.json({ error: 'tipsCollected must be a positive number' }, { status: 400 })
+      return NextResponse.json({ error: 'tipsCollected must be zero or a positive number' }, { status: 400 })
     }
     tipsCollected = Math.round(v * 100) / 100
   }
