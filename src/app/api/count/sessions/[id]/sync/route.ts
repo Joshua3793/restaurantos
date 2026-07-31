@@ -3,12 +3,24 @@ import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
 import { lineCountedBase, resolveCountUom } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
+
+// Mutating (POST) handler — never statically prerender, or non-GET returns 405.
+export const dynamic = 'force-dynamic'
 
 // POST /api/count/sessions/:id/sync
 // Full sync: adds new active items, removes lines for deleted/inactive items,
 // and refreshes expectedQty + priceAtCount for unchanged (uncounted) lines
 // using the same theoretical expected calculation as session creation.
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const session = await prisma.countSession.findUnique({
     where: { id: params.id },
     include: {
@@ -18,6 +30,17 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: a session with no RC (legacy "all items") is left unguarded here,
+  // mirroring the write guard on /api/count/sessions/[id] PATCH/DELETE.
+  if (session.revenueCenterId) {
+    try { await assertRcWritable(user, session.revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
+
   if (session.status === 'FINALIZED') return NextResponse.json({ error: 'Session is finalized' }, { status: 400 })
 
   const areaIds: string[] = session.areaFilter
