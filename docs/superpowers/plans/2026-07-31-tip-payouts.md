@@ -1780,6 +1780,17 @@ git add src/lib/tips/audit.ts src/lib/tips/__tests__/audit.test.ts && git commit
 
 ---
 
+> **Note for Tasks 5–14 — the shipped `src/lib/tips/audit.ts` is AHEAD of the
+> Task 4 code block above.** Two Criticals and several Importants were found in
+> review and fixed in the repo: per-person hours reconciliation (`hours-<code>`),
+> the punch-bucketing order (status judged last), non-finite guards on both
+> punches and roster rows (`malformed`, `malformed-roster`), an excluded-department
+> finding (`deptexcluded`), a boost audit, and `negbasis` split from `zerobasis`.
+> `AuditInput.sales` was **removed** — it had no reader. Always read the real
+> `audit.ts` for its current interface rather than the block above.
+
+---
+
 ### Task 5: Workbook parsers
 
 **Files:**
@@ -4273,7 +4284,7 @@ export async function buildPeriodSplit(user: User, periodId: string): Promise<{
     roundingStepCents: period.roundingStepCents, roles, people,
   })
   const audit = auditPeriod({
-    dayLabels: labels, basis, poolBasis, sales, tipsCollected: tips,
+    dayLabels: labels, basis, poolBasis, tipsCollected: tips,
     roles, people, punches, split,
     roundingStepCents: period.roundingStepCents,
     poolDepartments, ignoredClockIds: (period.ignoredClockIds ?? []) as string[],
@@ -5030,7 +5041,6 @@ export default function TipsPage() {
       dayLabels: payload.dayLabels,
       basis: payload.basis,
       poolBasis: payload.period.poolBasis,
-      sales: payload.sales.net,
       tipsCollected: payload.tips.collected,
       roles: payload.roles,
       people: payload.roster,
