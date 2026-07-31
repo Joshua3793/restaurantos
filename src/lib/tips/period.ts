@@ -2,9 +2,12 @@
  * Tip period window maths.
  *
  * A period is a run of N consecutive local business days identified by a
- * 'YYYY-MM-DD' start date. All arithmetic happens on UTC-noon Date objects so
- * a daylight-saving transition can never shift a day index by one — the same
- * trick the EOD business-date code uses.
+ * 'YYYY-MM-DD' start date. All arithmetic stays inside `Date.UTC` /
+ * `getUTC*` / `toISOString()` — none of which know about daylight saving —
+ * so a DST transition can never shift a day index by one. Dates are pinned
+ * to 12:00 UTC as a defensive convention (it keeps any future `new
+ * Date(iso)` misuse from straddling a day boundary), not because the noon
+ * anchor itself provides the DST safety.
  */
 
 const DAY_MS = 86_400_000
@@ -59,7 +62,14 @@ export function nextPeriodStart(startDate: string, count: number): string {
 /**
  * The start of the period containing `today`, anchored so period boundaries
  * always land on `startDow` (0 = Sunday) and repeat every `count` days from
- * the most recent such weekday.
+ * the most recent such weekday. Stays in UTC throughout (see module header);
+ * the noon anchor is defensive, not what makes this DST-safe.
+ *
+ * `count` is expected to be a whole number of weeks (7, 14, 28, …): the
+ * tiling below (`span = round(count / 7)`) is anchored in whole weeks from
+ * the epoch, so a non-multiple-of-7 `count` silently collapses to `span = 1`
+ * (the most recent `startDow`, ignoring `count`). Callers must validate
+ * `count` before calling this — the settings API already does.
  */
 export function defaultPeriodStart(today: string, startDow: number, count: number): string {
   const d = toUtcNoon(today)
