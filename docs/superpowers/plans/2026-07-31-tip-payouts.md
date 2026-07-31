@@ -3264,14 +3264,16 @@ git add src/app/api/tips && git commit -m "feat(tips): settings, roles and roste
 ### Task 8: Period list, open, and the page payload
 
 **Files:**
-- Create: `src/app/api/tips/periods/route.ts`, `src/app/api/tips/periods/[id]/route.ts`
+- Create: `src/app/api/tips/periods/route.ts`, `src/app/api/tips/periods/[id]/route.ts`, `src/lib/tips/roster.ts`
 - Modify: `src/lib/tips/types.ts` (add `TipPeriodPayload`)
+- Test: `src/lib/tips/__tests__/roster.test.ts`
 
 **Interfaces:**
 - Consumes: `loadSettings` (Task 7), `toRoleDto` (Task 7), `dailyTotals` (Task 6), `periodDays`/`dayLabels`/`defaultPeriodStart`/`periodLabel`/`addDays` (Task 2).
 - Produces:
   - `GET /api/tips/periods` → `{ periods: PeriodSummary[]; defaultStartDate: string }`
   - `POST /api/tips/periods` `{ startDate, revenueCenterId }` → `{ id }` (idempotent — returns the existing period for that key)
+  - `resolveRoster(input)` from `src/lib/tips/roster.ts` — **pure**, the single place clocked hours and per-day adjustments are folded into `TipPerson[]`. Task 9's `build.ts` imports the same function; there must be exactly one copy of this logic, because two copies that drift change what people get paid.
   - `GET /api/tips/periods/[id]` → `TipPeriodPayload` (everything the page needs, in one round trip)
   - `PATCH /api/tips/periods/[id]` `{ poolBasis?, poolRatePct?, roundingStepCents?, ignoredClockIds? }` — note there is deliberately **no** period-wide hour cap; caps are per person via `PATCH /api/tips/roster/[id]`
 
@@ -3440,6 +3442,208 @@ export async function POST(req: NextRequest) {
 }
 ```
 
+- [ ] **Step 2A: Write the shared roster resolver (with tests)**
+
+Create `src/lib/tips/roster.ts`:
+
+```ts
+/**
+ * Folds a period's clock punches and per-day adjustments into the TipPerson[]
+ * the engine and the audit consume.
+ *
+ * PURE, and the ONLY copy of this logic. Both callers — the page payload route
+ * and the server-side freeze/export path in build.ts — import this function.
+ * Two divergent copies would silently change what people get paid.
+ */
+import type { TipPerson } from './types'
+
+export interface RosterCook {
+  id: string
+  name: string
+  lastName: string | null
+  clockId: string | null
+  wage: number | null
+  dailyHourCap: number | null
+  tipRoleId: string | null
+  onTipPool: boolean
+}
+
+export interface RosterPunch {
+  clockId: string
+  department: string
+  dayIndex: number
+  hours: number
+  status: string
+}
+
+export interface RosterAdjustment {
+  cookId: string
+  dayIndex: number
+  /** null = fall back to the clocked hours for that day. */
+  hours: number | null
+  boost: number
+}
+
+export interface ResolveRosterInput {
+  cooks: RosterCook[]
+  punches: RosterPunch[]
+  adjustments: RosterAdjustment[]
+  dayCount: number
+  /** Empty = accept every department. */
+  poolDepartments: string[]
+}
+
+export function resolveRoster(input: ResolveRosterInput): TipPerson[] {
+  const { cooks, punches, adjustments, dayCount, poolDepartments } = input
+
+  // Clocked hours per day per code — filtered exactly as the pool filters them:
+  // right department, inside the period, approved.
+  const clockedByCode = new Map<string, number[]>()
+  for (const p of punches) {
+    if (poolDepartments.length && !poolDepartments.includes(p.department)) continue
+    if (p.dayIndex < 0 || p.dayIndex >= dayCount) continue
+    if (!/approved/i.test(p.status)) continue
+    const code = String(p.clockId)
+    const days = clockedByCode.get(code) ?? Array(dayCount).fill(0)
+    days[p.dayIndex] = Math.round((days[p.dayIndex] + p.hours) * 100) / 100
+    clockedByCode.set(code, days)
+  }
+
+  const adjByCook = new Map<string, Map<number, RosterAdjustment>>()
+  for (const a of adjustments) {
+    const m = adjByCook.get(a.cookId) ?? new Map<number, RosterAdjustment>()
+    m.set(a.dayIndex, a)
+    adjByCook.set(a.cookId, m)
+  }
+
+  return cooks.map(c => {
+    const clocked = (c.clockId ? clockedByCode.get(String(c.clockId)) : null) ?? Array(dayCount).fill(0)
+    const adj = adjByCook.get(c.id)
+    const hours: number[] = []
+    const boosts: number[] = []
+    const edited: boolean[] = []
+    for (let d = 0; d < dayCount; d++) {
+      const a = adj?.get(d)
+      hours.push(a?.hours ?? clocked[d])
+      boosts.push(a?.boost ?? 1)
+      edited.push(a?.hours != null)
+    }
+    return {
+      cookId: c.id,
+      name: c.name,
+      lastName: c.lastName,
+      clockId: c.clockId,
+      wage: c.wage,
+      dailyHourCap: c.dailyHourCap,
+      roleId: c.tipRoleId,
+      onPool: c.onTipPool,
+      hours, boosts, edited,
+    }
+  })
+}
+```
+
+Create `src/lib/tips/__tests__/roster.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { resolveRoster } from '@/lib/tips/roster'
+import type { RosterCook, RosterPunch } from '@/lib/tips/roster'
+
+const cook = (over: Partial<RosterCook> & { id: string; name: string }): RosterCook => ({
+  lastName: null, clockId: null, wage: null, dailyHourCap: null,
+  tipRoleId: 'dish', onTipPool: true, ...over,
+})
+
+const punch = (over: Partial<RosterPunch> & { clockId: string; hours: number }): RosterPunch => ({
+  department: 'Back of House', dayIndex: 0, status: 'Approved', ...over,
+})
+
+const run = (cooks: RosterCook[], punches: RosterPunch[], adjustments: Parameters<typeof resolveRoster>[0]['adjustments'] = []) =>
+  resolveRoster({ cooks, punches, adjustments, dayCount: 3, poolDepartments: ['Back of House'] })
+
+describe('resolveRoster', () => {
+  it('matches punches to a cook by clock id and sums them onto their day', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
+      [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 1.5 })],
+    )
+    expect(p.hours).toEqual([9.5, 0, 0])
+    expect(p.edited).toEqual([false, false, false])
+  })
+
+  it('never matches on name — a cook with no clock id gets no hours', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', lastName: 'Smith' })],
+      [punch({ clockId: '706', hours: 8 })],
+    )
+    expect(p.hours).toEqual([0, 0, 0])
+  })
+
+  it('drops punches from another department, outside the period, or unapproved', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
+      [
+        punch({ clockId: '706', hours: 8 }),
+        punch({ clockId: '706', hours: 5, department: 'Front of House' }),
+        punch({ clockId: '706', hours: 5, dayIndex: 9 }),
+        punch({ clockId: '706', hours: 5, dayIndex: 1, status: 'Pending' }),
+      ],
+    )
+    expect(p.hours).toEqual([8, 0, 0])
+  })
+
+  it('accepts every department when none is configured', () => {
+    const out = resolveRoster({
+      cooks: [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
+      punches: [punch({ clockId: '706', hours: 8, department: 'Front of House' })],
+      adjustments: [], dayCount: 3, poolDepartments: [],
+    })
+    expect(out[0].hours[0]).toBe(8)
+  })
+
+  it('lets a manual hours adjustment override the clocked hours and marks the day edited', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
+      [punch({ clockId: '706', hours: 8 })],
+      [{ cookId: 'c1', dayIndex: 0, hours: 6.25, boost: 1 }],
+    )
+    expect(p.hours[0]).toBe(6.25)
+    expect(p.edited[0]).toBe(true)
+  })
+
+  it('applies a boost without touching the clocked hours', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
+      [punch({ clockId: '706', hours: 8 })],
+      [{ cookId: 'c1', dayIndex: 0, hours: null, boost: 1.5 }],
+    )
+    expect(p.hours[0]).toBe(8)
+    expect(p.boosts[0]).toBe(1.5)
+    expect(p.edited[0]).toBe(false)
+  })
+
+  it('carries the payroll fields straight through', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', lastName: 'Smith', clockId: '706', wage: 22, dailyHourCap: 8, tipRoleId: 'lead', onTipPool: false })],
+      [],
+    )
+    expect(p).toMatchObject({
+      cookId: 'c1', name: 'Ana', lastName: 'Smith', clockId: '706',
+      wage: 22, dailyHourCap: 8, roleId: 'lead', onPool: false,
+    })
+  })
+})
+```
+
+Run it:
+
+```bash
+npx vitest run src/lib/tips/__tests__/roster.test.ts
+```
+
+Expected: PASS — 7 tests.
+
 - [ ] **Step 3: Write the payload route**
 
 Create `src/app/api/tips/periods/[id]/route.ts`:
@@ -3451,6 +3655,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
 import { dayLabels, periodDays, periodLabel } from '@/lib/tips/period'
 import { dailyTotals } from '@/lib/tips/sales'
+import { resolveRoster } from '@/lib/tips/roster'
 import { loadSettings } from '../../settings/route'
 import { toRoleDto } from '../../roles/route'
 import type { TipPeriodPayload } from '@/lib/tips/types'
@@ -3523,51 +3728,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })
 
     const poolDepartments = (settings.poolDepartments ?? []) as string[]
-    /** Clocked hours per day for one code — filtered exactly as the pool filters them. */
-    const clockedFor = (code: string | null): number[] => {
-      const out = Array(dayCount).fill(0)
-      if (!code) return out
-      for (const p of period.punches) {
-        if (String(p.clockId) !== String(code)) continue
-        if (poolDepartments.length && !poolDepartments.includes(p.department)) continue
-        if (p.dayIndex < 0 || p.dayIndex >= dayCount) continue
-        if (!/approved/i.test(p.status)) continue
-        out[p.dayIndex] = Math.round((out[p.dayIndex] + Number(p.hours)) * 100) / 100
-      }
-      return out
-    }
-
-    const adjByCook = new Map<string, Map<number, { hours: number | null; boost: number }>>()
-    for (const a of period.adjustments) {
-      const m = adjByCook.get(a.cookId) ?? new Map()
-      m.set(a.dayIndex, { hours: a.hours == null ? null : Number(a.hours), boost: Number(a.boost) })
-      adjByCook.set(a.cookId, m)
-    }
-
-    const roster = cooks.map(c => {
-      const clocked = clockedFor(c.clockId)
-      const adj = adjByCook.get(c.id)
-      const hours: number[] = []
-      const boosts: number[] = []
-      const edited: boolean[] = []
-      for (let d = 0; d < dayCount; d++) {
-        const a = adj?.get(d)
-        const manual = a?.hours ?? null
-        hours.push(manual ?? clocked[d])
-        boosts.push(a?.boost ?? 1)
-        edited.push(manual != null)
-      }
-      return {
-        cookId: c.id,
-        name: c.name,
-        lastName: c.lastName,
-        clockId: c.clockId,
+    // Single copy of the punches→hours fold; build.ts calls the same function.
+    const roster = resolveRoster({
+      cooks: cooks.map(c => ({
+        ...c,
         wage: c.wage == null ? null : Number(c.wage),
         dailyHourCap: c.dailyHourCap == null ? null : Number(c.dailyHourCap),
-        roleId: c.tipRoleId,
-        onPool: c.onTipPool,
-        hours, boosts, edited,
-      }
+      })),
+      punches: period.punches.map(p => ({
+        clockId: p.clockId, department: p.department, dayIndex: p.dayIndex,
+        hours: Number(p.hours), status: p.status,
+      })),
+      adjustments: period.adjustments.map(a => ({
+        cookId: a.cookId, dayIndex: a.dayIndex,
+        hours: a.hours == null ? null : Number(a.hours), boost: Number(a.boost),
+      })),
+      dayCount,
+      poolDepartments,
     })
 
     const punches: PunchRow[] = period.punches.map(p => ({
@@ -3967,6 +4144,7 @@ import type { User } from '@prisma/client'
 import { computeSplit } from './engine'
 import { auditPeriod } from './audit'
 import { dailyTotals } from './sales'
+import { resolveRoster } from './roster'
 import { dayLabels, periodDays } from './period'
 import type { PoolBasis, SplitResult, TipPerson, TipRoleDef } from './types'
 import type { AuditResult, PunchRow } from './audit'
@@ -4047,43 +4225,25 @@ export async function buildPeriodSplit(user: User, periodId: string): Promise<{
   const cooks = await prisma.cook.findMany({
     where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   })
-  const adj = new Map<string, Map<number, { hours: number | null; boost: number }>>()
-  for (const a of period.adjustments) {
-    const m = adj.get(a.cookId) ?? new Map()
-    m.set(a.dayIndex, { hours: a.hours == null ? null : Number(a.hours), boost: Number(a.boost) })
-    adj.set(a.cookId, m)
-  }
-  const clockedFor = (code: string | null) => {
-    const out = Array(dayCount).fill(0)
-    if (!code) return out
-    for (const p of period.punches) {
-      if (String(p.clockId) !== String(code)) continue
-      if (poolDepartments.length && !poolDepartments.includes(p.department)) continue
-      if (p.dayIndex < 0 || p.dayIndex >= dayCount) continue
-      if (!/approved/i.test(p.status)) continue
-      out[p.dayIndex] = Math.round((out[p.dayIndex] + Number(p.hours)) * 100) / 100
-    }
-    return out
-  }
-
-  const people: TipPerson[] = cooks.map(c => {
-    const clocked = clockedFor(c.clockId)
-    const m = adj.get(c.id)
-    const hours: number[] = []
-    const boosts: number[] = []
-    const edited: boolean[] = []
-    for (let d = 0; d < dayCount; d++) {
-      const a = m?.get(d)
-      hours.push(a?.hours ?? clocked[d])
-      boosts.push(a?.boost ?? 1)
-      edited.push(a?.hours != null)
-    }
-    return {
-      cookId: c.id, name: c.name, lastName: c.lastName, clockId: c.clockId,
+  // Same resolver the payload route uses — one copy, so the numbers the page
+  // shows and the numbers frozen at payment can never drift apart.
+  const people: TipPerson[] = resolveRoster({
+    cooks: cooks.map(c => ({
+      id: c.id, name: c.name, lastName: c.lastName, clockId: c.clockId,
       wage: c.wage == null ? null : Number(c.wage),
       dailyHourCap: c.dailyHourCap == null ? null : Number(c.dailyHourCap),
-      roleId: c.tipRoleId, onPool: c.onTipPool, hours, boosts, edited,
-    }
+      tipRoleId: c.tipRoleId, onTipPool: c.onTipPool,
+    })),
+    punches: period.punches.map(p => ({
+      clockId: p.clockId, department: p.department, dayIndex: p.dayIndex,
+      hours: Number(p.hours), status: p.status,
+    })),
+    adjustments: period.adjustments.map(a => ({
+      cookId: a.cookId, dayIndex: a.dayIndex,
+      hours: a.hours == null ? null : Number(a.hours), boost: Number(a.boost),
+    })),
+    dayCount,
+    poolDepartments,
   })
 
   const punches: PunchRow[] = period.punches.map(p => ({
@@ -6444,5 +6604,5 @@ git add src/components/Navigation.tsx src/middleware.ts src/app/setup/page.tsx C
 
 **One trap worth stating plainly:** `tipsCollected` is `Array<number | null>`, not `number[]`. A `null` day means the app has no tip data; a `0` day means the customers left nothing. Collapsing them with `?? 0` at the wrong layer silently turns "we don't know" into "nobody tipped", which is exactly the failure the nullable column exists to prevent. The only legitimate `?? 0` is in `selectBasis` / the payload's `basis` construction, where the day is *already* recorded in `missingBasisDays` and will raise a blocking error.
 
-**One thing to watch during execution:** `src/lib/tips/build.ts` (Task 9) and the payload builder in `src/app/api/tips/periods/[id]/route.ts` (Task 8) both resolve clocked hours and adjustments into a `TipPerson[]`. That duplication is deliberate — the payload route also returns punches, labels and scope metadata the freeze path does not need — but if a third caller appears, extract the shared `resolveRoster(period, settings)` helper into `build.ts` and have the payload route import it.
+**One resolver, two callers.** `resolveRoster` in `src/lib/tips/roster.ts` (Task 8) is the only place clock punches and per-day adjustments become a `TipPerson[]`. Both the page payload route and `build.ts`'s freeze/export path import it. Do not inline a second copy: the page's numbers and the numbers frozen at payment must come from the same fold, or a drift between them changes what people are paid without anything failing.
 
