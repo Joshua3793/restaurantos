@@ -1644,10 +1644,15 @@ export function auditPeriod(input: AuditInput): AuditResult {
   })
 
   // ── money ─────────────────────────────────────────────────────────────────
+  // Compare the split against what was DISTRIBUTABLE, not against the whole
+  // pool: a day with a basis but nobody on shift contributes to poolTotal and
+  // to nobody's tip, and is reported separately as `orphan-<d>` below. Using
+  // poolTotal here would raise a false blocking error on every such period.
   const tipSum = split.people.reduce((a, p) => a + p.tip, 0)
-  if (Math.abs(tipSum - split.poolTotal) >= 0.005) {
-    add('error', 'balance', 'The split does not add up to the pool',
-      `Individual tips total ${money(tipSum)} against a pool of ${money(split.poolTotal)} — a gap of ${money(Math.abs(tipSum - split.poolTotal))}.`)
+  const distributable = split.pools.reduce((a, pool, d) => a + (split.weightedByDay[d] > 0 ? pool : 0), 0)
+  if (Math.abs(tipSum - distributable) >= 0.005) {
+    add('error', 'balance', 'The split does not add up',
+      `Individual tips total ${money(tipSum)} against ${money(distributable)} of distributable pool — a gap of ${money(Math.abs(tipSum - distributable))}.`)
   }
   split.pools.forEach((pool, d) => {
     if (pool > 0.005 && split.weightedByDay[d] <= 0) {
@@ -1697,7 +1702,10 @@ export function auditPeriod(input: AuditInput): AuditResult {
       'The pool is sized off sales, so the payout is unaffected — but without tip totals the split cannot show what share of the front-of-house pot the kitchen is taking. Re-run the Toast sync to capture it.')
   }
 
-  const drift = r2(split.envelopeTotalCents / 100 - split.poolTotal)
+  // Rounding drift is envelopes vs the tips actually owed — NOT vs poolTotal,
+  // which would fold any undistributed day pool into a figure labelled
+  // "rounding" and hide it.
+  const drift = r2(split.envelopeTotalCents / 100 - split.distributedTotal)
   if (Math.abs(drift) >= 0.005) {
     const perHead = Math.abs(drift) / Math.max(1, split.people.length)
     add(perHead > 0.5 ? 'warn' : 'info', 'drift',
@@ -5662,7 +5670,7 @@ export function ChecksTab({
             <span className="w-[34px] h-[34px] rounded-full bg-green-soft text-green-text grid place-items-center text-[15px] font-bold mb-0.5">✓</span>
             <span className="text-[15px] font-semibold tracking-[-0.02em]">Everything reconciles</span>
             <span className="font-mono text-[10.5px] text-ink-3">
-              {counts.shifts} shifts · {hoursLabel(counts.inPool)} · {money(split.poolTotal)} distributed to the cent
+              {counts.shifts} shifts · {hoursLabel(counts.inPool)} · {money(split.distributedTotal)} distributed to the cent
             </span>
           </div>
         ) : (
