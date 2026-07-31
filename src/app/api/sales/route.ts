@@ -77,12 +77,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: toastOverlapMessage(covered) }, { status: 409 })
   }
 
+  // Optional customer tips on a manual entry. Absent → null ("no tip data"),
+  // which the tip payout audit treats very differently from 0.
+  let tipsCollected: number | null = null
+  if (rest.tipsCollected !== undefined && rest.tipsCollected !== null && rest.tipsCollected !== '') {
+    const v = Number(rest.tipsCollected)
+    if (!isFinite(v) || v < 0) {
+      return NextResponse.json({ error: 'tipsCollected must be a positive number' }, { status: 400 })
+    }
+    tipsCollected = Math.round(v * 100) / 100
+  }
+  delete rest.tipsCollected
+
   const entry = await prisma.salesEntry.create({
     data: {
       date:           new Date(rest.date),
       totalRevenue:   parseFloat(rest.totalRevenue) || 0,
       foodSalesPct:   parseFloat(rest.foodSalesPct) || 0.7,
       covers:         rest.covers ? parseInt(rest.covers) : null,
+      tipsCollected,
       notes:          rest.notes || null,
       periodType:     rest.periodType ?? 'day',
       endDate:        rest.endDate ? new Date(rest.endDate) : null,

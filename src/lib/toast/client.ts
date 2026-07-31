@@ -216,6 +216,39 @@ export interface ToastSelection {
   deferred?: boolean // gift cards etc.
 }
 
+/**
+ * A payment on a check. Already present in every ordersBulk response — the app
+ * simply never modelled it. `amount` EXCLUDES the tip; `tipAmount` is the tip.
+ * https://doc.toasttab.com/openapi/orders/tag/Data-definitions/schema/Payment/
+ */
+export interface ToastPayment {
+  guid: string
+  /** Payment amount, excluding the tip. */
+  amount?: number
+  /** The amount tipped on this payment. */
+  tipAmount?: number
+  type?: string // CASH | CREDIT | GIFTCARD | HOUSE_ACCOUNT | OTHER | UNDETERMINED …
+  paymentStatus?: string // OPEN | PROCESSING | AUTHORIZED | CAPTURED | VOIDED | DENIED | ERROR
+  refundStatus?: string // NONE | PARTIAL | FULL
+  refund?: { refundAmount?: number; tipRefundAmount?: number }
+  voidInfo?: { voidDate?: string } | null
+}
+
+/**
+ * A restaurant-configured service charge. `gratuity: true` marks auto-gratuity,
+ * which some houses pay out with the tip pot and some treat as revenue — hence
+ * TipSettings.includeAutoGratuity rather than a hard-coded rule.
+ */
+export interface ToastAppliedServiceCharge {
+  guid: string
+  name?: string
+  chargeAmount?: number
+  chargeType?: string
+  gratuity?: boolean
+  taxable?: boolean
+  refundDetails?: { refundAmount?: number } | null
+}
+
 export interface ToastCheck {
   guid: string
   /** Total incl. discounts + service charges, excluding gratuity + tax. Net-sales basis. */
@@ -225,6 +258,8 @@ export interface ToastCheck {
   voided?: boolean
   deleted?: boolean
   selections?: ToastSelection[]
+  payments?: ToastPayment[]
+  appliedServiceCharges?: ToastAppliedServiceCharge[]
 }
 
 export interface ToastOrder {
@@ -240,6 +275,41 @@ export interface ToastOrder {
   revenueCenter?: ToastRef // internal CAFE/Catering → RevenueCenter.toastGuid
   diningOption?: ToastRef
   checks?: ToastCheck[]
+}
+
+/** Payment states whose tip never reached the house. */
+const DEAD_PAYMENT_STATUS = new Set(['VOIDED', 'DENIED', 'ERROR'])
+
+/**
+ * Customer tips on one check, net of refunds.
+ *
+ * Returns payment tips and gratuity service charges SEPARATELY so the two can
+ * be stored in separate columns — whether auto-gratuity counts as a tip is a
+ * house policy that must stay changeable without re-syncing Toast.
+ */
+export function checkTipTotals(
+  check: ToastCheck,
+  includeAutoGratuity: boolean,
+): { tips: number; gratuity: number } {
+  let tips = 0
+  for (const p of check.payments ?? []) {
+    if (p.voidInfo) continue
+    if (p.paymentStatus && DEAD_PAYMENT_STATUS.has(p.paymentStatus)) continue
+    const net = (p.tipAmount ?? 0) - (p.refund?.tipRefundAmount ?? 0)
+    if (net > 0) tips += net
+  }
+
+  let gratuity = 0
+  if (includeAutoGratuity) {
+    for (const s of check.appliedServiceCharges ?? []) {
+      if (!s.gratuity) continue
+      const net = (s.chargeAmount ?? 0) - (s.refundDetails?.refundAmount ?? 0)
+      if (net > 0) gratuity += net
+    }
+  }
+
+  const round = (n: number) => Math.round(n * 100) / 100
+  return { tips: round(tips), gratuity: round(gratuity) }
 }
 
 // ── ordersBulk ───────────────────────────────────────────────────────────────

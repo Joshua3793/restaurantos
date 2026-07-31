@@ -24,6 +24,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { fetchOrdersForBusinessDateInt, type ToastOrder } from '@/lib/toast/client'
+import { checkTipTotals } from './client'
 import { classifyGroup } from '@/lib/toast/food-classify'
 
 const TZ = 'America/Los_Angeles'
@@ -66,6 +67,10 @@ interface RcBucket {
   revenueCenterId: string
   totalRevenue: number
   foodRevenue: number
+  /** Customer payment tips, split across RCs by each check's routed revenue. */
+  tips: number
+  /** Gratuity service charges, split the same way. */
+  gratuity: number
   covers: number
   qtyByRecipe: Map<string, number>
   unmatched: Map<string, number> // toastItemGuid → qty (sold but no recipe mapping)
@@ -81,12 +86,15 @@ export interface DaySyncResult {
     totalRevenue: number
     foodSalesPct: number
     covers: number
+    tipsCollected: number
     lineItemsWritten: number
     unmatchedItems: number
     unmatchedQty: number
     supersededManual: number   // same-day manual entries removed (Toast is authoritative)
   }[]
   skippedUnmappedRcOrders: number
+  /** Tips on checks that routed to no revenue center — reported, never dropped. */
+  unattributedTips: number
   // Multi-day manual entries that overlap a synced day but were LEFT in place (deleting
   // them would drop revenue for their other days) — surfaced for manual resolution.
   manualConflicts?: string[]
@@ -135,17 +143,21 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   } catch (e) {
     return {
       businessDate: yyyymmdd, ordersPulled: 0, status: 'error',
-      perRc: [], skippedUnmappedRcOrders: 0,
+      perRc: [], skippedUnmappedRcOrders: 0, unattributedTips: 0,
       error: e instanceof Error ? e.message : String(e),
     }
   }
 
   const buckets = new Map<string, RcBucket>()
   let skippedUnmappedRcOrders = 0
+  let unattributedTips = 0
+  const includeAutoGratuity =
+    (await prisma.tipSettings.findUnique({ where: { id: 'singleton' }, select: { includeAutoGratuity: true } }))
+      ?.includeAutoGratuity ?? true
 
   const getBucket = (rcId: string): RcBucket => {
     let b = buckets.get(rcId)
-    if (!b) { b = { revenueCenterId: rcId, totalRevenue: 0, foodRevenue: 0, covers: 0, qtyByRecipe: new Map(), unmatched: new Map() }; buckets.set(rcId, b) }
+    if (!b) { b = { revenueCenterId: rcId, totalRevenue: 0, foodRevenue: 0, tips: 0, gratuity: 0, covers: 0, qtyByRecipe: new Map(), unmatched: new Map() }; buckets.set(rcId, b) }
     return b
   }
 
@@ -169,6 +181,10 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
 
     for (const check of order.checks ?? []) {
       if (check.voided || check.deleted) continue
+
+      // Revenue this check routed, per RC — the weights the tip is split by.
+      const checkRcRevenue = new Map<string, number>()
+
       for (const sel of check.selections ?? []) {
         if (sel.voided || sel.deferred) continue
         const item = sel.item?.guid ? itemByGuid.get(sel.item.guid) : undefined
@@ -185,6 +201,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
         bucket.totalRevenue += price
         if (cls.isFood) bucket.foodRevenue += price
         orderRcRevenue.set(rcId, (orderRcRevenue.get(rcId) ?? 0) + price)
+        checkRcRevenue.set(rcId, (checkRcRevenue.get(rcId) ?? 0) + price)
 
         const qty = Math.round(sel.quantity ?? 0)
         if (qty <= 0) continue
@@ -192,6 +209,28 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
           bucket.qtyByRecipe.set(item.recipeId, (bucket.qtyByRecipe.get(item.recipeId) ?? 0) + qty)
         } else if (sel.item?.guid) {
           bucket.unmatched.set(sel.item.guid, (bucket.unmatched.get(sel.item.guid) ?? 0) + qty)
+        }
+      }
+
+      // A tip belongs to the CHECK, not to a line, so split it across the RCs
+      // this check actually sold into, weighted by their share of its revenue.
+      // No routed revenue → fall back to the order's RC; still nothing → count
+      // it as unattributed rather than dropping it on the floor.
+      const { tips, gratuity } = checkTipTotals(check, includeAutoGratuity)
+      if (tips > 0 || gratuity > 0) {
+        const weights = checkRcRevenue.size
+          ? checkRcRevenue
+          : orderRc ? new Map([[orderRc, 1]]) : new Map<string, number>()
+        const totalWeight = [...weights.values()].reduce((a, b) => a + b, 0)
+        if (totalWeight > 0) {
+          for (const [rcId, weight] of weights) {
+            const share = weight / totalWeight
+            const b = getBucket(rcId)
+            b.tips += tips * share
+            b.gratuity += gratuity * share
+          }
+        } else {
+          unattributedTips += tips + gratuity
         }
       }
     }
@@ -249,6 +288,8 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
           data: {
             totalRevenue: bucket.totalRevenue,
             foodSalesPct,
+            tipsCollected: Math.round(bucket.tips * 100) / 100,
+            autoGratuity: Math.round(bucket.gratuity * 100) / 100,
             covers: bucket.covers || null,
             lineItems: { create: lineItems },
           },
@@ -259,6 +300,8 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
             date, revenueCenterId: bucket.revenueCenterId, source: SOURCE, periodType: 'day',
             totalRevenue: bucket.totalRevenue,
             foodSalesPct,
+            tipsCollected: Math.round(bucket.tips * 100) / 100,
+            autoGratuity: Math.round(bucket.gratuity * 100) / 100,
             covers: bucket.covers || null,
             lineItems: { create: lineItems },
           },
@@ -274,6 +317,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
       totalRevenue: bucket.totalRevenue,
       foodSalesPct,
       covers: bucket.covers,
+      tipsCollected: Math.round(bucket.tips * 100) / 100,
       lineItemsWritten: lineItems.length,
       unmatchedItems: bucket.unmatched.size,
       unmatchedQty,
@@ -282,6 +326,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   }
 
   if (manualConflicts.length) console.warn(`[toast-sync ${yyyymmdd}] manual/Toast conflicts left in place:\n  ${manualConflicts.join('\n  ')}`)
+  if (unattributedTips > 0.005) console.warn(`[toast-sync ${yyyymmdd}] ${unattributedTips.toFixed(2)} in tips could not be attributed to a revenue center`)
 
   return {
     businessDate: yyyymmdd,
@@ -289,6 +334,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     status: buckets.size ? 'ok' : 'skipped',
     perRc,
     skippedUnmappedRcOrders,
+    unattributedTips,
     ...(manualConflicts.length ? { manualConflicts } : {}),
   }
 }
