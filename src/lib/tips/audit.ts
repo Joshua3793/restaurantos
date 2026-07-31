@@ -9,7 +9,7 @@
  * check is NOT ported — Cook.clockId carries a unique index, so two roster rows
  * cannot share a code.
  */
-import { cappedAway, effectiveHours, roleOf } from './engine'
+import { cappedAway } from './engine'
 import type { PoolBasis, SplitResult, TipPerson, TipRoleDef } from './types'
 
 export interface PunchRow {
@@ -63,7 +63,17 @@ export interface AuditInput {
   poolBasis: PoolBasis
   /** Daily net sales — always supplied, even when the basis is TIPS_COLLECTED. */
   sales: number[]
-  /** Daily customer tips. `null` on a day the app has no tip data for. */
+  /**
+   * Daily customer tips. `null` on a day the app has no tip data for.
+   *
+   * MUST be resolved over the SAME revenue-center scope as `basis`. The
+   * `overdraw` error — "the kitchen is owed more than customers left" — is a
+   * comparison of two figures drawn from different queries, and it is only
+   * sound while both cover the same scope. Feed it tips from a wider scope
+   * than the basis and a real overdraw hides; feed it a narrower one and the
+   * audit blocks a legitimate payroll run. The caller resolves both from a
+   * single scoped resolver for exactly this reason.
+   */
   tipsCollected: Array<number | null>
   roles: TipRoleDef[]
   people: TipPerson[]
@@ -72,6 +82,12 @@ export interface AuditInput {
   roundingStepCents: number
   poolDepartments: string[]
   ignoredClockIds: string[]
+  /**
+   * The reward multipliers configured in Tip settings, used only to tell a
+   * boost the house sanctioned from one that was typed wrong. Omitted or
+   * empty means "cannot tell" — every boost is then reported as info.
+   */
+  rewardTiers?: number[]
   /**
    * Day indexes the configured scope produced no usable BASIS figure for —
    * no SalesEntry row at all when the basis is NET_SALES, or a row with a null
@@ -94,21 +110,32 @@ export interface AuditResult {
     unexplained: number
     /** Clocked kitchen hours that are being left out of the payout entirely. */
     missingHours: number
+    /**
+     * Σ over on-pool roster members of the per-DAY gap between the hours they
+     * clocked and the hours the split is paying them, counting only days no
+     * manual edit accounts for. The house-wide `manual` figure nets a missing
+     * shift against somebody else's extra one; this does not. Non-zero means
+     * at least one person is being paid the wrong hours.
+     */
+    unreconciledHours: number
     lostPeople: string[]
   }
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 const hrs = (n: number) => `${r2(n).toFixed(2)} h`
+// Sign OUTSIDE the dollar mark: a refund day reads "−$500.00", never "$-500.00".
 const money = (n: number) =>
-  '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  (n < 0 ? '−$' : '$') +
+  Math.abs(n).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`
 
 export function auditPeriod(input: AuditInput): AuditResult {
   const {
-    dayLabels, basis, poolBasis, sales, tipsCollected, roles, people: roster, punches, split,
+    dayLabels, basis, poolBasis, tipsCollected, roles, people: roster, punches, split,
     roundingStepCents, poolDepartments, ignoredClockIds, missingBasisDays,
+    rewardTiers = [],
   } = input
   const basisNoun = poolBasis === 'TIPS_COLLECTED' ? 'tips collected' : 'net sales'
   const dayCount = dayLabels.length
@@ -118,44 +145,69 @@ export function auditPeriod(input: AuditInput): AuditResult {
     actions?: FindingAction[], amount?: number,
   ) => { findings.push({ severity, id, title, detail, actions, amount }) }
 
-  const byCode = new Map<string, { p: TipPerson; i: number }>()
-  roster.forEach((p, i) => { if (p.clockId) byCode.set(String(p.clockId), { p, i }) })
+  const byCode = new Map<string, TipPerson>()
+  roster.forEach(p => { if (p.clockId) byCode.set(String(p.clockId), p) })
 
   // ── bucket every punch ────────────────────────────────────────────────────
+  // The tests below are ordered by how much a punch could affect the payout,
+  // NOT by how cheap they are to evaluate. Status is judged LAST, because a
+  // pending punch only costs somebody money if it would otherwise have been
+  // paid: a punch from another department, from outside the period, on an
+  // ignored code, from a stranger, or from somebody deliberately off the pool
+  // pays nothing whether or not a manager ever approves it. Judging status
+  // first raised a blocking `unapproved` error on all five, and made the
+  // "Not kitchen" ignore action unable to clear the block it was built for.
+  //
+  // Every branch continues, so the buckets remain a strict partition of the
+  // finite-hours punches and the ledger closes by construction.
   const bucket = { dept: 0, period: 0, unapproved: 0, unknown: 0, ignored: 0, offpool: 0 }
   const unknown = new Map<string, { code: string; name: string; last: string; pos: string; h: number; n: number }>()
   const offpool = new Map<string, { code: string; name: string; cookId: string; h: number; n: number }>()
   const unapproved = new Map<string, { code: string; name: string; last: string; h: number; n: number }>()
+  /** Eligible clocked hours per roster code per day — the per-person reconciliation basis. */
+  const clockedByCode = new Map<string, number[]>()
   let eligible = 0
   let shifts = 0
+  let malformed = 0
+  let counted = 0
+  let clockedTotal = 0
 
   for (const r of punches) {
     const code = String(r.clockId)
     const h = r.hours
+    // A blank or "–" cell in a clock export parses to NaN, and every downstream
+    // comparison against NaN is false — Math.abs(NaN) >= 0.005 does not fire.
+    // Such a row cannot be reconciled at all, so it never enters the ledger.
+    if (!Number.isFinite(h) || !Number.isFinite(r.dayIndex)) { malformed++; continue }
+    counted++
+    clockedTotal = r2(clockedTotal + h)
     if (poolDepartments.length && !poolDepartments.includes(r.department)) { bucket.dept = r2(bucket.dept + h); continue }
     if (r.dayIndex < 0 || r.dayIndex >= dayCount) { bucket.period = r2(bucket.period + h); continue }
+    if (ignoredClockIds.includes(code)) { bucket.ignored = r2(bucket.ignored + h); continue }
+    const match = byCode.get(code)
+    if (!match) {
+      bucket.unknown = r2(bucket.unknown + h)
+      const u = unknown.get(code) ?? { code, name: r.firstName, last: r.lastName, pos: r.position, h: 0, n: 0 }
+      u.h = r2(u.h + h); u.n++; unknown.set(code, u)
+      continue
+    }
+    if (!match.onPool) {
+      bucket.offpool = r2(bucket.offpool + h)
+      const u = offpool.get(code) ?? { code, name: match.name, cookId: match.cookId, h: 0, n: 0 }
+      u.h = r2(u.h + h); u.n++; offpool.set(code, u)
+      continue
+    }
     if (!/approved/i.test(r.status || '')) {
       bucket.unapproved = r2(bucket.unapproved + h)
       const u = unapproved.get(code) ?? { code, name: r.firstName, last: r.lastName, h: 0, n: 0 }
       u.h = r2(u.h + h); u.n++; unapproved.set(code, u)
       continue
     }
-    const match = byCode.get(code)
-    if (!match) {
-      if (ignoredClockIds.includes(code)) { bucket.ignored = r2(bucket.ignored + h); continue }
-      bucket.unknown = r2(bucket.unknown + h)
-      const u = unknown.get(code) ?? { code, name: r.firstName, last: r.lastName, pos: r.position, h: 0, n: 0 }
-      u.h = r2(u.h + h); u.n++; unknown.set(code, u)
-      continue
-    }
-    if (!match.p.onPool) {
-      bucket.offpool = r2(bucket.offpool + h)
-      const u = offpool.get(code) ?? { code, name: match.p.name, cookId: match.p.cookId, h: 0, n: 0 }
-      u.h = r2(u.h + h); u.n++; offpool.set(code, u)
-      continue
-    }
     eligible = r2(eligible + h)
     shifts++
+    const perDay = clockedByCode.get(code) ?? new Array<number>(dayCount).fill(0)
+    perDay[r.dayIndex] = r2(perDay[r.dayIndex] + h)
+    clockedByCode.set(code, perDay)
   }
 
   // ── the ledger ────────────────────────────────────────────────────────────
@@ -170,7 +222,9 @@ export function auditPeriod(input: AuditInput): AuditResult {
   const lost = r2(bucket.unknown + bucket.unapproved)
 
   const ledger: LedgerRow[] = [
-    { label: 'Clocked in the hours file', value: r2(punches.reduce((a, r) => a + r.hours, 0)), lead: true, note: plural(punches.length, 'shift') },
+    // Malformed rows are excluded from both the total and the shift count:
+    // they carry no number to account for, and are reported as `malformed`.
+    { label: 'Clocked in the hours file', value: clockedTotal, lead: true, note: plural(counted, 'shift') },
     { label: 'Other department', value: -bucket.dept, muted: !bucket.dept },
     { label: 'Dated outside the period', value: -bucket.period, muted: !bucket.period },
     { label: 'Not approved', value: -bucket.unapproved, bad: bucket.unapproved > 0, muted: !bucket.unapproved },
@@ -178,10 +232,17 @@ export function auditPeriod(input: AuditInput): AuditResult {
     { label: 'Excluded on purpose', value: -bucket.ignored, muted: !bucket.ignored },
     { label: 'Taken off the pool', value: -bucket.offpool, warn: bucket.offpool > 0, muted: !bucket.offpool },
     { label: 'Eligible hours', value: eligible, subtotal: true },
-    { label: 'Manual edits on the split', value: manual, warn: Math.abs(manual) > 0.005, muted: Math.abs(manual) < 0.005 },
+    { label: 'Manual edits on the split', value: manual, warn: Math.abs(manual) >= 0.005, muted: Math.abs(manual) < 0.005 },
     { label: 'Removed by shift caps', value: -capAdj, warn: capAdj > 0, muted: !capAdj },
     { label: 'Paid in this pool', value: inPool, lead: true, closed: Math.abs(unexplained) < 0.005 && lost < 0.005, bad: lost >= 0.005 },
   ]
+
+  // ── rows the hours file could not be read from ────────────────────────────
+  if (malformed > 0) {
+    add('error', 'malformed', `${plural(malformed, 'shift')} could not be read`,
+      `${malformed === 1 ? 'One row' : `${malformed} rows`} in the hours file has no usable hours or date — an empty or “–” cell, most likely. ${malformed === 1 ? 'It is' : 'They are'} not in the ledger and nobody is paid for ${malformed === 1 ? 'it' : 'them'}. Fix the row in the POS and re-import.`,
+      [{ label: 'Open Import data', kind: 'goto', arg: 'import' }], malformed)
+  }
 
   // ── hours that vanished ───────────────────────────────────────────────────
   ;[...unknown.values()].sort((a, b) => b.h - a.h).forEach(u => {
@@ -205,6 +266,42 @@ export function auditPeriod(input: AuditInput): AuditResult {
       `${hrs(u.h)} clocked and excluded on purpose. Turn them back on in Tip settings if that is wrong.`,
       [{ label: 'Put back on the pool', kind: 'onPool', arg: u.cookId }], u.h)
   })
+  // ── the split against the clock, one person at a time ─────────────────────
+  // The house-wide `manual` figure is a residual: Ana's missing eight hours and
+  // Bo's phantom eight hours cancel, and a period in which one person is paid
+  // nothing for a shift she worked reads as perfectly balanced. Reconciling per
+  // person per day is what actually proves nobody's hours were dropped, swapped,
+  // or carried over from the last period's roster. Days flagged `edited` are the
+  // manager's own overrides and are excluded — those are what the house-wide
+  // "Manual edits on the split" ledger row exists to report.
+  let unreconciledHours = 0
+  for (const p of pooled) {
+    if (!p.clockId) continue // cannot be matched at all — reported as `nocode`
+    const clocked = clockedByCode.get(String(p.clockId)) ?? new Array<number>(dayCount).fill(0)
+    let clockedSum = 0
+    let splitSum = 0
+    let gap = 0
+    const days: string[] = []
+    for (let d = 0; d < dayCount; d++) {
+      if (p.edited[d]) continue
+      const c = clocked[d] ?? 0
+      const s = p.hours[d] ?? 0
+      clockedSum = r2(clockedSum + c)
+      splitSum = r2(splitSum + s)
+      const diff = r2(c - s)
+      if (Math.abs(diff) < 0.005) continue
+      gap = r2(gap + Math.abs(diff))
+      days.push(`${dayLabels[d] ?? `day ${d + 1}`} ${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)} h`)
+    }
+    if (!days.length) continue
+    unreconciledHours = r2(unreconciledHours + gap)
+    add('error', `hours-${p.clockId}`,
+      `${p.name}’s hours do not match the clock file`,
+      `The clock file has ${hrs(clockedSum)} where the split pays ${hrs(splitSum)} — ${days.slice(0, 4).join(', ')}${days.length > 4 ? ` +${days.length - 4} more` : ''}. ` +
+      'Nothing on the split records that change, so somebody is being paid the wrong hours. Re-import the hours file, or record the difference as a manual adjustment if it is deliberate.',
+      [{ label: 'Open Import data', kind: 'goto', arg: 'import' }], gap)
+  }
+
   if (Math.abs(unexplained) >= 0.005) {
     add('error', 'unexplained', `${hrs(Math.abs(unexplained))} cannot be traced`,
       `The reconciliation does not close: ${hrs(inPool)} should be in the pool but the split is paying ${hrs(splitHours)}. Re-import the hours file before paying anyone.`,
@@ -229,18 +326,18 @@ export function auditPeriod(input: AuditInput): AuditResult {
   }
 
   // ── the same person under two codes ───────────────────────────────────────
-  const byLast = new Map<string, { p: TipPerson; i: number }>()
-  roster.forEach((p, i) => {
+  const byLast = new Map<string, TipPerson>()
+  roster.forEach(p => {
     const key = (p.lastName ?? '').toLowerCase()
-    if (key && !byLast.has(key)) byLast.set(key, { p, i })
+    if (key && !byLast.has(key)) byLast.set(key, p)
   })
   ;[...unknown.values()].forEach(u => {
     const hit = byLast.get((u.last ?? '').toLowerCase())
-    if (hit && !hit.p.hours.some(h => h > 0)) {
+    if (hit && !hit.hours.some(h => h > 0)) {
       add('warn', `code-${u.code}`,
-        `Two codes for ${hit.p.name} ${hit.p.lastName}?`,
-        `The roster has ${hit.p.name} ${hit.p.lastName} on code #${hit.p.clockId ?? '—'}, but the clock file shows ${u.name} ${u.last} on #${u.code} with ${hrs(u.h)}. One of them is wrong.`,
-        [{ label: `Use #${u.code}`, kind: 'setCode', arg: `${hit.p.cookId}:${u.code}` }])
+        `Two codes for ${hit.name} ${hit.lastName}?`,
+        `The roster has ${hit.name} ${hit.lastName} on code #${hit.clockId ?? '—'}, but the clock file shows ${u.name} ${u.last} on #${u.code} with ${hrs(u.h)}. One of them is wrong.`,
+        [{ label: `Use #${u.code}`, kind: 'setCode', arg: `${hit.cookId}:${u.code}` }])
     }
   })
 
@@ -258,7 +355,9 @@ export function auditPeriod(input: AuditInput): AuditResult {
   split.pools.forEach((pool, d) => {
     if (pool > 0.005 && split.weightedByDay[d] <= 0) {
       add('error', `orphan-${d}`, `${money(pool)} has nobody to pay on ${dayLabels[d]}`,
-        'There were sales that day but no eligible hours on the clock, so that day pool cannot be handed out.')
+        'There were sales that day but no eligible hours on the clock, so that day pool cannot be handed out. ' +
+        'Import that day’s hours if the kitchen was open, or check the scope if those sales belong somewhere else.',
+        [{ label: 'Open Import data', kind: 'goto', arg: 'import' }], pool)
     }
   })
   if (missingBasisDays.length) {
@@ -269,10 +368,20 @@ export function auditPeriod(input: AuditInput): AuditResult {
         : 'Sync or enter those days, or import the sales workbook to override.'),
       [{ label: 'Open Import data', kind: 'goto', arg: 'import' }])
   }
-  const zeroDays = basis.map((v, d) => (v <= 0 ? d : -1)).filter(d => d >= 0 && !missingBasisDays.includes(d))
+  const reported = (d: number) => !missingBasisDays.includes(d)
+  const zeroDays = basis.map((v, d) => (v === 0 ? d : -1)).filter(d => d >= 0 && reported(d))
   if (zeroDays.length) {
     add('warn', 'zerobasis', `${plural(zeroDays.length, 'day')} with no ${basisNoun}`,
       `${zeroDays.map(d => dayLabels[d]).join(', ')} produced no pool. Check the scope if the kitchen was open.`)
+  }
+  // A day that took LESS than nothing is not the same as one that took nothing.
+  // computeSplit floors the day pool at zero on purpose — a refund-heavy day
+  // cannot create a negative tip obligation — and defers the signal here.
+  const negDays = basis.map((v, d) => (v < 0 ? d : -1)).filter(d => d >= 0 && reported(d))
+  if (negDays.length) {
+    add('warn', 'negbasis', `${plural(negDays.length, 'day')} with negative ${basisNoun}`,
+      `${negDays.map(d => `${dayLabels[d]} ${money(basis[d])}`).join(', ')} — refunds outran takings. ` +
+      `That day’s pool is floored at zero rather than docked off anyone’s tips, so nobody loses money, but the ${basisNoun} figure is worth checking before you pay.`)
   }
 
   /* ---- the FOH → BOH tip-out, whatever the basis ---- */
@@ -301,9 +410,19 @@ export function auditPeriod(input: AuditInput): AuditResult {
       add('info', 'takeout', `The tip-out is ${takeoutPct.toFixed(0)}% of the tip pot`,
         `${money(split.distributedTotal)} to the kitchen, ${money(tipPot - split.distributedTotal)} left for front of house out of ${money(tipPot)} collected.`)
     }
-  } else if (poolBasis === 'NET_SALES') {
-    add('info', 'notips', 'No tip data for this period',
-      'The pool is sized off sales, so the payout is unaffected — but without tip totals the split cannot show what share of the front-of-house pot the kitchen is taking. Re-run the Toast sync to capture it.')
+  }
+  // Every tip-out finding above needs tip data for EVERY day — a pot missing a
+  // Saturday understates the coverage the kitchen is taking. Partial data used
+  // to fall between the two branches: the tip-out findings were suppressed and
+  // `notips` did not fire either, so the manager was told nothing at all.
+  const noTipDays = tipsCollected.map((t, d) => (t == null ? d : -1)).filter(d => d >= 0)
+  if (poolBasis === 'NET_SALES' && noTipDays.length) {
+    const all = noTipDays.length === tipsCollected.length
+    add('info', 'notips',
+      all ? 'No tip data for this period' : `${plural(noTipDays.length, 'day')} have no tip data`,
+      (all ? '' : `${noTipDays.map(d => dayLabels[d]).join(', ')} are missing tip totals. `) +
+      'The pool is sized off sales, so the payout is unaffected — but without tip totals ' +
+      `${all ? 'the split cannot show' : 'the split cannot reliably show'} what share of the front-of-house pot the kitchen is taking. Re-run the Toast sync to capture ${all ? 'it' : 'them'}.`)
   }
 
   // Envelopes round against distributedTotal (money actually owed to people),
@@ -315,7 +434,7 @@ export function auditPeriod(input: AuditInput): AuditResult {
     const perHead = Math.abs(drift) / Math.max(1, split.people.length)
     add(perHead > 0.5 ? 'warn' : 'info', 'drift',
       `Cash rounding is ${drift > 0 ? 'over' : 'under'} by ${money(Math.abs(drift))}`,
-      `Envelopes round to ${roundingStepCents >= 100 ? '$' + roundingStepCents / 100 : roundingStepCents + '¢'}. ${drift > 0 ? 'The float covers the difference.' : 'The remainder carries into the next period.'}`)
+      `Envelopes round to ${roundingStepCents >= 100 ? money(roundingStepCents / 100) : roundingStepCents + '¢'}. ${drift > 0 ? 'The float covers the difference.' : 'The remainder carries into the next period.'}`)
   }
 
   // ── people & roles ────────────────────────────────────────────────────────
@@ -336,6 +455,40 @@ export function auditPeriod(input: AuditInput): AuditResult {
     add('info', 'idle', `${plural(idle.length, 'roster member')} with no hours`,
       `${idle.join(', ')} did not clock in this period and get nothing. They stay on the roster.`)
   }
+  // ── reward boosts ─────────────────────────────────────────────────────────
+  // A boost multiplies its owner's daily share directly, so it takes money off
+  // everybody else on shift that day. A mistyped 5 where 1.5 was meant is
+  // invisible in every other check — the ledger still closes, the split still
+  // balances — so every boost is enumerated and any value the house has not
+  // configured as a tier is called out.
+  const boosts: Array<{ label: string; tiered: boolean }> = []
+  for (const p of roster) {
+    for (let d = 0; d < dayCount; d++) {
+      const b = p.boosts[d] ?? 1
+      if (b === 1 || !Number.isFinite(b)) continue
+      boosts.push({
+        label: `${p.name} · ${dayLabels[d] ?? `day ${d + 1}`} ×${b}`,
+        // No configured tiers means the app cannot tell a sanctioned boost from
+        // a typo, so it does not pretend to: everything reads as info.
+        tiered: !rewardTiers.length || rewardTiers.some(t => Math.abs(t - b) < 1e-9),
+      })
+    }
+  }
+  const listBoosts = (xs: typeof boosts) =>
+    xs.slice(0, 6).map(x => x.label).join(', ') + (xs.length > 6 ? ` +${xs.length - 6} more` : '')
+  const offTier = boosts.filter(x => !x.tiered)
+  const onTier = boosts.filter(x => x.tiered)
+  if (onTier.length) {
+    add('info', 'boosts', `${plural(onTier.length, 'reward boost')} applied`,
+      `${listBoosts(onTier)}. Each one raises that person's share of their day pool and lowers everybody else's.`)
+  }
+  if (offTier.length) {
+    add('warn', 'boost-offtier', `${plural(offTier.length, 'reward boost')} not on a configured tier`,
+      `${listBoosts(offTier)}. The configured tiers are ${rewardTiers.map(t => `×${t}`).join(', ')}. ` +
+      'A boost off the ladder is usually a typo, and it moves real money away from everyone else on that shift.',
+      [{ label: 'Open Tip settings', kind: 'goto', arg: 'settings' }], offTier.length)
+  }
+
   const notes = punches.filter(r => r.note)
   if (notes.length) {
     add('info', 'notes', `${plural(notes.length, 'shift')} carry a manager note`,
@@ -354,6 +507,7 @@ export function auditPeriod(input: AuditInput): AuditResult {
       info: findings.filter(f => f.severity === 'info').length,
       shifts, eligible, inPool, unexplained,
       missingHours: lost,
+      unreconciledHours,
       lostPeople: [...unknown.values(), ...unapproved.values()]
         .sort((a, b) => b.h - a.h)
         .map(u => `${u.name} ${u.last}`),
