@@ -23,14 +23,20 @@ function sheetRows(wb: XLSX.WorkBook, name: string): Row[] | null {
 /**
  * `num()` needs to treat `(1,234.56)` — the standard accounting notation for
  * a negative figure — as `-1234.56`, not as garbage. `$`/`,`/whitespace are
- * stripped as before; parentheses are stripped too, but only after they've
- * been read as a negation sign.
+ * stripped as before; parentheses are stripped too, but only when the whole
+ * string is wrapped in a *balanced* pair (the same test that flags it as
+ * negative). A lone/unbalanced paren — e.g. a truncated `"(12.34"` or a
+ * stray `"12.34)"` — must NOT have its paren silently dropped: that would
+ * turn an unparseable cell into a plausible-but-wrong positive number with
+ * no error anywhere. Such cells fall through to being unparseable, same as
+ * before parens were handled at all.
  */
 function num(v: unknown): number {
   if (v == null) return NaN
   if (typeof v === 'number') return v
   const s = String(v).trim()
   const negative = /^\(.*\)$/.test(s)
+  if (!negative && /[()]/.test(s)) return NaN
   const cleaned = s.replace(/[()$,\s]/g, '')
   if (!cleaned || cleaned === '-') return NaN
   const n = parseFloat(cleaned)
@@ -130,10 +136,12 @@ export interface ParsedSales {
   /**
    * Rows that had a valid day key but a net-sales figure `num()` could not
    * parse (garbage text, a stray symbol) — excluded from `iso`/`sales`
-   * without a trace unless the caller checks this. Non-zero means the
-   * workbook is missing at least one day's sales silently; surface it.
+   * without a trace unless the caller checks this. `row` is the same 1-based
+   * spreadsheet row number used in the malformed-date error message, so a
+   * manager can jump straight to the cell. An empty array means nothing was
+   * skipped.
    */
-  unparsedRows: number
+  unparsedRows: Array<{ row: number; raw: unknown }>
 }
 
 /**
@@ -167,12 +175,13 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
   const iso: string[] = []
   const sales: number[] = []
   const tips: number[] = []
-  let unparsedRows = 0
+  const unparsedRows: Array<{ row: number; raw: unknown }> = []
   for (const [i, r] of rows.slice(1).entries()) {
-    const day = readDate(r?.[0], `“Sales by day” row ${i + 2}`)
+    const rowNum = i + 2
+    const day = readDate(r?.[0], `“Sales by day” row ${rowNum}`)
     if (!day) continue
     const net = num(r?.[1])
-    if (isNaN(net)) { unparsedRows++; continue }
+    if (isNaN(net)) { unparsedRows.push({ row: rowNum, raw: r?.[1] }); continue }
     iso.push(day)
     sales.push(Math.round(net * 100) / 100)
     if (tipCol >= 0) {
@@ -181,8 +190,8 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
     }
   }
   if (!iso.length) {
-    throw new Error(unparsedRows > 0
-      ? `“Sales by day” had no usable rows — ${unparsedRows} row(s) had a date but an unreadable net sales figure.`
+    throw new Error(unparsedRows.length > 0
+      ? `“Sales by day” had no usable rows — ${unparsedRows.length} row(s) had a date but an unreadable net sales figure.`
       : '“Sales by day” had no usable rows.')
   }
 
@@ -209,10 +218,10 @@ export interface ParsedClocks {
   /**
    * Rows that had a Clock ID and a date but an hours figure `num()` could not
    * parse — excluded from `rows` without a trace unless the caller checks
-   * this. Non-zero means the workbook is silently missing at least one
-   * punch's hours ("hidden hours").
+   * this. `row` is the same 1-based spreadsheet row number used in the
+   * malformed-date error message. An empty array means nothing was skipped.
    */
-  unparsedRows: number
+  unparsedRows: Array<{ row: number; clockId: string; raw: unknown }>
 }
 
 /**
@@ -255,7 +264,7 @@ export function parseClocksWorkbook(
   }
 
   const out: PunchRow[] = []
-  let unparsedRows = 0
+  const unparsedRows: Array<{ row: number; clockId: string; raw: unknown }> = []
   for (const [i, r] of rows.slice(headerIdx + 1).entries()) {
     const first = String(r?.[C.first] ?? '').trim()
     const last = String(r?.[C.last] ?? '').trim()
@@ -270,7 +279,7 @@ export function parseClocksWorkbook(
     const rowNum = headerIdx + i + 2
     const iso = readDate(r?.[C.dateIn], `Clocks Summary row ${rowNum} (${first}, clock #${code || '—'})`)
     if (!code || !iso) continue
-    if (isNaN(hours)) { unparsedRows++; continue }
+    if (isNaN(hours)) { unparsedRows.push({ row: rowNum, clockId: code, raw: r?.[C.hours] }); continue }
     out.push({
       clockId: code,
       firstName: first,
@@ -284,8 +293,8 @@ export function parseClocksWorkbook(
     })
   }
   if (!out.length) {
-    throw new Error(unparsedRows > 0
-      ? `No punches found in that workbook — ${unparsedRows} row(s) had a Clock ID and a date but an unreadable hours figure.`
+    throw new Error(unparsedRows.length > 0
+      ? `No punches found in that workbook — ${unparsedRows.length} row(s) had a Clock ID and a date but an unreadable hours figure.`
       : 'No punches found in that workbook.')
   }
 

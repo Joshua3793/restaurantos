@@ -112,7 +112,47 @@ describe('parseSalesWorkbook', () => {
     }))
     expect(r.iso).toEqual(['2026-07-13'])
     expect(r.sales).toEqual([500])
-    expect(r.unparsedRows).toBe(1)
+    expect(r.unparsedRows).toEqual([{ row: 2, raw: 'N/A' }])
+  })
+
+  it('reports the spreadsheet row number and raw value for an unparsed row, not just a count', () => {
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales'],
+        [20260712, 500],
+        [20260713, 'garbage'],
+        [20260714, 600],
+      ],
+    }))
+    expect(r.unparsedRows).toEqual([{ row: 3, raw: 'garbage' }])
+  })
+
+  // ── unbalanced accounting parens must not silently flip sign ──
+
+  it('rejects a truncated accounting negative with no closing paren instead of reading it as positive', () => {
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales'],
+        [20260712, '(12.34'],
+        [20260713, 500],
+      ],
+    }))
+    expect(r.iso).toEqual(['2026-07-13'])
+    expect(r.sales).toEqual([500])
+    expect(r.unparsedRows).toEqual([{ row: 2, raw: '(12.34' }])
+  })
+
+  it('rejects a stray trailing paren with no opening paren instead of reading it as positive', () => {
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales'],
+        [20260712, '12.34)'],
+        [20260713, 500],
+      ],
+    }))
+    expect(r.iso).toEqual(['2026-07-13'])
+    expect(r.sales).toEqual([500])
+    expect(r.unparsedRows).toEqual([{ row: 2, raw: '12.34)' }])
   })
 })
 
@@ -182,6 +222,16 @@ describe('parseClocksWorkbook', () => {
     const r = parseClocksWorkbook(book({ Sheet1: partial }), '2026-07-12', 14)
     expect(r.rows).toHaveLength(1)
     expect(r.rows[0].clockId).toBe('1155')
-    expect(r.unparsedRows).toBe(1)
+    expect(r.unparsedRows).toEqual([{ row: 2, clockId: '706', raw: 'N/A' }])
+  })
+
+  it('reports the spreadsheet row number, clock id, and raw value for an unparsed punch, not just a count', () => {
+    const partial = [
+      ['First Name', 'Last Name', 'Clock ID', 'Date In', 'Total Less Break', 'Status'],
+      ['Liam', 'Sjogren', '706', '2026-07-12', 9.62, 'Approved'],
+      ['Thaign', 'Lillie', '1155', '2026-07-13', 'garbage', 'Approved'],
+    ]
+    const r = parseClocksWorkbook(book({ Sheet1: partial }), '2026-07-12', 14)
+    expect(r.unparsedRows).toEqual([{ row: 3, clockId: '1155', raw: 'garbage' }])
   })
 })
