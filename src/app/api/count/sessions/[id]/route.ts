@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { withPpb } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { isRcInScope, assertRcWritable } from '@/lib/rc-scope'
+
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
 
 // GET /api/count/sessions/:id
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const session = await prisma.countSession.findUnique({
     where: { id: params.id },
     include: {
@@ -14,6 +27,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: a scoped user can't read a session outside their revenue centers.
+  // A session with no RC (legacy "all items") is shared — visible to everyone,
+  // mirroring scopeWhereFromParams({ nullable: true }) on the collection route.
+  // 404 (not 403) so the response doesn't confirm the row exists.
+  if (session.revenueCenterId && !(await isRcInScope(user, session.revenueCenterId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   // Pull StockAllocation.parLevel for this session's RC so count cards can display
   // the per-RC par level alongside the item's own lastCountQty (which is on the item).
@@ -50,6 +71,29 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 // PATCH /api/count/sessions/:id  — update label / reopen finalized session
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  // Authenticate BEFORE touching the body: an unauthenticated caller should not be
+  // able to make the server parse arbitrary input.
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
+  const existing = await prisma.countSession.findUnique({ where: { id: params.id }, select: { revenueCenterId: true } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: a session with no RC (legacy "all items") is left unguarded here,
+  // mirroring the collection route's write guard (assertRcWritable only fires
+  // for an RC-scoped session — see /api/prep/items/[id] PUT for the same pattern).
+  if (existing.revenueCenterId) {
+    try { await assertRcWritable(user, existing.revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
+
   const body = await req.json()
   const data: Record<string, unknown> = {}
   if (body.label       !== undefined) data.label       = body.label
@@ -62,6 +106,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 // DELETE /api/count/sessions/:id
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
+  const existing = await prisma.countSession.findUnique({ where: { id: params.id }, select: { revenueCenterId: true } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  if (existing.revenueCenterId) {
+    try { await assertRcWritable(user, existing.revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
+
   await prisma.countSession.delete({ where: { id: params.id } })
   return NextResponse.json({ ok: true })
 }
