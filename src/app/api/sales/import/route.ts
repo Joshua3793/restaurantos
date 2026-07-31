@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { prisma } from '@/lib/prisma'
 import { matchRecipe } from '@/lib/recipe-match'
+import { requireSession, AuthError } from '@/lib/auth'
+
+// Mutating (POST) handler — never statically prerender, or non-GET returns 405.
+export const dynamic = 'force-dynamic'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -143,6 +147,14 @@ function parseAllLevels(wb: XLSX.WorkBook): {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Authenticate BEFORE touching the body: an unauthenticated caller should not be
+  // able to make the server parse an arbitrary uploaded file.
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   try {
     const formData = await req.formData()
     const file = formData.get('file') as File | null
