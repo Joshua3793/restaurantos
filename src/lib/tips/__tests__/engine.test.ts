@@ -262,6 +262,27 @@ describe('computeSplit', () => {
     expect(r.people[0].envelopeCents).toBe(10000)
   })
 
+  // Finding 5b: a non-integer rounding step (e.g., 33.3 cents) used to produce
+  // fractional cent values, breaking the integer contract.
+  it('treats a non-integer rounding step as whole-cent rounding, yielding integer cents', () => {
+    const r = computeSplit({
+      ...base,
+      basis: [1000, 1000, 0, 0],
+      roundingStepCents: 33.3,
+      people: [
+        person({ cookId: 'a', name: 'Ana', hours: [5, 0, 0, 0] }),
+        person({ cookId: 'b', name: 'Bo', hours: [5, 0, 0, 0] }),
+        person({ cookId: 'c', name: 'Cy', hours: [5, 0, 0, 0] }),
+      ],
+    })
+    // With non-integer step, it should fall back to whole-cent rounding (step = 1).
+    // All envelopes should be integers.
+    for (const p of r.people) {
+      expect(Number.isInteger(p.envelopeCents)).toBe(true)
+      expect(Number.isNaN(p.envelopeCents)).toBe(false)
+    }
+  })
+
   // Finding 6: an invariant property test. Table-driven across a spread of
   // inputs — including an unworked day pool, tied fractions, a refund day,
   // and several awkward rounding steps — this would have caught Findings

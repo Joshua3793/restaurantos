@@ -95,7 +95,9 @@ export function computeSplit(input: SplitInput): SplitResult {
   // SplitResult.distributedTotal.
   const distributedTotal = computed.reduce((a, p) => a + p.tip, 0)
 
-  computed.sort((a, b) => b.tip - a.tip || a.cookId.localeCompare(b.cookId))
+  // Tie-break on cookId using codepoint order (not locale-dependent localeCompare),
+  // so the same input produces the same envelope on server and browser.
+  computed.sort((a, b) => b.tip - a.tip || (a.cookId < b.cookId ? -1 : a.cookId > b.cookId ? 1 : 0))
   assignEnvelopes(computed, distributedTotal, roundingStepCents)
 
   return {
@@ -124,9 +126,9 @@ export function computeSplit(input: SplitInput): SplitResult {
  */
 function assignEnvelopes(people: SplitPerson[], distributedTotal: number, stepIn: number): void {
   if (!people.length) return
-  // A non-positive step has no meaningful "nearest step" — treat it as
-  // whole-cent rounding instead of silently dividing by zero into NaN.
-  const step = stepIn > 0 ? stepIn : 1
+  // A non-positive or non-integer step has no meaningful "nearest step" — treat it as
+  // whole-cent rounding instead of silently dividing by zero into NaN or producing fractional cents.
+  const step = stepIn > 0 && Number.isInteger(stepIn) ? stepIn : 1
   const units = people.map(p => (p.tip * 100) / step)
   const floors = units.map(Math.floor)
   const target = Math.round((distributedTotal * 100) / step)
@@ -134,14 +136,22 @@ function assignEnvelopes(people: SplitPerson[], distributedTotal: number, stepIn
 
   const byFraction = units
     .map((u, i) => ({ i, frac: u - Math.floor(u) }))
-    .sort((a, b) => b.frac - a.frac || people[a.i].cookId.localeCompare(people[b.i].cookId))
+    .sort((a, b) => {
+      const fracDiff = b.frac - a.frac
+      if (fracDiff !== 0) return fracDiff
+      // Codepoint order (not locale-dependent) for determinism across server and browser.
+      const aId = people[a.i].cookId
+      const bId = people[b.i].cookId
+      return aId < bId ? -1 : aId > bId ? 1 : 0
+    })
 
   for (let k = 0; k < byFraction.length && left > 0; k++, left--) floors[byFraction[k].i]++
 
   // Repeat descending passes until the shortfall is fully discharged or a
-  // full pass makes no progress (every remaining candidate is at 0 units —
-  // should not happen given target <= Σ floors + people.length, but this is
-  // the guard that keeps a violation loud instead of an infinite loop).
+  // full pass makes no progress. The increment loop above is always sufficient:
+  // Σ floor(xᵢ) ≤ floor(Σ xᵢ) ≤ round(Σ xᵢ) = target, so left ≥ 0 always after increment.
+  // This decrement loop is currently unreachable and kept as a guard in case target
+  // derivation changes in the future — it prevents an infinite loop if a violation occurs.
   let guardPasses = 0
   while (left < 0 && guardPasses <= byFraction.length) {
     let progressed = false
