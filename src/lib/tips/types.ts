@@ -17,7 +17,9 @@ export interface TipPerson {
   onPool: boolean
   /**
    * This person's contracted daily hour cap. Hours clocked above it on any one
-   * day are not paid tips. Null = uncapped. Per-person, never house-wide.
+   * day are not paid tips. A cap must be greater than zero to apply — null,
+   * zero, and negative values are all treated as uncapped. Per-person, never
+   * house-wide.
    */
   dailyHourCap: number | null
   /** Source hours per day — clocked, or the manual override where `edited` is true. */
@@ -68,9 +70,21 @@ export interface SplitPerson extends TipPerson {
 }
 
 export interface SplitResult {
-  /** Day pool dollars — basis × rate. */
+  /** Day pool dollars — basis × rate, floored at 0 per day (see computeSplit). */
   pools: number[]
+  /**
+   * Σ pools. NOT the same as `distributedTotal`: a day with a basis but no
+   * crew on the pool contributes to `poolTotal` but pays nobody, so that
+   * day's money never reaches `distributedTotal`. Callers that need the
+   * undistributed amount compute `poolTotal - distributedTotal` themselves.
+   */
   poolTotal: number
+  /**
+   * Σ people[].tip — the money actually owed to people. This, not
+   * `poolTotal`, is what envelope rounding targets: rounding against
+   * `poolTotal` would hand money nobody earned to whoever's left standing.
+   */
+  distributedTotal: number
   /** Weighted hours on shift per day. */
   weightedByDay: number[]
   /** Head count on shift per day. */

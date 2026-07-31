@@ -24,6 +24,9 @@ export function roleOf(person: TipPerson, roles: TipRoleDef[]): TipRoleDef {
  * PERSON'S contracted cap. There is deliberately no house-wide cap argument:
  * a 10 h-agreement cook and an 8 h-agreement cook are capped differently on
  * the same shift, so the cap can only live on the person.
+ *
+ * A cap of null, zero, or negative is treated as uncapped — only a cap
+ * greater than zero actually clips hours.
  */
 export function effectiveHours(person: TipPerson, day: number): number {
   const raw = person.hours[day] ?? 0
@@ -40,7 +43,12 @@ export function computeSplit(input: SplitInput): SplitResult {
   const { basis, poolRatePct, roundingStepCents, roles, people } = input
   const dayCount = basis.length
 
-  const pools = basis.map(b => (b * poolRatePct) / 100)
+  // A refund-heavy day can push `basis` negative (e.g. a same-day refund
+  // washing out net sales). Floor each day's pool at zero: a bad day cannot
+  // create a negative tip obligation for the people who worked it. The
+  // negative basis itself is a manager-facing signal surfaced elsewhere
+  // (the audit), not something netted out of anyone's pay here.
+  const pools = basis.map(b => Math.max(0, (b * poolRatePct) / 100))
   const poolTotal = pools.reduce((a, b) => a + b, 0)
 
   const active = people.filter(p => p.onPool)
@@ -82,11 +90,16 @@ export function computeSplit(input: SplitInput): SplitResult {
     }
   }).filter(p => p.onPool && p.hoursTotal > 0)
 
-  computed.sort((a, b) => b.tip - a.tip)
-  assignEnvelopes(computed, poolTotal, roundingStepCents)
+  // The money actually owed to people — distinct from poolTotal, which can
+  // include day pools nobody on the roster was on shift to earn. See
+  // SplitResult.distributedTotal.
+  const distributedTotal = computed.reduce((a, p) => a + p.tip, 0)
+
+  computed.sort((a, b) => b.tip - a.tip || a.cookId.localeCompare(b.cookId))
+  assignEnvelopes(computed, distributedTotal, roundingStepCents)
 
   return {
-    pools, poolTotal, weightedByDay, crewByDay,
+    pools, poolTotal, distributedTotal, weightedByDay, crewByDay,
     people: computed,
     hoursTotal: computed.reduce((a, p) => a + p.hoursTotal, 0),
     weightedTotal: computed.reduce((a, p) => a + p.weighted, 0),
@@ -96,33 +109,59 @@ export function computeSplit(input: SplitInput): SplitResult {
 
 /**
  * Largest-remainder rounding: every envelope is a whole multiple of `step`
- * cents and the envelopes sum EXACTLY to the pool rounded to that step.
+ * cents and the envelopes sum EXACTLY to `distributedTotal` (the money
+ * actually owed to people — Σ tip) rounded to that step. Deliberately NOT
+ * targeted at the whole pool: a day pool nobody on the roster was on shift
+ * to earn contributes to `poolTotal` but should not be paid out to whoever
+ * else happens to be standing there.
  *
  * Differs from the mock on purpose: tips.js only ever hands units out
  * (`for(...; left>0; left--)`), so when the pool rounds DOWN the envelopes
  * overshoot the target and the float silently covers the difference. Here a
- * negative remainder takes units back, starting from the smallest fraction.
+ * negative remainder takes units back, starting from the smallest fraction,
+ * cycling the list as many times as it takes — a single descending pass can
+ * under-discharge when several candidates in a row are already at 0 units.
  */
-function assignEnvelopes(people: SplitPerson[], poolTotal: number, step: number): void {
+function assignEnvelopes(people: SplitPerson[], distributedTotal: number, stepIn: number): void {
   if (!people.length) return
+  // A non-positive step has no meaningful "nearest step" — treat it as
+  // whole-cent rounding instead of silently dividing by zero into NaN.
+  const step = stepIn > 0 ? stepIn : 1
   const units = people.map(p => (p.tip * 100) / step)
   const floors = units.map(Math.floor)
-  const target = Math.round((poolTotal * 100) / step)
+  const target = Math.round((distributedTotal * 100) / step)
   let left = target - floors.reduce((a, b) => a + b, 0)
 
   const byFraction = units
     .map((u, i) => ({ i, frac: u - Math.floor(u) }))
-    .sort((a, b) => b.frac - a.frac)
+    .sort((a, b) => b.frac - a.frac || people[a.i].cookId.localeCompare(people[b.i].cookId))
 
   for (let k = 0; k < byFraction.length && left > 0; k++, left--) floors[byFraction[k].i]++
-  for (let k = byFraction.length - 1; k >= 0 && left < 0; k--) {
-    if (floors[byFraction[k].i] > 0) { floors[byFraction[k].i]--; left++ }
+
+  // Repeat descending passes until the shortfall is fully discharged or a
+  // full pass makes no progress (every remaining candidate is at 0 units —
+  // should not happen given target <= Σ floors + people.length, but this is
+  // the guard that keeps a violation loud instead of an infinite loop).
+  let guardPasses = 0
+  while (left < 0 && guardPasses <= byFraction.length) {
+    let progressed = false
+    for (let k = byFraction.length - 1; k >= 0 && left < 0; k--) {
+      const idx = byFraction[k].i
+      if (floors[idx] > 0) { floors[idx]--; left++; progressed = true }
+    }
+    guardPasses++
+    if (!progressed) break
   }
 
   people.forEach((p, i) => { p.envelopeCents = floors[i] * step })
 }
 
-/** Greedy note/coin breakdown for one envelope. */
+/**
+ * Greedy note/coin breakdown for one envelope. Consumes `denoms` in the
+ * order supplied, not sorted by face value — callers must pass them
+ * largest-to-smallest (descending) to get a largest-denomination-first
+ * breakdown.
+ */
 export function breakdown(cents: number, denoms: Denom[]): Breakdown {
   const parts: Breakdown['parts'] = []
   let rem = cents
