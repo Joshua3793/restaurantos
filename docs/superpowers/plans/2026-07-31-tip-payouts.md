@@ -1780,6 +1780,15 @@ git add src/lib/tips/audit.ts src/lib/tips/__tests__/audit.test.ts && git commit
 
 ---
 
+> **Note for Tasks 8–14 — route files may NOT export helpers.** Next 14's App
+> Router type-checks the exports of a `route.ts`, so a helper exported from one
+> route and imported by another fails the build. Task 7 therefore relocated the
+> shared helpers into plain modules: `loadSettings`, `toDto` and `DEFAULTS` live
+> in `@/lib/tips/settings`, and `toRoleDto` lives in `@/lib/tips/roles`. Import
+> them from there — the code blocks below have been updated accordingly.
+
+---
+
 > **Note for Tasks 5–14 — the shipped `src/lib/tips/audit.ts` is AHEAD of the
 > Task 4 code block above.** Two Criticals and several Importants were found in
 > review and fixed in the repo: per-person hours reconciliation (`hours-<code>`),
@@ -3057,7 +3066,7 @@ Create `src/app/api/tips/roles/[id]/route.ts`:
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { toRoleDto } from '../route'
+import { toRoleDto } from '@/lib/tips/roles'
 
 export const dynamic = 'force-dynamic'
 
@@ -3130,7 +3139,7 @@ Create `src/app/api/tips/roster/route.ts`:
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { loadSettings } from '../settings/route'
+import { loadSettings } from '@/lib/tips/settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -3385,7 +3394,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable, resolveScopedRcIds } from '@/lib/rc-scope'
 import { addDays, defaultPeriodStart } from '@/lib/tips/period'
-import { loadSettings } from '../settings/route'
+import { loadSettings } from '@/lib/tips/settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -3682,8 +3691,8 @@ import { isRcInScope } from '@/lib/rc-scope'
 import { dayLabels, periodDays, periodLabel } from '@/lib/tips/period'
 import { dailyTotals } from '@/lib/tips/sales'
 import { resolveRoster } from '@/lib/tips/roster'
-import { loadSettings } from '../../settings/route'
-import { toRoleDto } from '../../roles/route'
+import { loadSettings } from '@/lib/tips/settings'
+import { toRoleDto } from '@/lib/tips/roles'
 import type { TipPeriodPayload } from '@/lib/tips/types'
 import type { PunchRow } from '@/lib/tips/audit'
 
