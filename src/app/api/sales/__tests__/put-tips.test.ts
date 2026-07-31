@@ -1,11 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
 
-// The route talks to Prisma and the Toast overlap guard; both are stubbed so the
-// test exercises ONLY the request→`data` mapping. No database is touched.
+// The route talks to Prisma, the Toast overlap guard, auth and RC scope; all are
+// stubbed so the test exercises ONLY the request→`data` mapping. No database is
+// touched. `requireSession` is a vi.fn so individual tests can override it to
+// simulate an unauthenticated caller.
 const update = vi.fn(async () => ({ id: 's1' }))
 const findUnique = vi.fn(async () => ({ source: 'manual' }))
 const deleteMany = vi.fn(async () => ({ count: 0 }))
+const requireSession = vi.fn(async () => ({ id: 'u1', role: 'MANAGER', isActive: true }))
+const assertRcWritable = vi.fn(async () => {})
+
+class MockAuthError extends Error {
+  constructor(public readonly status: 401 | 403, message: string) {
+    super(message)
+    this.name = 'AuthError'
+  }
+}
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -17,14 +28,27 @@ vi.mock('@/lib/sales-guard', () => ({
   toastCoveredDays: async () => [],
   toastOverlapMessage: () => 'overlap',
 }))
+vi.mock('@/lib/auth', () => ({
+  requireSession: (...a: unknown[]) => requireSession(...(a as [])),
+  AuthError: MockAuthError,
+}))
+vi.mock('@/lib/rc-scope', () => ({
+  isRcInScope: async () => true,
+  assertRcWritable: (...a: unknown[]) => assertRcWritable(...(a as [])),
+}))
 
 const { PUT } = await import('@/app/api/sales/[id]/route')
+const { AuthError } = await import('@/lib/auth')
 
 const req = (body: Record<string, unknown>) => ({ json: async () => body }) as unknown as NextRequest
 const base = { date: '2026-07-30', totalRevenue: '1000', foodSalesPct: '0.7', revenueCenterId: 'rc1' }
 const dataOf = () => update.mock.calls[0][0].data as Record<string, unknown>
 
-beforeEach(() => { update.mockClear(); findUnique.mockClear(); deleteMany.mockClear() })
+beforeEach(() => {
+  update.mockClear(); findUnique.mockClear(); deleteMany.mockClear()
+  requireSession.mockClear(); requireSession.mockResolvedValue({ id: 'u1', role: 'MANAGER', isActive: true })
+  assertRcWritable.mockClear()
+})
 
 describe('PUT /api/sales/[id] — tipsCollected tri-state', () => {
   it('persists a typed tips figure', async () => {
@@ -68,5 +92,12 @@ describe('PUT /api/sales/[id] — tipsCollected tri-state', () => {
   it('rounds to the cent', async () => {
     await PUT(req({ ...base, tipsCollected: '10.007' }), { params: { id: 's1' } })
     expect(dataOf().tipsCollected).toBe(10.01)
+  })
+
+  it('rejects an unauthenticated caller with 401 and never reaches the update', async () => {
+    requireSession.mockRejectedValueOnce(new AuthError(401, 'Unauthorized'))
+    const res = await PUT(req({ ...base, tipsCollected: '5' }), { params: { id: 's1' } })
+    expect(res.status).toBe(401)
+    expect(update).not.toHaveBeenCalled()
   })
 })

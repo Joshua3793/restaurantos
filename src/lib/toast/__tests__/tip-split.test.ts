@@ -36,6 +36,34 @@ describe('splitTipAcrossRcs', () => {
     expect(r.unattributed).toBe(0)
   })
 
+  it('does not conjure a bucket in the single-comped-RC branch either', () => {
+    // Guards against a future refactor that populates checkRcRevenue before the
+    // bucket is allocated: even the "obviously safe" single-RC comped-check
+    // branch must defer to bucketExists rather than assuming the invariant.
+    const r = splitTipAcrossRcs({
+      checkRcRevenue: new Map([['cafe', 0]]),
+      orderRc: undefined,
+      bucketExists: noRcsExist,
+      tips: 10,
+      gratuity: 0,
+    })
+    expect(r.perRc.size).toBe(0)
+    expect(r.unattributed).toBe(10)
+  })
+
+  it('falls through to the order RC when the single-comped-RC branch has no bucket', () => {
+    const r = splitTipAcrossRcs({
+      checkRcRevenue: new Map([['cafe', 0]]),
+      orderRc: 'bar',
+      bucketExists: (rcId) => rcId === 'bar',
+      tips: 10,
+      gratuity: 0,
+    })
+    expect(r.perRc.get('bar')).toEqual({ tips: 10, gratuity: 0 })
+    expect(r.perRc.has('cafe')).toBe(false)
+    expect(r.unattributed).toBe(0)
+  })
+
   it('never hands a negative-revenue RC a negative tip', () => {
     // +$100 to cafe, −$20 adjustment to bar. Bar earns no share; cafe takes all.
     const r = splitTipAcrossRcs({

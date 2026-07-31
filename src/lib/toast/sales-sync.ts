@@ -138,11 +138,17 @@ export function splitTipAcrossRcs({
   }
 
   // (2) No positive revenue, but exactly one RC was routed to (a comped check) —
-  // that RC's bucket necessarily exists, since routing a line created it.
+  // that RC's bucket necessarily exists today, since routing a line created it.
+  // Still checked via bucketExists (belt-and-braces, matches branch 3): a future
+  // refactor that populates checkRcRevenue before allocating the bucket must not
+  // silently reintroduce the phantom-bucket bug (a tip conjuring an RC that then
+  // has its manual entry deleted and replaced with $0).
   if (checkRcRevenue.size === 1) {
     const [rcId] = [...checkRcRevenue.keys()]
-    perRc.set(rcId, { tips, gratuity })
-    return { perRc, unattributed: 0 }
+    if (bucketExists(rcId)) {
+      perRc.set(rcId, { tips, gratuity })
+      return { perRc, unattributed: 0 }
+    }
   }
 
   // (3) Fall back to the order's RC — but only if it already took revenue today.

@@ -21,9 +21,22 @@ const rec = (name: string) => async (a: { data?: Record<string, unknown> }) => {
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    toastRevenueCenterMap: { findMany: async () => [{ toastGuid: 'tg-cafe', revenueCenterId: 'cafe', locationId: null }] },
-    toastItemMap: { findMany: async () => [{ toastItemGuid: 'i-food', recipeId: 'r-food', toastGroup: 'Food', toastMenu: 'CAFE' }] },
-    revenueCenter: { findMany: async () => [{ id: 'cafe', name: 'Cafe' }] },
+    toastRevenueCenterMap: {
+      findMany: async () => [
+        { toastGuid: 'tg-cafe', revenueCenterId: 'cafe', locationId: null },
+        // Sentinel row: items on the BAR menu route to the 'bar' RC regardless of
+        // the order's own revenue center — this is what actually forces a single
+        // order/check to split across two RC buckets.
+        { toastGuid: 'menu:BAR', revenueCenterId: 'bar', locationId: null },
+      ],
+    },
+    toastItemMap: {
+      findMany: async () => [
+        { toastItemGuid: 'i-food', recipeId: 'r-food', toastGroup: 'Food', toastMenu: 'CAFE' },
+        { toastItemGuid: 'i-bar', recipeId: 'r-bar', toastGroup: 'Cocktails', toastMenu: 'BAR' },
+      ],
+    },
+    revenueCenter: { findMany: async () => [{ id: 'cafe', name: 'Cafe' }, { id: 'bar', name: 'Bar' }] },
     location: { findMany: async () => [] },
     // Present so a stray read would still resolve — the sync must not make one.
     tipSettings: { findUnique: async () => ({ includeAutoGratuity: false }) },
@@ -96,19 +109,31 @@ describe('syncBusinessDay — tips', () => {
       checks: [{
         guid: 'c1',
         selections: [
+          // CAFE-menu item: no `menu:CAFE` sentinel exists, so it falls back to
+          // the order's own RC (cafe).
           { guid: 's1', quantity: 1, price: 75, item: { guid: 'i-food' } },
-          // A negative adjustment line must not earn a negative slice.
-          { guid: 's2', quantity: 1, price: -25, item: { guid: 'i-food' } },
+          // BAR-menu item: routed to a DIFFERENT RC by the `menu:BAR` sentinel,
+          // regardless of the order's own RC — this is what actually forces the
+          // check to sell into two revenue centers.
+          { guid: 's2', quantity: 1, price: 25, item: { guid: 'i-bar' } },
+          // A negative adjustment line (still cafe) must not earn a negative slice.
+          { guid: 's3', quantity: 1, price: -25, item: { guid: 'i-food' } },
         ],
-        payments: [{ guid: 'p1', amount: 50, tipAmount: 10, type: 'CREDIT', paymentStatus: 'CAPTURED' }],
+        payments: [{ guid: 'p1', amount: 75, tipAmount: 10, type: 'CREDIT', paymentStatus: 'CAPTURED' }],
       }],
     }))
 
     const result = await syncBusinessDay(20260730)
 
-    expect(result.perRc).toHaveLength(1)
-    expect(result.perRc[0].totalRevenue).toBe(50)      // revenue keeps the −25
-    expect(result.perRc[0].tipsCollected).toBe(10)     // tip stays whole and positive
+    expect(result.perRc).toHaveLength(2)               // genuinely two RC buckets
+    const cafe = result.perRc.find(r => r.revenueCenterId === 'cafe')!
+    const bar = result.perRc.find(r => r.revenueCenterId === 'bar')!
+    expect(cafe.totalRevenue).toBe(50)                  // revenue keeps the −25
+    expect(bar.totalRevenue).toBe(25)
+    // Tip splits proportionally by each RC's positive revenue share (50:25 → 2:1),
+    // rounded to the cent, and conserves the full $10 between the two RCs.
+    expect(cafe.tipsCollected).toBe(6.67)
+    expect(bar.tipsCollected).toBe(3.33)
     expect(result.unattributedTips).toBe(0)
   })
 })
