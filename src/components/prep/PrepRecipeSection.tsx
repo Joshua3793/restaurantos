@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
 import { convertQty } from '@/lib/uom'
+import { computeBakersPercents } from '@/lib/bakers-percent'
 
 /**
  * The cook-along body — upscale slider, scaled ingredient check-off, and tickable
@@ -71,9 +72,13 @@ interface IngRowProps {
   checked: boolean
   onToggle: () => void
   onOpenSubRecipe?: (recipeId: string, name: string) => void
+  /** Baker's % for this ingredient — null for count units, undefined when the
+   *  recipe has no 100% reference set (column hidden entirely). */
+  pct?: number | null
+  isBasePct?: boolean
 }
 
-function IngRow({ ing, factor, checked, onToggle, onOpenSubRecipe }: IngRowProps) {
+function IngRow({ ing, factor, checked, onToggle, onOpenSubRecipe, pct, isBasePct }: IngRowProps) {
   const isSub = !!ing.linkedRecipeId && !!onOpenSubRecipe
   return (
     <div className="flex items-center gap-3 w-full px-2.5 py-2.5 rounded-[9px] border-b border-bg-2 last:border-0 hover:bg-bg">
@@ -112,9 +117,21 @@ function IngRow({ ing, factor, checked, onToggle, onOpenSubRecipe }: IngRowProps
           {ing.itemName}
         </button>
       )}
-      {!ing.isAvailable && (
+      {/* `null` is unknown stock (custom/uncosted ingredients carry no inventory row) —
+          only a real `false` means out. `!ing.isAvailable` flagged unknowns as OUT. */}
+      {ing.isAvailable === false && (
         <span className="font-mono text-[9.5px] text-red-text bg-red-soft px-1.5 py-px rounded font-semibold uppercase shrink-0">
           out
+        </span>
+      )}
+      {pct !== undefined && (
+        <span
+          className={`font-mono text-[11.5px] min-w-[42px] text-right shrink-0 ${
+            checked ? 'text-ink-4' : isBasePct ? 'text-gold-2 font-bold' : 'text-ink-3 font-semibold'
+          }`}
+          title={pct === null ? "Count ingredient — no baker's % for each/piece/serve" : "Baker's %"}
+        >
+          {pct === null ? '—' : `${pct}%`}
         </span>
       )}
       <span
@@ -198,6 +215,17 @@ export default function PrepRecipeSection({
   const batchCost = recipe.totalCost * factor
   const costPerYield = recipe.baseYieldQty > 0 ? recipe.totalCost / recipe.baseYieldQty : 0
   const tubs = Math.ceil(makeQty / 2)
+
+  // Baker's % — ratios relative to the recipe's 100% reference ingredient. Scale-invariant,
+  // so they're computed off the unscaled qtyBase, not the slider factor. An empty map means
+  // the recipe has no reference set (or it can't be weighed) → the column stays hidden.
+  const bakersPercents = recipe.baseIngredientId
+    ? computeBakersPercents(ingredients, recipe.baseIngredientId)
+    : {}
+  const showBakers = Object.keys(bakersPercents).length > 0
+  const baseIngName = showBakers
+    ? ingredients.find((i) => i.id === recipe.baseIngredientId)?.itemName ?? null
+    : null
 
   const ingTotal = ingredients.length
   const ingChecked = checkedIngredients.size
@@ -284,6 +312,11 @@ export default function PrepRecipeSection({
             </span>
           )}
         </div>
+        {showBakers && baseIngName && (
+          <div className="text-[11px] text-gold-2 bg-gold-soft border border-gold-soft rounded-lg px-2.5 py-1.5 mb-2">
+            Baker&apos;s %: relative to <span className="font-semibold">{baseIngName}</span> (100%) — volume treated as 1 ml = 1 g
+          </div>
+        )}
         <div className="flex flex-col">
           {loading && ingredients.length === 0
             ? Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)
@@ -295,6 +328,8 @@ export default function PrepRecipeSection({
                   checked={checkedIngredients.has(idx)}
                   onToggle={() => toggleIngredient(idx)}
                   onOpenSubRecipe={onOpenSubRecipe}
+                  pct={showBakers ? bakersPercents[ing.id] ?? null : undefined}
+                  isBasePct={ing.id === recipe.baseIngredientId}
                 />
               ))}
         </div>

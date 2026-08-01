@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 import { X, Minus, Plus, ChefHat, AlertTriangle } from 'lucide-react'
+import { computeBakersPercents } from '@/lib/bakers-percent'
 
 interface Ingredient {
   id: string
@@ -25,6 +26,8 @@ interface Recipe {
   allergens: string[]
   totalCost: number
   ingredients: Ingredient[]
+  /** RecipeIngredient id marked as the baker's 100% reference (null when unset). */
+  baseIngredientId: string | null
 }
 
 interface Props {
@@ -77,6 +80,17 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
 
   const scaledYield = recipe ? (recipe.baseYieldQty * scale) : 0
   const unit = recipe?.yieldUnit ?? yieldUnit ?? ''
+
+  // Baker's % — ratios against the recipe's 100% reference ingredient. Scale-invariant,
+  // so they read off the unscaled qtyBase. Empty map (no reference set, or one that can't
+  // be weighed) → the column is dropped entirely.
+  const bakersPercents = recipe?.baseIngredientId
+    ? computeBakersPercents(recipe.ingredients, recipe.baseIngredientId)
+    : {}
+  const showBakers = Object.keys(bakersPercents).length > 0
+  const baseIngName = showBakers
+    ? recipe?.ingredients.find(i => i.id === recipe.baseIngredientId)?.ingredientName ?? null
+    : null
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -154,11 +168,19 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
             </div>
           ) : recipe ? (
             <>
+              {showBakers && baseIngName && (
+                <div className="mx-5 mt-3 text-[11px] text-gold-2 bg-gold-soft border border-gold-soft rounded-lg px-2.5 py-1.5">
+                  Baker&apos;s %: relative to <span className="font-semibold">{baseIngName}</span> (100%) — volume treated as 1 ml = 1 g
+                </div>
+              )}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line">
                     <th className="w-8 px-3 py-2" />
                     <th className="text-left px-2 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wide">Ingredient</th>
+                    {showBakers && (
+                      <th className="text-right px-2 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wide">%</th>
+                    )}
                     <th className="text-right px-5 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wide">Amount</th>
                   </tr>
                 </thead>
@@ -166,6 +188,8 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
                   {recipe.ingredients.map(ing => {
                     const scaledQty = ing.qtyBase * scale
                     const checked = checkedIngredients.has(ing.id)
+                    const pct = bakersPercents[ing.id] ?? null
+                    const isBasePct = ing.id === recipe.baseIngredientId
                     return (
                       <tr
                         key={ing.id}
@@ -185,6 +209,16 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
                           <div className={`font-medium transition-colors ${checked ? 'text-ink-4 line-through' : 'text-ink-2'}`}>{ing.ingredientName}</div>
                           {ing.notes && <div className="text-xs text-gold mt-0.5">{ing.notes}</div>}
                         </td>
+                        {showBakers && (
+                          <td
+                            className={`px-2 py-2.5 text-right font-mono text-xs ${
+                              checked ? 'text-ink-4' : isBasePct ? 'text-gold-2 font-bold' : 'text-ink-3 font-semibold'
+                            }`}
+                            title={pct === null ? "Count ingredient — no baker's % for each/piece/serve" : "Baker's %"}
+                          >
+                            {pct === null ? '—' : `${pct}%`}
+                          </td>
+                        )}
                         <td className="px-5 py-2.5 text-right">
                           <span className={`font-semibold transition-colors ${checked ? 'text-ink-4' : 'text-ink'}`}>
                             {scaledQty % 1 === 0 ? scaledQty.toFixed(0) : scaledQty.toFixed(2).replace(/\.?0+$/, '')}

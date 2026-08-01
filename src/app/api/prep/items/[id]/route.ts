@@ -98,7 +98,10 @@ export async function GET(
       id: ing.id,
       inventoryItemId: ing.inventoryItemId,
       linkedRecipeId: ing.linkedRecipe?.id ?? ing.linkedRecipeId ?? null,
-      itemName: ing.inventoryItem?.itemName ?? ing.linkedRecipe?.name ?? 'Sub-recipe',
+      // Same precedence as computeRecipeCost: inventory item → sub-recipe → custom
+      // (uncosted) free-text name. Without the customName arm every custom ingredient
+      // rendered as the literal "Sub-recipe" in the prep drawer.
+      itemName: ing.inventoryItem?.itemName ?? ing.linkedRecipe?.name ?? ing.customName ?? 'Ingredient',
       qtyBase: parseFloat(String(ing.qtyBase)),
       unit: ing.unit,
       stockOnHand: stock,

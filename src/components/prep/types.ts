@@ -100,6 +100,9 @@ export interface RecipeStepsData {
   baseYieldQty: number
   yieldUnit: string
   totalCost: number
+  /** RecipeIngredient id marked as the baker's 100% reference (null when unset).
+   *  Matches `IngredientAvailability.id` — both are RecipeIngredient ids. */
+  baseIngredientId: string | null
 }
 
 export interface PrepItemDetail extends PrepItemRich {
