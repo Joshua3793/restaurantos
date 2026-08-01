@@ -65,6 +65,18 @@ vi.mock('@/lib/prisma', () => ({
     },
     location: { findMany: async () => [{ id: 'loc1', defaultRevenueCenterId: 'lunch' }] },
     tipSettings: { findUnique: async () => ({ includeAutoGratuity: false }) },
+    // The stale-row reconciliation reads and clears Toast rows OUTSIDE the
+    // transaction. Recorded under its own names so the assertions below on
+    // `salesEntry.deleteMany` stay scoped to the manual-supersede path. Empty
+    // result = nothing stale; `staleToastRcIds` has its own unit tests.
+    // The read is deliberately NOT recorded: it is a different query from the
+    // manual-entry lookup these tests assert on, and recording it would break
+    // `expect(recorded).toEqual([])` below without that assertion having weakened.
+    // The delete IS recorded — if reconciliation ever fired wrongly, it must show.
+    salesEntry: {
+      findMany: async () => [],
+      deleteMany: recFn('staleToast.deleteMany', async () => ({ count: 0 })),
+    },
     $transaction: async (fn: (t: unknown) => Promise<unknown>) => fn({
       salesEntry: {
         findMany: recFn('salesEntry.findMany', async (args: { where: { revenueCenterId: string } }) =>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession, AuthError } from '@/lib/auth'
-import { runToastSync, runToastBackfill } from '@/lib/toast/sales-sync'
+import { runToastSync, runToastBackfill, runNightlyToastSync } from '@/lib/toast/sales-sync'
 
 export const dynamic = 'force-dynamic'
 // Pulling + writing a day can exceed the default budget on a busy date / backfill.
@@ -13,9 +13,13 @@ export const maxDuration = 300
  * to enable). Manual/backfill runs from the app fall back to an ADMIN session.
  *
  * Query params (manual/backfill):
- *   ?date=YYYYMMDD            sync one specific business day
+ *   ?date=YYYYMMDD            sync one specific business day, on its own
  *   ?from=YYYYMMDD&to=YYYYMMDD  backfill an inclusive range
- *   (none)                    sync yesterday (LA-local)
+ *   (none)                    the nightly job: yesterday (LA-local) PLUS a trailing
+ *                             re-sync of any older day whose orders have changed
+ *                             since the last run — catering tickets entered days
+ *                             after the event carry a backdated business date and
+ *                             are invisible to a one-shot per-day pull.
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization')
@@ -39,8 +43,12 @@ export async function GET(req: NextRequest) {
       const results = await runToastBackfill(Number(from), Number(to))
       return NextResponse.json({ mode: 'backfill', days: results.length, results })
     }
-    const result = await runToastSync(date ? Number(date) : undefined)
-    return NextResponse.json({ mode: 'day', result })
+    if (date) {
+      const result = await runToastSync(Number(date))
+      return NextResponse.json({ mode: 'day', result })
+    }
+    const { day, resync } = await runNightlyToastSync()
+    return NextResponse.json({ mode: 'nightly', day, resync })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
