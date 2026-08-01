@@ -16,7 +16,7 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import { useUser } from '@/contexts/UserContext'
 import { rcHex } from '@/lib/rc-colors'
 import {
-  enqueueCountMutation, flushCountQueue, loadCountQueue,
+  enqueueCountMutation, flushCountQueue, loadCountQueue, dropQueuedStateForLine,
   saveCountSessionCache, loadCountSessionCache, pendingCountForSession,
 } from '@/lib/count-offline'
 import {
@@ -686,7 +686,11 @@ export default function CountPage() {
     // after counting / sync wipes my work, making me recount" bug. Queue + cache it
     // so the offline flush retries it on the next reconnect.
     const queueCount = () => {
-      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty, ...(mixed ? { entries } : {}), ...(carried ? { carried: true } : {}) })
+      // `uom` is load-bearing: qty is expressed in line.selectedUom, and the server
+      // falls back to the line's stored unit when the body omits it. Offline the
+      // unit PATCH may never have landed, so the count must carry its own unit or a
+      // kg count gets recorded — and finalized — as cases.
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'count', qty, uom: line.selectedUom, ...(mixed ? { entries } : {}), ...(carried ? { carried: true } : {}) })
       setPendingCount(c => c + 1)
       if (active) saveCountSessionCache(active.id, { ...active, lines: active.lines!.map(applyCount) })
     }
@@ -700,7 +704,10 @@ export default function CountPage() {
         body: JSON.stringify(
           mixed
             ? { entries, expectedUpdatedAt: line.updatedAt }
-            : { countedQty: qty, expectedUpdatedAt: line.updatedAt, ...(carried ? { carriedForward: true } : {}) },
+            // selectedUom is sent with every count, not just on a unit change: it
+            // pins the unit qty was entered in even when the earlier UOM PATCH was
+            // lost (offline, or a swallowed network error).
+            : { countedQty: qty, selectedUom: line.selectedUom, expectedUpdatedAt: line.updatedAt, ...(carried ? { carriedForward: true } : {}) },
         ),
       })
       if (res.status === 409) {
@@ -773,24 +780,53 @@ export default function CountPage() {
   }
 
   const changeUom = async (line: Line, newUom: string) => {
-    // When the open card's UOM changes, convert the current inputQty to the new unit
-    if (openId === line.id) {
-      const inBase = convertCountQtyToBase(Number(inputQty) || 0, line.selectedUom, line.inventoryItem)
-      setInputQty(Math.round(convertBaseToCountUom(inBase, newUom, line.inventoryItem) * 1000) / 1000)
+    // A recorded qty is meaningless in a different unit — changing the unit drops the
+    // count and the user re-enters, rather than silently relabelling "4 cases" as
+    // "4 kg". A skipped line is left alone: its countedQty is the server-side
+    // expectedQty stand-in, not something the user typed.
+    const clearsCount = line.countedQty !== null && !line.skipped
+
+    // Both renderers clear the entry on a unit change (mobile always did; desktop
+    // used to convert it). One behaviour, so a count means the same thing on either.
+    if (openId === line.id) { setInputQty(''); setCaseQty(0) }
+
+    const applyUom = (l: Line): Line => l.id !== line.id ? l : {
+      ...l,
+      selectedUom: newUom,
+      ...(clearsCount
+        ? { countedQty: null, variancePct: null, varianceCost: null, carriedForward: false, entries: null }
+        : {}),
     }
-    setActive(prev => ({
-      ...prev!, lines: prev!.lines!.map(l => l.id === line.id ? { ...l, selectedUom: newUom } : l),
-    }))
-    if (!isOffline) {
-      try {
-        const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selectedUom: newUom }),
-        })
-        if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
-      } catch { /* network — the count's PATCH re-sends the unit; non-critical */ }
+    setActive(prev => ({ ...prev!, lines: prev!.lines!.map(applyUom) }))
+    if (clearsCount) {
+      setExtraEntries([])
+      setToast(`Count cleared — re-enter in ${newUom}`)
     }
+
+    // Durable save — same rationale as confirmLine. The unit used to live only in
+    // React state while offline: it was never queued and never cached, so it was
+    // lost on reload and the eventual count synced under the line's default unit.
+    const queueUom = () => {
+      // A queued count for this line is now superseded — drop it, or the flush would
+      // replay it and re-count the line under the new unit.
+      if (clearsCount) dropQueuedStateForLine(line.id)
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'uom', uom: newUom, ...(clearsCount ? { clearsCount: true } : {}) })
+      setPendingCount(loadCountQueue().length)
+      if (active) saveCountSessionCache(active.id, { ...active, lines: active.lines!.map(applyUom) })
+    }
+
+    if (isOffline) { queueUom(); return }
+
+    try {
+      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        // `skipped: false` is this API's "reset to uncounted" verb (see clearLine).
+        body: JSON.stringify({ selectedUom: newUom, ...(clearsCount ? { skipped: false } : {}) }),
+      })
+      if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+      else queueUom()
+    } catch { queueUom() }
   }
 
   const skipLine = async (line: Line) => {
@@ -2383,7 +2419,7 @@ export default function CountPage() {
                 {unitLabels.length > 1 && (
                   <div className="flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5 mt-3 overflow-x-auto [&::-webkit-scrollbar]:hidden">
                     {unitLabels.map(label => (
-                      <button key={label} onClick={() => { if (label !== line.selectedUom) { changeUom(line, label); setInputQty(''); setCaseQty(0) } }}
+                      <button key={label} onClick={() => { if (label !== line.selectedUom) changeUom(line, label) }}
                         className={`flex-1 min-w-[56px] py-1.5 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
                         {uomDisplay(label)}
                       </button>

@@ -52,7 +52,14 @@ export async function PATCH(
   if (skipped === true) {
     data = { skipped: true, countedQty: line.expectedQty, variancePct: 0, varianceCost: 0, entries: Prisma.DbNull }
   } else if (skipped === false) {
-    data = { skipped: false, countedQty: null, variancePct: null, varianceCost: null, carriedForward: false, entries: Prisma.DbNull }
+    // Reset to uncounted. selectedUom rides along when the reset was triggered by a
+    // unit change on a counted line — the stored qty is meaningless in the new unit,
+    // so the count is dropped and the unit kept for re-entry.
+    data = {
+      skipped: false, countedQty: null, variancePct: null, varianceCost: null,
+      carriedForward: false, entries: Prisma.DbNull,
+      ...(selectedUom !== undefined ? { selectedUom } : {}),
+    }
   } else if (validEntries && validEntries.length > 0) {
     // Mixed-unit count: entries are authoritative. We store the summed base as
     // countedQty with selectedUom = baseUnit so every legacy reader that does
