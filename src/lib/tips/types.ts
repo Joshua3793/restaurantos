@@ -1,5 +1,5 @@
 /** DTOs shared by the tip engine, the audit, and the API payload. */
-import type { PunchRow } from './audit'
+import type { AuditResult, PunchRow } from './audit'
 
 export interface TipRoleDef {
   id: string
@@ -106,6 +106,68 @@ export interface Breakdown {
 export type SortKey =
   | 'name' | 'role' | 'hours' | 'weighted' | 'rate' | 'share' | 'tip' | 'env'
 
+/**
+ * ONE payout — the complete, frozen record of a single disbursement of cash.
+ *
+ * Everything needed to reprint the envelopes and the payroll CSV exactly as
+ * they were handed out is in here, including WHO authorised it: `paidByName`
+ * lives inside the record, not only on the mutable `TipPeriod.paidByName`
+ * column, because reopening a period nulls that column and one reopen would
+ * otherwise permanently erase the authoriser.
+ *
+ * `split.people[]` already carries each person's RESOLVED dailyHourCap,
+ * roleId, roleName and multiplier as of this payout, so a later Cook/TipRole
+ * edit cannot restate what somebody was actually paid on.
+ */
+export interface TipPayoutRecord {
+  /** 1-based and monotonic for the life of the period. Never reused. */
+  seq: number
+  /** ISO timestamp of the disbursement. */
+  paidAt: string
+  /** Who authorised it, captured at pay time. */
+  paidByName: string | null
+  poolBasis: PoolBasis
+  poolRatePct: number
+  roundingStepCents: number
+  dayLabels: string[]
+  basis: number[]
+  sales: number[]
+  tips: Array<number | null>
+  tipTotal: number
+  roles: TipRoleDef[]
+  split: SplitResult
+  audit: AuditResult
+}
+
+/**
+ * The shape stored in `TipPeriod.snapshot` (a plain Json column — this history
+ * is deliberately restructured JSON rather than a schema migration).
+ *
+ * READ THIS BEFORE KEYING OFF THE COLUMN: `snapshot != null` does NOT mean the
+ * period is paid. A reopened period keeps its snapshot — that is the whole
+ * point — but with `current: null` and the superseded payout pushed onto
+ * `history`. The paid test is `snapshot.current != null`, which is exactly
+ * equivalent to `period.status === 'PAID'`.
+ *
+ * Chronological order is `[...history, current]`: `history` is oldest-first
+ * and holds only superseded payouts, `current` is the one in force.
+ */
+export interface TipPeriodSnapshot {
+  /** Shape version. 1 = current/history. A legacy flat snapshot has no `version`. */
+  version: 1
+  /** The payout in force. Null exactly while the period is DRAFT. */
+  current: TipPayoutRecord | null
+  /** Superseded payouts, oldest first. Bounded — see `trimmed`. */
+  history: TipPayoutRecord[]
+  /**
+   * How many payouts have been dropped off the FRONT of `history` by the cap.
+   * A period paid more times than the cap allows is pathological, but the
+   * count (and the resulting gap in `seq`) keeps the record honest instead of
+   * silently pretending those payouts never happened.
+   */
+  trimmed: number
+}
+
 export interface TipPeriodSummary {
   id: string
   revenueCenterId: string
@@ -128,8 +190,13 @@ export interface TipPeriodPayload {
     clockFileName: string | null
     salesImportedAt: string | null
     clockImportedAt: string | null
-    /** Frozen SplitResult + AuditResult, present only once status is PAID. */
-    snapshot: unknown | null
+    /**
+     * The period's payout history. Non-null as soon as it has EVER been paid,
+     * including after a reopen — `snapshot.current` (not `snapshot`) is what
+     * tracks status PAID. Always normalized through `readSnapshot`, so a
+     * legacy flat snapshot arrives here already migrated to v1.
+     */
+    snapshot: TipPeriodSnapshot | null
   }
   dayLabels: string[]
   dayDates: string[]

@@ -166,6 +166,54 @@ describe('POST /api/tips/periods/[id]/import', () => {
     expect(data).not.toHaveProperty('tipsOverride')
   })
 
+  it(
+    'derives the clocks dayCount from the PERIOD window, so the destructive-wipe guard still ' +
+    'fires when the live setting is LONGER than the period',
+    async () => {
+      // The stored window is 3 days (2026-07-12 → 07-14); the live, admin-
+      // editable setting has since been widened to 14. The workbook's only
+      // punch is day 5 — outside the REAL window, inside a wrongly-derived
+      // 14-day one. `outside` is the SOLE input to the guard, so deriving
+      // dayCount from the setting would let this wipe every real punch.
+      loadSettings.mockResolvedValueOnce({ periodDays: 14 })
+      parseClocksWorkbook.mockImplementationOnce((_b, _s, dayCount) => {
+        // Mirrors the real parser's own `outside` fold.
+        const rows = [{
+          clockId: '9', firstName: 'Ana', lastName: 'Lee', position: 'Cook',
+          department: 'Back of House', dayIndex: 5, hours: 8, status: 'Approved', note: null,
+        }]
+        return {
+          rows, total: 8, peopleCount: 1,
+          outside: rows.filter(r => r.dayIndex < 0 || r.dayIndex >= dayCount).length,
+          pending: 0, unparsedRows: [],
+        }
+      })
+      const res = await POST(req(workbook(), 'clocks'), { params: { id: 'p1' } })
+      expect(res.status).toBe(400)
+      expect(parseClocksWorkbook.mock.calls[0][2]).toBe(3) // the period's window, not 14
+      // The live singleton must not be consulted at all on this path.
+      expect(loadSettings).not.toHaveBeenCalled()
+      expect(transaction).not.toHaveBeenCalled()
+      expect(tipPunchDeleteMany).not.toHaveBeenCalled()
+    },
+  )
+
+  it('aligns salesOverride to the PERIOD window, not the live setting', async () => {
+    loadSettings.mockResolvedValueOnce({ periodDays: 14 })
+    const res = await POST(req(workbook(), 'sales'), { params: { id: 'p1' } })
+    expect(res.status).toBe(200)
+    const data = tipPeriodUpdate.mock.calls[0][0].data as Record<string, unknown>
+    // A 14-long array would be longer than the series build.ts maps it over.
+    expect(data.salesOverride).toEqual([500, null, null])
+    expect(loadSettings).not.toHaveBeenCalled()
+  })
+
+  it('reads the known clock codes BEFORE the punch transaction, so a failure there cannot leave punches written behind a 500', async () => {
+    await POST(req(workbook(), 'clocks'), { params: { id: 'p1' } })
+    expect(cookFindMany).toHaveBeenCalled()
+    expect(cookFindMany.mock.invocationCallOrder[0]).toBeLessThan(transaction.mock.invocationCallOrder[0])
+  })
+
   it('rejects a clocks workbook that does not overlap the period, without touching punches', async () => {
     parseClocksWorkbook.mockReturnValueOnce({
       rows: [{

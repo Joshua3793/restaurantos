@@ -3,8 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
 import { parseClocksWorkbook, parseSalesWorkbook } from '@/lib/tips/xlsx'
-import { addDays, periodDays } from '@/lib/tips/period'
-import { loadSettings } from '@/lib/tips/settings'
+import { addDays, periodDayCount, periodDays } from '@/lib/tips/period'
 
 export const dynamic = 'force-dynamic'
 /** Workbooks are small; the default body limit is plenty. Guard anyway. */
@@ -29,8 +28,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "kind must be 'sales' or 'clocks'" }, { status: 400 })
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const settings = await loadSettings()
-    const days = periodDays(period.startDate, settings.periodDays)
+    // The window is the PERIOD's own, frozen at open time — never the live,
+    // admin-editable settings.periodDays (see periodDayCount doc comment).
+    // Two things ride on this: `salesOverride` must be the same length as the
+    // series build.ts maps it over, and `dayCount` is the SOLE input to the
+    // clocks destructive-wipe guard below — a setting LARGER than the real
+    // window makes that guard under-fire and lets a wrong-period workbook
+    // delete real punches.
+    const dayCount = periodDayCount(period.startDate, period.endDate)
+    const days = periodDays(period.startDate, dayCount)
 
     if (kind === 'sales') {
       let parsed
@@ -79,7 +85,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     let parsed
-    try { parsed = parseClocksWorkbook(buffer, period.startDate, settings.periodDays) }
+    try { parsed = parseClocksWorkbook(buffer, period.startDate, dayCount) }
     catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 400 }) }
 
     // A workbook for a completely different period would otherwise wipe out
@@ -95,6 +101,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         error: `That workbook covers ${first} → ${last}, which does not overlap this period (${period.startDate} → ${period.endDate}).`,
       }, { status: 400 })
     }
+
+    // Read BEFORE the write. This only feeds the "unrecognised clock codes"
+    // count in the summary, but running it after the transaction meant a blip
+    // on this query surfaced as "Internal server error" with the punches
+    // already committed — and a manager who sees that will re-import.
+    const known = new Set(
+      (await prisma.cook.findMany({ where: { clockId: { not: null } }, select: { clockId: true } }))
+        .map(c => String(c.clockId)),
+    )
+    const strangers = [...new Set(parsed.rows.map(r => r.clockId))].filter(c => !known.has(c)).length
 
     // A re-import replaces the period's punches wholesale, and clears the
     // ignore list — the codes it named may not exist in the new file. All in
@@ -121,12 +137,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         data: { clockFileName: file.name, clockImportedAt: new Date(), ignoredClockIds: [] },
       }),
     ])
-
-    const known = new Set(
-      (await prisma.cook.findMany({ where: { clockId: { not: null } }, select: { clockId: true } }))
-        .map(c => String(c.clockId)),
-    )
-    const strangers = [...new Set(parsed.rows.map(r => r.clockId))].filter(c => !known.has(c)).length
 
     return NextResponse.json({
       ok: true,

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
 import { buildPeriodSplit } from '@/lib/tips/build'
+import { appendPayout, reopenSnapshot } from '@/lib/tips/snapshot'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +14,13 @@ export const dynamic = 'force-dynamic'
  * already carries each person's RESOLVED dailyHourCap, roleId, roleName and
  * multiplier as of build time (see build.ts), which is what preserves those
  * even though Cook/TipRole rows are mutable and will keep changing.
+ *
+ * PAYING IS APPEND-ONLY. Cash physically left the building, so a re-pay after
+ * a reopen never overwrites the earlier payout: `appendPayout` pushes the old
+ * one onto `snapshot.history` and the new one becomes `snapshot.current`, each
+ * with its own `paidAt` and `paidByName`. Reopening moves `current` onto
+ * `history` and leaves `current` null — the period stops looking paid without
+ * the record of the disbursement being destroyed. See lib/tips/snapshot.ts.
  *
  * A period with unresolved ERRORS cannot be paid — that is the entire point of
  * the Checks tab. Warnings and info do not block.
@@ -29,10 +37,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (body.reopen === true) {
       if (period.status !== 'PAID') return NextResponse.json({ error: 'This period is not paid.' }, { status: 409 })
-      await prisma.tipPeriod.update({
-        where: { id: params.id },
-        data: { status: 'DRAFT', paidAt: null, paidByName: null },
+      // Guarded on status so two concurrent reopens cannot both "succeed" and
+      // push the same payout onto history twice.
+      const reopened = reopenSnapshot(period.snapshot)
+      const { count } = await prisma.tipPeriod.updateMany({
+        where: { id: params.id, status: 'PAID' },
+        data: {
+          status: 'DRAFT',
+          // The mutable columns are cleared because the period is no longer
+          // paid — the authoriser is NOT lost with them: it was captured
+          // inside the payout record at pay time.
+          paidAt: null,
+          paidByName: null,
+          // Left untouched when there is nothing to retain (a PAID row with no
+          // snapshot at all should not gain an empty one).
+          ...(reopened ? { snapshot: reopened as unknown as object } : {}),
+        },
       })
+      if (count === 0) return NextResponse.json({ error: 'This period is not paid.' }, { status: 409 })
       return NextResponse.json({ ok: true, status: 'DRAFT' })
     }
 
@@ -48,31 +70,44 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }, { status: 409 })
     }
 
-    await prisma.tipPeriod.update({
-      where: { id: params.id },
+    const paidAt = new Date()
+    const paidByName = user.name ?? user.email
+    const snapshot = appendPayout(period.snapshot, {
+      paidAt: paidAt.toISOString(),
+      // Captured INSIDE the record: TipPeriod.paidByName is nulled on reopen,
+      // so it alone cannot survive a reopen → re-pay cycle.
+      paidByName,
+      poolBasis: built.poolBasis,
+      poolRatePct: built.poolRatePct,
+      roundingStepCents: built.roundingStepCents,
+      dayLabels: built.dayLabels,
+      basis: built.basis,
+      sales: built.sales,
+      tips: built.tips,
+      tipTotal: built.tipTotal,
+      roles: built.roles,
+      // split.people[] is the permanent per-person record: hours, weighted
+      // hours, tip, envelope AND their resolved dailyHourCap/roleId/roleName/
+      // multiplier at the moment of payment.
+      split: built.split,
+      audit: built.audit,
+    })
+
+    // Optimistic concurrency: two managers hitting Pay at the same moment both
+    // read DRAFT and both build. Without the status in the WHERE, the second
+    // write would silently overwrite the first payout as `current`. The loser
+    // gets the same 409 as any other already-paid attempt.
+    const { count } = await prisma.tipPeriod.updateMany({
+      where: { id: params.id, status: 'DRAFT' },
       data: {
         status: 'PAID',
-        paidAt: new Date(),
-        paidByName: user.name ?? user.email,
-        snapshot: {
-          paidAt: new Date().toISOString(),
-          poolBasis: built.poolBasis,
-          poolRatePct: built.poolRatePct,
-          roundingStepCents: built.roundingStepCents,
-          dayLabels: built.dayLabels,
-          basis: built.basis,
-          sales: built.sales,
-          tips: built.tips,
-          tipTotal: built.tipTotal,
-          roles: built.roles,
-          // split.people[] is the permanent per-person record: hours, weighted
-          // hours, tip, envelope AND their resolved dailyHourCap/roleId/roleName/
-          // multiplier at the moment of payment.
-          split: built.split,
-          audit: built.audit,
-        } as unknown as object,
+        paidAt,
+        paidByName,
+        snapshot: snapshot as unknown as object,
       },
     })
+    if (count === 0) return NextResponse.json({ error: 'This period is already paid.' }, { status: 409 })
+
     return NextResponse.json({ ok: true, status: 'PAID' })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })

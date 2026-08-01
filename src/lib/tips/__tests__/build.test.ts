@@ -45,6 +45,48 @@ vi.mock('@/lib/tips/sales', async (importOriginal) => {
   return { ...actual, dailyTotals: (...a: unknown[]) => dailyTotals(...(a as [])) }
 })
 
+// CALL-THROUGH spies. The pure functions still run for real — these exist only
+// so the WIRING between them can be asserted. buildPeriodSplit is the sole
+// authority for releasing cash and for the payroll CSV, and both of its route
+// consumers vi.mock it away, so nothing else exercises these seams. The
+// previous implementer's own best catch here was a missing `rewardTiers`
+// argument: it would have silently downgraded every boost finding to `info`
+// and weakened the pay gate, with no test failing.
+const auditSpy = vi.fn()
+vi.mock('@/lib/tips/audit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tips/audit')>()
+  return {
+    ...actual,
+    auditPeriod: (input: Parameters<typeof actual.auditPeriod>[0]) => {
+      auditSpy(input)
+      return actual.auditPeriod(input)
+    },
+  }
+})
+const computeSplitSpy = vi.fn()
+vi.mock('@/lib/tips/engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tips/engine')>()
+  return {
+    ...actual,
+    computeSplit: (input: Parameters<typeof actual.computeSplit>[0]) => {
+      computeSplitSpy(input)
+      return actual.computeSplit(input)
+    },
+  }
+})
+const resolveRosterSpy = vi.fn()
+vi.mock('@/lib/tips/roster', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tips/roster')>()
+  return {
+    ...actual,
+    resolveRoster: (input: Parameters<typeof actual.resolveRoster>[0]) => {
+      const out = actual.resolveRoster(input)
+      resolveRosterSpy(input, out)
+      return out
+    },
+  }
+})
+
 const { buildPeriodSplit } = await import('@/lib/tips/build')
 
 const user = { id: 'u1', role: 'MANAGER', isActive: true, name: 'Jo Manager', email: 'jo@x.test' } as unknown as User
@@ -63,6 +105,7 @@ beforeEach(() => {
     net: [100, 200, 0], tips: [10, null, 5], missingSalesDays: [2], missingTipDays: [1],
     rcIds: ['rc1'], label: 'Test scope',
   })
+  auditSpy.mockClear(); computeSplitSpy.mockClear(); resolveRosterSpy.mockClear()
 })
 
 describe('buildPeriodSplit', () => {
@@ -136,5 +179,66 @@ describe('buildPeriodSplit', () => {
     const result = await buildPeriodSplit(user, 'p1')
     expect(result!.tips).toEqual([10, 7, 0])
     expect(result!.basis).toEqual([10, 7, 0]) // 0 must win, not fall back to the live 5
+  })
+
+  // ── the wiring between the pure functions ──────────────────────────────────
+
+  it('passes rewardTiers through to auditPeriod — dropping it silently downgrades every boost finding to info and weakens the pay gate', async () => {
+    await buildPeriodSplit(user, 'p1')
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0].rewardTiers).toEqual([1.25, 1.5])
+  })
+
+  it('passes the OVERRIDE-APPLIED missingBasisDays to auditPeriod, not the raw live ones', async () => {
+    // Live missingSalesDays is [2]; the override supplies day 2, so by the time
+    // the audit runs there is no missing basis day left to block payment on.
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, salesOverride: [null, null, 900] })
+    await buildPeriodSplit(user, 'p1')
+    expect(auditSpy.mock.calls[0][0].missingBasisDays).toEqual([])
+    expect(auditSpy.mock.calls[0][0].basis).toEqual([100, 200, 900])
+  })
+
+  it('still reports a genuinely missing basis day to auditPeriod', async () => {
+    await buildPeriodSplit(user, 'p1')
+    expect(auditSpy.mock.calls[0][0].missingBasisDays).toEqual([2])
+  })
+
+  it('feeds resolveRoster\'s output straight into computeSplit and on into auditPeriod — one roster fold, three consumers', async () => {
+    cookFindMany.mockResolvedValueOnce([{
+      id: 'c1', name: 'Ana', lastName: 'B', clockId: '9',
+      wage: null, dailyHourCap: 6, tipRoleId: null, onTipPool: true,
+    }])
+    tipPeriodFindUnique.mockResolvedValueOnce({
+      ...basePeriod,
+      punches: [{
+        clockId: '9', firstName: 'Ana', lastName: 'B', position: 'Cook',
+        department: 'Back of House', dayIndex: 0, hours: 8, status: 'Approved', note: null,
+      }],
+    })
+    const result = await buildPeriodSplit(user, 'p1')
+
+    const [, rosterOut] = resolveRosterSpy.mock.calls[0]
+    expect(rosterOut).toHaveLength(1)
+    expect(rosterOut[0].hours[0]).toBe(8)
+    // The SAME array object reaches the engine — not a re-fold, not a copy.
+    expect(computeSplitSpy.mock.calls[0][0].people).toBe(rosterOut)
+    expect(auditSpy.mock.calls[0][0].people).toBe(rosterOut)
+    expect(result!.people).toBe(rosterOut)
+    // And the split the audit reconciles is the one the engine just produced.
+    expect(auditSpy.mock.calls[0][0].split).toBe(result!.split)
+  })
+
+  it('gives the audit the same poolDepartments and ignoredClockIds the roster fold used', async () => {
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, ignoredClockIds: ['99'] })
+    await buildPeriodSplit(user, 'p1')
+    expect(resolveRosterSpy.mock.calls[0][0].poolDepartments).toEqual(['Back of House'])
+    expect(auditSpy.mock.calls[0][0].poolDepartments).toEqual(['Back of House'])
+    expect(auditSpy.mock.calls[0][0].ignoredClockIds).toEqual(['99'])
+  })
+
+  it('gives computeSplit the period\'s own poolRatePct and roundingStepCents, not the live settings', async () => {
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, poolRatePct: 7.5, roundingStepCents: 25 })
+    await buildPeriodSplit(user, 'p1')
+    expect(computeSplitSpy.mock.calls[0][0]).toMatchObject({ poolRatePct: 7.5, roundingStepCents: 25 })
   })
 })

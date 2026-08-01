@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
-import { loadSettings } from '@/lib/tips/settings'
+import { periodDayCount } from '@/lib/tips/period'
 import type { TipPeriod } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -36,12 +36,19 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const body = await req.json().catch(() => ({}))
     const cookId = String(body.cookId ?? '')
     const dayIndex = Number(body.dayIndex)
-    const settings = await loadSettings()
+    // The bound is the PERIOD's own window, not the live, admin-editable
+    // settings.periodDays. Too small blocks legitimate edits at the tail of a
+    // long period; too large silently stores adjustments for days
+    // `resolveRoster` never loops over, so they are accepted and then inert.
+    const dayCount = periodDayCount(g.period.startDate, g.period.endDate)
     if (!cookId) return NextResponse.json({ error: 'cookId is required' }, { status: 400 })
-    if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex >= settings.periodDays)
-      return NextResponse.json({ error: `dayIndex must be 0–${settings.periodDays - 1}` }, { status: 400 })
+    if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex >= dayCount)
+      return NextResponse.json({ error: `dayIndex must be 0–${dayCount - 1}` }, { status: 400 })
 
-    const cook = await prisma.cook.findUnique({ where: { id: cookId } })
+    // isActive matters: build.ts and the payload route both resolve the roster
+    // from `isActive: true` cooks only, so an adjustment against a deactivated
+    // cook would store cleanly and then never apply to anything.
+    const cook = await prisma.cook.findFirst({ where: { id: cookId, isActive: true } })
     if (!cook) return NextResponse.json({ error: 'Not a roster member' }, { status: 400 })
 
     const existing = await prisma.tipDayAdjustment.findUnique({
@@ -83,16 +90,28 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-/** Clears one person's adjustments (?cookId=…) or, absent that, the whole period's. */
+/**
+ * Clears one person's adjustments (`?cookId=…`), or the whole period's — but
+ * the period-wide clear needs an explicit `?all=true`. Every manual hours
+ * override and reward boost in the period is real work somebody typed in, and
+ * a bare DELETE (a dropped/typo'd query param, a client bug) used to wipe the
+ * lot silently. Opting in is one extra param; recovering the data is not.
+ */
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const g = await guard(requireSession('MANAGER'), params.id)
     if (g.error) return g.error
     const cookId = req.nextUrl.searchParams.get('cookId')
-    await prisma.tipDayAdjustment.deleteMany({
+    const all = req.nextUrl.searchParams.get('all') === 'true'
+    if (!cookId && !all) {
+      return NextResponse.json({
+        error: 'Pass cookId to clear one person, or all=true to clear every adjustment in this period.',
+      }, { status: 400 })
+    }
+    const { count } = await prisma.tipDayAdjustment.deleteMany({
       where: { periodId: params.id, ...(cookId ? { cookId } : {}) },
     })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, cleared: count })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[tips/periods/[id]/adjustments DELETE]', err)

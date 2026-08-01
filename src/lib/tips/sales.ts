@@ -164,6 +164,41 @@ export async function dailyTotals(
 }
 
 /**
+ * Lays a stored per-day override array (the imported workbook's figures) over
+ * a live series (the app's own SalesEntry figures).
+ *
+ * PURE, and the ONLY copy — it sits next to `selectBasis` because the two are
+ * always used together and both callers, the page payload route and the
+ * server-side freeze/export path in build.ts, already import from here. It was
+ * previously duplicated verbatim in both; change the override semantics in one
+ * copy and the page's numbers and the numbers frozen at payment drift apart,
+ * which is the exact failure this seam exists to prevent.
+ *
+ * Semantics that matter:
+ *   - An override of `0` is a REAL figure and wins. `?? `/`isFinite`, never
+ *     `||` — a day that genuinely took nothing is not a day with no data.
+ *   - Only `null`/`undefined`/non-finite entries fall through to the live
+ *     value, so a short or sparse override array leaves the rest untouched.
+ *   - A day that was missing becomes non-missing once overridden: supplying
+ *     the figure is precisely how a manager clears a missing-basis error.
+ */
+export function applyOverride(
+  liveSeries: Array<number | null>,
+  raw: unknown,
+  liveMissing: number[],
+): { series: Array<number | null>; overridden: number[]; missing: number[] } {
+  const override = Array.isArray(raw) ? (raw as Array<number | null>) : null
+  const overridden: number[] = []
+  const series = liveSeries.map((v, i) => {
+    const o = override?.[i]
+    if (o == null || !isFinite(Number(o))) return v
+    overridden.push(i)
+    return Number(o)
+  })
+  return { series, overridden, missing: liveMissing.filter(i => !overridden.includes(i)) }
+}
+
+/**
  * Picks the per-day amount the pool rate applies to, and the day indexes that
  * amount is missing on. One place, so the page, the freeze and the export can
  * never disagree about what the pool was a percentage of.

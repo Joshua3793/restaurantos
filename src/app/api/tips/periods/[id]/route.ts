@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
 import { dayLabels, periodDayCount, periodDays, periodLabel } from '@/lib/tips/period'
-import { dailyTotals, selectBasis } from '@/lib/tips/sales'
+import { applyOverride, dailyTotals, selectBasis } from '@/lib/tips/sales'
+import { readSnapshot } from '@/lib/tips/snapshot'
 import { resolveRoster } from '@/lib/tips/roster'
 import { loadSettings, toDto } from '@/lib/tips/settings'
 import { toRoleDto } from '@/lib/tips/roles'
@@ -38,21 +39,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // ── sales + tips: app-native, with the workbook overriding per day ──────
     const live = await dailyTotals(user, settings, period.startDate, dayCount)
 
-    /** Applies a per-day override array over a live series. */
-    const applyOverride = <T extends number | null>(
-      liveSeries: T[], raw: unknown, liveMissing: number[],
-    ): { series: Array<number | null>; overridden: number[]; missing: number[] } => {
-      const override = Array.isArray(raw) ? (raw as (number | null)[]) : null
-      const overridden: number[] = []
-      const series = liveSeries.map((v, i) => {
-        const o = override?.[i]
-        if (o == null || !isFinite(Number(o))) return v as number | null
-        overridden.push(i)
-        return Number(o)
-      })
-      return { series, overridden, missing: liveMissing.filter(i => !overridden.includes(i)) }
-    }
-
+    // applyOverride lives in lib/tips/sales.ts next to selectBasis — one copy,
+    // shared with build.ts, so the numbers on this page and the numbers frozen
+    // at payment can never drift apart.
     const salesRes = applyOverride(live.net, period.salesOverride, live.missingSalesDays)
     const tipsRes = applyOverride(live.tips, period.tipsOverride, live.missingTipDays)
     const net = salesRes.series.map(v => v ?? 0)
@@ -135,7 +124,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         clockFileName: period.clockFileName,
         salesImportedAt: period.salesImportedAt?.toISOString() ?? null,
         clockImportedAt: period.clockImportedAt?.toISOString() ?? null,
-        snapshot: period.snapshot ?? null,
+        // Normalized (and legacy-flat-migrated) so the client reads one shape.
+        // `snapshot.current` is the paid marker — the snapshot itself survives
+        // a reopen on purpose, carrying the prior payouts. See types.ts.
+        snapshot: readSnapshot(period.snapshot),
       },
       dayLabels: labels,
       dayDates: dates,

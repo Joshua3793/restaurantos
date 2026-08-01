@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import type { User } from '@prisma/client'
 import { computeSplit } from './engine'
 import { auditPeriod } from './audit'
-import { dailyTotals, selectBasis } from './sales'
+import { applyOverride, dailyTotals, selectBasis } from './sales'
 import { resolveRoster } from './roster'
 import { dayLabels, periodDayCount } from './period'
 import { loadSettings } from './settings'
@@ -54,21 +54,9 @@ export async function buildPeriodSplit(user: User, periodId: string): Promise<Bu
 
   const live = await dailyTotals(user, settings, period.startDate, dayCount)
 
-  /** Applies a per-day override array over a live series. Mirrors the payload route. */
-  const applyOverride = (
-    liveSeries: Array<number | null>, raw: unknown, liveMissing: number[],
-  ) => {
-    const override = Array.isArray(raw) ? (raw as (number | null)[]) : null
-    const overridden = new Set<number>()
-    const series = liveSeries.map((v, i) => {
-      const o = override?.[i]
-      if (o == null || !isFinite(Number(o))) return v
-      overridden.add(i)
-      return Number(o)
-    })
-    return { series, missing: liveMissing.filter(i => !overridden.has(i)) }
-  }
-
+  // applyOverride lives in sales.ts next to selectBasis — one copy, shared with
+  // the page payload route, so the page's numbers and the numbers frozen at
+  // payment can never drift apart.
   const salesRes = applyOverride(live.net, period.salesOverride, live.missingSalesDays)
   const tipsRes = applyOverride(live.tips, period.tipsOverride, live.missingTipDays)
   const sales = salesRes.series.map(v => v ?? 0)
