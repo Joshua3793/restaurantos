@@ -7,6 +7,10 @@ import { auditPeriod, type FindingAction } from '@/lib/tips/audit'
 import type { TipPeriodPayload } from '@/lib/tips/types'
 import { MethodNote, TIP_TABS, money, type TipTabId } from '@/components/tips/kit'
 import { SplitTab } from '@/components/tips/SplitTab'
+import { DailyPoolsTab } from '@/components/tips/DailyPoolsTab'
+import { CashTab } from '@/components/tips/CashTab'
+import { ChecksTab } from '@/components/tips/ChecksTab'
+import { ImportTab } from '@/components/tips/ImportTab'
 
 export default function TipsPage() {
   const [payload, setPayload] = useState<TipPeriodPayload | null>(null)
@@ -82,6 +86,16 @@ export default function TipsPage() {
     })
     if (!res.ok) setError((await res.json()).error ?? 'Could not save')
     await loadPeriod(periodId)
+    setBusy(false)
+  }, [periodId, loadPeriod])
+
+  const saveSettings = useCallback(async (body: Record<string, unknown>) => {
+    setBusy(true)
+    const res = await fetch('/api/tips/settings', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not save settings')
+    if (periodId) await loadPeriod(periodId)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -340,7 +354,50 @@ export default function TipsPage() {
           />
         )}
 
-        {tab !== 'split' && (
+        {tab === 'days' && (
+          <DailyPoolsTab
+            split={split}
+            sales={payload.sales.net}
+            tips={payload.tips.collected}
+            dayLabels={payload.dayLabels}
+            overriddenDays={onTips ? payload.tips.overriddenDays : payload.sales.overriddenDays}
+            missingDays={payload.missingBasisDays}
+            salesMissingDays={payload.sales.missingDays}
+            basisLabel={basisLabel}
+            onTips={onTips}
+          />
+        )}
+
+        {tab === 'cash' && (
+          <CashTab
+            split={split}
+            denoms={payload.denoms}
+            roundingStepCents={payload.period.roundingStepCents}
+            readOnly={readOnly}
+            onDenomToggle={i => {
+              const next = payload.denoms.map((d, k) => (k === i ? { ...d, on: !d.on } : d))
+              void saveSettings({ denoms: next })
+            }}
+            onRoundingChange={cents => void patchPeriod({ roundingStepCents: cents })}
+          />
+        )}
+
+        {tab === 'checks' && (
+          <ChecksTab
+            audit={audit} split={split} period={payload.period}
+            punchTotal={payload.punchTotal} scopeLabel={payload.sales.scopeLabel}
+            readOnly={readOnly} onFix={applyFix}
+          />
+        )}
+
+        {tab === 'import' && periodId && (
+          <ImportTab
+            periodId={periodId} period={payload.period} readOnly={readOnly}
+            onImported={() => void loadPeriod(periodId)}
+          />
+        )}
+
+        {tab === 'settings' && (
           <MethodNote>This tab lands in the next task.</MethodNote>
         )}
       </div>
