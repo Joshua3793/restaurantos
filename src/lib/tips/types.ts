@@ -1,4 +1,5 @@
 /** DTOs shared by the tip engine, the audit, and the API payload. */
+import type { PunchRow } from './audit'
 
 export interface TipRoleDef {
   id: string
@@ -104,3 +105,63 @@ export interface Breakdown {
 
 export type SortKey =
   | 'name' | 'role' | 'hours' | 'weighted' | 'rate' | 'share' | 'tip' | 'env'
+
+export interface TipPeriodSummary {
+  id: string
+  revenueCenterId: string
+  revenueCenterName: string
+  startDate: string
+  endDate: string
+  status: 'DRAFT' | 'PAID'
+  paidAt: string | null
+  paidByName: string | null
+}
+
+/** Everything /tips needs, in one round trip. */
+export interface TipPeriodPayload {
+  period: TipPeriodSummary & {
+    poolBasis: PoolBasis
+    poolRatePct: number
+    roundingStepCents: number
+    ignoredClockIds: string[]
+    salesFileName: string | null
+    clockFileName: string | null
+    salesImportedAt: string | null
+    clockImportedAt: string | null
+    /** Frozen SplitResult + AuditResult, present only once status is PAID. */
+    snapshot: unknown | null
+  }
+  dayLabels: string[]
+  dayDates: string[]
+  periodLabel: string
+  /** The per-day amount the rate is applied to, after overrides. */
+  basis: number[]
+  /** Day indexes with no usable basis figure — always a blocking audit error. */
+  missingBasisDays: number[]
+  sales: {
+    net: number[]
+    /** Day indexes the configured scope had no SalesEntry row for. */
+    missingDays: number[]
+    /** Day indexes whose figure came from the imported workbook, not the app. */
+    overriddenDays: number[]
+    scopeLabel: string
+  }
+  tips: {
+    /** Customer tips per day; `null` where the app has no tip data. */
+    collected: Array<number | null>
+    missingDays: number[]
+    overriddenDays: number[]
+    /** Sum of the days that DO have data — the FOH pot the pool comes out of. */
+    total: number
+    /** True when auto-gratuity is being counted as part of the pot. */
+    includesAutoGratuity: boolean
+  }
+  roles: TipRoleDef[]
+  /** Every cook, with this period's hours and boosts already resolved. */
+  roster: TipPerson[]
+  punches: PunchRow[]
+  punchTotal: number
+  rewardTiers: number[]
+  denoms: Denom[]
+  poolDepartments: string[]
+}
