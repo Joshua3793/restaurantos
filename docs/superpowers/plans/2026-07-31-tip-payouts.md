@@ -1780,6 +1780,18 @@ git add src/lib/tips/audit.ts src/lib/tips/__tests__/audit.test.ts && git commit
 
 ---
 
+> **Note for Tasks 10–14 — `period.snapshot` is a structured record, not the
+> raw split.** Review of Task 9 found that reopening a paid period erased who
+> authorised the payout and that a re-pay overwrote the only record of cash
+> already handed out. The column now holds
+> `{ version, current: TipPayoutRecord | null, history: TipPayoutRecord[], trimmed }`
+> — see `TipPayoutRecord` / `TipPeriodSnapshot` in `src/lib/tips/types.ts`.
+> **The paid test is `snapshot.current != null`, never `snapshot != null`** — a
+> reopened DRAFT period still carries its history. Keying read-only mode off
+> `period.status === 'PAID'` (as Task 10's code does) remains correct.
+
+---
+
 > **Note for Tasks 8–14 — route files may NOT export helpers.** Next 14's App
 > Router type-checks the exports of a `route.ts`, so a helper exported from one
 > route and imported by another fails the build. Task 7 therefore relocated the
