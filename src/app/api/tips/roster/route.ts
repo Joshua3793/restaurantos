@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { loadSettings } from '@/lib/tips/settings'
+import { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,20 +40,35 @@ export async function POST(req: NextRequest) {
     const mapped = posMap[position]
     const roleId = roles.find(r => r.id === mapped)?.id ?? roles[roles.length - 1]?.id ?? null
 
-    const cook = await prisma.cook.create({
-      data: {
-        name: first,
-        lastName: last || null,
-        initials: initialsFor(first, last),
-        clockId,
-        posPosition: position || null,
-        tipRoleId: roleId,
-        // Prefilled once, then owned by the person — never re-read from settings.
-        dailyHourCap: settings.defaultDailyHourCap,
-        onTipPool: true,
-        sortOrder: await prisma.cook.count(),
-      },
-    })
+    let cook
+    try {
+      cook = await prisma.cook.create({
+        data: {
+          name: first,
+          lastName: last || null,
+          initials: initialsFor(first, last),
+          clockId,
+          posPosition: position || null,
+          tipRoleId: roleId,
+          // Prefilled once, then owned by the person — never re-read from settings.
+          dailyHourCap: settings.defaultDailyHourCap,
+          onTipPool: true,
+          sortOrder: await prisma.cook.count(),
+        },
+      })
+    } catch (e) {
+      // Losing side of a concurrent create for the same clockId: the pre-check
+      // above raced another request past it. Map the unique violation to the
+      // same readable 409 rather than letting it fall through as a 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const holder = await prisma.cook.findUnique({ where: { clockId } })
+        return NextResponse.json(
+          { error: `Clock #${clockId} already belongs to ${holder?.name ?? 'another cook'}` },
+          { status: 409 },
+        )
+      }
+      throw e
+    }
     return NextResponse.json({ id: cook.id }, { status: 201 })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })

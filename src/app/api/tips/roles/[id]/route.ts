@@ -23,7 +23,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (!isFinite(v) || v < 0 || v > 5) return NextResponse.json({ error: 'multiplier must be between 0 and 5' }, { status: 400 })
       data.multiplier = v
     }
-    if (body.sortOrder !== undefined) data.sortOrder = Number(body.sortOrder) || 0
+    if (body.sortOrder !== undefined) {
+      const v = Number(body.sortOrder)
+      if (!Number.isInteger(v)) return NextResponse.json({ error: 'sortOrder must be an integer' }, { status: 400 })
+      data.sortOrder = v
+    }
 
     const role = await prisma.tipRole.update({ where: { id: params.id }, data })
     return NextResponse.json(toRoleDto(role))
@@ -49,7 +53,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
     const fallbackId = req.nextUrl.searchParams.get('fallbackRoleId')
     const fallback = fallbackId
-      ? await prisma.tipRole.findFirst({ where: { id: fallbackId, isActive: true } })
+      ? await prisma.tipRole.findFirst({ where: { id: fallbackId, isActive: true, NOT: { id: params.id } } })
       : await prisma.tipRole.findFirst({ where: { isActive: true, id: { not: params.id } }, orderBy: { sortOrder: 'asc' } })
     if (!fallback) return NextResponse.json({ error: 'fallbackRoleId is not a live role' }, { status: 400 })
 

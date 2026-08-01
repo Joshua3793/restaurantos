@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,7 +61,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
-    const cook = await prisma.cook.update({ where: { id: params.id }, data })
+    let cook
+    try {
+      cook = await prisma.cook.update({ where: { id: params.id }, data })
+    } catch (e) {
+      // Losing side of a concurrent update to the same clockId: the pre-check
+      // above raced another request past it. Map the unique violation to the
+      // same readable 409 rather than letting it fall through as a 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002' && typeof data.clockId === 'string') {
+        const holder = await prisma.cook.findUnique({ where: { clockId: data.clockId as string } })
+        return NextResponse.json(
+          { error: `Clock #${data.clockId} already belongs to ${holder?.name ?? 'another cook'}` },
+          { status: 409 },
+        )
+      }
+      throw e
+    }
     return NextResponse.json({
       id: cook.id, name: cook.name, lastName: cook.lastName, clockId: cook.clockId,
       wage: cook.wage == null ? null : Number(cook.wage),

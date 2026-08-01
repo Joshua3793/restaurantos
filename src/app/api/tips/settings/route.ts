@@ -77,17 +77,31 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: "salesSourceMode must be 'LOCATION' or 'RC'" }, { status: 400 })
       data.salesSourceMode = body.salesSourceMode
     }
-    if (body.salesLocationId !== undefined) data.salesLocationId = body.salesLocationId || null
+    if (body.salesLocationId !== undefined) {
+      if (body.salesLocationId !== null && typeof body.salesLocationId !== 'string')
+        return NextResponse.json({ error: 'salesLocationId must be a string or null' }, { status: 400 })
+      data.salesLocationId = body.salesLocationId || null
+    }
     if (body.salesRcIds !== undefined) {
       if (!Array.isArray(body.salesRcIds)) return NextResponse.json({ error: 'salesRcIds must be an array' }, { status: 400 })
       data.salesRcIds = body.salesRcIds.map(String)
     }
-    if (body.poolRevenueCenterId !== undefined) data.poolRevenueCenterId = body.poolRevenueCenterId || null
+    if (body.poolRevenueCenterId !== undefined) {
+      if (body.poolRevenueCenterId !== null && typeof body.poolRevenueCenterId !== 'string')
+        return NextResponse.json({ error: 'poolRevenueCenterId must be a string or null' }, { status: 400 })
+      data.poolRevenueCenterId = body.poolRevenueCenterId || null
+    }
     if (body.poolDepartments !== undefined) {
       if (!Array.isArray(body.poolDepartments)) return NextResponse.json({ error: 'poolDepartments must be an array' }, { status: 400 })
       data.poolDepartments = body.poolDepartments.map(String)
     }
-    if (body.posMap !== undefined) data.posMap = body.posMap ?? {}
+    if (body.posMap !== undefined) {
+      const map = body.posMap ?? {}
+      const isPlainObject = typeof map === 'object' && map !== null && !Array.isArray(map)
+      if (!isPlainObject || Object.values(map).some((v) => typeof v !== 'string'))
+        return NextResponse.json({ error: 'posMap must be an object mapping strings to strings' }, { status: 400 })
+      data.posMap = map
+    }
     if (body.denoms !== undefined) {
       if (!Array.isArray(body.denoms)) return NextResponse.json({ error: 'denoms must be an array' }, { status: 400 })
       data.denoms = body.denoms
