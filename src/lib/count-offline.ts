@@ -7,10 +7,18 @@ export interface CountMutation {
   ts:        number
   sessionId: string
   lineId:    string
-  type:      'count' | 'skip'
+  type:      'count' | 'skip' | 'uom'
   qty?:      number
   entries?:  { unit: string; qty: number }[]   // mixed-unit count (authoritative when present)
   carried?:  boolean                            // "Same as last" — record unchanged, zero variance
+  // The unit `qty` was entered in (type 'count'), or the newly picked unit (type 'uom').
+  // MUST ride along with the count: the server falls back to the line's stored
+  // selectedUom when the body omits it, which silently reinterprets an offline count
+  // in the line's default unit (a kg count recorded as cases).
+  uom?:      string
+  // type 'uom' only — the unit changed on a line that already had a count, so the
+  // stored qty is meaningless in the new unit and must be reset to uncounted.
+  clearsCount?: boolean
 }
 
 // ── Session cache ──────────────────────────────────────────────────────────────
@@ -51,6 +59,20 @@ export function loadCountQueue(): CountMutation[] {
   } catch { return [] }
 }
 
+/**
+ * Drop any queued count/skip for a line, leaving 'uom' mutations alone.
+ * Used when a unit change invalidates an already-recorded count: without this the
+ * superseded count would still flush and re-count the line under the new unit.
+ * Returns the resulting queue length so callers can resync their pending badge.
+ */
+export function dropQueuedStateForLine(lineId: string): number {
+  try {
+    const remaining = loadCountQueue().filter(m => !(m.lineId === lineId && m.type !== 'uom'))
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining))
+    return remaining.length
+  } catch { return loadCountQueue().length }
+}
+
 export function clearCountQueue(): void {
   try { localStorage.removeItem(QUEUE_KEY) } catch { /* ok */ }
 }
@@ -60,18 +82,26 @@ export function pendingCountForSession(sessionId: string): number {
 }
 
 // ── Deduplication ──────────────────────────────────────────────────────────────
-// Keep only the last mutation per lineId — both count and skip replace each other.
+// Keep only the last mutation per line PER KEY. count/skip share a key — they're
+// mutually exclusive states of the same line, so the later one wins. A 'uom' change
+// gets its own key: it is a different field, and collapsing it into the shared key
+// would let a unit change swallow a queued count (or vice versa) and lose the count.
+
+function dedupeKey(m: CountMutation): string {
+  return `${m.lineId}:${m.type === 'uom' ? 'uom' : 'state'}`
+}
 
 function deduplicateQueue(queue: CountMutation[]): CountMutation[] {
-  const lastPerLine = new Map<string, CountMutation>()
-  for (const m of queue) lastPerLine.set(m.lineId, m)
+  const lastPerKey = new Map<string, CountMutation>()
+  for (const m of queue) lastPerKey.set(dedupeKey(m), m)
   // Return in original insertion order, deduplicated
   const seen = new Set<string>()
   const result: CountMutation[] = []
   for (const m of queue) {
-    if (lastPerLine.get(m.lineId) === m && !seen.has(m.lineId)) {
+    const k = dedupeKey(m)
+    if (lastPerKey.get(k) === m && !seen.has(k)) {
       result.push(m)
-      seen.add(m.lineId)
+      seen.add(k)
     }
   }
   return result
@@ -89,7 +119,7 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
   const deduped = deduplicateQueue(queue)
   let synced = 0
   let failed = 0
-  const failedLines = new Set<string>()
+  const failedKeys = new Set<string>()
 
   for (const m of deduped) {
     try {
@@ -99,9 +129,19 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
         body: JSON.stringify(
           m.type === 'skip'
             ? { skipped: true }
-            : m.entries && m.entries.length
-              ? { entries: m.entries }
-              : { countedQty: m.qty, ...(m.carried ? { carriedForward: true } : {}) },
+            : m.type === 'uom'
+              // `skipped: false` is this API's existing "reset to uncounted" verb
+              // (see clearLine / unskipLine) — it drops the qty and keeps the unit.
+              ? { selectedUom: m.uom, ...(m.clearsCount ? { skipped: false } : {}) }
+              : m.entries && m.entries.length
+                // Mixed-unit: entries carry their own units, and the server stores
+                // selectedUom = baseUnit for that path. Sending a unit would fight it.
+                ? { entries: m.entries }
+                : {
+                    countedQty: m.qty,
+                    ...(m.uom ? { selectedUom: m.uom } : {}),
+                    ...(m.carried ? { carriedForward: true } : {}),
+                  },
         ),
       })
       // A 4xx/5xx is NOT a successful sync — keep it queued for retry. (fetch only
@@ -110,13 +150,13 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
       synced++
     } catch {
       failed++
-      failedLines.add(m.lineId)
+      failedKeys.add(dedupeKey(m))
     }
   }
 
-  // Drop only the snapshotted mutations whose line fully synced. Keep failed lines
+  // Drop only the snapshotted mutations whose key fully synced. Keep failed keys
   // (retry next flush) and anything enqueued during the flush.
-  const remaining = loadCountQueue().filter(m => !snapshotIds.has(m.id) || failedLines.has(m.lineId))
+  const remaining = loadCountQueue().filter(m => !snapshotIds.has(m.id) || failedKeys.has(dedupeKey(m)))
   if (remaining.length > 0) {
     try { localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining)) } catch { /* ok */ }
   } else {
