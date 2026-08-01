@@ -1,9 +1,10 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Banknote, Check, Download } from 'lucide-react'
+import { Banknote, Check, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 import { computeSplit } from '@/lib/tips/engine'
 import { auditPeriod, type FindingAction } from '@/lib/tips/audit'
+import { nextPeriodStart, previousPeriodStart } from '@/lib/tips/period'
 import type { TipPeriodPayload } from '@/lib/tips/types'
 import { TIP_TABS, money, type TipTabId } from '@/components/tips/kit'
 import { SplitTab } from '@/components/tips/SplitTab'
@@ -32,6 +33,27 @@ export default function TipsPage() {
     setError(null)
   }, [])
 
+  /**
+   * Opens the period starting on `startDate` and loads it.
+   *
+   * POST /api/tips/periods is idempotent on (revenueCenterId, startDate) — it
+   * returns the existing row rather than creating a duplicate — so this single
+   * call is both "open the next fortnight" and "go back to the one we already
+   * paid". The RC is carried over from the period being stepped away from, not
+   * re-read from settings, so changing the house's crew RC later cannot make
+   * the ‹ › arrows wander onto a different pool's periods.
+   */
+  const openPeriod = useCallback(async (startDate: string, revenueCenterId?: string) => {
+    const res = await fetch('/api/tips/periods', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ startDate, ...(revenueCenterId ? { revenueCenterId } : {}) }),
+    })
+    if (!res.ok) { setError((await res.json()).error ?? 'Could not open that period'); return }
+    const { id } = await res.json()
+    await loadPeriod(id)
+  }, [loadPeriod])
+
   const loadSettings = useCallback(async () => {
     const res = await fetch('/api/tips/settings', { cache: 'no-store' })
     if (res.ok) setSettings(await res.json())
@@ -45,18 +67,12 @@ export default function TipsPage() {
       const { periods, defaultStartDate } = await res.json()
       if (cancelled) return
       if (periods.length) { void loadPeriod(periods[0].id); return }
-      // No period yet — open the current one.
-      const created = await fetch('/api/tips/periods', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ startDate: defaultStartDate }),
-      })
-      if (!created.ok) { setError((await created.json()).error ?? 'Could not open a period'); return }
-      const { id } = await created.json()
-      if (!cancelled) void loadPeriod(id)
+      // No period yet — open the current one. Every period after this one is
+      // reached with the ‹ › stepper, which opens on demand.
+      if (!cancelled) void openPeriod(defaultStartDate)
     })()
     return () => { cancelled = true }
-  }, [loadPeriod])
+  }, [loadPeriod, openPeriod])
 
   useEffect(() => {
     void loadSettings()
@@ -98,9 +114,28 @@ export default function TipsPage() {
       ignoredClockIds: payload.period.ignoredClockIds,
       missingBasisDays: payload.missingBasisDays,
       rewardTiers: payload.rewardTiers,
+      outOfScopeRcCount: payload.sales.outOfScopeRcCount,
     })
     return { split: s, audit: a }
   }, [payload])
+
+  /**
+   * ‹ / › — the previous or next window of the SAME length as the one on
+   * screen, using the period module's own arithmetic rather than open-coding
+   * it here. There is no "latest period" ceiling: stepping forward past the
+   * current fortnight opens the next one, which is how a manager gets ahead of
+   * a close.
+   */
+  const stepPeriod = useCallback(async (dir: -1 | 1) => {
+    if (!payload) return
+    const dayCount = payload.dayLabels.length
+    const start = dir < 0
+      ? previousPeriodStart(payload.period.startDate, dayCount)
+      : nextPeriodStart(payload.period.startDate, dayCount)
+    setBusy(true)
+    try { await openPeriod(start, payload.period.revenueCenterId) }
+    finally { setBusy(false) }
+  }, [payload, openPeriod])
 
   /* ── mutate ────────────────────────────────────────────────────────────── */
   const patchPeriod = useCallback(async (body: Record<string, unknown>) => {
@@ -193,7 +228,12 @@ export default function TipsPage() {
     return <div className="bg-paper border border-line rounded-xl p-12 text-center font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">Loading tip period…</div>
   }
 
-  const readOnly = payload.period.status === 'PAID'
+  // PERIOD-scoped edits only — hours, boosts, rate, basis, rounding, imports.
+  // Deliberately NOT passed to the Settings tab: the roster, roles, pool rules
+  // and sales scope are house configuration, and freezing them alongside the
+  // split left the whole page dead once the first period was paid. What a
+  // payment freezes is the payout snapshot, not the house rules.
+  const periodReadOnly = payload.period.status === 'PAID'
   const netSales = payload.sales.net.reduce((a, b) => a + b, 0)
   const badge = audit.counts.error || audit.counts.warn || 0
   const onTips = payload.period.poolBasis === 'TIPS_COLLECTED'
@@ -246,13 +286,37 @@ export default function TipsPage() {
           title="Kitchen tip pool"
           sub={
             <span className="flex items-center gap-3">
-              <span className="font-mono text-[11.5px] text-ink">{payload.periodLabel}</span>
+              {/* The period stepper. Without it the page could only ever open
+                  ONE period: it created the current one on first load and had
+                  no way to reach any other. Each arrow opens (idempotently) or
+                  reloads the adjacent window — see stepPeriod. */}
+              <span className="inline-flex items-center gap-1">
+                <button
+                  onClick={() => void stepPeriod(-1)}
+                  disabled={busy}
+                  aria-label="Previous period"
+                  title="Previous period"
+                  className="w-6 h-6 grid place-items-center rounded border border-line bg-paper text-ink-3 hover:border-ink-3 hover:text-ink disabled:opacity-40"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="font-mono text-[11.5px] text-ink">{payload.periodLabel}</span>
+                <button
+                  onClick={() => void stepPeriod(1)}
+                  disabled={busy}
+                  aria-label="Next period"
+                  title="Next period"
+                  className="w-6 h-6 grid place-items-center rounded border border-line bg-paper text-ink-3 hover:border-ink-3 hover:text-ink disabled:opacity-40"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </span>
               <label className="inline-flex items-center gap-1.5 font-mono text-[11px] text-ink-3">
                 POOL RATE
                 <input
                   type="number" step="0.5" min="0" max="100"
                   value={payload.period.poolRatePct}
-                  disabled={readOnly}
+                  disabled={periodReadOnly}
                   onChange={e => {
                     const v = parseFloat(e.target.value)
                     if (isFinite(v) && v >= 0) void patchPeriod({ poolRatePct: v })
@@ -264,7 +328,7 @@ export default function TipsPage() {
                     control here, not buried in settings. Frozen once the period is paid. */}
                 <select
                   value={payload.period.poolBasis}
-                  disabled={readOnly}
+                  disabled={periodReadOnly}
                   onChange={e => void patchPeriod({ poolBasis: e.target.value })}
                   className="font-mono text-[11px] border border-line rounded-md px-1.5 py-1 bg-paper text-ink-2 cursor-pointer outline-none hover:border-ink-3"
                 >
@@ -297,7 +361,7 @@ export default function TipsPage() {
                 className="inline-flex items-center gap-[7px] px-4 py-[9px] rounded bg-ink text-paper text-[13px] font-medium border border-ink hover:bg-ink-2 disabled:opacity-50"
               >
                 <Check size={13} className="text-gold" />
-                {readOnly ? 'Reopen period' : 'Mark period paid'}
+                {periodReadOnly ? 'Reopen period' : 'Mark period paid'}
               </button>
             </>
           }
@@ -356,7 +420,7 @@ export default function TipsPage() {
           <SplitTab
             split={split} audit={audit} roles={payload.roles}
             dayLabels={payload.dayLabels}
-            rewardTiers={payload.rewardTiers} readOnly={readOnly}
+            rewardTiers={payload.rewardTiers} readOnly={periodReadOnly}
             onCapChange={(cookId, cap) => {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -399,7 +463,7 @@ export default function TipsPage() {
             split={split}
             denoms={payload.denoms}
             roundingStepCents={payload.period.roundingStepCents}
-            readOnly={readOnly}
+            readOnly={periodReadOnly}
             onDenomToggle={i => {
               const next = payload.denoms.map((d, k) => (k === i ? { ...d, on: !d.on } : d))
               void saveSettings({ denoms: next })
@@ -412,13 +476,13 @@ export default function TipsPage() {
           <ChecksTab
             audit={audit} split={split} period={payload.period}
             punchTotal={payload.punchTotal} scopeLabel={payload.sales.scopeLabel}
-            readOnly={readOnly} onFix={applyFix}
+            readOnly={periodReadOnly} onFix={applyFix}
           />
         )}
 
         {tab === 'import' && periodId && (
           <ImportTab
-            periodId={periodId} period={payload.period} readOnly={readOnly}
+            periodId={periodId} period={payload.period} readOnly={periodReadOnly}
             onImported={() => void loadPeriod(periodId)}
           />
         )}
@@ -426,7 +490,7 @@ export default function TipsPage() {
         {tab === 'settings' && settings && (
           <SettingsTab
             payload={payload} split={split} settings={settings}
-            locations={locations} revenueCenters={revenueCenters} readOnly={readOnly}
+            locations={locations} revenueCenters={revenueCenters}
             onSaveSettings={patch => void saveSettings(patch as Record<string, unknown>)}
             onSaveRole={(id, patch) => {
               void fetch(`/api/tips/roles/${id}`, {

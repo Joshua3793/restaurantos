@@ -44,10 +44,45 @@ describe('dayIndexOf', () => {
   })
 })
 
+/**
+ * These two are what the /tips ‹ › stepper steps by. They were exported and
+ * imported by nothing while the page could only ever open one period.
+ */
 describe('period navigation', () => {
   it('steps back and forward by a whole period', () => {
     expect(previousPeriodStart('2026-07-12', 14)).toBe('2026-06-28')
     expect(nextPeriodStart('2026-07-12', 14)).toBe('2026-07-26')
+  })
+
+  it('lands on a CONTIGUOUS window — no gap, no overlap with the one it left', () => {
+    // The next window must start the day after this one's last day, or the
+    // stepper would skip or double-count a day's sales.
+    for (const count of [7, 14, 28]) {
+      const start = '2026-07-12'
+      const lastDay = periodDays(start, count)[count - 1]
+      expect(nextPeriodStart(start, count)).toBe(addDays(lastDay, 1))
+      expect(addDays(previousPeriodStart(start, count), count)).toBe(start)
+    }
+  })
+
+  it('round-trips: forward then back returns to where it started', () => {
+    for (const count of [7, 14, 28]) {
+      expect(previousPeriodStart(nextPeriodStart('2026-07-12', count), count)).toBe('2026-07-12')
+      expect(nextPeriodStart(previousPeriodStart('2026-07-12', count), count)).toBe('2026-07-12')
+    }
+  })
+
+  it('steps by the window it is given, over a month and a year boundary', () => {
+    expect(previousPeriodStart('2026-01-04', 14)).toBe('2025-12-21')
+    expect(nextPeriodStart('2025-12-21', 14)).toBe('2026-01-04')
+    // A 7-day house rule steps 7, whatever a 14-day period once used.
+    expect(nextPeriodStart('2026-07-12', 7)).toBe('2026-07-19')
+  })
+
+  it('crosses a DST transition without slipping a day', () => {
+    // 2026-11-01 is the North American fall-back Sunday.
+    expect(nextPeriodStart('2026-10-25', 14)).toBe('2026-11-08')
+    expect(previousPeriodStart('2026-11-08', 14)).toBe('2026-10-25')
   })
 })
 

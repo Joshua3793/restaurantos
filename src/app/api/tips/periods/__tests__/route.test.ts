@@ -120,6 +120,47 @@ describe('POST /api/tips/periods', () => {
     expect(data.poolBasis).toBe('NET_SALES')
   })
 
+  /**
+   * The /tips page's ‹ › stepper is built entirely on this handler: each arrow
+   * posts `previousPeriodStart`/`nextPeriodStart` of the window on screen. The
+   * page used to POST only when ZERO periods existed and otherwise load
+   * `periods[0]`, so it could open exactly one period, ever.
+   */
+  describe('as the page stepper uses it', () => {
+    it('opens the ADJACENT window when the stepper walks off the end of the known ones', async () => {
+      // Stepping forward from the fortnight starting 2026-07-12.
+      const res = await POST(req({ startDate: '2026-07-26', revenueCenterId: 'rc1' }))
+      expect(res.status).toBe(201)
+      const data = tipPeriodCreate.mock.calls[0][0].data as Record<string, unknown>
+      expect(data.startDate).toBe('2026-07-26')
+      expect(data.endDate).toBe('2026-08-08') // contiguous with 07-12 → 07-25
+      expect(data.revenueCenterId).toBe('rc1')
+    })
+
+    it('returns the SAME period when the stepper walks back onto one already open', async () => {
+      // Stepping ‹ then › then ‹ again must land on one row, not three.
+      tipPeriodFindUnique.mockResolvedValue({ id: 'p-june' })
+      for (let i = 0; i < 3; i++) {
+        const res = await POST(req({ startDate: '2026-06-28', revenueCenterId: 'rc1' }))
+        expect(res.status).toBe(200)
+        expect((await res.json()).id).toBe('p-june')
+      }
+      expect(tipPeriodCreate).not.toHaveBeenCalled()
+    })
+
+    it('keeps the stepper on the period\'s OWN revenue center, not the live house setting', async () => {
+      // The page passes the RC it is stepping away from. If the house's crew RC
+      // has since been changed, the arrows must not wander onto another pool.
+      loadSettings.mockResolvedValueOnce({
+        periodStartDow: 0, periodDays: 14, poolRevenueCenterId: 'rc-changed',
+        poolBasis: 'NET_SALES', poolRatePct: 5, roundingStepCents: 100,
+      })
+      await POST(req({ startDate: '2026-07-26', revenueCenterId: 'rc1' }))
+      const data = tipPeriodCreate.mock.calls[0][0].data as Record<string, unknown>
+      expect(data.revenueCenterId).toBe('rc1')
+    })
+  })
+
   it('maps a P2002 raised by a concurrent open to the existing period\'s id instead of a 500', async () => {
     // Pre-check passes (no period seen yet), but the create loses a race to
     // another request opening the same (revenueCenterId, startDate).
