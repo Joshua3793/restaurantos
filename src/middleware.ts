@@ -10,7 +10,7 @@ const PUBLIC_PREFIXES = ['/login', '/auth']
 const ADMIN_PREFIXES = ['/settings', '/setup']
 
 // Routes that require MANAGER or above
-const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals']
+const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals', '/tips']
 
 // Routes a Shift Lead may reach. /end-of-day moved out of MANAGER_PREFIXES:
 // a Lead runs the operational close (checklist, temps, sign-off) and WRITES the
