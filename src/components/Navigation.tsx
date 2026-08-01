@@ -7,7 +7,7 @@ import {
   Sun, Package, FileText, Trash2, BarChart3,
   BookOpen, UtensilsCrossed,
   X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
-  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer, Clock,
+  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer, Clock, Banknote,
 } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
@@ -56,6 +56,12 @@ const navGroups: NavGroup[] = [
     label: 'INBOX',
     items: [
       { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
+    ],
+  },
+  {
+    label: 'TEAM',
+    items: [
+      { href: '/tips', label: 'Tip payouts', icon: Banknote, minRole: 'MANAGER' },
     ],
   },
   {

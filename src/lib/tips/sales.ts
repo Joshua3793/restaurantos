@@ -1,0 +1,251 @@
+/**
+ * Daily net sales for a tip period.
+ *
+ * THE SALES BASIS IS DELIBERATELY INDEPENDENT OF THE POOL'S REVENUE CENTER.
+ * A kitchen tip pool is normally funded by the whole venue's sales, not by the
+ * kitchen RC's own line: tips for RC "Kitchen" are typically driven by every RC
+ * under Location "Cafe". TipSettings.salesSourceMode picks which:
+ *   'LOCATION' → every active RC under salesLocationId
+ *   'RC'       → exactly the ids listed in salesRcIds
+ * Neither reads TipPeriod.revenueCenterId, which is the crew side of the pool.
+ *
+ * Only periodType 'day' rows are summed. A multi-day manual entry carries a
+ * single start date and would dump a whole week onto one day pool (the same
+ * trap documented in sales-dedup.ts).
+ */
+import 'server-only'
+import { prisma } from '@/lib/prisma'
+import type { TipSettings, User } from '@prisma/client'
+import { dedupeSalesEntries } from '@/lib/sales-dedup'
+import { resolveScopedRcIds } from '@/lib/rc-scope'
+import { periodDays } from './period'
+
+interface SalesRow {
+  date: Date
+  revenueCenterId: string
+  totalRevenue: number
+  tipsCollected: number | null
+  autoGratuity: number | null
+  source: string
+  periodType: string
+}
+
+export interface DailyTotals {
+  /** Net sales per day. A day with no row reads 0 and is listed in missingSalesDays. */
+  net: number[]
+  /** Customer tips per day. `null` on a day no revenue center reported tips. */
+  tips: Array<number | null>
+  missingSalesDays: number[]
+  missingTipDays: number[]
+}
+
+/**
+ * Folds SalesEntry rows into per-day net sales AND per-day customer tips.
+ * PURE — exported so the fold is unit-testable without a database.
+ *
+ * The `missing*` lists carry day indexes with NO data at all, which is a
+ * different (and much worse) condition than a day that genuinely took $0: the
+ * audit turns a missing BASIS day into a blocking error rather than a warning.
+ * A tip figure of 0 and a tip figure of null must never be conflated — that
+ * distinction is the whole reason SalesEntry.tipsCollected is nullable.
+ */
+export function foldDailyTotals(
+  rows: SalesRow[],
+  days: string[],
+  includeAutoGratuity = true,
+): DailyTotals {
+  const daily = rows.filter(r => r.periodType === 'day')
+  const deduped = dedupeSalesEntries(daily)
+
+  const salesByDay = new Map<string, number>()
+  const tipsByDay = new Map<string, number>()
+  const sawSales = new Set<string>()
+  const sawTips = new Set<string>()
+
+  for (const r of deduped) {
+    const key = r.date.toISOString().slice(0, 10)
+    salesByDay.set(key, (salesByDay.get(key) ?? 0) + Number(r.totalRevenue))
+    sawSales.add(key)
+    // Auto-gratuity counts as a tip only when the house says so — the decision
+    // is applied here, at read time, never baked into the stored columns.
+    const grat = includeAutoGratuity ? r.autoGratuity : null
+    if (r.tipsCollected != null || grat != null) {
+      const amount = Number(r.tipsCollected ?? 0) + Number(grat ?? 0)
+      tipsByDay.set(key, (tipsByDay.get(key) ?? 0) + amount)
+      sawTips.add(key)
+    }
+  }
+
+  const round = (n: number) => Math.round(n * 100) / 100
+  return {
+    net: days.map(d => round(salesByDay.get(d) ?? 0)),
+    tips: days.map(d => (sawTips.has(d) ? round(tipsByDay.get(d) ?? 0) : null)),
+    missingSalesDays: days.map((d, i) => (sawSales.has(d) ? -1 : i)).filter(i => i >= 0),
+    missingTipDays: days.map((d, i) => (sawTips.has(d) ? -1 : i)).filter(i => i >= 0),
+  }
+}
+
+export interface SalesScope {
+  /**
+   * Every revenue center the CONFIGURED scope resolves to, in full. Never
+   * narrowed to the caller — see the resolver's doc comment.
+   */
+  rcIds: string[]
+  label: string
+  /**
+   * The subset of `rcIds` the CALLER's own UserScope does not cover. Empty for
+   * an unrestricted caller. Reported, never subtracted: the pool must be the
+   * same money whoever opens the page.
+   */
+  outOfScopeRcIds: string[]
+}
+
+/**
+ * The revenue centers the pool's sales are read from.
+ *
+ * THE CONFIGURED SCOPE IS RESOLVED IN FULL, NOT INTERSECTED WITH THE CALLER'S
+ * OWN ACCESS. It used to be intersected, as a privilege guard, and as a *read*
+ * guard the instinct was right — but the sales scope is a HOUSE CONFIGURATION
+ * that defines the pool, not a per-user view of it. Intersecting made the
+ * frozen payout depend on which manager clicked Pay: a manager scoped to the
+ * Kitchen RC alone froze a basis summed over Kitchen, while an unscoped admin
+ * froze the whole Cafe location — same period, same button, two different pools
+ * and two different sets of envelopes. Nothing signalled it either, because the
+ * narrower revenue centers DO have sales rows, so `missingSalesDays` stayed
+ * empty and no audit error fired.
+ *
+ * Access to the period itself is gated separately and still is:
+ * `isRcInScope(user, period.revenueCenterId)` on every /api/tips/periods route.
+ * What this resolver does with `user` now is REPORT the difference —
+ * `outOfScopeRcIds` — so a scoped manager can see, as a warning finding on the
+ * Checks tab, that the pool spans revenue centers they cannot otherwise read.
+ * Never re-introduce the filter: make the mismatch visible instead.
+ */
+export async function resolveSalesScopeRcIds(
+  user: User,
+  settings: Pick<TipSettings, 'salesSourceMode' | 'salesLocationId' | 'salesRcIds'>,
+): Promise<SalesScope> {
+  const allowed = await resolveScopedRcIds(user)
+  const outOfScope = (ids: string[]) => (allowed === null ? [] : ids.filter(id => !allowed.has(id)))
+  const none: SalesScope = { rcIds: [], label: 'No sales source configured', outOfScopeRcIds: [] }
+
+  if (settings.salesSourceMode === 'LOCATION' && settings.salesLocationId) {
+    const location = await prisma.location.findUnique({
+      where: { id: settings.salesLocationId },
+      select: { name: true, revenueCenters: { where: { isActive: true }, select: { id: true } } },
+    })
+    if (!location) return none
+    const ids = location.revenueCenters.map(rc => rc.id)
+    return {
+      rcIds: ids,
+      label: `${location.name} · all revenue centers`,
+      outOfScopeRcIds: outOfScope(ids),
+    }
+  }
+
+  const configured = Array.isArray(settings.salesRcIds) ? (settings.salesRcIds as string[]) : []
+  if (!configured.length) return none
+  const rcs = await prisma.revenueCenter.findMany({
+    where: { id: { in: configured } },
+    select: { id: true, name: true },
+  })
+  const ids = rcs.map(rc => rc.id)
+  if (!ids.length) return none
+  return {
+    rcIds: ids,
+    label: rcs.map(rc => rc.name).join(' + '),
+    outOfScopeRcIds: outOfScope(ids),
+  }
+}
+
+/** The period's daily net sales and customer tips, straight from SalesEntry. */
+export async function dailyTotals(
+  user: User,
+  settings: Pick<TipSettings, 'salesSourceMode' | 'salesLocationId' | 'salesRcIds' | 'includeAutoGratuity'>,
+  startDate: string,
+  dayCount: number,
+): Promise<DailyTotals & SalesScope> {
+  const days = periodDays(startDate, dayCount)
+  const scope = await resolveSalesScopeRcIds(user, settings)
+  const { rcIds } = scope
+  const allMissing = days.map((_, i) => i)
+  if (!rcIds.length) {
+    return {
+      ...scope,
+      net: days.map(() => 0), tips: days.map(() => null),
+      missingSalesDays: allMissing, missingTipDays: allMissing,
+    }
+  }
+
+  const rows = await prisma.salesEntry.findMany({
+    where: {
+      revenueCenterId: { in: rcIds },
+      date: { gte: new Date(days[0] + 'T00:00:00.000Z'), lte: new Date(days[days.length - 1] + 'T23:59:59.999Z') },
+    },
+    select: {
+      date: true, revenueCenterId: true, totalRevenue: true,
+      tipsCollected: true, autoGratuity: true, source: true, periodType: true,
+    },
+  })
+
+  const folded = foldDailyTotals(
+    rows.map(r => ({
+      ...r,
+      totalRevenue: Number(r.totalRevenue),
+      tipsCollected: r.tipsCollected == null ? null : Number(r.tipsCollected),
+      autoGratuity: r.autoGratuity == null ? null : Number(r.autoGratuity),
+    })),
+    days,
+    settings.includeAutoGratuity,
+  )
+  return { ...folded, ...scope }
+}
+
+/**
+ * Lays a stored per-day override array (the imported workbook's figures) over
+ * a live series (the app's own SalesEntry figures).
+ *
+ * PURE, and the ONLY copy — it sits next to `selectBasis` because the two are
+ * always used together and both callers, the page payload route and the
+ * server-side freeze/export path in build.ts, already import from here. It was
+ * previously duplicated verbatim in both; change the override semantics in one
+ * copy and the page's numbers and the numbers frozen at payment drift apart,
+ * which is the exact failure this seam exists to prevent.
+ *
+ * Semantics that matter:
+ *   - An override of `0` is a REAL figure and wins. `?? `/`isFinite`, never
+ *     `||` — a day that genuinely took nothing is not a day with no data.
+ *   - Only `null`/`undefined`/non-finite entries fall through to the live
+ *     value, so a short or sparse override array leaves the rest untouched.
+ *   - A day that was missing becomes non-missing once overridden: supplying
+ *     the figure is precisely how a manager clears a missing-basis error.
+ */
+export function applyOverride(
+  liveSeries: Array<number | null>,
+  raw: unknown,
+  liveMissing: number[],
+): { series: Array<number | null>; overridden: number[]; missing: number[] } {
+  const override = Array.isArray(raw) ? (raw as Array<number | null>) : null
+  const overridden: number[] = []
+  const series = liveSeries.map((v, i) => {
+    const o = override?.[i]
+    if (o == null || !isFinite(Number(o))) return v
+    overridden.push(i)
+    return Number(o)
+  })
+  return { series, overridden, missing: liveMissing.filter(i => !overridden.includes(i)) }
+}
+
+/**
+ * Picks the per-day amount the pool rate applies to, and the day indexes that
+ * amount is missing on. One place, so the page, the freeze and the export can
+ * never disagree about what the pool was a percentage of.
+ */
+export function selectBasis(
+  totals: Pick<DailyTotals, 'net' | 'tips' | 'missingSalesDays' | 'missingTipDays'>,
+  poolBasis: 'NET_SALES' | 'TIPS_COLLECTED',
+): { basis: number[]; missingBasisDays: number[] } {
+  return poolBasis === 'TIPS_COLLECTED'
+    ? { basis: totals.tips.map(t => t ?? 0), missingBasisDays: totals.missingTipDays }
+    : { basis: totals.net, missingBasisDays: totals.missingSalesDays }
+}

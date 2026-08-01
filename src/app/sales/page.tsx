@@ -36,6 +36,7 @@ interface Sale {
   totalRevenue: number
   foodSalesPct: number
   covers: number | null
+  tipsCollected: number | string | null
   notes: string | null
   createdAt: string
   revenueCenterId: string | null
@@ -361,7 +362,7 @@ interface SaleFormProps {
   defaultRcId: string | null
   onSave: (data: {
     date: string; totalRevenue: string; foodSalesPct: string
-    covers: string; notes: string
+    covers: string; tipsCollected: string; notes: string
     revenueCenterId: string | null
     lineItems: { recipeId: string; qtySold: number }[]
   }) => Promise<void>
@@ -373,6 +374,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
   const [revenue,       setRevenue]       = useState(initial ? String(initial.totalRevenue) : '')
   const [foodPct,       setFoodPct]       = useState(initial ? String(Math.round(Number(initial.foodSalesPct) * 100)) : '70')
   const [covers,        setCovers]        = useState(initial ? String(initial.covers ?? '') : '')
+  const [tips,          setTips]          = useState(initial ? String(initial.tipsCollected ?? '') : '')
   const [notes,         setNotes]         = useState(initial?.notes ?? '')
   const [rcId,          setRcId]          = useState<string | null>(initial ? initial.revenueCenterId : (defaultRcId ?? revenueCenters[0]?.id ?? null))
   const [saving,        setSaving]        = useState(false)
@@ -397,7 +399,7 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
     const lineItems = Object.entries(qtys)
       .map(([recipeId, q]) => ({ recipeId, qtySold: parseInt(q) || 0 }))
       .filter(li => li.qtySold > 0)
-    await onSave({ date, totalRevenue: revenue, foodSalesPct: String(parseFloat(foodPct) / 100), covers, notes, revenueCenterId: rcId, lineItems })
+    await onSave({ date, totalRevenue: revenue, foodSalesPct: String(parseFloat(foodPct) / 100), covers, tipsCollected: tips, notes, revenueCenterId: rcId, lineItems })
     setSaving(false)
   }
 
@@ -469,6 +471,15 @@ function SaleForm({ initial, menuRecipes, revenueCenters, defaultRcId, onSave, o
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-sm">%</span>
                 </div>
               </div>
+            </div>
+
+            {/* Tips collected */}
+            <div>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Tips collected</label>
+              <input type="number" min="0" step="0.01" value={tips} onChange={e => setTips(e.target.value)}
+                placeholder="optional"
+                className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+              <p className="mt-1 text-[11px] text-ink-4">leave blank if unknown — blank is not zero</p>
             </div>
 
             {/* Notes */}

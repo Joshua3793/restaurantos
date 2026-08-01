@@ -27,7 +27,7 @@ Process skills (brainstorming, TDD, plan-writing ceremonies) are for multi-file 
 
 ## Architecture
 
-**Fergie's OS** is a restaurant back-office platform: inventory, recipe costing, invoice scanning, prep, stock counts, sales (with nightly Toast POS sync), temps, end-of-day close, and reports.
+**Fergie's OS** is a restaurant back-office platform: inventory, recipe costing, invoice scanning, prep, stock counts, sales (with nightly Toast POS sync), temps, end-of-day close, kitchen tip payouts, and reports.
 
 Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · Tailwind CSS · Lucide icons · Recharts.
 
@@ -45,6 +45,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | `/preshift` | briefing view over `/api/prep/items` |
 | `/count` | `/api/count/sessions` |
 | `/sales` | `/api/sales`, `/api/toast/*` |
+| `/tips` (MANAGER+) | `/api/tips/{settings,roles,roster,periods}` — periods, punches, split, envelopes |
 | `/reports` (MANAGER+) | `/api/reports/*` |
 | `/variance` (MANAGER+) | `/api/insights/food-cost-variance` |
 | `/signals` (MANAGER+) | `/api/signals` (+ `/refresh`) |
@@ -130,6 +131,8 @@ Auth is **Supabase Auth**. `src/middleware.ts` protects every non-`/api` route: 
 ### Other subsystems
 
 - **Toast POS sync** — `src/lib/toast/*`, `/api/toast/*`, nightly cron `/api/cron/toast-sync` (guarded by `CRON_SECRET`). Toast rows supersede same-day manual `SalesEntry` rows; connection + mappings live in `ToastConnection`/`ToastItemMap`/`ToastRevenueCenterMap`, configured in `/setup/toast`.
+- **Tip payouts** — `/tips`: a persisted 14-day kitchen tip pool. `TipPeriod` owns the run (basis, rate, cap, rounding, imported `TipPunch` rows, `TipDayAdjustment` overrides, and a frozen `snapshot` once PAID). The roster is `Cook` extended with `clockId` / `wage` / `tipRoleId` / `onTipPool` — hours match on `clockId` only, never on name. **Two things are configurable and deliberately independent of each other and of `TipPeriod.revenueCenterId`:** the *scope* (`TipSettings.salesSourceMode` LOCATION | RC — a Kitchen pool is normally funded by the whole Cafe location) and the *basis* (`poolBasis` NET_SALES | TIPS_COLLECTED — the kitchen pool is a withdrawal from the FOH tip pot, sized either off sales or off the pot itself). A workbook import overrides individual days. All split maths and the reconciliation live in pure libs (`src/lib/tips/{engine,audit,period}.ts`, covered by `npm test`) so the page recomputes in the browser as the rate changes; the server re-runs the same functions via `src/lib/tips/build.ts` to freeze a payment and build the export. **A period with unresolved audit errors cannot be marked paid** — including `overdraw`, raised when a sales-sized pool exceeds the tips customers actually left. The hour cap is per person (`Cook.dailyHourCap`, edited on the roster row or the Split tab's person detail); `TipSettings.defaultDailyHourCap` is only a prefill for new roster rows, never a live cap — there is no house-wide cap. `TipPeriod.snapshot` is a structured `{ current, history, trimmed }` payout record, not a flat blob; the paid test is `snapshot.current != null` (a reopened period keeps its snapshot with `current: null`), which is exactly equivalent to `period.status === 'PAID'`.
+- **Customer tips on sales** — `SalesEntry.tipsCollected` (payment tips) and `.autoGratuity` (service charges flagged `gratuity`) are written by the Toast sync from `Check.payments[].tipAmount` and `Check.appliedServiceCharges[]`, which were always in the `ordersBulk` response and simply not modelled. **Both are nullable on purpose: `null` = no tip data, `0` = genuinely no tips**, and the tip payout treats the two very differently. They are stored separately so `TipSettings.includeAutoGratuity` can be flipped at read time without a re-sync. A tip belongs to the *check*, so it is apportioned across revenue centers by that check's routed revenue (`checkTipTotals` in `src/lib/toast/client.ts`); anything unattributable is logged, never dropped.
 - **End-of-day close** — `/end-of-day`: recap, checklist with temps gate, sign-off, snapshot, handover (`EodClose`/`EodCheckItem`/`EodCheckEntry`). Business date is **Pacific local time, not UTC**. Checklist template CRUD lives in `/setup/eod-checklist`.
 - **Temps** — `TempUnit`/`TempReading` models, `/api/temps/*`; feeds the EOD checklist gate.
 - **Signals** — `Signal` model, `/api/signals` (+ `/refresh`); anomaly feed for `/signals` and the mobile home.
