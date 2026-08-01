@@ -44,6 +44,23 @@ describe('parseSalesWorkbook', () => {
     expect(r.tips).toEqual([18.5, 31.25])
   })
 
+  it('reads a BLANK tips cell as null, never as a real zero', () => {
+    // An override of 0 is a real figure that WINS over the app's own Toast
+    // tips (applyOverride uses ?? on purpose). Reading one unreadable cell as
+    // 0 therefore silently zeroed that day's real tips, with the pool sized
+    // off it if the basis is TIPS_COLLECTED.
+    const r = parseSalesWorkbook(book({
+      'Sales by day': [
+        ['Date', 'Net sales', 'Tips'],
+        [20260712, 100, 18.5],
+        [20260713, 200, null],   // blank cell
+        [20260714, 300, '–'],    // an en dash, the other way Toast writes "nothing"
+        [20260715, 400, 0],      // a genuine zero-tip day still reads as zero
+      ],
+    }))
+    expect(r.tips).toEqual([18.5, null, null, 0])
+  })
+
   it('throws a manager-readable error when the sheet is missing', () => {
     expect(() => parseSalesWorkbook(book({ Summary: [['nope']] })))
       .toThrow(/Sales by day/)

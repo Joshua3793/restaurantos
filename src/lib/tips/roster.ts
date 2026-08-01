@@ -44,6 +44,44 @@ export interface ResolveRosterInput {
   poolDepartments: string[]
 }
 
+/** What `readHoursCell` decided a typed hours cell means. */
+export type HoursCellCommit =
+  /** Send nothing — the value did not change, or clearing an already-clear box. */
+  | { kind: 'skip' }
+  /** Unreadable or negative — reset the box, send nothing. */
+  | { kind: 'invalid' }
+  /** Send this to the adjustments API. `null` CLEARS the override. */
+  | { kind: 'commit'; hours: number | null }
+
+/**
+ * What a manual hours cell on the split table MEANS — the inverse of the
+ * adjustment fold below.
+ *
+ * Pure, and here rather than inline in SplitTab's onBlur, because two
+ * silent-wrongness bugs lived in that one handler:
+ *
+ *  - It fired UNCONDITIONALLY, so merely tabbing through a day cell wrote a
+ *    TipDayAdjustment whose hours equalled the clocked value. Not a cent moved,
+ *    so nothing looked wrong — but it set `edited[d]`, and `auditPeriod` skips
+ *    edited days, so it silently switched off that day's per-person
+ *    `hours-<code>` reconciliation with no signal anywhere in the app.
+ *  - An EMPTY box went through `parseFloat('') = NaN → 0` and stored a 0-hour
+ *    override, rather than reverting the day to the clock file. The adjustments
+ *    API already accepts `hours: null` for exactly that.
+ *
+ * @param raw    the hours currently shown for that day (`person.hours[d]`)
+ * @param edited whether that day already carries a manual override
+ */
+export function readHoursCell(text: string, raw: number, edited: boolean): HoursCellCommit {
+  const s = text.trim()
+  // Empty means "no opinion", never "zero hours": clear an existing override,
+  // and do nothing at all when there was none to clear.
+  if (s === '') return edited ? { kind: 'commit', hours: null } : { kind: 'skip' }
+  const v = parseFloat(s)
+  if (!Number.isFinite(v) || v < 0) return { kind: 'invalid' }
+  return Math.abs(v - raw) < 1e-9 ? { kind: 'skip' } : { kind: 'commit', hours: v }
+}
+
 export function resolveRoster(input: ResolveRosterInput): TipPerson[] {
   const { cooks, punches, adjustments, dayCount, poolDepartments } = input
 

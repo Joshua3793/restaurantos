@@ -127,10 +127,13 @@ export interface ParsedSales {
   sales: number[]
   /**
    * Tips per day, when the export carries a tips column — Toast's Sales Summary
-   * includes one on some configurations and not others. `null` means the
-   * workbook said nothing about tips, which must NOT be read as zero.
+   * includes one on some configurations and not others. A `null` for the WHOLE
+   * array means the workbook said nothing about tips; a `null` ENTRY means that
+   * one row's tips cell was blank or unreadable. Neither may be read as zero:
+   * an override of 0 is a real figure that wins over the app's own Toast data,
+   * so one unreadable cell would silently zero that day's real tips.
    */
-  tips: number[] | null
+  tips: Array<number | null> | null
   /** "Net sales" from the Revenue summary sheet, when present — a cross-check. */
   reportedNet: number | null
   /**
@@ -174,7 +177,7 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
 
   const iso: string[] = []
   const sales: number[] = []
-  const tips: number[] = []
+  const tips: Array<number | null> = []
   const unparsedRows: Array<{ row: number; raw: unknown }> = []
   for (const [i, r] of rows.slice(1).entries()) {
     const rowNum = i + 2
@@ -185,8 +188,11 @@ export function parseSalesWorkbook(buffer: Buffer): ParsedSales {
     iso.push(day)
     sales.push(Math.round(net * 100) / 100)
     if (tipCol >= 0) {
+      // `null`, NOT 0 — see the `tips` doc comment. A blank cell means the
+      // workbook has nothing to say about that day, and applyOverride treats a
+      // real 0 as a figure that beats the app's own Toast tips.
       const t = num(r?.[tipCol])
-      tips.push(isNaN(t) ? 0 : Math.round(t * 100) / 100)
+      tips.push(isNaN(t) ? null : Math.round(t * 100) / 100)
     }
   }
   if (!iso.length) {

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { AuditResult, FindingAction } from '@/lib/tips/audit'
 import type { SortKey, SplitPerson, SplitResult, TipRoleDef } from '@/lib/tips/types'
 import { DEFAULT_SORT_DIR, effectiveHours, sortPeople } from '@/lib/tips/engine'
+import { readHoursCell } from '@/lib/tips/roster'
 import { DayStrip, DayStripLegend, MethodNote, RoleSelect, initials, money } from './kit'
 
 const COLUMNS: Array<{ key: SortKey | 'strip'; label: string; right?: boolean }> = [
@@ -43,7 +44,12 @@ export interface SplitTabProps {
   onRoleChange: (cookId: string, roleId: string) => void
   /** Per-person contracted shift cap. Null clears it (uncapped). */
   onCapChange: (cookId: string, cap: number | null) => void
-  onHoursChange: (cookId: string, dayIndex: number, hours: number) => void
+  /**
+   * Record a manual hours override for one day. `null` CLEARS the override and
+   * reverts the day to whatever the clock file says — an empty box means "no
+   * opinion", never "zero hours".
+   */
+  onHoursChange: (cookId: string, dayIndex: number, hours: number | null) => void
   onBoostChange: (cookId: string, dayIndex: number, boost: number) => void
   onClearAdjustments: (cookId: string) => void
   onFix: (action: FindingAction) => void
@@ -292,8 +298,14 @@ function PersonDetail({
                       type="number" step="0.25" min="0" max="16" defaultValue={raw}
                       disabled={readOnly}
                       onBlur={e => {
-                        const v = parseFloat(e.target.value)
-                        onHoursChange(person.cookId, d, isFinite(v) && v >= 0 ? v : 0)
+                        // The decision is pure and lives in lib/tips/roster.ts:
+                        // a blur is NOT an edit, and an empty box clears the
+                        // override rather than storing zero hours. See
+                        // readHoursCell for what each outcome protects against.
+                        const c = readHoursCell(e.target.value, raw, person.edited[d] ?? false)
+                        if (c.kind === 'invalid') { e.target.value = String(raw); return }
+                        if (c.kind === 'skip') return
+                        onHoursChange(person.cookId, d, c.hours)
                       }}
                       className="w-full font-mono text-[14px] font-semibold border border-line rounded-md px-[7px] py-[5px] outline-none focus:border-gold text-ink bg-paper [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                     />

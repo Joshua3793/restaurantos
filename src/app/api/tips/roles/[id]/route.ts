@@ -19,8 +19,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data.name = name
     }
     if (body.multiplier !== undefined) {
-      const v = Number(body.multiplier)
-      if (!isFinite(v) || v < 0 || v > 5) return NextResponse.json({ error: 'multiplier must be between 0 and 5' }, { status: 400 })
+      // `Number(null)` is 0 and `Number('')` is 0, both of which used to sail
+      // through `isFinite(v) && v >= 0` — so a cleared multiplier box (whose
+      // NaN JSON.stringify turns into `null`) silently weighted the whole role
+      // at ×0 and paid everybody on it nothing, with no audit finding anywhere.
+      // Only a real, finite number is a multiplier.
+      const raw = body.multiplier
+      const v = typeof raw === 'number' ? raw
+        : typeof raw === 'string' && raw.trim() !== '' ? Number(raw)
+        : NaN
+      if (!Number.isFinite(v) || v < 0 || v > 5)
+        return NextResponse.json({ error: 'multiplier must be a number between 0 and 5' }, { status: 400 })
       data.multiplier = v
     }
     if (body.sortOrder !== undefined) {

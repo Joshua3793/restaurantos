@@ -5,7 +5,13 @@ import type { NextRequest } from 'next/server'
 // stubbed so the test exercises ONLY the request→`data` mapping. No database is
 // touched. `requireSession` is a vi.fn so individual tests can override it to
 // simulate an unauthenticated caller.
-const update = vi.fn(async () => ({ id: 's1' }))
+// Typed with the ARG the route actually passes, not `() => …`: an argument-less
+// mock types `mock.calls[n]` as the empty tuple, so `dataOf()` below cannot
+// index it. Vitest 4 takes the whole function signature as vi.fn's one type
+// argument (the Vitest 2 `<Args, Return>` pair is gone).
+const update = vi.fn<(args: { where: unknown; data: Record<string, unknown> }) => Promise<{ id: string }>>(
+  async () => ({ id: 's1' }),
+)
 const findUnique = vi.fn(async () => ({ source: 'manual' }))
 const deleteMany = vi.fn(async () => ({ count: 0 }))
 const requireSession = vi.fn(async () => ({ id: 'u1', role: 'MANAGER', isActive: true }))
@@ -20,7 +26,10 @@ class MockAuthError extends Error {
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    salesEntry: { findUnique: (...a: unknown[]) => findUnique(...(a as [])), update: (...a: unknown[]) => update(...(a as [])) },
+    salesEntry: {
+      findUnique: (...a: unknown[]) => findUnique(...(a as [])),
+      update: (...a: unknown[]) => update(...(a as [{ where: unknown; data: Record<string, unknown> }])),
+    },
     saleLineItem: { deleteMany: (...a: unknown[]) => deleteMany(...(a as [])) },
   },
 }))
@@ -42,7 +51,7 @@ const { AuthError } = await import('@/lib/auth')
 
 const req = (body: Record<string, unknown>) => ({ json: async () => body }) as unknown as NextRequest
 const base = { date: '2026-07-30', totalRevenue: '1000', foodSalesPct: '0.7', revenueCenterId: 'rc1' }
-const dataOf = () => update.mock.calls[0][0].data as Record<string, unknown>
+const dataOf = () => update.mock.calls[0][0].data
 
 beforeEach(() => {
   update.mockClear(); findUnique.mockClear(); deleteMany.mockClear()

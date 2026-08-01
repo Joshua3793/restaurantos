@@ -5,12 +5,20 @@ const basePeriod = {
   id: 'p1', revenueCenterId: 'rc1', startDate: '2026-07-12', endDate: '2026-07-14', status: 'DRAFT',
 }
 
+/**
+ * Prisma-shaped mock args. Typed rather than left to inference because an
+ * argument-less `vi.fn(async () => …)` types `mock.calls[n]` as the empty
+ * tuple, and the assertions below read `mock.calls[0][0]`. Vitest 4 takes one
+ * type argument — the whole function signature.
+ */
+type WhereArgs = { where: Record<string, unknown> }
+
 const tipPeriodFindUnique = vi.fn(async () => basePeriod as typeof basePeriod | null)
-const cookFindFirst = vi.fn(async () => ({ id: 'c1' } as { id: string } | null))
+const cookFindFirst = vi.fn<(args: WhereArgs) => Promise<{ id: string } | null>>(async () => ({ id: 'c1' }))
 const adjustmentFindUnique = vi.fn(async () => null as { id: string; hours: number | null; boost: number } | null)
 const adjustmentUpsert = vi.fn(async () => ({ id: 'a1' }))
 const adjustmentDelete = vi.fn(async () => ({ id: 'a1' }))
-const adjustmentDeleteMany = vi.fn(async () => ({ count: 0 }))
+const adjustmentDeleteMany = vi.fn<(args: WhereArgs) => Promise<{ count: number }>>(async () => ({ count: 0 }))
 const requireSession = vi.fn(async () => ({ id: 'u1', role: 'MANAGER', isActive: true }))
 const isRcInScope = vi.fn(async () => true)
 const loadSettings = vi.fn(async () => ({ periodDays: 3 }))
@@ -25,12 +33,12 @@ class MockAuthError extends Error {
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tipPeriod: { findUnique: (...a: unknown[]) => tipPeriodFindUnique(...(a as [])) },
-    cook: { findFirst: (...a: unknown[]) => cookFindFirst(...(a as [])) },
+    cook: { findFirst: (...a: unknown[]) => cookFindFirst(...(a as [WhereArgs])) },
     tipDayAdjustment: {
       findUnique: (...a: unknown[]) => adjustmentFindUnique(...(a as [])),
       upsert: (...a: unknown[]) => adjustmentUpsert(...(a as [])),
       delete: (...a: unknown[]) => adjustmentDelete(...(a as [])),
-      deleteMany: (...a: unknown[]) => adjustmentDeleteMany(...(a as [])),
+      deleteMany: (...a: unknown[]) => adjustmentDeleteMany(...(a as [WhereArgs])),
     },
   },
 }))
@@ -175,7 +183,7 @@ describe('DELETE /api/tips/periods/[id]/adjustments', () => {
   it('scopes the clear to one person when cookId is given', async () => {
     const res = await DELETE(delReq('/adjustments?cookId=c1'), { params: { id: 'p1' } })
     expect(res.status).toBe(200)
-    const where = adjustmentDeleteMany.mock.calls[0][0] as { where: Record<string, unknown> }
+    const where = adjustmentDeleteMany.mock.calls[0][0]
     expect(where.where).toMatchObject({ periodId: 'p1', cookId: 'c1' })
   })
 
@@ -190,7 +198,7 @@ describe('DELETE /api/tips/periods/[id]/adjustments', () => {
   it('clears every adjustment for the period when all=true is passed', async () => {
     const res = await DELETE(delReq('/adjustments?all=true'), { params: { id: 'p1' } })
     expect(res.status).toBe(200)
-    const where = adjustmentDeleteMany.mock.calls[0][0] as { where: Record<string, unknown> }
+    const where = adjustmentDeleteMany.mock.calls[0][0]
     expect(where.where).not.toHaveProperty('cookId')
   })
 })
