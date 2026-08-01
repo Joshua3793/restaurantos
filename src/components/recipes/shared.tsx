@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit } from '@/lib/utils'
 import { UOM_GROUPS, getUnitGroup, convertQty, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
+import { computeBakersPercents } from '@/lib/bakers-percent'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
@@ -116,37 +117,6 @@ export interface Recipe {
   usedInRecipes?: Array<{ id: string; name: string; type: string }>
   allergens?: string[]
   baseIngredientId: string | null
-}
-
-/** Compute baker's percentages relative to a base (reference) ingredient.
- *  Weight and volume both included; volume uses 1 ml = 1 g approximation.
- *  Count / each ingredients are excluded (return null). */
-function computeAutoPercents(
-  ingredients: IngredientWithCost[],
-  baseIngId: string
-): Record<string, number | null> {
-  const base = ingredients.find(i => i.id === baseIngId)
-  if (!base) {
-    console.warn('[baker%] base ingredient not found in list, id=', baseIngId, 'ids=', ingredients.map(i => i.id))
-    return {}
-  }
-  const toGrams = (qty: number, unit: string | null | undefined): number | null => {
-    if (!unit) return null
-    const group = getUnitGroup(unit)
-    if (group === 'Weight') return convertQty(qty, unit, 'g')
-    if (group === 'Volume') return convertQty(qty, unit, 'ml') // 1 ml ≈ 1 g
-    return null
-  }
-  const baseGrams = toGrams(Number(base.qtyBase), base.unit)
-  console.log('[baker%] base=', base.ingredientName, 'unit=', JSON.stringify(base.unit), 'qtyBase=', base.qtyBase, 'baseGrams=', baseGrams)
-  if (baseGrams === null || baseGrams <= 0) return {}
-  return Object.fromEntries(
-    ingredients.map(ing => {
-      if (ing.id === baseIngId) return [ing.id, 100]
-      const grams = toGrams(Number(ing.qtyBase), ing.unit)
-      return [ing.id, grams === null ? null : Math.round((grams / baseGrams) * 1000) / 10]
-    })
-  )
 }
 
 interface IngredientSearchResult {
@@ -1171,7 +1141,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
 
   // Baker's % — auto-compute ratios relative to the marked base ingredient
   const baseIngId = recipe.baseIngredientId ?? null
-  const autoPercents = baseIngId ? computeAutoPercents(recipe.ingredients, baseIngId) : {}
+  const autoPercents = baseIngId ? computeBakersPercents(recipe.ingredients, baseIngId) : {}
   const baseIsSet = baseIngId !== null && Object.keys(autoPercents).length > 0
   const baseIngName = baseIsSet ? recipe.ingredients.find(i => i.id === baseIngId)?.ingredientName : null
   const menuFoodCostPct = isMenu && recipe.menuPrice ? (recipe.totalCost / recipe.menuPrice) * 100 : null

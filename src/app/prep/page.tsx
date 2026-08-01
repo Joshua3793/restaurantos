@@ -1069,6 +1069,7 @@ export default function PrepPage() {
       baseYieldQty: Number(item.linkedRecipe?.baseYieldQty) || 0,
       yieldUnit: item.linkedRecipe?.yieldUnit ?? item.unit,
       totalCost: 0,
+      baseIngredientId: null,
     })
     setDrawerRecipeLoading(!cached)
     try {
@@ -1095,6 +1096,7 @@ export default function PrepPage() {
         id: r.id, name: r.name, steps: parsedSteps,
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
+        baseIngredientId: r.baseIngredientId ?? null,
       }
       recipeCache.current.set(item.id, { recipe, ings: d?.ingredients ?? [] })
       setDrawerRecipe(recipe)
