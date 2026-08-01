@@ -114,10 +114,86 @@ describe('GET /api/tips/periods/[id]', () => {
     expect(json.sales.overriddenDays).toEqual([1])
   })
 
+  it('derives the day window from the PERIOD\'s own stored dates, not the live TipSettings.periodDays', async () => {
+    // The period was opened with a 14-day window (startDate → endDate spans 14
+    // days), but the live, admin-editable settings.periodDays has since been
+    // changed to 7. A punch dated day 10 (inside the real 14-day window, but
+    // outside a wrongly-derived 7-day one) must still count.
+    const period14 = {
+      ...basePeriod,
+      startDate: '2026-07-01', endDate: '2026-07-14',
+      punches: [{
+        clockId: '9', firstName: 'Ana', lastName: 'B', position: 'Cook',
+        department: 'Back of House', dayIndex: 10, hours: 6, status: 'Approved', note: null,
+      }],
+    }
+    tipPeriodFindUnique.mockResolvedValueOnce(period14)
+    loadSettings.mockResolvedValueOnce({
+      periodDays: 7, poolDepartments: ['Back of House'], includeAutoGratuity: true,
+      rewardTiers: [1.25, 1.5], denoms: [],
+    })
+    dailyTotals.mockImplementationOnce(async (..._a: unknown[]) => {
+      const dayCount = _a[3] as number
+      return {
+        net: Array(dayCount).fill(50), tips: Array(dayCount).fill(5) as Array<number | null>,
+        missingSalesDays: [], missingTipDays: [], rcIds: ['rc1'], label: 'Test scope',
+      }
+    })
+    cookFindMany.mockResolvedValueOnce([{
+      id: 'c1', name: 'Ana', lastName: 'B', clockId: '9',
+      wage: null, dailyHourCap: null, tipRoleId: null, onTipPool: true,
+    }])
+
+    const res = await GET({} as NextRequest, { params: { id: 'p1' } })
+    const json = await res.json()
+
+    expect(json.dayLabels).toHaveLength(14)
+    expect(json.dayDates).toHaveLength(14)
+    expect(json.sales.net).toHaveLength(14) // the sales/tips window, not the 7-day setting
+    expect(dailyTotals).toHaveBeenCalledWith(expect.anything(), expect.anything(), '2026-07-01', 14)
+
+    const person = json.roster.find((p: { cookId: string }) => p.cookId === 'c1')
+    expect(person.hours[10]).toBe(6) // dropped silently if dayCount were derived as 7
+  })
+
+  it('rejects a period whose stored endDate is inverted (before startDate) rather than silently deriving a negative window', async () => {
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, startDate: '2026-07-12', endDate: '2026-07-10' })
+    const res = await GET({} as NextRequest, { params: { id: 'p1' } })
+    expect(res.status).toBe(500)
+  })
+
   it('returns 404 when the period does not exist', async () => {
     tipPeriodFindUnique.mockResolvedValueOnce(null)
     const res = await GET({} as NextRequest, { params: { id: 'missing' } })
     expect(res.status).toBe(404)
+  })
+
+  it('serves a TIPS_COLLECTED period with the basis and missingBasisDays coming from the tips series', async () => {
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, poolBasis: 'TIPS_COLLECTED' })
+    const res = await GET({} as NextRequest, { params: { id: 'p1' } })
+    const json = await res.json()
+    // dailyTotals mock: tips = [10, null, 5], missingTipDays = [1]
+    expect(json.basis).toEqual([10, 0, 5])
+    expect(json.missingBasisDays).toEqual([1])
+  })
+
+  it('lets a tips override of 0 win over live data rather than falling back to it (?? not ||)', async () => {
+    // Live tips[2] is 5 (not missing); override it with a legitimate 0.
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, tipsOverride: [null, null, 0] })
+    const res = await GET({} as NextRequest, { params: { id: 'p1' } })
+    const json = await res.json()
+    expect(json.tips.collected[2]).toBe(0)
+    expect(json.tips.overriddenDays).toEqual([2])
+  })
+
+  it('turns a missing day non-missing once it is overridden', async () => {
+    // Live tips[1] is null and index 1 is in missingTipDays; override supplies a value.
+    tipPeriodFindUnique.mockResolvedValueOnce({ ...basePeriod, tipsOverride: [null, 7, null] })
+    const res = await GET({} as NextRequest, { params: { id: 'p1' } })
+    const json = await res.json()
+    expect(json.tips.collected[1]).toBe(7)
+    expect(json.tips.missingDays).not.toContain(1)
+    expect(json.tips.overriddenDays).toEqual([1])
   })
 
   it('refuses a period outside the caller\'s revenue-center scope with 403', async () => {

@@ -5,7 +5,7 @@ import { computeSplit } from './engine'
 import { auditPeriod } from './audit'
 import { dailyTotals, selectBasis } from './sales'
 import { resolveRoster } from './roster'
-import { dayLabels } from './period'
+import { dayLabels, periodDayCount } from './period'
 import { loadSettings } from './settings'
 import type { PoolBasis, SplitResult, TipPerson, TipRoleDef } from './types'
 import type { AuditResult, PunchRow } from './audit'
@@ -43,7 +43,11 @@ export async function buildPeriodSplit(user: User, periodId: string): Promise<Bu
   if (!period) return null
 
   const settings = await loadSettings()
-  const dayCount = settings.periodDays
+  // The window is the PERIOD's own, frozen at open time — never the live,
+  // admin-editable settings.periodDays (see periodDayCount doc comment). This
+  // is the authoritative path that freezes a payment snapshot and builds the
+  // payroll CSV, so getting this wrong is worse here than anywhere else.
+  const dayCount = periodDayCount(period.startDate, period.endDate)
   const poolDepartments = (settings.poolDepartments ?? []) as string[]
   const rewardTiers = (settings.rewardTiers ?? []) as number[]
   const labels = dayLabels(period.startDate, dayCount)

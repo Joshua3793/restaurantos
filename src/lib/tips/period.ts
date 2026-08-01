@@ -51,6 +51,30 @@ export function dayIndexOf(startDate: string, iso: string): number {
   return Math.round((toUtcNoon(iso).getTime() - toUtcNoon(startDate).getTime()) / DAY_MS)
 }
 
+/**
+ * The number of days in a period's OWN stored window — derived from its
+ * persisted `startDate`/`endDate`, never from the live, admin-editable
+ * `TipSettings.periodDays`. `TipSettings.periodDays` only decides how long a
+ * *new* period is when it is opened (`/api/tips/periods` POST); once a period
+ * exists, its window is frozen in its own two columns.
+ *
+ * Rejects (throws) rather than tolerating a malformed or inverted window —
+ * `endDate` missing/unparsable or before `startDate`. Silently coercing that
+ * into a zero/negative-length window would cascade into an empty day strip
+ * and, worse, into `resolveRoster`'s `dayIndex >= dayCount` bound check
+ * dropping every punch for the period without any error surfacing. A corrupt
+ * period should fail loudly (the route/build callers already have a
+ * catch-all try/catch that turns this into a 500) rather than quietly pay out
+ * a wrong, empty-looking period.
+ */
+export function periodDayCount(startDate: string, endDate: string): number {
+  const count = dayIndexOf(startDate, endDate) + 1
+  if (!Number.isFinite(count) || count < 1) {
+    throw new Error(`TipPeriod has an invalid window: endDate ${endDate} is not on/after startDate ${startDate}`)
+  }
+  return count
+}
+
 export function previousPeriodStart(startDate: string, count: number): string {
   return addDays(startDate, -count)
 }

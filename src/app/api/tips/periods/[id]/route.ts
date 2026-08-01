@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
-import { dayLabels, periodDays, periodLabel } from '@/lib/tips/period'
+import { dayLabels, periodDayCount, periodDays, periodLabel } from '@/lib/tips/period'
 import { dailyTotals, selectBasis } from '@/lib/tips/sales'
 import { resolveRoster } from '@/lib/tips/roster'
 import { loadSettings, toDto } from '@/lib/tips/settings'
@@ -29,12 +29,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     const settings = await loadSettings()
     const settingsDto = toDto(settings)
-    const dayCount = periodDays(period.startDate, settings.periodDays).length
-    const labels = dayLabels(period.startDate, settings.periodDays)
-    const dates = periodDays(period.startDate, settings.periodDays)
+    // The window is the PERIOD's own, frozen at open time — never the live,
+    // admin-editable settings.periodDays (see periodDayCount doc comment).
+    const dayCount = periodDayCount(period.startDate, period.endDate)
+    const labels = dayLabels(period.startDate, dayCount)
+    const dates = periodDays(period.startDate, dayCount)
 
     // ── sales + tips: app-native, with the workbook overriding per day ──────
-    const live = await dailyTotals(user, settings, period.startDate, settings.periodDays)
+    const live = await dailyTotals(user, settings, period.startDate, dayCount)
 
     /** Applies a per-day override array over a live series. */
     const applyOverride = <T extends number | null>(
@@ -137,7 +139,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       },
       dayLabels: labels,
       dayDates: dates,
-      periodLabel: periodLabel(period.startDate, settings.periodDays),
+      periodLabel: periodLabel(period.startDate, dayCount),
       basis,
       missingBasisDays,
       sales: {

@@ -8,7 +8,7 @@ const tipPeriodFindMany = vi.fn(async () => [] as Array<{
   revenueCenter: { name: string }
 }>)
 const tipPeriodFindUnique = vi.fn(async () => null as { id: string } | null)
-const tipPeriodCreate = vi.fn(async () => ({ id: 'p-new' }))
+const tipPeriodCreate = vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'p-new' }))
 const requireSession = vi.fn(async () => ({ id: 'u1', role: 'MANAGER', isActive: true }))
 const resolveScopedRcIds = vi.fn(async () => null as Set<string> | null)
 const assertRcWritable = vi.fn(async () => {})
@@ -24,12 +24,20 @@ class MockAuthError extends Error {
   }
 }
 
+class MockPrismaClientKnownRequestError extends Error {
+  constructor(message: string, public readonly code: string) {
+    super(message)
+    this.name = 'PrismaClientKnownRequestError'
+    Object.setPrototypeOf(this, MockPrismaClientKnownRequestError.prototype)
+  }
+}
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tipPeriod: {
       findMany: (...a: unknown[]) => tipPeriodFindMany(...(a as [])),
       findUnique: (...a: unknown[]) => tipPeriodFindUnique(...(a as [])),
-      create: (...a: unknown[]) => tipPeriodCreate(...(a as [])),
+      create: (...a: unknown[]) => tipPeriodCreate(...(a as [{ data: Record<string, unknown> }])),
     },
   },
 }))
@@ -43,6 +51,9 @@ vi.mock('@/lib/rc-scope', () => ({
 }))
 vi.mock('@/lib/tips/settings', () => ({
   loadSettings: (...a: unknown[]) => loadSettings(...(a as [])),
+}))
+vi.mock('@prisma/client', () => ({
+  Prisma: { PrismaClientKnownRequestError: MockPrismaClientKnownRequestError },
 }))
 
 const { GET, POST } = await import('@/app/api/tips/periods/route')
@@ -107,6 +118,19 @@ describe('POST /api/tips/periods', () => {
     expect(data.startDate).toBe('2026-07-12')
     expect(data.endDate).toBe('2026-07-25')
     expect(data.poolBasis).toBe('NET_SALES')
+  })
+
+  it('maps a P2002 raised by a concurrent open to the existing period\'s id instead of a 500', async () => {
+    // Pre-check passes (no period seen yet), but the create loses a race to
+    // another request opening the same (revenueCenterId, startDate).
+    tipPeriodFindUnique
+      .mockResolvedValueOnce(null) // pre-check
+      .mockResolvedValueOnce({ id: 'p-winner' }) // post-P2002 re-fetch by unique key
+    tipPeriodCreate.mockRejectedValueOnce(new MockPrismaClientKnownRequestError('Unique constraint failed', 'P2002'))
+    const res = await POST(req({ startDate: '2026-07-12', revenueCenterId: 'rc1' }))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.id).toBe('p-winner')
   })
 
   it('rejects a malformed startDate with 400', async () => {

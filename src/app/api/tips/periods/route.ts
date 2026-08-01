@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable, resolveScopedRcIds } from '@/lib/rc-scope'
 import { addDays, defaultPeriodStart } from '@/lib/tips/period'
@@ -65,18 +66,35 @@ export async function POST(req: NextRequest) {
     })
     if (existing) return NextResponse.json({ id: existing.id })
 
-    const created = await prisma.tipPeriod.create({
-      data: {
-        revenueCenterId: rcId,
-        startDate,
-        endDate: addDays(startDate, settings.periodDays - 1),
-        // Frozen from settings at open time: changing the house rule later must
-        // never silently restate a period somebody has already been paid for.
-        poolBasis: settings.poolBasis,
-        poolRatePct: settings.poolRatePct,
-        roundingStepCents: settings.roundingStepCents,
-      },
-    })
+    let created
+    try {
+      created = await prisma.tipPeriod.create({
+        data: {
+          revenueCenterId: rcId,
+          startDate,
+          endDate: addDays(startDate, settings.periodDays - 1),
+          // Frozen from settings at open time: changing the house rule later must
+          // never silently restate a period somebody has already been paid for.
+          poolBasis: settings.poolBasis,
+          poolRatePct: settings.poolRatePct,
+          roundingStepCents: settings.roundingStepCents,
+        },
+      })
+    } catch (e) {
+      // Losing side of a concurrent open for the same (revenueCenterId,
+      // startDate): the pre-check above raced another request past it. Same
+      // pattern as src/app/api/tips/roster/route.ts POST — map the unique
+      // violation to the existing row's id instead of a bare 500, matching
+      // this route's own doc comment ("clicking next period twice lands on
+      // the same row").
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const winner = await prisma.tipPeriod.findUnique({
+          where: { revenueCenterId_startDate: { revenueCenterId: rcId, startDate } },
+        })
+        if (winner) return NextResponse.json({ id: winner.id })
+      }
+      throw e
+    }
     return NextResponse.json({ id: created.id }, { status: 201 })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
