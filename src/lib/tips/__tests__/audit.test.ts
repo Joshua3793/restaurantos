@@ -819,3 +819,88 @@ describe('the FOH → BOH tip-out', () => {
     })
   })
 })
+
+// ── the caller's own scope is reported, never applied ────────────────────────
+// resolveSalesScopeRcIds deliberately sums the WHOLE configured scope for every
+// caller (otherwise the frozen payout depends on who clicked Pay). A manager
+// who cannot read part of that scope is told so — as a warning, because the
+// figures they are looking at are correct.
+describe('sales scope narrower than the caller', () => {
+  const ana = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })]
+  const punches = [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })]
+
+  it('warns — never errors — when the pool spans revenue centers the caller cannot open', () => {
+    const r = run(ana, punches, { outOfScopeRcCount: 2 })
+    const f = r.findings.find(x => x.id === 'scopenarrow')!
+    expect(f.severity).toBe('warn')
+    expect(f.title).toContain('2 revenue centers')
+    expect(f.detail).toContain('net sales')
+    // It must not block a payment: the pay route gates on errors only.
+    expect(r.counts.error).toBe(0)
+  })
+
+  it('says nothing when the caller can see the whole configured scope', () => {
+    expect(run(ana, punches).findings.some(x => x.id === 'scopenarrow')).toBe(false)
+    expect(run(ana, punches, { outOfScopeRcCount: 0 }).findings.some(x => x.id === 'scopenarrow')).toBe(false)
+  })
+
+  it('agrees in number for a single revenue center', () => {
+    const f = run(ana, punches, { outOfScopeRcCount: 1 }).findings.find(x => x.id === 'scopenarrow')!
+    expect(f.title).toContain('1 revenue center')
+    expect(f.title).not.toContain('centers')
+    expect(f.detail).toContain('that revenue center')
+  })
+
+  it('names the basis actually in use', () => {
+    const f = run(ana, punches, { poolBasis: 'TIPS_COLLECTED', outOfScopeRcCount: 1 })
+      .findings.find(x => x.id === 'scopenarrow')!
+    expect(f.detail).toContain('tips collected')
+  })
+})
+
+// ── wording that used to contradict itself ───────────────────────────────────
+describe('nobasis subject-verb agreement', () => {
+  const ana = [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [8, 8] })]
+  const punches = [punch({ clockId: '706', hours: 8 }), punch({ clockId: '706', hours: 8, dayIndex: 1 })]
+
+  it('says "1 day HAS", not "1 day have"', () => {
+    const f = run(ana, punches, { missingBasisDays: [1] }).findings.find(x => x.id === 'nobasis')!
+    expect(f.title).toBe('1 day has no net sales in the app')
+    expect(f.detail).toContain('for it.')
+    expect(f.detail).toContain('Sync or enter that day')
+  })
+
+  it('says "2 days HAVE"', () => {
+    const f = run(ana, punches, { missingBasisDays: [0, 1] }).findings.find(x => x.id === 'nobasis')!
+    expect(f.title).toBe('2 days have no net sales in the app')
+    expect(f.detail).toContain('for them.')
+    expect(f.detail).toContain('Sync or enter those days')
+  })
+})
+
+describe('the hours-<code> summary agrees with its own day list', () => {
+  it('names what the split RECORDS (the figure the day list diffs) as well as what it pays', () => {
+    // Cap 8, 12 h on the split for Sunday, and nothing on the clock file for
+    // that person at all. The day list diffs RAW hours (−12.00 h) while the
+    // summary used to quote only the POST-CAP figure, so the finding read
+    // "the split pays 8.00 h — Sun 12 −12.00 h" and contradicted itself.
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', dailyHourCap: 8, hours: [12, 0] })],
+      [],
+    )
+    const f = r.findings.find(x => x.id === 'hours-706')!
+    expect(f.detail).toContain('The clock file has 0.00 h where the split records 12.00 h')
+    expect(f.detail).toContain('(paying 8.00 h after shift caps)')
+    expect(f.detail).toContain('Sun 12 −12.00 h')
+  })
+
+  it('leaves the cap clause out when no cap is biting', () => {
+    const r = run(
+      [person({ cookId: 'a', name: 'Ana', clockId: '706', hours: [12, 0] })],
+      [],
+    )
+    const f = r.findings.find(x => x.id === 'hours-706')!
+    expect(f.detail).toContain('The clock file has 0.00 h where the split records 12.00 h —')
+    expect(f.detail).not.toContain('after shift caps')
+  })
+})

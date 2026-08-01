@@ -212,6 +212,12 @@ export interface TipPeriodPayload {
     /** Day indexes whose figure came from the imported workbook, not the app. */
     overriddenDays: number[]
     scopeLabel: string
+    /**
+     * How many revenue centers in the configured scope the caller cannot read.
+     * The basis is NOT narrowed to their access (see resolveSalesScopeRcIds);
+     * this only drives the `scopenarrow` warning on the Checks tab.
+     */
+    outOfScopeRcCount: number
   }
   tips: {
     /** Customer tips per day; `null` where the app has no tip data. */

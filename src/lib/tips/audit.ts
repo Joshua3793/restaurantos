@@ -100,6 +100,18 @@ export interface AuditInput {
    * with no data is not the same as a day that took nothing.
    */
   missingBasisDays: number[]
+  /**
+   * How many revenue centers in the CONFIGURED sales scope the person looking
+   * at this period cannot otherwise read.
+   *
+   * Warning, never an error. The basis is deliberately summed over the whole
+   * configured scope for everybody — that is what stops the frozen payout from
+   * depending on who clicked Pay (see resolveSalesScopeRcIds) — so a narrower
+   * caller is not seeing wrong numbers, only numbers they cannot audit at
+   * source. Blocking on it would stop a scoped manager paying a correct
+   * period; saying nothing would leave them unable to explain the total.
+   */
+  outOfScopeRcCount?: number
 }
 
 export interface AuditResult {
@@ -140,7 +152,7 @@ export function auditPeriod(input: AuditInput): AuditResult {
   const {
     dayLabels, basis, poolBasis, tipsCollected, roles, people: roster, punches, split,
     roundingStepCents, poolDepartments, ignoredClockIds, missingBasisDays,
-    rewardTiers = [],
+    rewardTiers = [], outOfScopeRcCount = 0,
   } = input
   const basisNoun = poolBasis === 'TIPS_COLLECTED' ? 'tips collected' : 'net sales'
   const dayCount = dayLabels.length
@@ -345,6 +357,13 @@ export function auditPeriod(input: AuditInput): AuditResult {
     const clocked = clockedByCode.get(code) ?? new Array<number>(dayCount).fill(0)
     const pending = unapprovedByCode.get(code) ?? new Array<number>(dayCount).fill(0)
     let clockedSum = 0
+    // Two different split figures, and the difference between them is a shift
+    // cap. `splitSum` is what the split RECORDS (raw hours) — the figure the
+    // per-day list below diffs against. `paidSum` is what it actually PAYS
+    // (post-cap). Reporting only the second next to a day list built from the
+    // first made a capped person's finding read as a contradiction: "the split
+    // pays 8.00 h — Sun 12 −12.00 h". Both are named below.
+    let splitSum = 0
     let paidSum = 0
     let gap = 0
     const days: string[] = []
@@ -353,6 +372,7 @@ export function auditPeriod(input: AuditInput): AuditResult {
       const c = clocked[d] ?? 0
       const s = p.hours[d] ?? 0
       clockedSum = r2(clockedSum + c)
+      splitSum = r2(splitSum + s)
       paidSum = r2(paidSum + effectiveHours(p, d))
       let diff = r2(c - s)
       // The split's own `s` can include hours still pending approval — the
@@ -371,7 +391,9 @@ export function auditPeriod(input: AuditInput): AuditResult {
     unreconciledHours = r2(unreconciledHours + gap)
     add('error', `hours-${p.clockId}`,
       `${p.name}’s hours do not match the clock file`,
-      `The clock file has ${hrs(clockedSum)} where the split pays ${hrs(paidSum)} — ${days.slice(0, 4).join(', ')}${days.length > 4 ? ` +${days.length - 4} more` : ''}. ` +
+      `The clock file has ${hrs(clockedSum)} where the split records ${hrs(splitSum)}` +
+      (Math.abs(splitSum - paidSum) >= 0.005 ? ` (paying ${hrs(paidSum)} after shift caps)` : '') +
+      ` — ${days.slice(0, 4).join(', ')}${days.length > 4 ? ` +${days.length - 4} more` : ''}. ` +
       'Nothing on the split records that change, so somebody is being paid the wrong hours. Re-import the hours file, or record the difference as a manual adjustment if it is deliberate.',
       [{ label: 'Open Import data', kind: 'goto', arg: 'import' }], gap)
   }
@@ -457,12 +479,28 @@ export function auditPeriod(input: AuditInput): AuditResult {
     }
   })
   if (missingBasisDays.length) {
-    add('error', 'nobasis', `${plural(missingBasisDays.length, 'day')} have no ${basisNoun} in the app`,
-      `${missingBasisDays.map(d => dayLabels[d]).join(', ')} produced no pool because the configured scope has no ${basisNoun} for them. ` +
+    // "1 day HAS", "2 days HAVE" — the same agreement bug `notips` already
+    // carries a fix for one finding over.
+    const one = missingBasisDays.length === 1
+    add('error', 'nobasis', `${plural(missingBasisDays.length, 'day')} ${one ? 'has' : 'have'} no ${basisNoun} in the app`,
+      `${missingBasisDays.map(d => dayLabels[d]).join(', ')} produced no pool because the configured scope has no ${basisNoun} for ${one ? 'it' : 'them'}. ` +
       (poolBasis === 'TIPS_COLLECTED'
-        ? 'Re-run the Toast sync for those days, or import the sales workbook to override.'
-        : 'Sync or enter those days, or import the sales workbook to override.'),
+        ? `Re-run the Toast sync for ${one ? 'that day' : 'those days'}, or import the sales workbook to override.`
+        : `Sync or enter ${one ? 'that day' : 'those days'}, or import the sales workbook to override.`),
       [{ label: 'Open Import data', kind: 'goto', arg: 'import' }])
+  }
+  // The pool is sized off the WHOLE configured scope for every caller, so a
+  // scoped manager's figures are right — they just cannot open the revenue
+  // centers behind them. Say so rather than silently narrowing the basis to
+  // what they can read, which is what this used to do.
+  if (outOfScopeRcCount > 0) {
+    const one = outOfScopeRcCount === 1
+    add('warn', 'scopenarrow',
+      `This pool is funded by ${plural(outOfScopeRcCount, 'revenue center')} outside your access`,
+      `The house rule funds this pool from ${basisNoun} across a scope that includes ${plural(outOfScopeRcCount, 'revenue center')} you cannot open. ` +
+      `The figures here cover that full scope — they are the same ones anyone else would see, and the same ones a payment freezes — but you cannot check ${one ? 'that revenue center' : 'those revenue centers'} at source. ` +
+      'Ask an administrator for access, or have somebody who has it verify the basis before you pay.',
+      undefined, outOfScopeRcCount)
   }
   const reported = (d: number) => !missingBasisDays.includes(d)
   const zeroDays = basis.map((v, d) => (v === 0 ? d : -1)).filter(d => d >= 0 && reported(d))

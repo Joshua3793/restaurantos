@@ -1,5 +1,26 @@
-import { describe, it, expect } from 'vitest'
-import { applyOverride, foldDailyTotals } from '@/lib/tips/sales'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { TipSettings, User } from '@prisma/client'
+
+// resolveSalesScopeRcIds reads Location/RevenueCenter and the caller's own
+// UserScope. Both are stubbed; `foldDailyTotals` and `applyOverride` below are
+// pure and unaffected by the mocks.
+const locationFindUnique = vi.fn(
+  async () => null as { name: string; revenueCenters: Array<{ id: string }> } | null,
+)
+const revenueCenterFindMany = vi.fn(async () => [] as Array<{ id: string; name: string }>)
+const resolveScopedRcIds = vi.fn(async () => null as Set<string> | null)
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    location: { findUnique: (...a: unknown[]) => locationFindUnique(...(a as [])) },
+    revenueCenter: { findMany: (...a: unknown[]) => revenueCenterFindMany(...(a as [])) },
+  },
+}))
+vi.mock('@/lib/rc-scope', () => ({
+  resolveScopedRcIds: (...a: unknown[]) => resolveScopedRcIds(...(a as [])),
+}))
+
+const { applyOverride, foldDailyTotals, resolveSalesScopeRcIds } = await import('@/lib/tips/sales')
 
 const DAYS = ['2026-07-12', '2026-07-13', '2026-07-14']
 
@@ -17,6 +38,109 @@ function row(
     periodType: opts.periodType ?? 'day',
   }
 }
+
+/**
+ * THE CONFIGURED SCOPE MUST NOT DEPEND ON WHO IS LOOKING.
+ *
+ * This resolver used to intersect the house's configured sales scope with the
+ * caller's own UserScope. The basis a payment FREEZES then depended on which
+ * manager clicked Pay: a manager scoped to the kitchen RC alone froze a pool
+ * summed over that RC, while an unscoped admin froze the whole location — same
+ * period, same button, two different sets of envelopes, and no error anywhere
+ * because the narrower RCs do have sales rows.
+ */
+describe('resolveSalesScopeRcIds', () => {
+  const settings = (over: Partial<TipSettings>) => ({
+    salesSourceMode: 'LOCATION', salesLocationId: null, salesRcIds: [],
+    ...over,
+  } as Pick<TipSettings, 'salesSourceMode' | 'salesLocationId' | 'salesRcIds'>)
+  const user = { id: 'u1', role: 'MANAGER' } as unknown as User
+
+  beforeEach(() => {
+    locationFindUnique.mockClear(); locationFindUnique.mockResolvedValue(null)
+    revenueCenterFindMany.mockClear(); revenueCenterFindMany.mockResolvedValue([])
+    resolveScopedRcIds.mockClear(); resolveScopedRcIds.mockResolvedValue(null)
+  })
+
+  it('LOCATION mode resolves to every ACTIVE child revenue center', async () => {
+    locationFindUnique.mockResolvedValueOnce({
+      name: 'Cafe', revenueCenters: [{ id: 'rc-kitchen' }, { id: 'rc-bar' }, { id: 'rc-patio' }],
+    })
+    const r = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'LOCATION', salesLocationId: 'loc1' }))
+    expect(r.rcIds).toEqual(['rc-kitchen', 'rc-bar', 'rc-patio'])
+    expect(r.label).toBe('Cafe · all revenue centers')
+    expect(r.outOfScopeRcIds).toEqual([])
+    // The isActive filter is the resolver's, not the caller's, so pin it.
+    expect(locationFindUnique.mock.calls.length).toBe(1)
+  })
+
+  it('RC mode resolves to exactly the configured ids', async () => {
+    revenueCenterFindMany.mockResolvedValueOnce([
+      { id: 'rc-kitchen', name: 'Kitchen' }, { id: 'rc-bar', name: 'Bar' },
+    ])
+    const r = await resolveSalesScopeRcIds(user, settings({
+      salesSourceMode: 'RC', salesRcIds: ['rc-kitchen', 'rc-bar'],
+    }))
+    expect(r.rcIds).toEqual(['rc-kitchen', 'rc-bar'])
+    expect(r.label).toBe('Kitchen + Bar')
+    expect(r.outOfScopeRcIds).toEqual([])
+  })
+
+  it('reports an unconfigured scope as empty rather than guessing one', async () => {
+    // No location picked…
+    const noLocation = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'LOCATION', salesLocationId: null }))
+    expect(noLocation).toEqual({ rcIds: [], label: 'No sales source configured', outOfScopeRcIds: [] })
+    // …a location id that no longer resolves…
+    locationFindUnique.mockResolvedValueOnce(null)
+    const deadLocation = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'LOCATION', salesLocationId: 'gone' }))
+    expect(deadLocation.rcIds).toEqual([])
+    expect(deadLocation.label).toBe('No sales source configured')
+    // …an empty RC list…
+    const noRcs = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'RC', salesRcIds: [] }))
+    expect(noRcs.rcIds).toEqual([])
+    expect(noRcs.label).toBe('No sales source configured')
+    // …and RC ids that no longer exist.
+    revenueCenterFindMany.mockResolvedValueOnce([])
+    const deadRcs = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'RC', salesRcIds: ['gone'] }))
+    expect(deadRcs.rcIds).toEqual([])
+    expect(deadRcs.label).toBe('No sales source configured')
+  })
+
+  it('leaves the basis WHOLE for a caller scoped narrower than the configured scope, and reports the gap', async () => {
+    // The house funds the kitchen pool from all three revenue centers under
+    // Cafe. This manager can only read the kitchen one.
+    locationFindUnique.mockResolvedValueOnce({
+      name: 'Cafe', revenueCenters: [{ id: 'rc-kitchen' }, { id: 'rc-bar' }, { id: 'rc-patio' }],
+    })
+    resolveScopedRcIds.mockResolvedValueOnce(new Set(['rc-kitchen']))
+
+    const r = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'LOCATION', salesLocationId: 'loc1' }))
+    // UNCHANGED by the caller's own scope — this is the whole fix.
+    expect(r.rcIds).toEqual(['rc-kitchen', 'rc-bar', 'rc-patio'])
+    expect(r.label).toBe('Cafe · all revenue centers')
+    // …but the narrowing is reported, so the audit can warn about it.
+    expect(r.outOfScopeRcIds).toEqual(['rc-bar', 'rc-patio'])
+  })
+
+  it('reports the gap in RC mode too', async () => {
+    revenueCenterFindMany.mockResolvedValueOnce([
+      { id: 'rc-kitchen', name: 'Kitchen' }, { id: 'rc-bar', name: 'Bar' },
+    ])
+    resolveScopedRcIds.mockResolvedValueOnce(new Set(['rc-kitchen']))
+    const r = await resolveSalesScopeRcIds(user, settings({
+      salesSourceMode: 'RC', salesRcIds: ['rc-kitchen', 'rc-bar'],
+    }))
+    expect(r.rcIds).toEqual(['rc-kitchen', 'rc-bar'])
+    expect(r.outOfScopeRcIds).toEqual(['rc-bar'])
+  })
+
+  it('reports no gap for an unrestricted caller (null scope = no restriction)', async () => {
+    locationFindUnique.mockResolvedValueOnce({ name: 'Cafe', revenueCenters: [{ id: 'rc-bar' }] })
+    resolveScopedRcIds.mockResolvedValueOnce(null)
+    const r = await resolveSalesScopeRcIds(user, settings({ salesSourceMode: 'LOCATION', salesLocationId: 'loc1' }))
+    expect(r.outOfScopeRcIds).toEqual([])
+  })
+})
 
 describe('foldDailyTotals', () => {
   it('sums every revenue center in scope onto its day', () => {

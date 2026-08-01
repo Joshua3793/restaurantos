@@ -85,40 +85,76 @@ export function foldDailyTotals(
   }
 }
 
+export interface SalesScope {
+  /**
+   * Every revenue center the CONFIGURED scope resolves to, in full. Never
+   * narrowed to the caller — see the resolver's doc comment.
+   */
+  rcIds: string[]
+  label: string
+  /**
+   * The subset of `rcIds` the CALLER's own UserScope does not cover. Empty for
+   * an unrestricted caller. Reported, never subtracted: the pool must be the
+   * same money whoever opens the page.
+   */
+  outOfScopeRcIds: string[]
+}
+
 /**
- * The revenue centers the pool's sales are read from, intersected with the
- * caller's own access scope so a scoped manager can never widen their reach
- * through the tip settings.
+ * The revenue centers the pool's sales are read from.
+ *
+ * THE CONFIGURED SCOPE IS RESOLVED IN FULL, NOT INTERSECTED WITH THE CALLER'S
+ * OWN ACCESS. It used to be intersected, as a privilege guard, and as a *read*
+ * guard the instinct was right — but the sales scope is a HOUSE CONFIGURATION
+ * that defines the pool, not a per-user view of it. Intersecting made the
+ * frozen payout depend on which manager clicked Pay: a manager scoped to the
+ * Kitchen RC alone froze a basis summed over Kitchen, while an unscoped admin
+ * froze the whole Cafe location — same period, same button, two different pools
+ * and two different sets of envelopes. Nothing signalled it either, because the
+ * narrower revenue centers DO have sales rows, so `missingSalesDays` stayed
+ * empty and no audit error fired.
+ *
+ * Access to the period itself is gated separately and still is:
+ * `isRcInScope(user, period.revenueCenterId)` on every /api/tips/periods route.
+ * What this resolver does with `user` now is REPORT the difference —
+ * `outOfScopeRcIds` — so a scoped manager can see, as a warning finding on the
+ * Checks tab, that the pool spans revenue centers they cannot otherwise read.
+ * Never re-introduce the filter: make the mismatch visible instead.
  */
 export async function resolveSalesScopeRcIds(
   user: User,
   settings: Pick<TipSettings, 'salesSourceMode' | 'salesLocationId' | 'salesRcIds'>,
-): Promise<{ rcIds: string[]; label: string }> {
+): Promise<SalesScope> {
   const allowed = await resolveScopedRcIds(user)
+  const outOfScope = (ids: string[]) => (allowed === null ? [] : ids.filter(id => !allowed.has(id)))
+  const none: SalesScope = { rcIds: [], label: 'No sales source configured', outOfScopeRcIds: [] }
 
   if (settings.salesSourceMode === 'LOCATION' && settings.salesLocationId) {
     const location = await prisma.location.findUnique({
       where: { id: settings.salesLocationId },
       select: { name: true, revenueCenters: { where: { isActive: true }, select: { id: true } } },
     })
-    if (!location) return { rcIds: [], label: 'No sales source configured' }
+    if (!location) return none
     const ids = location.revenueCenters.map(rc => rc.id)
     return {
-      rcIds: allowed === null ? ids : ids.filter(id => allowed.has(id)),
+      rcIds: ids,
       label: `${location.name} · all revenue centers`,
+      outOfScopeRcIds: outOfScope(ids),
     }
   }
 
   const configured = Array.isArray(settings.salesRcIds) ? (settings.salesRcIds as string[]) : []
-  if (!configured.length) return { rcIds: [], label: 'No sales source configured' }
+  if (!configured.length) return none
   const rcs = await prisma.revenueCenter.findMany({
     where: { id: { in: configured } },
     select: { id: true, name: true },
   })
   const ids = rcs.map(rc => rc.id)
+  if (!ids.length) return none
   return {
-    rcIds: allowed === null ? ids : ids.filter(id => allowed.has(id)),
-    label: rcs.map(rc => rc.name).join(' + ') || 'No sales source configured',
+    rcIds: ids,
+    label: rcs.map(rc => rc.name).join(' + '),
+    outOfScopeRcIds: outOfScope(ids),
   }
 }
 
@@ -128,14 +164,16 @@ export async function dailyTotals(
   settings: Pick<TipSettings, 'salesSourceMode' | 'salesLocationId' | 'salesRcIds' | 'includeAutoGratuity'>,
   startDate: string,
   dayCount: number,
-): Promise<DailyTotals & { rcIds: string[]; label: string }> {
+): Promise<DailyTotals & SalesScope> {
   const days = periodDays(startDate, dayCount)
-  const { rcIds, label } = await resolveSalesScopeRcIds(user, settings)
+  const scope = await resolveSalesScopeRcIds(user, settings)
+  const { rcIds } = scope
   const allMissing = days.map((_, i) => i)
   if (!rcIds.length) {
     return {
+      ...scope,
       net: days.map(() => 0), tips: days.map(() => null),
-      missingSalesDays: allMissing, missingTipDays: allMissing, rcIds, label,
+      missingSalesDays: allMissing, missingTipDays: allMissing,
     }
   }
 
@@ -160,7 +198,7 @@ export async function dailyTotals(
     days,
     settings.includeAutoGratuity,
   )
-  return { ...folded, rcIds, label }
+  return { ...folded, ...scope }
 }
 
 /**

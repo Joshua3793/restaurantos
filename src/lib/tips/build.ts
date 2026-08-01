@@ -124,6 +124,10 @@ export async function buildPeriodSplit(user: User, periodId: string): Promise<Bu
     poolDepartments, ignoredClockIds: (period.ignoredClockIds ?? []) as string[],
     rewardTiers,
     missingBasisDays,
+    // A warning, never an error, so it cannot block a payment — but it IS
+    // frozen into the snapshot, which is the point: the record then says who
+    // could and could not see the whole basis at the moment cash went out.
+    outOfScopeRcCount: live.outOfScopeRcIds.length,
   })
 
   return {

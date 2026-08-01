@@ -31,7 +31,7 @@ const loadSettings = vi.fn(async () => ({
 }))
 const dailyTotals = vi.fn(async () => ({
   net: [100, 200, 0], tips: [10, null, 5] as Array<number | null>,
-  missingSalesDays: [2], missingTipDays: [1], rcIds: ['rc1'], label: 'Test scope',
+  missingSalesDays: [2], missingTipDays: [1], rcIds: ['rc1'], label: 'Test scope', outOfScopeRcIds: [],
 }))
 
 class MockAuthError extends Error {
@@ -87,7 +87,7 @@ beforeEach(() => {
   dailyTotals.mockClear()
   dailyTotals.mockResolvedValue({
     net: [100, 200, 0], tips: [10, null, 5], missingSalesDays: [2], missingTipDays: [1],
-    rcIds: ['rc1'], label: 'Test scope',
+    rcIds: ['rc1'], label: 'Test scope', outOfScopeRcIds: [],
   })
 })
 
@@ -136,7 +136,7 @@ describe('GET /api/tips/periods/[id]', () => {
       const dayCount = _a[3] as number
       return {
         net: Array(dayCount).fill(50), tips: Array(dayCount).fill(5) as Array<number | null>,
-        missingSalesDays: [], missingTipDays: [], rcIds: ['rc1'], label: 'Test scope',
+        missingSalesDays: [], missingTipDays: [], rcIds: ['rc1'], label: 'Test scope', outOfScopeRcIds: [],
       }
     })
     cookFindMany.mockResolvedValueOnce([{

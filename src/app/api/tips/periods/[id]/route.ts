@@ -139,6 +139,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         missingDays: salesRes.missing,
         overriddenDays: salesRes.overridden,
         scopeLabel: live.label,
+        // Reported, not applied: the basis above already spans the WHOLE
+        // configured scope for every caller. See resolveSalesScopeRcIds.
+        outOfScopeRcCount: live.outOfScopeRcIds.length,
       },
       tips: {
         collected: tipsSeries,
