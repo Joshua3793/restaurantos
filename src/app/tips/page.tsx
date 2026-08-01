@@ -5,12 +5,13 @@ import { PageHead } from '@/components/layout/PageHead'
 import { computeSplit } from '@/lib/tips/engine'
 import { auditPeriod, type FindingAction } from '@/lib/tips/audit'
 import type { TipPeriodPayload } from '@/lib/tips/types'
-import { MethodNote, TIP_TABS, money, type TipTabId } from '@/components/tips/kit'
+import { TIP_TABS, money, type TipTabId } from '@/components/tips/kit'
 import { SplitTab } from '@/components/tips/SplitTab'
 import { DailyPoolsTab } from '@/components/tips/DailyPoolsTab'
 import { CashTab } from '@/components/tips/CashTab'
 import { ChecksTab } from '@/components/tips/ChecksTab'
 import { ImportTab } from '@/components/tips/ImportTab'
+import { SettingsTab, type LookupOption, type TipSettingsDto } from '@/components/tips/SettingsTab'
 
 export default function TipsPage() {
   const [payload, setPayload] = useState<TipPeriodPayload | null>(null)
@@ -18,6 +19,9 @@ export default function TipsPage() {
   const [tab, setTab] = useState<TipTabId>('split')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [settings, setSettings] = useState<TipSettingsDto | null>(null)
+  const [locations, setLocations] = useState<LookupOption[]>([])
+  const [revenueCenters, setRevenueCenters] = useState<LookupOption[]>([])
 
   /* ── load ──────────────────────────────────────────────────────────────── */
   const loadPeriod = useCallback(async (id: string) => {
@@ -26,6 +30,11 @@ export default function TipsPage() {
     setPayload(await res.json())
     setPeriodId(id)
     setError(null)
+  }, [])
+
+  const loadSettings = useCallback(async () => {
+    const res = await fetch('/api/tips/settings', { cache: 'no-store' })
+    if (res.ok) setSettings(await res.json())
   }, [])
 
   useEffect(() => {
@@ -48,6 +57,22 @@ export default function TipsPage() {
     })()
     return () => { cancelled = true }
   }, [loadPeriod])
+
+  useEffect(() => {
+    void loadSettings()
+    ;(async () => {
+      const [locRes, rcRes] = await Promise.all([
+        fetch('/api/locations', { cache: 'no-store' }),
+        fetch('/api/revenue-centers', { cache: 'no-store' }),
+      ])
+      // Unwrap if either endpoint returns { locations } / { revenueCenters } rather
+      // than a bare array — both currently return bare arrays, this is a hedge.
+      const unwrap = (j: unknown, key: string): LookupOption[] =>
+        Array.isArray(j) ? (j as LookupOption[]) : ((j as Record<string, LookupOption[]>)?.[key] ?? [])
+      if (locRes.ok) setLocations(unwrap(await locRes.json(), 'locations'))
+      if (rcRes.ok) setRevenueCenters(unwrap(await rcRes.json(), 'revenueCenters'))
+    })()
+  }, [loadSettings])
 
   /* ── derive ────────────────────────────────────────────────────────────── */
   const { split, audit } = useMemo(() => {
@@ -94,7 +119,8 @@ export default function TipsPage() {
     const res = await fetch('/api/tips/settings', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not save settings')
+    if (res.ok) setSettings(await res.json())
+    else setError((await res.json()).error ?? 'Could not save settings')
     if (periodId) await loadPeriod(periodId)
     setBusy(false)
   }, [periodId, loadPeriod])
@@ -397,8 +423,35 @@ export default function TipsPage() {
           />
         )}
 
-        {tab === 'settings' && (
-          <MethodNote>This tab lands in the next task.</MethodNote>
+        {tab === 'settings' && settings && (
+          <SettingsTab
+            payload={payload} split={split} settings={settings}
+            locations={locations} revenueCenters={revenueCenters} readOnly={readOnly}
+            onSaveSettings={patch => void saveSettings(patch as Record<string, unknown>)}
+            onSaveRole={(id, patch) => {
+              void fetch(`/api/tips/roles/${id}`, {
+                method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
+              }).then(() => { if (periodId) void loadPeriod(periodId) })
+            }}
+            onAddRole={() => {
+              void fetch('/api/tips/roles', {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name: 'New role', multiplier: 1 }),
+              }).then(() => { if (periodId) void loadPeriod(periodId) })
+            }}
+            onDeleteRole={id => {
+              void fetch(`/api/tips/roles/${id}`, { method: 'DELETE' })
+                .then(async r => { if (!r.ok) setError((await r.json()).error ?? 'Could not delete that role') })
+                .then(() => { if (periodId) void loadPeriod(periodId) })
+            }}
+            onSaveRoster={(cookId, patch) => {
+              void fetch(`/api/tips/roster/${cookId}`, {
+                method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
+              }).then(async r => { if (!r.ok) setError((await r.json()).error ?? 'Could not save that change') })
+                .then(() => { if (periodId) void loadPeriod(periodId) })
+            }}
+            onAddEmployee={() => setError('Add new kitchen staff in Setup → Kitchen crew, then give them a clock ID here.')}
+          />
         )}
       </div>
     </div>
