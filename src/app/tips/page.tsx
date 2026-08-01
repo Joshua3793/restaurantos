@@ -1,0 +1,349 @@
+'use client'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Banknote, Check, Download } from 'lucide-react'
+import { PageHead } from '@/components/layout/PageHead'
+import { computeSplit } from '@/lib/tips/engine'
+import { auditPeriod, type FindingAction } from '@/lib/tips/audit'
+import type { TipPeriodPayload } from '@/lib/tips/types'
+import { MethodNote, TIP_TABS, money, type TipTabId } from '@/components/tips/kit'
+import { SplitTab } from '@/components/tips/SplitTab'
+
+export default function TipsPage() {
+  const [payload, setPayload] = useState<TipPeriodPayload | null>(null)
+  const [periodId, setPeriodId] = useState<string | null>(null)
+  const [tab, setTab] = useState<TipTabId>('split')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  /* ── load ──────────────────────────────────────────────────────────────── */
+  const loadPeriod = useCallback(async (id: string) => {
+    const res = await fetch(`/api/tips/periods/${id}`, { cache: 'no-store' })
+    if (!res.ok) { setError((await res.json()).error ?? 'Could not load the period'); return }
+    setPayload(await res.json())
+    setPeriodId(id)
+    setError(null)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const res = await fetch('/api/tips/periods', { cache: 'no-store' })
+      if (!res.ok) { setError((await res.json()).error ?? 'Could not load tip periods'); return }
+      const { periods, defaultStartDate } = await res.json()
+      if (cancelled) return
+      if (periods.length) { void loadPeriod(periods[0].id); return }
+      // No period yet — open the current one.
+      const created = await fetch('/api/tips/periods', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ startDate: defaultStartDate }),
+      })
+      if (!created.ok) { setError((await created.json()).error ?? 'Could not open a period'); return }
+      const { id } = await created.json()
+      if (!cancelled) void loadPeriod(id)
+    })()
+    return () => { cancelled = true }
+  }, [loadPeriod])
+
+  /* ── derive ────────────────────────────────────────────────────────────── */
+  const { split, audit } = useMemo(() => {
+    if (!payload) return { split: null, audit: null }
+    const s = computeSplit({
+      basis: payload.basis,
+      poolRatePct: payload.period.poolRatePct,
+      roundingStepCents: payload.period.roundingStepCents,
+      roles: payload.roles,
+      people: payload.roster,
+    })
+    const a = auditPeriod({
+      dayLabels: payload.dayLabels,
+      basis: payload.basis,
+      poolBasis: payload.period.poolBasis,
+      tipsCollected: payload.tips.collected,
+      roles: payload.roles,
+      people: payload.roster,
+      punches: payload.punches,
+      split: s,
+      roundingStepCents: payload.period.roundingStepCents,
+      poolDepartments: payload.poolDepartments,
+      ignoredClockIds: payload.period.ignoredClockIds,
+      missingBasisDays: payload.missingBasisDays,
+      rewardTiers: payload.rewardTiers,
+    })
+    return { split: s, audit: a }
+  }, [payload])
+
+  /* ── mutate ────────────────────────────────────────────────────────────── */
+  const patchPeriod = useCallback(async (body: Record<string, unknown>) => {
+    if (!periodId) return
+    setBusy(true)
+    const res = await fetch(`/api/tips/periods/${periodId}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not save')
+    await loadPeriod(periodId)
+    setBusy(false)
+  }, [periodId, loadPeriod])
+
+  const putAdjustment = useCallback(async (body: Record<string, unknown>) => {
+    if (!periodId) return
+    setBusy(true)
+    const res = await fetch(`/api/tips/periods/${periodId}/adjustments`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not save that edit')
+    await loadPeriod(periodId)
+    setBusy(false)
+  }, [periodId, loadPeriod])
+
+  const applyFix = useCallback(async (action: FindingAction) => {
+    if (!periodId || !payload) return
+    setBusy(true)
+    try {
+      if (action.kind === 'goto') { setTab(action.arg as TipTabId); return }
+      if (action.kind === 'ignoreCode') {
+        await patchPeriod({ ignoredClockIds: [...payload.period.ignoredClockIds, action.arg] })
+        return
+      }
+      if (action.kind === 'onPool') {
+        await fetch(`/api/tips/roster/${action.arg}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onTipPool: true }),
+        })
+      }
+      if (action.kind === 'setCode') {
+        const [cookId, code] = action.arg.split(':')
+        await fetch(`/api/tips/roster/${cookId}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clockId: code }),
+        })
+      }
+      if (action.kind === 'addPerson') {
+        const punch = payload.punches.find(p => p.clockId === action.arg)
+        if (punch) {
+          const res = await fetch('/api/tips/roster', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              firstName: punch.firstName, lastName: punch.lastName,
+              clockId: punch.clockId, position: punch.position,
+            }),
+          })
+          if (!res.ok) setError((await res.json()).error ?? 'Could not add that person')
+        }
+      }
+      await loadPeriod(periodId)
+    } finally { setBusy(false) }
+  }, [periodId, payload, patchPeriod, loadPeriod])
+
+  const markPaid = useCallback(async () => {
+    if (!periodId || !payload) return
+    const reopen = payload.period.status === 'PAID'
+    setBusy(true)
+    const res = await fetch(`/api/tips/periods/${periodId}/pay`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reopen }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not update the period')
+    await loadPeriod(periodId)
+    setBusy(false)
+  }, [periodId, payload, loadPeriod])
+
+  /* ── render ────────────────────────────────────────────────────────────── */
+  if (error && !payload) {
+    return <div className="bg-paper border border-line rounded-xl p-12 text-center text-[14px] text-red-text">{error}</div>
+  }
+  if (!payload || !split || !audit) {
+    return <div className="bg-paper border border-line rounded-xl p-12 text-center font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">Loading tip period…</div>
+  }
+
+  const readOnly = payload.period.status === 'PAID'
+  const netSales = payload.sales.net.reduce((a, b) => a + b, 0)
+  const badge = audit.counts.error || audit.counts.warn || 0
+  const onTips = payload.period.poolBasis === 'TIPS_COLLECTED'
+  const basisLabel = onTips ? 'tips collected' : 'net sales'
+  const basisTotal = onTips ? payload.tips.total : netSales
+  // The FOH pot and what the kitchen takes out of it — shown whatever the basis,
+  // because that is the number both sides of the pass actually argue about.
+  const tipPot = payload.tips.total
+  const hasTips = payload.tips.collected.some(v => v != null)
+  // distributedTotal, not poolTotal: what the kitchen actually TAKES from the
+  // FOH pot is the money that reaches people, not the day-pool math, which can
+  // include a day nobody was on shift to earn (that money never leaves the
+  // pot). Matches the audit's own "tip-out is X% of the pot" finding.
+  const takeoutPct = hasTips && tipPot > 0 ? (split.distributedTotal / tipPot) * 100 : null
+
+  return (
+    <div>
+      {/* Mobile: a payout run is a desk task — the mock has no phone layout. */}
+      <div className="md:hidden bg-paper border border-line rounded-xl p-8 text-center">
+        <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">Desktop only</p>
+        <p className="text-[14px] text-ink-2 mt-2">Tip payouts need the full split table. Open Controla OS on a desktop to run the payout.</p>
+      </div>
+
+      <div className="hidden md:block">
+        {/* dark tip chrome — the page's own strip, not the food-cost spine */}
+        <div className="bg-ink text-paper px-8 py-2.5 flex items-center gap-6 -mx-8 -mt-6 mb-6">
+          {[
+            ['Period', payload.periodLabel.replace(/ · \d{4}$/, '')],
+            ['Net sales', money(netSales)],
+            ['Tips collected', hasTips ? money(tipPot) : '—'],
+            ['Pool rate', `${payload.period.poolRatePct.toFixed(1)}% of ${basisLabel}`],
+          ].map(([l, v]) => (
+            <span key={l} className="flex items-baseline gap-2">
+              <span className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.02em]">{l}</span>
+              <span className="font-mono text-[14px] font-semibold">{v}</span>
+            </span>
+          ))}
+          <span className="flex items-baseline gap-2">
+            <span className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.02em]">Kitchen pool</span>
+            <span className="font-mono text-[14px] font-semibold text-[#86efac]">{money(split.poolTotal)}</span>
+          </span>
+          <span className="flex-1" />
+          <span className="font-mono text-[10.5px] text-ink-3">
+            Sales from {payload.sales.scopeLabel}
+          </span>
+        </div>
+
+        <PageHead
+          crumbs={<><Banknote size={13} /> TEAM / TIP PAYOUTS</>}
+          title="Kitchen tip pool"
+          sub={
+            <span className="flex items-center gap-3">
+              <span className="font-mono text-[11.5px] text-ink">{payload.periodLabel}</span>
+              <label className="inline-flex items-center gap-1.5 font-mono text-[11px] text-ink-3">
+                POOL RATE
+                <input
+                  type="number" step="0.5" min="0" max="100"
+                  value={payload.period.poolRatePct}
+                  disabled={readOnly}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value)
+                    if (isFinite(v) && v >= 0) void patchPeriod({ poolRatePct: v })
+                  }}
+                  className="w-[58px] font-mono text-[12px] text-right border border-line rounded-md px-[7px] py-1 bg-paper text-ink outline-none focus:border-gold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                % of
+                {/* Flipping the basis re-sizes the whole pool, so it is a first-class
+                    control here, not buried in settings. Frozen once the period is paid. */}
+                <select
+                  value={payload.period.poolBasis}
+                  disabled={readOnly}
+                  onChange={e => void patchPeriod({ poolBasis: e.target.value })}
+                  className="font-mono text-[11px] border border-line rounded-md px-1.5 py-1 bg-paper text-ink-2 cursor-pointer outline-none hover:border-ink-3"
+                >
+                  <option value="NET_SALES">net sales</option>
+                  <option value="TIPS_COLLECTED">tips collected</option>
+                </select>
+              </label>
+              <button
+                onClick={() => setTab('checks')}
+                className={`font-mono text-[10px] uppercase tracking-normal px-2.5 py-[3px] rounded-full inline-flex items-center gap-1.5 font-medium ${audit.counts.error ? 'bg-red-soft text-red-text' : audit.counts.warn ? 'bg-gold-soft text-gold-2' : 'bg-green-soft text-green-text'}`}
+              >
+                <span className="w-[5px] h-[5px] rounded-full bg-current opacity-70" />
+                {audit.counts.error ? `${audit.counts.error} ISSUE${audit.counts.error === 1 ? '' : 'S'}`
+                  : audit.counts.warn ? `${audit.counts.warn} WARNING${audit.counts.warn === 1 ? '' : 'S'}`
+                  : 'ALL CHECKS PASS'}
+              </button>
+            </span>
+          }
+          actions={
+            <>
+              <a
+                href={periodId ? `/api/tips/periods/${periodId}/export` : '#'}
+                className="inline-flex items-center gap-[7px] px-3.5 py-[9px] rounded border border-line bg-paper text-[13px] font-medium text-ink-2 hover:border-ink-3"
+              >
+                <Download size={13} className="text-ink-3" />Export for payroll
+              </a>
+              <button
+                onClick={markPaid}
+                disabled={busy}
+                className="inline-flex items-center gap-[7px] px-4 py-[9px] rounded bg-ink text-paper text-[13px] font-medium border border-ink hover:bg-ink-2 disabled:opacity-50"
+              >
+                <Check size={13} className="text-gold" />
+                {readOnly ? 'Reopen period' : 'Mark period paid'}
+              </button>
+            </>
+          }
+        />
+
+        {error && (
+          <div className="mb-4 rounded-md border border-red bg-red-soft px-3.5 py-2.5 text-[13px] text-red-text">{error}</div>
+        )}
+
+        <div className="grid gap-3 mb-6" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>
+          <div className="bg-ink text-paper border border-ink rounded-xl px-5 py-[18px] flex flex-col justify-between min-h-[128px]">
+            <span className="font-mono text-[10.5px] text-ink-4">TIP POOL · {payload.dayLabels.length} DAYS</span>
+            <span className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
+              {money(split.poolTotal).split('.')[0]}
+              <sub className="text-[22px] font-medium text-gold align-baseline">.{money(split.poolTotal).split('.')[1]}</sub>
+            </span>
+            <span className="font-mono text-[11px] text-ink-4 mt-2">
+              <b className="text-paper font-medium">{payload.period.poolRatePct.toFixed(1)}%</b> of ${Math.round(basisTotal).toLocaleString('en-CA')} {basisLabel}
+            </span>
+          </div>
+          {[
+            // The tip-out card replaces the mock's "team on pool" as the second
+            // slot: how much of the FOH pot the kitchen is taking is the number
+            // the payout actually gets challenged on.
+            takeoutPct != null
+              ? ['TIP-OUT TO KITCHEN', `${takeoutPct.toFixed(0)}%`, `${money(tipPot - split.distributedTotal)} left for front of house`]
+              : ['TEAM ON POOL', String(split.people.length), `${split.hoursTotal.toFixed(1)} h worked`],
+            ['WEIGHTED HOURS', split.weightedTotal.toLocaleString('en-CA', { minimumFractionDigits: 1, maximumFractionDigits: 1 }), `${split.people.length} people · ${split.hoursTotal.toFixed(1)} h`],
+            ['AVG TIP RATE', `$${(split.hoursTotal ? split.distributedTotal / split.hoursTotal : 0).toFixed(2)}/h`, 'across all weights'],
+          ].map(([label, value, sub]) => (
+            <div key={label} className="relative bg-paper border border-line rounded-xl px-5 py-[18px] flex flex-col justify-between min-h-[128px]">
+              <span className="absolute top-0 left-0 w-8 h-0.5 bg-gold" />
+              <span className="font-mono text-[10.5px] text-ink-3">{label}</span>
+              <span className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 whitespace-nowrap">{value}</span>
+              <span className="font-mono text-[11px] text-ink-3 mt-2">{sub}</span>
+            </div>
+          ))}
+        </div>
+
+        <nav className="flex items-stretch px-8 bg-paper border-b border-line h-12 -mx-8 mb-6">
+          {TIP_TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-[7px] px-[18px] text-[13.5px] font-medium border-b-2 ${tab === t.id ? 'border-gold text-ink' : 'border-transparent text-ink-3 hover:text-ink-2'}`}
+            >
+              {t.label}
+              {t.id === 'checks' && badge > 0 && (
+                <i className={`not-italic inline-grid place-items-center min-w-4 h-4 px-1 rounded-full text-paper font-mono text-[9.5px] font-semibold ${audit.counts.error ? 'bg-red' : 'bg-gold'}`}>{badge}</i>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {tab === 'split' && (
+          <SplitTab
+            split={split} audit={audit} roles={payload.roles}
+            dayLabels={payload.dayLabels}
+            rewardTiers={payload.rewardTiers} readOnly={readOnly}
+            onCapChange={(cookId, cap) => {
+              void fetch(`/api/tips/roster/${cookId}`, {
+                method: 'PATCH', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ dailyHourCap: cap }),
+              }).then(() => { if (periodId) void loadPeriod(periodId) })
+            }}
+            onRoleChange={(cookId, roleId) => {
+              void fetch(`/api/tips/roster/${cookId}`, {
+                method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tipRoleId: roleId }),
+              }).then(() => { if (periodId) void loadPeriod(periodId) })
+            }}
+            onHoursChange={(cookId, dayIndex, hours) => void putAdjustment({ cookId, dayIndex, hours })}
+            onBoostChange={(cookId, dayIndex, boost) => void putAdjustment({ cookId, dayIndex, boost })}
+            onClearAdjustments={cookId => {
+              if (!periodId) return
+              void fetch(`/api/tips/periods/${periodId}/adjustments?cookId=${cookId}`, { method: 'DELETE' })
+                .then(() => loadPeriod(periodId))
+            }}
+            onFix={applyFix}
+            onGoto={t => setTab(t as TipTabId)}
+          />
+        )}
+
+        {tab !== 'split' && (
+          <MethodNote>This tab lands in the next task.</MethodNote>
+        )}
+      </div>
+    </div>
+  )
+}
