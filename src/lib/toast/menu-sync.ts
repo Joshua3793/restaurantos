@@ -22,6 +22,7 @@ import {
 } from '@/lib/toast/client'
 import { classifyGroup } from '@/lib/toast/food-classify'
 import { MENU_ROUTE_PREFIX } from '@/lib/toast/sales-sync'
+import { NO_RC_ROUTE_GUID } from '@/lib/toast/sync-routing'
 
 export interface MenuSyncResult {
   lastUpdated?: string
@@ -177,8 +178,11 @@ export async function discoverRevenueCenters(windowDays = 14): Promise<RCDiscove
 
   const counts = new Map<string, number>()
   for (const o of orders) {
-    const guid = o.revenueCenter?.guid
-    if (guid) counts.set(guid, (counts.get(guid) ?? 0) + 1)
+    // Catering tickets carry NO revenue center. They still need somewhere to send
+    // lines that no menu route claims, so they're discovered under a sentinel GUID
+    // and mapped in the same UI as a real revenue center.
+    const guid = o.revenueCenter?.guid ?? NO_RC_ROUTE_GUID
+    counts.set(guid, (counts.get(guid) ?? 0) + 1)
   }
 
   // Persist discovered GUIDs (preserve any existing revenueCenterId mapping).

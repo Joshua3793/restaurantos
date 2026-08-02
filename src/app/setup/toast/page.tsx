@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { RefreshCw, CheckCircle2, XCircle, Loader2, Wand2, Search, X, Link2, Building2, Play, CalendarClock } from 'lucide-react'
+import { NO_RC_ROUTE_GUID } from '@/lib/toast/sync-routing'
 
 // ─── Types (mirror the API shapes) ──────────────────────────────────────────
 
@@ -66,9 +67,22 @@ interface SyncStatus {
   lastError: string | null
   lastLog: { businessDate: string; ordersPulled: number; lineItemsWritten: number; unmatchedCount: number; status: string; createdAt: string } | null
 }
+interface DayRunResult {
+  businessDate: number
+  ordersPulled: number
+  status: string
+  skippedUnmappedRcOrders: number
+  unroutableLines: number
+  unroutableRevenue: number
+  clearedStaleRcs: number
+  perRc: { revenueCenterName: string; totalRevenue: number; foodSalesPct: number; lineItemsWritten: number; unmatchedItems: number; unmatchedQty: number }[]
+}
 interface SyncRunResult {
-  mode: 'day' | 'backfill'
-  result?: { businessDate: number; ordersPulled: number; status: string; skippedUnmappedRcOrders: number; perRc: { revenueCenterName: string; totalRevenue: number; foodSalesPct: number; lineItemsWritten: number; unmatchedItems: number; unmatchedQty: number }[] }
+  mode: 'day' | 'nightly' | 'backfill'
+  result?: DayRunResult
+  /** `nightly` mode: yesterday's pull, plus the trailing re-sync of changed days. */
+  day?: DayRunResult
+  resync?: { ordersScanned: number; daysResynced: number[]; error?: string }
   days?: number
   error?: string
 }
@@ -504,10 +518,17 @@ function RcCard({
             const defaultRcName = selectedLoc
               ? selectedLoc.revenueCenters.find((r) => r.id === selectedLoc.defaultRevenueCenterId)?.name
               : null
+            const isNoRc = d.toastGuid === NO_RC_ROUTE_GUID
             return (
               <div key={d.toastGuid} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-[11px] text-ink-4 truncate flex-1 min-w-[160px]">{d.toastGuid}</span>
+                  {isNoRc ? (
+                    <span className="text-[11px] text-ink-2 truncate flex-1 min-w-[160px]">
+                      Orders with no revenue center <span className="text-ink-4">(catering)</span>
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] text-ink-4 truncate flex-1 min-w-[160px]">{d.toastGuid}</span>
+                  )}
                   <span className="text-[11px] text-ink-4 tabular-nums">{d.orderCount} orders</span>
                   <select
                     value={val}
@@ -687,23 +708,57 @@ function SyncCard({
             <p className="text-red-text">{result.error}</p>
           ) : result.mode === 'backfill' ? (
             <p className="text-ink">Backfilled <b>{result.days}</b> day{result.days === 1 ? '' : 's'}.</p>
-          ) : result.result ? (
+          ) : (result.result ?? result.day) ? (
             <>
-              <p className="text-ink">
-                <b>{result.result.businessDate}</b> · {result.result.ordersPulled} orders
-                {result.result.status === 'skipped' && <span className="text-ink-4"> · no mapped sales</span>}
-              </p>
-              {result.result.perRc.map((r, i) => (
-                <p key={i} className="text-ink-3">
-                  {r.revenueCenterName}: <b className="text-ink">{fmtMoney(r.totalRevenue)}</b> · {(r.foodSalesPct * 100).toFixed(1)}% food · {r.lineItemsWritten} lines
-                  {r.unmatchedItems > 0 && <span className="text-gold"> · {r.unmatchedItems} unmatched ({r.unmatchedQty} sold)</span>}
+              <DayRunSummary day={(result.result ?? result.day)!} />
+              {result.resync && (
+                <p className="text-ink-3 pt-1 border-t border-line">
+                  {result.resync.error ? (
+                    <span className="text-red-text">Re-sync failed: {result.resync.error}</span>
+                  ) : result.resync.daysResynced.length === 0 ? (
+                    <>Scanned {result.resync.ordersScanned} changed orders · no earlier day needed replaying.</>
+                  ) : (
+                    <>
+                      Replayed <b className="text-ink">{result.resync.daysResynced.length}</b> earlier day
+                      {result.resync.daysResynced.length === 1 ? '' : 's'} with late changes:{' '}
+                      {result.resync.daysResynced.join(', ')}
+                    </>
+                  )}
                 </p>
-              ))}
+              )}
             </>
           ) : null}
         </div>
       )}
     </div>
+  )
+}
+
+// Module scope, not nested in the panel body — a component defined inside a client
+// component remounts on every render.
+function DayRunSummary({ day }: { day: DayRunResult }) {
+  return (
+    <>
+      <p className="text-ink">
+        <b>{day.businessDate}</b> · {day.ordersPulled} orders
+        {day.status === 'skipped' && <span className="text-ink-4"> · no mapped sales</span>}
+      </p>
+      {day.perRc.map((r, i) => (
+        <p key={i} className="text-ink-3">
+          {r.revenueCenterName}: <b className="text-ink">{fmtMoney(r.totalRevenue)}</b> · {(r.foodSalesPct * 100).toFixed(1)}% food · {r.lineItemsWritten} lines
+          {r.unmatchedItems > 0 && <span className="text-gold"> · {r.unmatchedItems} unmatched ({r.unmatchedQty} sold)</span>}
+        </p>
+      ))}
+      {day.unroutableLines > 0 && (
+        <p className="text-red-text">
+          {day.unroutableLines} line{day.unroutableLines === 1 ? '' : 's'} worth <b>{fmtMoney(day.unroutableRevenue)}</b> could not
+          be routed to any revenue center — map them above or this revenue is not counted.
+        </p>
+      )}
+      {day.clearedStaleRcs > 0 && (
+        <p className="text-ink-4">Cleared {day.clearedStaleRcs} stale row{day.clearedStaleRcs === 1 ? '' : 's'} (all orders voided since).</p>
+      )}
+    </>
   )
 }
 

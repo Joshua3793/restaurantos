@@ -23,8 +23,20 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { fetchOrdersForBusinessDateInt, checkTipTotals, type ToastOrder } from '@/lib/toast/client'
+import {
+  fetchOrdersForBusinessDateInt,
+  fetchOrdersByModifiedWindow,
+  checkTipTotals,
+  type ToastOrder,
+} from '@/lib/toast/client'
 import { classifyGroup } from '@/lib/toast/food-classify'
+import {
+  resolveLineRc,
+  businessDatesTouched,
+  resyncWindowStart,
+  staleToastRcIds,
+  NO_RC_ROUTE_GUID,
+} from '@/lib/toast/sync-routing'
 
 const TZ = 'America/Los_Angeles'
 const SOURCE = 'toast'
@@ -179,6 +191,14 @@ export interface DaySyncResult {
   skippedUnmappedRcOrders: number
   /** Tips on checks that routed to no revenue center — reported, never dropped. */
   unattributedTips: number
+  // Lines that could not be placed in ANY revenue center and were therefore not
+  // counted. Surfaced rather than dropped in silence — this is money missing from
+  // the day's revenue, and it means a mapping is absent.
+  unroutableLines: number
+  unroutableRevenue: number
+  // Revenue centers whose stored Toast row for this day no longer has any revenue
+  // behind it (every order voided/moved since) and was cleared.
+  clearedStaleRcs: number
   // Multi-day manual entries that overlap a synced day but were LEFT in place (deleting
   // them would drop revenue for their other days) — surfaced for manual resolution.
   manualConflicts?: string[]
@@ -221,6 +241,20 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   const itemByGuid = new Map(itemMaps.map((i) => [i.toastItemGuid, i]))
   const rcNameById = new Map(rcNames.map((r) => [r.id, r.name]))
 
+  // A target resolves to a leaf RC directly, or to a location's default RC. Stays
+  // undefined when unmapped, or when a location has no default RC set.
+  const resolveTarget = (t: OrderTarget | undefined): string | undefined => {
+    if (t?.kind === 'rc') return t.rcId
+    if (t?.kind === 'location') return locationDefaultRc.get(t.locationId) ?? undefined
+    return undefined
+  }
+
+  // Catering tickets arrive with `revenueCenter: null`, so they have no order-level
+  // target at all and only menu-routed lines survive. OPEN_ITEM selections (custom
+  // catering pricing) are never in ToastItemMap, so they have no menu either and
+  // used to be dropped silently. The `rc:none` sentinel row names where those go.
+  const noRcFallback = resolveTarget(orderTargetByGuid.get(NO_RC_ROUTE_GUID))
+
   let orders: ToastOrder[]
   try {
     orders = await fetchOrdersForBusinessDateInt(yyyymmdd)
@@ -228,6 +262,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     return {
       businessDate: yyyymmdd, ordersPulled: 0, status: 'error',
       perRc: [], skippedUnmappedRcOrders: 0, unattributedTips: 0,
+      unroutableLines: 0, unroutableRevenue: 0, clearedStaleRcs: 0,
       error: e instanceof Error ? e.message : String(e),
     }
   }
@@ -235,6 +270,8 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   const buckets = new Map<string, RcBucket>()
   let skippedUnmappedRcOrders = 0
   let unattributedTips = 0
+  let unroutableLines = 0
+  let unroutableRevenue = 0
 
   const getBucket = (rcId: string): RcBucket => {
     let b = buckets.get(rcId)
@@ -245,13 +282,12 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   for (const order of orders) {
     if (order.voided || order.deleted || order.excessFood) continue
     const rcGuid = order.revenueCenter?.guid
-    // Resolve the order-level target: a leaf RC directly, or a location's default
-    // RC. Stays undefined when unmapped, or a location has no default RC set — in
-    // both cases un-menu-routed lines are skipped (same as an unmapped order).
-    const target = rcGuid ? orderTargetByGuid.get(rcGuid) : undefined
-    let orderRc: string | undefined
-    if (target?.kind === 'rc') orderRc = target.rcId
-    else if (target?.kind === 'location') orderRc = locationDefaultRc.get(target.locationId) ?? undefined
+    const orderRc = rcGuid ? resolveTarget(orderTargetByGuid.get(rcGuid)) : undefined
+    // The no-RC fallback applies ONLY to orders that carry no revenue center at
+    // all. An order with a real-but-unmapped GUID is a config gap that already
+    // surfaces in the mapping UI (discovery upserts every GUID it sees), so it
+    // keeps being counted as skipped rather than quietly absorbed here.
+    const orderFallback = rcGuid ? undefined : noRcFallback
 
     // Per-LINE-ITEM routing: each selection goes to its menu's RC if that menu is
     // mapped (menuRoutes), else the order's RC. One order can split across RCs
@@ -269,12 +305,22 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
       for (const sel of check.selections ?? []) {
         if (sel.voided || sel.deferred) continue
         const item = sel.item?.guid ? itemByGuid.get(sel.item.guid) : undefined
-        const menuRc = item?.toastMenu ? menuRoutes.get(item.toastMenu) : undefined
-        const rcId = menuRc ?? orderRc
-        if (!rcId) continue // can't route (no menu mapping, no order RC) → skip line
-
         const cls = classifyGroup(item?.toastGroup)
         if (cls.ignore) continue // Toast scaffolding lines
+
+        const rcId = resolveLineRc({
+          itemMenu: item?.toastMenu,
+          orderRc,
+          noRcFallback: orderFallback,
+          menuRoutes,
+        })
+        if (!rcId) {
+          // Nothing can place this line. Count the money so it shows up instead of
+          // evaporating — a non-zero figure here means a mapping needs adding.
+          unroutableLines++
+          unroutableRevenue += sel.price ?? 0
+          continue
+        }
 
         const bucket = getBucket(rcId)
         routedAny = true
@@ -300,7 +346,13 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
       const { tips, gratuity } = checkTipTotals(check, true)
       if (tips > 0 || gratuity > 0) {
         const split = splitTipAcrossRcs({
-          checkRcRevenue, orderRc, bucketExists: (rcId) => buckets.has(rcId), tips, gratuity,
+          // `orderRc ?? orderFallback` is the order's EFFECTIVE revenue center. A
+          // catering order has no `revenueCenter` of its own, so before the no-RC
+          // fallback existed it had no order-level RC at all and a tip-only check
+          // (its food on a sibling check) fell through to unattributed. The
+          // bucketExists guard still stops a tip conjuring an RC into the day.
+          checkRcRevenue, orderRc: orderRc ?? orderFallback,
+          bucketExists: (rcId) => buckets.has(rcId), tips, gratuity,
         })
         for (const [rcId, amounts] of split.perRc) {
           const b = getBucket(rcId)
@@ -415,8 +467,38 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
 
   const unattributedTipsTotal = Math.round(unattributedTips * 100) / 100
 
+  // The write loop above is overwrite-on-present: it only touches RCs that produced
+  // revenue on THIS pull. An RC whose orders were all voided or moved since the last
+  // sync produces no bucket, so its stored row would otherwise survive untouched
+  // with stale revenue. Clear those — but never on a zero-order pull, where a truly
+  // closed day and an empty/failed response look identical.
+  //
+  // The live set is `perRc`, NOT `buckets`: a bucket that failed the hasActivity
+  // guard above (tips attributed but no revenue) was deliberately not written, so
+  // counting it as active would shield a genuinely stale row from being cleared.
+  const stored = await prisma.salesEntry.findMany({
+    where: { date, source: SOURCE, periodType: 'day' },
+    select: { id: true, revenueCenterId: true },
+  })
+  const staleRcIds = staleToastRcIds({
+    storedRcIds: stored.map((s) => s.revenueCenterId),
+    activeRcIds: perRc.map((p) => p.revenueCenterId),
+    ordersPulled: orders.length,
+  })
+  if (staleRcIds.length) {
+    const staleSet = new Set(staleRcIds)
+    await prisma.salesEntry.deleteMany({
+      where: { id: { in: stored.filter((s) => staleSet.has(s.revenueCenterId)).map((s) => s.id) } },
+    })
+    console.warn(
+      `[toast-sync ${yyyymmdd}] cleared ${staleRcIds.length} stale Toast row(s) — no revenue remains for: ` +
+        staleRcIds.map((id) => rcNameById.get(id) ?? id).join(', '),
+    )
+  }
+
   if (manualConflicts.length) console.warn(`[toast-sync ${yyyymmdd}] manual/Toast conflicts left in place:\n  ${manualConflicts.join('\n  ')}`)
   if (unattributedTipsTotal > 0) console.warn(`[toast-sync ${yyyymmdd}] ${unattributedTipsTotal.toFixed(2)} in tips could not be attributed to a revenue center`)
+  if (unroutableLines) console.warn(`[toast-sync ${yyyymmdd}] ${unroutableLines} line(s) worth $${unroutableRevenue.toFixed(2)} could not be routed to any revenue center`)
 
   return {
     businessDate: yyyymmdd,
@@ -425,6 +507,9 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     perRc,
     skippedUnmappedRcOrders,
     unattributedTips: unattributedTipsTotal,
+    unroutableLines,
+    unroutableRevenue,
+    clearedStaleRcs: staleRcIds.length,
     ...(manualConflicts.length ? { manualConflicts } : {}),
   }
 }
@@ -470,6 +555,93 @@ export async function runToastSync(yyyymmdd?: number): Promise<DaySyncResult> {
     },
   })
   return result
+}
+
+export interface ResyncResult {
+  windowStart: string
+  windowEnd: string
+  ordersScanned: number
+  daysResynced: number[]
+  results: DaySyncResult[]
+  error?: string
+}
+
+/**
+ * Trailing re-sync — the fix for days that were already "done".
+ *
+ * `syncBusinessDay` queries Toast by `businessDate`, and the nightly cron asks for
+ * a given day exactly once, the morning after. Catering tickets are routinely rung
+ * into Toast days or weeks after the event with a backdated `openedDate`: Toast
+ * assigns them the ORIGINAL business date, but they did not exist when that day was
+ * synced, and nothing ever asked again. Ten such orders worth $18,275.50 accumulated
+ * between March and July 2026.
+ *
+ * So: ask what has CHANGED recently, and use that only to learn WHICH DAYS to
+ * replay. The modified window is a change detector, not a data source — feeding its
+ * orders straight into the day's totals would overwrite each day with just the
+ * handful of orders that happened to change and wipe out the rest.
+ */
+export async function runToastResync(windowStart: Date, windowEnd: Date, skipDay?: number): Promise<ResyncResult> {
+  const base: ResyncResult = {
+    windowStart: windowStart.toISOString(),
+    windowEnd: windowEnd.toISOString(),
+    ordersScanned: 0,
+    daysResynced: [],
+    results: [],
+  }
+
+  let orders: ToastOrder[]
+  try {
+    orders = await fetchOrdersByModifiedWindow(windowStart, windowEnd)
+  } catch (e) {
+    return { ...base, error: e instanceof Error ? e.message : String(e) }
+  }
+
+  // The day the caller just pulled fresh is skipped — re-pulling it would double the
+  // nightly API work and the row churn for no new information.
+  const days = businessDatesTouched(orders).filter((d) => d !== skipDay)
+  const results: DaySyncResult[] = []
+  for (const day of days) results.push(await syncBusinessDay(day))
+
+  const totals = results.reduce(
+    (a, r) => ({ lines: a.lines + r.perRc.reduce((s, p) => s + p.lineItemsWritten, 0), pulled: a.pulled + r.ordersPulled }),
+    { lines: 0, pulled: 0 },
+  )
+  const failed = results.filter((r) => r.status === 'error')
+  await prisma.toastSyncLog.create({
+    data: {
+      windowStart,
+      windowEnd,
+      ordersPulled: totals.pulled,
+      lineItemsWritten: totals.lines,
+      unmatchedCount: 0,
+      status: failed.length ? 'error' : 'ok',
+      error: failed.length ? `${failed.length} day(s) failed: ${failed.map((f) => f.businessDate).join(', ')}` : null,
+    },
+  })
+
+  return { ...base, ordersScanned: orders.length, daysResynced: days, results }
+}
+
+/**
+ * The nightly job: pull yesterday, then replay any older day that has changed since
+ * the last successful run. The re-sync window is read BEFORE the day sync, because
+ * `runToastSync` advances `ToastConnection.lastSyncedAt` and would otherwise shrink
+ * the window to nothing.
+ */
+export async function runNightlyToastSync(now: Date = new Date()): Promise<{
+  day: DaySyncResult
+  resync: ResyncResult
+}> {
+  const conn = await prisma.toastConnection.findUnique({
+    where: { id: 'singleton' },
+    select: { lastSyncedAt: true },
+  })
+  const windowStart = resyncWindowStart(conn?.lastSyncedAt ?? null, now)
+
+  const day = await runToastSync()
+  const resync = await runToastResync(windowStart, now, day.businessDate)
+  return { day, resync }
 }
 
 /** Backfill an inclusive range of business days (oldest → newest). */

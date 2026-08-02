@@ -40,6 +40,14 @@ vi.mock('@/lib/prisma', () => ({
     location: { findMany: async () => [] },
     // Present so a stray read would still resolve — the sync must not make one.
     tipSettings: { findUnique: async () => ({ includeAutoGratuity: false }) },
+    // The stale-row reconciliation reads and clears Toast rows OUTSIDE the
+    // transaction, so it needs a top-level salesEntry. Recorded under its own
+    // names to keep the `salesEntry.deleteMany` assertions below scoped to the
+    // manual-supersede path. Empty = nothing stale.
+    salesEntry: {
+      findMany: async () => [],
+      deleteMany: rec('staleToast.deleteMany'),
+    },
     $transaction: async (fn: (t: unknown) => Promise<unknown>) => fn({
       salesEntry: {
         findMany: async () => [{ id: 'manual-1', date: new Date(Date.UTC(2026, 6, 30)), endDate: null }],
