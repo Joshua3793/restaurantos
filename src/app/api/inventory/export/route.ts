@@ -137,7 +137,7 @@ async function resolveFilterLabels(searchParams: URLSearchParams) {
       ['Category',       searchParams.get('category') || 'all'],
       ['Supplier',       supplier?.name    ?? 'all'],
       ['Storage area',   storageArea?.name ?? 'all'],
-      ['Revenue centre', rc?.name ?? (rcId ? rcId : 'all')],
+      ['Revenue centre', rc?.name ?? (rcId ? `(unknown: ${rcId})` : 'all')],
       ['Status filter',  PILL_LABELS[pill]],
       ['Non-stocked items', searchParams.get('includeNonStocked') === 'true' ? 'included' : 'excluded'],
     ] as (string | number)[][],
@@ -171,7 +171,11 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
   // Apply the same pill predicate the page applies, so the file matches the screen.
   // InventoryListRow carries packChain via its `[key: string]: any` catch-all (not a
   // statically declared field), so it satisfies PillItem at runtime but not structurally.
-  const rows = outOfScope ? [] : allRows.filter(r => matchesPill(pill, r as unknown as PillItem))
+  // Narrow the assertion to just the one genuinely-missing named field (packChain) so
+  // every other PillItem field stays under real structural checking — if PillItem later
+  // gains a required field InventoryListRow doesn't populate, this call site should fail.
+  const rows = outOfScope ? [] : allRows.filter(r =>
+    matchesPill(pill, r as InventoryListRow & Pick<PillItem, 'packChain'>))
   const kpis = stockInHandKpis(rows)
 
   const wb = XLSX.utils.book_new()
@@ -205,7 +209,11 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
 
   const dataRows = rows.map(row => {
     const qty  = stockInHandQty(row)          // base units, null = never counted
-    const ppb  = Number(row.pricePerBaseUnit)
+    const ppbRaw = Number(row.pricePerBaseUnit)
+    // Mirror stock-in-hand.ts's private num() normalization (null/undefined/''/non-finite
+    // -> 0) so a bad price can't leak NaN into the sheet without duplicating that module's
+    // behaviour or exporting an internal helper for one call site.
+    const ppb  = Number.isFinite(ppbRaw) ? ppbRaw : 0
     const val  = stockInHandValue(row)
     const theo = theoreticalQty(row)
     return [
