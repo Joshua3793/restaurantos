@@ -77,12 +77,23 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/setup-guide')).toBeNull()
   })
 
-  it('prefers the longest matching prefix', () => {
-    // Guards the ordering rule so a future narrower entry wins without a reorder.
-    const longest = [...ROUTE_CLEARANCE]
-      .filter(([p]) => '/setup/suppliers' === p || '/setup/suppliers'.startsWith(p + '/'))
-      .sort((a, b) => b[0].length - a[0].length)[0]
-    expect(requiredClearance('/setup/suppliers')).toBe(longest[1])
+  it('prefers the longest matching prefix regardless of array order', () => {
+    // The live table has no nested entries, so longest-prefix is exercised
+    // against a synthetic one via the optional `table` parameter. Both orders
+    // are checked: the rule must be "longest wins", not "first wins".
+    const narrowLast = [
+      ['/setup', 'ADMIN'],
+      ['/setup/suppliers', 'MANAGER'],
+    ] as const
+    const narrowFirst = [
+      ['/setup/suppliers', 'MANAGER'],
+      ['/setup', 'ADMIN'],
+    ] as const
+
+    expect(requiredClearance('/setup/suppliers', narrowLast)).toBe('MANAGER')
+    expect(requiredClearance('/setup/suppliers', narrowFirst)).toBe('MANAGER')
+    expect(requiredClearance('/setup/users', narrowLast)).toBe('ADMIN')
+    expect(requiredClearance('/setup/users', narrowFirst)).toBe('ADMIN')
   })
 })
 
@@ -170,11 +181,20 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/end-of-day', 'LEAD'],
 ] as const
 
-/** Clearance needed to open `pathname`, or null when it is open to STAFF+. */
-export function requiredClearance(pathname: string): Role | null {
+/**
+ * Clearance needed to open `pathname`, or null when it is open to STAFF+.
+ *
+ * `table` is a seam for tests: the live table has no nested prefixes, so the
+ * longest-wins rule can only be exercised against a synthetic one. Production
+ * callers pass one argument.
+ */
+export function requiredClearance(
+  pathname: string,
+  table: ReadonlyArray<readonly [string, Role]> = ROUTE_CLEARANCE,
+): Role | null {
   let bestPrefix = ''
   let bestRole: Role | null = null
-  for (const [prefix, role] of ROUTE_CLEARANCE) {
+  for (const [prefix, role] of table) {
     // Segment match, not string match: '/passport' must not inherit '/pass'.
     const hit = pathname === prefix || pathname.startsWith(prefix + '/')
     if (hit && prefix.length > bestPrefix.length) {
@@ -474,13 +494,20 @@ Delete the dead re-export at the bottom of the file (lines 381-384) —
 Delete the unused local at line 177 (`const allNavItems = navGroups.flatMap(...)`
 is assigned and never read).
 
-Leave `visibleSetupItems` and the two `.filter(...)` calls alone for now —
-Task 5 replaces them. `canSeeNavItem` is gone, so temporarily change the three
-call sites to keep the file compiling:
+`canSeeNavItem` is gone, so the three filtering call sites lose their filter
+outright — do **not** leave placeholder variables behind for Task 5 to clean up:
 
-- line 176: `const visibleSetupItems = setupItems`
-- line 199: `const visibleItems = group.items`
-- line 327: `const visibleItems = group.items`
+- Delete `const visibleSetupItems = setupItems.filter(...)` (line ~176) and map
+  over `setupItems` directly at its one call site in the setup group.
+- In the desktop renderer, delete `const visibleItems = group.items.filter(...)`
+  and map over `group.items` directly.
+- In the mobile "More" drawer, delete `const visibleItems = group.items.filter(...)`
+  and map over `group.items` directly. Also delete the
+  `if (visibleItems.length === 0) return null` guard — no group can be empty now.
+
+Intermediate state after this task: every nav item is visible to every role and
+none is dimmed. That is correct and shippable on its own — the menu already
+stops hiding things. Task 5 adds the dim + lock treatment on top.
 
 Also delete the now-unused `atLeast` and `UserRole` imports if TypeScript flags
 them; `useUser` is still needed.
@@ -753,15 +780,7 @@ Inside `NavigationInner`, beside the existing `isActive` helper, add:
   const isLocked = (href: string) => role != null && !canAccess(role, href)
 ```
 
-- [ ] **Step 2: Remove the three filters left over from Task 2**
-
-Replace the temporary lines from Task 2 Step 5:
-
-- line ~176: `const visibleSetupItems = setupItems` → delete the variable entirely; use `setupItems` directly at its one call site in the setup group.
-- in the desktop renderer: delete `const visibleItems = group.items` and map over `group.items` directly.
-- in the mobile drawer: delete `const visibleItems = group.items` and map over `group.items` directly. Also delete the `if (visibleItems.length === 0) return null` guard — no group is ever empty now.
-
-- [ ] **Step 3: Dim + lock in the desktop sidebar**
+- [ ] **Step 2: Dim + lock in the desktop sidebar**
 
 In the desktop `navGroups.map(...)` renderer, inside the item map, add `locked`
 beside the existing `active` and `badge`:
@@ -834,7 +853,7 @@ renderer just below it, which has the same `<Link>` shape but no badge:
             })}
 ```
 
-- [ ] **Step 4: Dim + lock in the mobile "More" drawer**
+- [ ] **Step 3: Dim + lock in the mobile "More" drawer**
 
 In the drawer's `[...navGroups, { label: 'SETUP', items: setupItems }].map(...)`
 block, replace the item map with:
@@ -869,19 +888,19 @@ block, replace the item map with:
                     })}
 ```
 
-- [ ] **Step 5: Verify it builds**
+- [ ] **Step 4: Verify it builds**
 
 Run: `npm run build`
 Expected: build succeeds, no unused-variable errors (confirm `canSeeNavItem`,
 `visibleSetupItems`, `visibleItems`, `atLeast` and `UserRole` are all gone from
 the file if no longer referenced).
 
-- [ ] **Step 6: Run the full suite**
+- [ ] **Step 5: Run the full suite**
 
 Run: `npm test`
 Expected: 531 tests, 0 failures.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/components/Navigation.tsx
