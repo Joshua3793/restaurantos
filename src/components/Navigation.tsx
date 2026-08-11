@@ -3,92 +3,15 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, Suspense, useEffect } from 'react'
-import {
-  Sun, Package, FileText, Trash2, BarChart3,
-  BookOpen, UtensilsCrossed,
-  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
-  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer, Clock, Banknote,
-} from 'lucide-react'
+import { X, LogOut, ChevronRight, Wifi, WifiOff, Lock } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
-import { useUser, type UserRole } from '@/contexts/UserContext'
+import { useUser } from '@/contexts/UserContext'
 import { createClient } from '@/lib/supabase/client'
-import { atLeast } from '@/lib/roles'
-
-type NavItem = {
-  href: string
-  label: string
-  icon: React.ComponentType<{ size?: number | string; color?: string }>
-  exact?: boolean
-  adminOnly?: boolean
-  /** Minimum clearance to see this item — omit for everyone (STAFF+). */
-  minRole?: UserRole
-  badgeKey?: 'invoicesReview' | 'priceAlerts'
-}
-
-/** True while role is null (still loading /api/me) never grants a gated item. */
-function canSeeNavItem(item: Pick<NavItem, 'adminOnly' | 'minRole'>, role: UserRole | null): boolean {
-  if (item.adminOnly && !(role != null && atLeast(role, 'ADMIN'))) return false
-  if (item.minRole && !(role != null && atLeast(role, item.minRole))) return false
-  return true
-}
-
-type NavGroup = {
-  label: string
-  items: NavItem[]
-}
-
-const navGroups: NavGroup[] = [
-  {
-    label: 'TODAY',
-    items: [
-      { href: '/pass',        label: 'Pass',        icon: Sun },
-      { href: '/preshift',    label: 'Pre-shift',   icon: Flame },
-      { href: '/prep',        label: 'Prep',        icon: ChefHat },
-      { href: '/count',       label: 'Count',       icon: ClipboardList },
-      { href: '/temps',       label: 'Temps',       icon: Thermometer },
-      { href: '/end-of-day',  label: 'End-of-day',  icon: Clock, minRole: 'LEAD' },
-    ],
-  },
-  {
-    label: 'INBOX',
-    items: [
-      { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
-    ],
-  },
-  {
-    label: 'TEAM',
-    items: [
-      { href: '/tips', label: 'Tip payouts', icon: Banknote, minRole: 'MANAGER' },
-    ],
-  },
-  {
-    label: 'LIBRARY',
-    items: [
-      { href: '/inventory', label: 'Inventory', icon: Package },
-      { href: '/recipes',   label: 'Recipes',   icon: BookOpen },
-      { href: '/menu',      label: 'Menu',       icon: UtensilsCrossed },
-    ],
-  },
-  {
-    label: 'INSIGHTS',
-    items: [
-      { href: '/reports',  label: 'Reports',  icon: BarChart3 },
-      { href: '/variance', label: 'Variance', icon: Activity },
-      { href: '/signals',  label: 'Signals',  icon: Zap },
-      { href: '/sales',                     label: 'Sales',    icon: ShoppingBag },
-      { href: '/wastage',                   label: 'Wastage',  icon: Trash2 },
-    ],
-  },
-]
-
-const setupItems: NavItem[] = [
-  { href: '/setup',                label: 'Setup',           icon: Settings, exact: true, adminOnly: true },
-  { href: '/setup/suppliers',      label: 'Suppliers',       icon: Truck },
-  { href: '/setup/revenue-centers',label: 'Revenue centers', icon: Building2 },
-]
+import { navGroups, setupItems, type NavItem } from '@/lib/nav-items'
+import { canAccess } from '@/lib/route-access'
 
 export function Navigation() {
   return (
@@ -170,6 +93,14 @@ function NavigationInner() {
   const isActive = (item: Pick<NavItem, 'href' | 'exact'>) =>
     pathname === item.href || (!item.exact && item.href !== '/' && pathname.startsWith(item.href + '/'))
 
+  // Visual lock only. Enforcement is middleware's job — this just stops the
+  // menu from advertising pages it will refuse.
+  //
+  // Gated on `role != null` on purpose: while /api/me is in flight `role` is
+  // null and canAccess() denies everything, which would flash a fully-gray
+  // sidebar on every page load.
+  const isLocked = (href: string) => role != null && !canAccess(role, href)
+
   const getBadge = (key?: NavItem['badgeKey']) =>
     key ? inboxCounts[key] : 0
 
@@ -178,9 +109,6 @@ function NavigationInner() {
     await supabase.auth.signOut()
     router.push('/login')
   }
-
-  const visibleSetupItems = setupItems.filter(i => canSeeNavItem(i, role))
-  const allNavItems = navGroups.flatMap(g => g.items)
 
   // No app chrome on auth/standalone routes — same gate as CostChromeGate.
   // Rendering the sidebar on /login not only looked wrong, it prefetched every
@@ -202,37 +130,41 @@ function NavigationInner() {
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto -mx-0.5 px-0.5 flex flex-col gap-[6px]">
           {navGroups.map(group => {
-            const visibleItems = group.items.filter(i => canSeeNavItem(i, role))
             return (
               <div key={group.label} className="flex flex-col gap-[2px]">
                 <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
                   {group.label}
                 </p>
-                {visibleItems.map(item => {
+                {group.items.map(item => {
                   const active = isActive(item)
                   const badge  = getBadge(item.badgeKey)
+                  const locked = isLocked(item.href)
                   const { href, label, icon: Icon } = item
                   return (
                     <Link
                       key={`${href}-${label}`}
                       href={href}
+                      prefetch={locked ? false : undefined}
+                      title={locked ? 'You don’t have access to this page' : undefined}
                       className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                         active
                           ? 'bg-paper text-ink'
-                          : 'text-line-2 hover:bg-[#18181b] hover:text-bg'
+                          : locked
+                            ? 'text-line-2 opacity-40 hover:opacity-60 hover:bg-[#18181b]'
+                            : 'text-line-2 hover:bg-[#18181b] hover:text-bg'
                       }`}
                     >
                       <span className={active ? 'text-ink' : 'text-ink-3 group-hover:text-line-2'}>
                         <Icon size={16} />
                       </span>
                       <span className="flex-1">{label}</span>
-                      {badge > 0 && (
-                        <span className={`font-mono text-[10px] px-[6px] py-[1px] rounded-full font-semibold leading-none tracking-normal ${
-                          active ? 'bg-gold text-ink' : 'bg-gold text-ink'
-                        }`}>
+                      {locked ? (
+                        <Lock size={12} className="text-ink-3 shrink-0" />
+                      ) : badge > 0 ? (
+                        <span className="font-mono text-[10px] px-[6px] py-[1px] rounded-full font-semibold leading-none tracking-normal bg-gold text-ink">
                           {badge > 99 ? '99+' : badge}
                         </span>
-                      )}
+                      ) : null}
                     </Link>
                   )
                 })}
@@ -245,23 +177,29 @@ function NavigationInner() {
             <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
               SETUP
             </p>
-            {visibleSetupItems.map(item => {
+            {setupItems.map(item => {
               const active = isActive(item)
+              const locked = isLocked(item.href)
               const { href, label, icon: Icon } = item
               return (
                 <Link
                   key={href}
                   href={href}
+                  prefetch={locked ? false : undefined}
+                  title={locked ? 'You don’t have access to this page' : undefined}
                   className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                     active
                       ? 'bg-paper text-ink'
-                      : 'text-line-2 hover:bg-[#18181b] hover:text-bg'
+                      : locked
+                        ? 'text-line-2 opacity-40 hover:opacity-60 hover:bg-[#18181b]'
+                        : 'text-line-2 hover:bg-[#18181b] hover:text-bg'
                   }`}
                 >
                   <span className={active ? 'text-ink' : 'text-ink-3 group-hover:text-line-2'}>
                     <Icon size={16} />
                   </span>
-                  {label}
+                  <span className="flex-1">{label}</span>
+                  {locked && <Lock size={12} className="text-ink-3 shrink-0" />}
                 </Link>
               )
             })}
@@ -329,36 +267,38 @@ function NavigationInner() {
               </span>
             </div>
 
-            {[...navGroups, { label: 'SETUP', items: visibleSetupItems }].map(group => {
-              const visibleItems = group.items.filter(i => canSeeNavItem(i, role))
-              if (visibleItems.length === 0) return null
+            {[...navGroups, { label: 'SETUP', items: setupItems }].map(group => {
               return (
                 <div key={group.label}>
                   <p className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.06em] mb-2 px-1">
                     {group.label}
                   </p>
                   <div className="bg-paper border border-line rounded-xl overflow-hidden">
-                    {visibleItems.map((item, i) => {
+                    {group.items.map((item, i) => {
                       const active = isActive(item)
                       const badge  = getBadge(item.badgeKey)
+                      const locked = isLocked(item.href)
                       const { href, label, icon: Icon } = item
                       return (
                         <Link
                           key={`drawer-${href}-${label}`}
                           href={href}
+                          prefetch={locked ? false : undefined}
                           onClick={() => setMoreOpen(false)}
-                          className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${i > 0 ? 'border-t border-line' : ''} ${active ? 'bg-gold-soft/50' : 'hover:bg-bg-2'}`}
+                          className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${i > 0 ? 'border-t border-line' : ''} ${active ? 'bg-gold-soft/50' : 'hover:bg-bg-2'} ${locked ? 'opacity-45' : ''}`}
                         >
                           <span className={`grid place-items-center w-9 h-9 rounded-[10px] shrink-0 ${active ? 'bg-ink text-gold' : 'bg-bg-2 text-ink-2'}`}>
                             <Icon size={17} color={active ? '#d97706' : '#27272a'} />
                           </span>
                           <span className={`flex-1 text-[14px] ${active ? 'text-ink font-semibold' : 'text-ink-2 font-medium'}`}>{label}</span>
-                          {badge > 0 && (
+                          {!locked && badge > 0 && (
                             <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gold text-ink min-w-[18px] text-center leading-none">
                               {badge > 99 ? '99+' : badge}
                             </span>
                           )}
-                          <ChevronRight size={16} className="text-ink-4 shrink-0" />
+                          {locked
+                            ? <Lock size={15} className="text-ink-4 shrink-0" />
+                            : <ChevronRight size={16} className="text-ink-4 shrink-0" />}
                         </Link>
                       )
                     })}
@@ -383,8 +323,3 @@ function NavigationInner() {
     </>
   )
 }
-
-// Keep the previous flat navItems export in case anything imports from here
-// (AlertsBell, breadcrumbs, etc.) — remove once confirmed nothing uses it.
-const _allNavItems = navGroups.flatMap(g => g.items)
-export { _allNavItems as navItems }
