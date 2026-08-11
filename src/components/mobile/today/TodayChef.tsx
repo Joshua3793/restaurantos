@@ -48,7 +48,7 @@ export function TodayChef() {
       )}
 
       <MSectionLabel right={<button onClick={() => router.push('/prep')}>open →</button>}>Your prep</MSectionLabel>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 md:grid md:grid-cols-2 md:gap-3">
         {prep.length === 0 ? (
           <MCard><div className="font-mono text-[11px] text-ink-3">No prep assigned.</div></MCard>
         ) : prep.map(p => (
@@ -65,7 +65,7 @@ export function TodayChef() {
       </div>
 
       <MSectionLabel>Quick actions</MSectionLabel>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
         <MQuickAction label="Start a count" icon={<ClipboardList size={20} />} onClick={() => router.push('/count')} />
         <MQuickAction label="Scan an item" icon={<Barcode size={20} />} onClick={() => router.push('/inventory')} />
         <MQuickAction label="Log waste" icon={<Flame size={20} />} onClick={() => router.push('/wastage')} />
