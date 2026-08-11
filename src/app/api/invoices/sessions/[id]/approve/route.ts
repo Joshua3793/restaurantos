@@ -10,7 +10,7 @@ import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
-import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
+import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, basePerPurchase, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { dimensionallyCostable } from '@/lib/uom'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import { lookupDensity } from '@/lib/density'
@@ -209,6 +209,46 @@ async function doApprove(
           // inventory edit). So the per-case price always divides by the base
           // units in one top container of the item's STORED chain. This matches
           // the DELETE-revert path (which also derives from `pricing`).
+          //
+          // …but only while the invoice's case and the item's case hold the SAME
+          // amount. When a supplier changes pack size (a 3 kg tub becomes a 20 kg
+          // case) that assumption silently breaks and the raw case price over the
+          // stale chain is wrong by exactly the ratio of the two packs — the price
+          // moves, the format doesn't. Nothing used to catch it: only a DIMENSION
+          // conflict blocks approve, and 3 kg → 20 kg is the same dimension. That
+          // is how Baking Powder came to cost $37.61/kg instead of $5.64/kg.
+          //
+          // We cannot repair it by preferring the invoice's pack either: OCR often
+          // reports packQty 1 when the invoice prints only the container size, so
+          // the line understates a case the item has right (Tamari's 6 × 1.89 L
+          // case prints as "1 × 1.89 l"). Either side can be the stale one and the
+          // data does not say which. Refuse to guess — skip the price write and
+          // leave the line un-approved for a human, exactly like the dimension
+          // conflict above. A wrong spine price silently corrupts every recipe
+          // that reads this item; a skipped line is visible and recoverable.
+          const invoiceBaseTotal = invoicePackBaseTotal(
+            {
+              packQty:  scanItem.invoicePackQty  != null ? Number(scanItem.invoicePackQty)  : null,
+              packSize: scanItem.invoicePackSize != null ? Number(scanItem.invoicePackSize) : null,
+              packUOM:  scanItem.invoicePackUOM,
+            },
+            item.baseUnit ?? 'each',
+          )
+          const itemBaseTotal = basePerPurchase((item.packChain as PackLink[]) ?? [])
+          const packs = packFormatsDisagree(invoiceBaseTotal, itemBaseTotal)
+          if (packs.disagree) {
+            console.error(
+              `[approve] Skipping price write for "${scanItem.rawDescription}" — the invoice's pack ` +
+              `(${scanItem.invoicePackQty} × ${scanItem.invoicePackSize} ${scanItem.invoicePackUOM} = ` +
+              `${invoiceBaseTotal} ${item.baseUnit}) disagrees with the item's stored format ` +
+              `(${itemBaseTotal} ${item.baseUnit}) by ${packs.ratio.toFixed(2)}×. Pricing against either ` +
+              `would be wrong by that factor. Update the item's pack format, or correct the line's pack, ` +
+              `then re-approve.`,
+            )
+            skippedLines++
+            continue
+          }
+
           newPricePerBase = pricePerBaseUnit({
             dimension: dimensionOf(item.baseUnit ?? 'each'),
             baseUnit: item.baseUnit ?? 'each',

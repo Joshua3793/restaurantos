@@ -12,6 +12,8 @@ import {
   asChainItem,
   withPpb,
   dimensionOf,
+  invoicePackBaseTotal,
+  packFormatsDisagree,
   type ChainItem,
 } from '@/lib/item-model'
 import { formToChain, type ItemFormInput } from '@/lib/item-model-form'
@@ -164,5 +166,60 @@ describe('dimensionOf', () => {
     expect(dimensionOf('l')).toBe('VOLUME')
     expect(dimensionOf('each')).toBe('COUNT')
     expect(dimensionOf('case')).toBe('COUNT') // containers fall through to COUNT
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Supplier pack-size changes. An invoice updates an item's PRICE over the
+// item's own stored chain; it never rewrites the format. That is only sound
+// while the invoice's case and the item's case hold the same amount — when a
+// supplier changes pack size, the raw case price over a stale chain is wrong by
+// exactly the ratio of the two packs. These are the real cases that shipped.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('invoicePackBaseTotal', () => {
+  it('resolves a line pack into the item base unit', () => {
+    expect(invoicePackBaseTotal({ packQty: 1, packSize: 20, packUOM: 'kg' }, 'g')).toBe(20000)
+    expect(invoicePackBaseTotal({ packQty: 6, packSize: 2.841, packUOM: 'l' }, 'ml')).toBeCloseTo(17046)
+    expect(invoicePackBaseTotal({ packQty: 1, packSize: 12, packUOM: 'lb' }, 'g')).toBeCloseTo(5443.104)
+    expect(invoicePackBaseTotal({ packQty: 1, packSize: 24, packUOM: 'each' }, 'each')).toBe(24)
+  })
+
+  it('returns 0 when the pack is unusable or crosses dimensions', () => {
+    expect(invoicePackBaseTotal({ packQty: null, packSize: 20, packUOM: 'kg' }, 'g')).toBe(0)
+    expect(invoicePackBaseTotal({ packQty: 1, packSize: 0, packUOM: 'kg' }, 'g')).toBe(0)
+    expect(invoicePackBaseTotal({ packQty: 1, packSize: 20, packUOM: '' }, 'g')).toBe(0)
+    // count line against a weight-based item — needs the eachMeasure bridge
+    expect(invoicePackBaseTotal({ packQty: 1, packSize: 24, packUOM: 'each' }, 'g')).toBe(0)
+  })
+})
+
+describe('packFormatsDisagree', () => {
+  it('is quiet when the packs agree', () => {
+    expect(packFormatsDisagree(20000, 20000).disagree).toBe(false)
+    expect(packFormatsDisagree(20000, 20100).disagree).toBe(false) // within tolerance
+    // OCR rounding (a 15.14 L case read as 16 L) must not block an invoice
+    expect(packFormatsDisagree(15136, 16000).disagree).toBe(false)
+    expect(packFormatsDisagree(64, 72).disagree).toBe(false)
+  })
+
+  it('flags a supplier pack change — Baking Powder 3 kg chain vs a 20 kg case', () => {
+    const r = packFormatsDisagree(20000, 3000)
+    expect(r.disagree).toBe(true)
+    expect(r.ratio).toBeCloseTo(0.15)
+    // the cost that WOULD have been written against the stale chain
+    expect((112.83 / 3000) * 1000).toBeCloseTo(37.61, 2)
+    expect((112.83 / 20000) * 1000).toBeCloseTo(5.64, 2)
+  })
+
+  it('also flags the opposite case, where the ITEM holds the true case count', () => {
+    // Tamari: OCR read "1 x 1.89 l" off the container; the case is really 6.
+    const r = packFormatsDisagree(1890, 11340)
+    expect(r.disagree).toBe(true)
+    expect(r.ratio).toBeCloseTo(6)
+  })
+
+  it('stays silent on unusable input rather than reporting a false conflict', () => {
+    expect(packFormatsDisagree(0, 3000).disagree).toBe(false)
+    expect(packFormatsDisagree(3000, 0).disagree).toBe(false)
   })
 })
