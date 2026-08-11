@@ -18,6 +18,7 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/cost')).toBe('MANAGER')
     expect(requiredClearance('/variance')).toBe('MANAGER')
     expect(requiredClearance('/signals')).toBe('MANAGER')
+    expect(requiredClearance('/tips')).toBe('MANAGER')
   })
 
   it('gates setup at ADMIN and end-of-day at LEAD', () => {

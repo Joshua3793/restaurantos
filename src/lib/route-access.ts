@@ -25,6 +25,7 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/cost', 'MANAGER'],
   ['/variance', 'MANAGER'],
   ['/signals', 'MANAGER'],
+  ['/tips', 'MANAGER'],
   ['/end-of-day', 'LEAD'],
 ] as const
 
