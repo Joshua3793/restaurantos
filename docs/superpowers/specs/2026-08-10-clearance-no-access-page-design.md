@@ -154,8 +154,10 @@ clearance.
   purposes; the nav uses `role != null && !canAccess(...)` for the *visual* lock
   so a slow `/api/me` does not flash a fully-gray menu.
 
-Consequence, accepted: a Staff sidebar grows from 11 visible items to 17, six of
-them dimmed. That is the point — the menu stops lying.
+Consequence, accepted: a Staff sidebar grows from 10 visible items to 19, nine of
+them dimmed (`/pass`, `/end-of-day`, `/tips`, `/reports`, `/variance`, `/signals`,
+`/setup`, `/setup/suppliers`, `/setup/revenue-centers`). That is the point — the
+menu stops lying.
 
 `MobileTabBar` is unchanged: Today, Prep, Count and More are all open to STAFF.
 

@@ -3,6 +3,8 @@ import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
+import type { Role } from '@prisma/client'
+import { atLeast } from '@/lib/roles'
 
 function LoginPageInner() {
   const [mode, setMode] = useState<'login' | 'forgot'>('login')
@@ -35,20 +37,27 @@ function LoginPageInner() {
     // like it had silently failed for several seconds. A soft navigation also
     // preserves the client providers mounted while logged out: UserProvider
     // fetches /api/me once on mount, so `role` stayed null after sign-in,
-    // which sent STAFF users to /pass and bounced them back through
-    // middleware in a loop.
+    // which sent every role to /today and bounced back through middleware in
+    // a loop wherever /today itself redirects.
     //
     // A hard navigation resolves the destination up front from the session we
     // already have in hand, and remounts every provider against the new cookie.
     //
-    // The role is read from user_metadata and defaulted to STAFF exactly as
-    // middleware does — /pass is gated on that same value from that same store,
-    // so mirroring it is what guarantees we never land somewhere middleware
-    // bounces straight back.
-    const role = (data.user?.user_metadata?.role as string | undefined) ?? 'STAFF'
+    // Product decision: MANAGER+ lands on /pass, everyone else lands on /today.
+    // The role is read from user_metadata exactly as middleware does, and the
+    // landing test is the same atLeast(role, 'MANAGER') check that gates /pass
+    // — /pass is gated on that same value from that same store, so mirroring
+    // it (as a rank comparison, not a string comparison) is what guarantees we
+    // never land somewhere middleware bounces straight back. A string check
+    // against 'STAFF' would miss LEAD, which is neither STAFF nor MANAGER.
+    const rawRole = (data.user?.user_metadata?.role as string | undefined) ?? 'STAFF'
     const isDesktop = window.innerWidth >= 768
+    // Rank-compare, never string-compare: LEAD is neither STAFF nor MANAGER, and
+    // `role === 'STAFF' ? '/count' : '/pass'` sent Leads to a page they cannot
+    // open. /pass is gated on atLeast(role,'MANAGER'), so the landing test has to
+    // be that same test. Everyone below Manager lands on /today.
     window.location.assign(
-      isDesktop ? (role === 'STAFF' ? '/count' : '/pass') : '/today'
+      isDesktop && atLeast(rawRole as Role, 'MANAGER') ? '/pass' : '/today'
     )
   }
 

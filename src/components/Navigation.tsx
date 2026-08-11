@@ -144,6 +144,7 @@ function NavigationInner() {
                     <Link
                       key={`${href}-${label}`}
                       href={href}
+                      prefetch={locked ? false : undefined}
                       title={locked ? 'You don’t have access to this page' : undefined}
                       className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                         active
@@ -184,6 +185,7 @@ function NavigationInner() {
                 <Link
                   key={href}
                   href={href}
+                  prefetch={locked ? false : undefined}
                   title={locked ? 'You don’t have access to this page' : undefined}
                   className={`group flex items-center gap-[10px] px-[10px] py-2 rounded-lg text-[13.5px] font-medium tracking-[-0.005em] whitespace-nowrap transition-colors ${
                     active
@@ -281,6 +283,7 @@ function NavigationInner() {
                         <Link
                           key={`drawer-${href}-${label}`}
                           href={href}
+                          prefetch={locked ? false : undefined}
                           onClick={() => setMoreOpen(false)}
                           className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${i > 0 ? 'border-t border-line' : ''} ${active ? 'bg-gold-soft/50' : 'hover:bg-bg-2'} ${locked ? 'opacity-45' : ''}`}
                         >
