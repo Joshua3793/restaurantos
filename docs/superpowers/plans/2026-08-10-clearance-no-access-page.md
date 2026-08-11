@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - `src/lib/route-access.ts` MUST NOT have a `server-only` marker and MUST NOT import *values* from `@prisma/client`. `src/middleware.ts` runs in a restricted runtime. Use `import type { Role } from '@prisma/client'` — erased at compile time. Same rule `src/lib/roles.ts` already documents at its top.
-- Clearance gates are **unchanged** from today's middleware: ADMIN for `/setup` + `/settings`; MANAGER for `/pass`, `/reports`, `/cost`, `/variance`, `/signals`; LEAD for `/end-of-day`. Do not add, remove, or relax a gate.
+- Clearance gates are **unchanged** from today's middleware: ADMIN for `/setup` + `/settings`; MANAGER for `/pass`, `/reports`, `/cost`, `/variance`, `/signals`, `/tips`; LEAD for `/end-of-day`. Do not add, remove, or relax a gate. Verify this list against `src/middleware.ts` in the worktree before relying on it.
 - Tailwind: **flat color tokens only** (`bg-red`, `text-red-text`, `text-ink-3`). Numbered classes (`bg-red-500`) are broken in this project.
 - Only `src/**/*.test.ts` is collected by vitest (see `vitest.config.ts`) — **`.tsx` test files are silently ignored**. Every test in this plan is `.ts`.
 - Unauthenticated → `/login` and deactivated → `/login?error=deactivated` stay **redirects**. Only the *role* checks become rewrites.
@@ -57,6 +57,7 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/cost')).toBe('MANAGER')
     expect(requiredClearance('/variance')).toBe('MANAGER')
     expect(requiredClearance('/signals')).toBe('MANAGER')
+    expect(requiredClearance('/tips')).toBe('MANAGER')
   })
 
   it('gates setup at ADMIN and end-of-day at LEAD', () => {
@@ -178,6 +179,7 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/cost', 'MANAGER'],
   ['/variance', 'MANAGER'],
   ['/signals', 'MANAGER'],
+  ['/tips', 'MANAGER'],
   ['/end-of-day', 'LEAD'],
 ] as const
 
@@ -283,6 +285,7 @@ const EXPECTED: Record<string, string | null> = {
   '/temps': null,
   '/end-of-day': 'LEAD',
   '/invoices': null,
+  '/tips': 'MANAGER',
   '/inventory': null,
   '/recipes': null,
   '/menu': null,
@@ -373,7 +376,7 @@ Create `src/lib/nav-items.ts` (the arrays are moved verbatim from
 import {
   Sun, Package, FileText, Trash2, BarChart3, BookOpen, UtensilsCrossed,
   ShoppingBag, Settings, ChefHat, Truck, ClipboardList, Activity, Building2,
-  Zap, Flame, Thermometer, Clock,
+  Zap, Flame, Thermometer, Clock, Banknote,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -405,6 +408,12 @@ export const navGroups: NavGroup[] = [
     label: 'INBOX',
     items: [
       { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
+    ],
+  },
+  {
+    label: 'TEAM',
+    items: [
+      { href: '/tips', label: 'Tip payouts', icon: Banknote },
     ],
   },
   {

@@ -13,11 +13,15 @@ A user below MANAGER cannot navigate the app. Two defects compound:
    on Count with no explanation. Every gated page is a trapdoor back to Count.
 
 2. **The sidebar and middleware enforce different tables.** `canSeeNavItem` in
-   `src/components/Navigation.tsx` gates only `/end-of-day` (LEAD) and `/setup`
-   (ADMIN, via `adminOnly`). Middleware additionally gates `/pass`, `/reports`,
-   `/cost`, `/variance`, `/signals` (MANAGER) and *all* of `/setup/*` (ADMIN).
-   So the nav shows Staff six items it will then bounce them out of: Pass,
-   Reports, Variance, Signals, Suppliers, Revenue centers.
+   `src/components/Navigation.tsx` gates only `/end-of-day` (LEAD), `/tips`
+   (MANAGER) and `/setup` (ADMIN, via `adminOnly`). Middleware additionally
+   gates `/pass`, `/reports`, `/cost`, `/variance`, `/signals` (MANAGER) and
+   *all* of `/setup/*` (ADMIN). So the nav shows Staff six items it will then
+   bounce them out of: Pass, Reports, Variance, Signals, Suppliers, Revenue
+   centers.
+
+   That the two tables agree on `/tips` and disagree on six other routes is the
+   defect in miniature: agreement is coincidental and maintained by hand.
 
 ## Goals
 
@@ -56,6 +60,7 @@ const ROUTE_CLEARANCE: Array<[string, Role]> = [
   ['/cost',       'MANAGER'],
   ['/variance',   'MANAGER'],
   ['/signals',    'MANAGER'],
+  ['/tips',       'MANAGER'],
   ['/end-of-day', 'LEAD'],
 ]
 
