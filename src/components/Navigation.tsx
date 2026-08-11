@@ -4,91 +4,15 @@ import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, Suspense, useEffect } from 'react'
 import {
-  Sun, Package, FileText, Trash2, BarChart3,
-  BookOpen, UtensilsCrossed,
-  X, ShoppingBag, TrendingUp, Settings, ChefHat, Truck, LogOut,
-  ClipboardList, Activity, Building2, Zap, Flame, ChevronRight, Wifi, WifiOff, Thermometer, Clock, Banknote,
+  X, LogOut, ChevronRight, Wifi, WifiOff,
 } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
-import { useUser, type UserRole } from '@/contexts/UserContext'
+import { useUser } from '@/contexts/UserContext'
 import { createClient } from '@/lib/supabase/client'
-import { atLeast } from '@/lib/roles'
-
-type NavItem = {
-  href: string
-  label: string
-  icon: React.ComponentType<{ size?: number | string; color?: string }>
-  exact?: boolean
-  adminOnly?: boolean
-  /** Minimum clearance to see this item — omit for everyone (STAFF+). */
-  minRole?: UserRole
-  badgeKey?: 'invoicesReview' | 'priceAlerts'
-}
-
-/** True while role is null (still loading /api/me) never grants a gated item. */
-function canSeeNavItem(item: Pick<NavItem, 'adminOnly' | 'minRole'>, role: UserRole | null): boolean {
-  if (item.adminOnly && !(role != null && atLeast(role, 'ADMIN'))) return false
-  if (item.minRole && !(role != null && atLeast(role, item.minRole))) return false
-  return true
-}
-
-type NavGroup = {
-  label: string
-  items: NavItem[]
-}
-
-const navGroups: NavGroup[] = [
-  {
-    label: 'TODAY',
-    items: [
-      { href: '/pass',        label: 'Pass',        icon: Sun },
-      { href: '/preshift',    label: 'Pre-shift',   icon: Flame },
-      { href: '/prep',        label: 'Prep',        icon: ChefHat },
-      { href: '/count',       label: 'Count',       icon: ClipboardList },
-      { href: '/temps',       label: 'Temps',       icon: Thermometer },
-      { href: '/end-of-day',  label: 'End-of-day',  icon: Clock, minRole: 'LEAD' },
-    ],
-  },
-  {
-    label: 'INBOX',
-    items: [
-      { href: '/invoices', label: 'Invoices', icon: FileText, badgeKey: 'invoicesReview' },
-    ],
-  },
-  {
-    label: 'TEAM',
-    items: [
-      { href: '/tips', label: 'Tip payouts', icon: Banknote, minRole: 'MANAGER' },
-    ],
-  },
-  {
-    label: 'LIBRARY',
-    items: [
-      { href: '/inventory', label: 'Inventory', icon: Package },
-      { href: '/recipes',   label: 'Recipes',   icon: BookOpen },
-      { href: '/menu',      label: 'Menu',       icon: UtensilsCrossed },
-    ],
-  },
-  {
-    label: 'INSIGHTS',
-    items: [
-      { href: '/reports',  label: 'Reports',  icon: BarChart3 },
-      { href: '/variance', label: 'Variance', icon: Activity },
-      { href: '/signals',  label: 'Signals',  icon: Zap },
-      { href: '/sales',                     label: 'Sales',    icon: ShoppingBag },
-      { href: '/wastage',                   label: 'Wastage',  icon: Trash2 },
-    ],
-  },
-]
-
-const setupItems: NavItem[] = [
-  { href: '/setup',                label: 'Setup',           icon: Settings, exact: true, adminOnly: true },
-  { href: '/setup/suppliers',      label: 'Suppliers',       icon: Truck },
-  { href: '/setup/revenue-centers',label: 'Revenue centers', icon: Building2 },
-]
+import { navGroups, setupItems, type NavItem } from '@/lib/nav-items'
 
 export function Navigation() {
   return (
@@ -179,9 +103,6 @@ function NavigationInner() {
     router.push('/login')
   }
 
-  const visibleSetupItems = setupItems.filter(i => canSeeNavItem(i, role))
-  const allNavItems = navGroups.flatMap(g => g.items)
-
   // No app chrome on auth/standalone routes — same gate as CostChromeGate.
   // Rendering the sidebar on /login not only looked wrong, it prefetched every
   // protected route while logged out and kept polling the badge endpoints.
@@ -202,13 +123,12 @@ function NavigationInner() {
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto -mx-0.5 px-0.5 flex flex-col gap-[6px]">
           {navGroups.map(group => {
-            const visibleItems = group.items.filter(i => canSeeNavItem(i, role))
             return (
               <div key={group.label} className="flex flex-col gap-[2px]">
                 <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
                   {group.label}
                 </p>
-                {visibleItems.map(item => {
+                {group.items.map(item => {
                   const active = isActive(item)
                   const badge  = getBadge(item.badgeKey)
                   const { href, label, icon: Icon } = item
@@ -245,7 +165,7 @@ function NavigationInner() {
             <p className="font-mono text-[10px] text-ink-3 tracking-[0.02em] px-2 pt-1.5 pb-[6px]">
               SETUP
             </p>
-            {visibleSetupItems.map(item => {
+            {setupItems.map(item => {
               const active = isActive(item)
               const { href, label, icon: Icon } = item
               return (
@@ -329,16 +249,14 @@ function NavigationInner() {
               </span>
             </div>
 
-            {[...navGroups, { label: 'SETUP', items: visibleSetupItems }].map(group => {
-              const visibleItems = group.items.filter(i => canSeeNavItem(i, role))
-              if (visibleItems.length === 0) return null
+            {[...navGroups, { label: 'SETUP', items: setupItems }].map(group => {
               return (
                 <div key={group.label}>
                   <p className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.06em] mb-2 px-1">
                     {group.label}
                   </p>
                   <div className="bg-paper border border-line rounded-xl overflow-hidden">
-                    {visibleItems.map((item, i) => {
+                    {group.items.map((item, i) => {
                       const active = isActive(item)
                       const badge  = getBadge(item.badgeKey)
                       const { href, label, icon: Icon } = item
@@ -383,8 +301,3 @@ function NavigationInner() {
     </>
   )
 }
-
-// Keep the previous flat navItems export in case anything imports from here
-// (AlertsBell, breadcrumbs, etc.) — remove once confirmed nothing uses it.
-const _allNavItems = navGroups.flatMap(g => g.items)
-export { _allNavItems as navItems }
