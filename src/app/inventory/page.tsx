@@ -15,6 +15,8 @@ import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { QuickCountSheet } from '@/components/inventory/QuickCountSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 import { setScopeParams } from '@/lib/scope-params'
 import { rcHex } from '@/lib/rc-colors'
 import { useDrawer } from '@/contexts/DrawerContext'
@@ -202,6 +204,10 @@ function InventoryPageInner() {
   // Inactive items no longer belong to the operational catalogue: the default view
   // fetches active items only, and this switch swaps to an inactive-only view.
   const [showInactive, setShowInactive] = useState(false)
+  // Default-deny: `role` is null while /api/me is in flight, so the export controls
+  // stay hidden rather than flashing and then 403-ing. Mirrors CostChrome.
+  const { role } = useUser()
+  const canExport = role !== null && atLeast(role, 'MANAGER')
   const [selected,     setSelected]     = useState<InventoryItem | null>(null)
   const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
@@ -792,12 +798,14 @@ function InventoryPageInner() {
           >
             <UploadCloud size={13} className="text-ink-3" /> Import
           </button>
-          <button
-            onClick={() => window.location.href = '/api/inventory/export'}
-            className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
-          >
-            <Download size={13} className="text-ink-3" /> Export
-          </button>
+          {canExport && (
+            <button
+              onClick={() => window.location.href = '/api/inventory/export'}
+              className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
+            >
+              <Download size={13} className="text-ink-3" /> Export
+            </button>
+          )}
           <button
             onClick={() => setShowAdd(true)}
             disabled={isReadOnly}
@@ -966,13 +974,15 @@ function InventoryPageInner() {
             <UploadCloud size={11} /> Import
           </button>
           {/* Export CSV */}
-          <button
-            onClick={() => { window.location.href = '/api/inventory/export' }}
-            title="Export CSV"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
-          >
-            <Download size={11} /> CSV
-          </button>
+          {canExport && (
+            <button
+              onClick={() => { window.location.href = '/api/inventory/export' }}
+              title="Export CSV"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
+            >
+              <Download size={11} /> CSV
+            </button>
+          )}
         </div>
         {/* Status pills — scrollable */}
         <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
