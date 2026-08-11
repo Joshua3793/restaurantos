@@ -6,18 +6,18 @@ c5845706c7c004844990739d,Burger Bun Sliced,BREAD,,COUNT,each,case,case,1 case = 
 cbb421ff317774de4927aaa0,Croissant Plain,BREAD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,2.7,,,2.7,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cf0e8862652634931a3e11fb,cruffins,BREAD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,2.6,,,2.6,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cmq8qulra0001we99ipbjw2bl,ENGLISH MUFFIN GF 4PK,BREAD,Snow Cap,COUNT,each,each,case,1 case = 6 pack → 1 pack = 4 each,24,PACK,40.51,,,1.6879166666666665,each,,true,false,1,Snow Cap,,COUNT_NO_EACH_MEASURE
-cdd20a952d937496a9060872,GF Brioche Bun,BREAD,,COUNT,each,pack,case,1 case = 4 each → 1 each = 6 each,24,PACK,40.51,,,1.6879166666666665,each,,true,false,1,Snow Cap,,COUNT_UNIT_ORPHAN(pack); COUNT_NO_EACH_MEASURE
-ce4f1a1e364e54ac3ad33acc,GF ENGLISH MUFFIN,BREAD,Sysco,COUNT,each,pack,case,1 case = 4 each → 1 each = 6 each,24,PACK,40.51,,,1.6879166666666665,each,,true,false,1,Snow Cap,,COUNT_UNIT_ORPHAN(pack); COUNT_NO_EACH_MEASURE
+cdd20a952d937496a9060872,GF Brioche Bun,BREAD,,COUNT,each,pack,case,1 case = 4 pack → 1 pack = 6 each,24,PACK,40.51,,,1.6879166666666665,each,,true,false,1,Snow Cap,,COUNT_NO_EACH_MEASURE
+ce4f1a1e364e54ac3ad33acc,GF ENGLISH MUFFIN,BREAD,Sysco,COUNT,each,pack,case,1 case = 4 pack → 1 pack = 6 each,24,PACK,40.51,,,1.6879166666666665,each,,true,false,1,Snow Cap,,COUNT_NO_EACH_MEASURE
 c62a49e4287f84fb9a6fed5f,GF SOFT WHITE LOAF,BREAD,,MASS,g,g,case,1 case = 4 each → 1 each = 480 g,1920,PACK,27,,,14.0625,kg,,true,false,1,Snow Cap,,
-c28b67e3e4d624c81876f7b6,Naan Bread Round 8 in,BREAD,Sysco,COUNT,each,pack,case,1 case = 6 each → 1 each = 8 each,48,PACK,42.65,,,0.8885416666666667,each,,true,false,0,,,COUNT_UNIT_ORPHAN(pack); COUNT_NO_EACH_MEASURE
+c28b67e3e4d624c81876f7b6,Naan Bread Round 8 in,BREAD,Sysco,COUNT,each,pack,case,1 case = 6 pack → 1 pack = 8 each,48,PACK,42.65,,,0.8885416666666667,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 c9bba0d8fb3024850828db3d,Pain au Chocolate,BREAD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,2.9,,,2.9,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
-cefa9b02f245b460a9465538,Pastry shell chocolate,BREAD,,COUNT,each,each,each,1 each = 1 each → 1 each = 60 each,60,PACK,125.9,,,2.0983333333333336,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 60 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
-cd150799d548845968f02b19,Pita Bread,BREAD,,COUNT,each,pack,case,1 case = 24 each → 1 each = 6 each,144,PACK,39.46,,,0.27402777777777776,each,1 each = 325 g,true,false,1,Snow Cap,,COUNT_UNIT_ORPHAN(pack)
+cefa9b02f245b460a9465538,Pastry shell chocolate,BREAD,,COUNT,each,each,case,1 case = 60 each,60,PACK,125.9,,,2.0983333333333336,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
+cd150799d548845968f02b19,Pita Bread,BREAD,,COUNT,each,pack,case,1 case = 24 pack → 1 pack = 6 each,144,PACK,39.46,,,0.27402777777777776,each,1 each = 325 g,true,false,1,Snow Cap,,
 cmqd0u6ra0013d3klj7kisr5f,Pizza Margherita RETAIL 12 x 615g WOOZA,BREAD,Legends Haul,MASS,g,each,case,1 case = 12 each → 1 each = 615 g,7380,PACK,160,,,21.680216802168022,kg,,true,false,1,Legends Haul,,
 cmqd0u78c0015d3klxv7091qs,Pizza Pepperoni RETAIL 12 x 600g WOOZA,BREAD,Legends Haul,MASS,g,each,case,1 case = 12 each → 1 each = 600 g,7200,PACK,160,,,22.22222222222222,kg,,true,false,1,Legends Haul,,
-c377ddd2be8bb428797ab0ac,PUFF PASTRY CROISSANT,BREAD,,COUNT,each,each,each,1 each = 1 each → 1 each = 10 each,10,PACK,182.36,,,18.236,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 10 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
+c377ddd2be8bb428797ab0ac,PUFF PASTRY CROISSANT,BREAD,,COUNT,each,each,case,1 case = 10 each,10,PACK,182.36,,,18.236,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cc7aef2abcf8e4bb0a8ccb48,Spring roll wrappers,BREAD,,MASS,g,kg,each,1 each = 1 each → 1 each = 11000 g,11000,PACK,138,,,12.545454545454545,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-c88568a5e30f543fcb9e21bf,Yellow corn Tortillas,BREAD,Sysco,COUNT,each,pack,case,1 case = 12 each → 1 each = 60 each,720,PACK,77.14,,,0.1071388888888889,each,,true,false,1,Sysco,,COUNT_UNIT_ORPHAN(pack); COUNT_NO_EACH_MEASURE
+c88568a5e30f543fcb9e21bf,Yellow corn Tortillas,BREAD,Sysco,COUNT,each,pack,case,1 case = 12 pack → 1 pack = 60 each,720,PACK,77.14,,,0.1071388888888889,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmqd2rwjq0003m7sn6hredhy9,DETERGENT POT/PAN MANUAL,CHM,Sysco,MASS,g,each,case,1 case = 3 each → 1 each = 907.184 g,2721.5519999999997,PACK,198.75,,,73.02818391858763,kg,,true,false,1,Sysco,,
 c29808a2ebce14c9faf710ff,Butter,DAIRY,,MASS,g,case,case,1 case = 25 each → 1 each = 454 g,11350,PACK,172.79,,,15.223788546255506,kg,,true,false,1,Sysco,,
 cmrs8n5d9000p1t5fof3hqh7s,BUTTER UNSALTED BULK CANADIAN,DAIRY,Snow Cap,MASS,g,each,each,1 each = 1 each → 1 each = 25000 g,25000,PACK,380.95,,,15.238,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -55,7 +55,7 @@ cmsb6zmrv0001cvl672f3q1op,Anis Seed Whole,DRY,Snow Cap,MASS,g,case,case,1 case =
 c65c843ad53e04d08b6bda63,Apple mustard,DRY,,MASS,g,g,each,1 each = 1 each → 1 each = 1 g,1,PACK,0,,,0,kg,,true,false,0,,,ZERO_PRICE
 cddd078b815ce4ad897047f5,ascorbic acid,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 454 g,454,PACK,22.67,,,49.93392070484582,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 cmrbjt0s30001jxtgceip7bem,B11NV DARK CHOC CALLETS 54%,DRY,Snow Cap,MASS,g,each,case,1 case = 1 each → 1 each = 10000 g,10000,PACK,214.31,,,21.430999999999997,kg,,true,false,0,,,
-cbe532f0f92f847e0a0db495,Baking Powder,DRY,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 3000 g,3000,PACK,112.83,,,37.61,kg,,true,false,1,Snow Cap,,DUPLICATE_CHAIN_UNITS
+cbe532f0f92f847e0a0db495,Baking Powder,DRY,Sysco,MASS,g,each,each,1 each = 20000 g,20000,PACK,112.83,,,5.6415,kg,,true,false,1,Snow Cap,,
 cb19653e6919c46c497fcbba,Baking Soda,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 5000 g,5000,PACK,18.75,,,3.75,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 cb5eafe454f484d67bb4d534,Barley,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 20000 g,20000,PACK,48.19,,,2.4094999999999995,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c0e2550d646dd4ca6bc8c981,Bay Leaves,DRY,,MASS,g,each,each,1 each = 1 each → 1 each = 500 g,500,PACK,24.32,,,48.64,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -84,7 +84,7 @@ ca20d98fc1b9b43c3b11b2c0,cocoa butter chips,DRY,,MASS,g,kg,each,1 each = 1 each 
 c3c4fbc1ac2b1405eb49b79c,Cocoa Nibs,DRY,,MASS,g,pack,pack,1 pack = 1 each → 1 each = 1000 g,1000,PACK,43,,,43,kg,,true,false,0,,,
 c18ba621e9a8640a0af208e8,Cocoa powder,DRY,,MASS,g,kg,case,1 case = 3 each → 1 each = 1000 g,3000,PACK,141.76,,,47.25333333333333,kg,,true,false,0,,,
 c6dd00e923f08466483bb7cb,Coconut fine repack,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 5000 g,5000,PACK,47.84,,,9.568,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-c54a2cadc0b12478793e2325,coconut milk,DRY,Sysco,VOLUME,ml,each,case,1 case = 12 each → 1 each = 400 ml,4800,PACK,119.89,,,24.977083333333333,L,,true,false,1,Sysco,,
+c54a2cadc0b12478793e2325,coconut milk,DRY,Sysco,VOLUME,ml,case,case,1 case = 17046 ml,17046,PACK,119.89,,,7.033321600375454,L,,true,false,1,Sysco,,
 c966a5c969e764895843973b,Coconut Oil,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 15000 g,15000,PACK,167.33,,,11.155333333333335,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c2dc52f85bc1a46cb84fb871,Coconut ribbons,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 5000 g,5000,PACK,56.23,,,11.245999999999999,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 cmpgc9z2t0001x2yjm5xun8nn,Coffee Ground,DRY,,MASS,g,each,case,1 case = 1 each → 1 each = 400 g,400,PACK,19.8,,,49.5,kg,,true,false,0,,,
@@ -106,20 +106,20 @@ cmr2rle2200012icuzyiz9h91,Durum Semolina,DRY,Snow Cap,MASS,g,case,case,1 case = 
 cmnmloj0m000lhgf0lluupb29,Extra Virgin Olive Oil,DRY,Sysco,VOLUME,ml,each,case,1 case = 4 each → 1 each = 3000 ml,12000,PACK,146.56,,,12.213333333333333,L,,true,false,1,Sysco,2026-03-28,
 c567563d5c4744eb4a905878,Fennel Seeds,DRY,Sysco,MASS,g,kg,pack,1 pack = 1 each → 1 each = 340.194 g,340.194,PACK,18.96,,,55.7329053422459,kg,,true,false,0,,,
 c3b01fba297c74653b6c7540,Feuilletine,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 2500 g,2500,PACK,54.09,,,21.636000000000003,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-cfe3f780d6e4c4d73a3666ca,Figs Dried,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 2270 g,2270,PACK,246.25,,,108.48017621145374,kg,,true,false,1,Snow Cap,,DUPLICATE_CHAIN_UNITS
+cfe3f780d6e4c4d73a3666ca,Figs Dried,DRY,,MASS,g,each,each,1 each = 13600 g,13600,PACK,246.25,,,18.106617647058826,kg,,true,false,1,Snow Cap,,
 cf276f2d27bf34b24a7c945a,Fish sauce,DRY,,VOLUME,ml,each,each,1 each = 1 each → 1 each = 700 ml,700,PACK,3.86,,,5.514285714285713,L,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 ca9243a65354d46e68c31241,Flaked SkipJack Tuna,DRY,,MASS,g,each,case,1 case = 6 each → 1 each = 1220 g,7320,PACK,134.56,,,18.382513661202186,kg,,true,false,0,,,
 ca9c2ba0c609e47ceb4e84ba,Flax seed meal ground,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 5000 g,5000,PACK,19.6,,,3.92,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c591138f7a6104d13a064b95,freeze dried raspberry,DRY,,MASS,g,each,each,1 each = 1 each → 1 each = 272 g,272,PACK,29.9,,,109.92647058823529,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c77c3773400bc4311b359ff4,Garam Masala,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 550 g,550,PACK,34.89,,,63.43636363636364,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-c332fd346c712464688a9bda,Garlic Powder,DRY,Sysco,MASS,g,kg,case,1 case = 12 each → 1 each = 525 g,6300,PACK,18.75,,,2.976190476190476,kg,,true,false,2,Sysco,,
+c332fd346c712464688a9bda,Garlic Powder,DRY,Sysco,MASS,g,case,case,1 case = 525 g,525,PACK,18.75,,,35.714285714285715,kg,,true,false,2,Sysco,,
 c0f769399806047088b0892d,Gelatin,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 1000 g,1000,PACK,53.05,,,53.05,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c174b8b6d45de4e73adef8e7,GF panko,DRY,,MASS,g,kg,case,1 case = 6 each → 1 each = 1133.98 g,6803.88,PACK,142.49,,,20.942462242132432,kg,,true,false,0,,,
 cda38a81d652743488eac5c4,Gluten Free Flour,DRY,,MASS,g,kg,case,1 case = 1 each → 1 each = 10000 g,10000,PACK,72.8,,,7.28,kg,,true,false,0,,,
 cf3ece895740c48bfbd98b5c,Gochujang,DRY,Sysco,MASS,g,each,case,1 case = 12 each → 1 each = 498.9512 g,5987.4144,PACK,121.93,,,20.36438299644,kg,,true,false,0,,,
 c4ebdab550db7444fa796535,Graham Crumbs,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 5000 g,5000,PACK,26.88,,,5.3759999999999994,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 cmqt2einl00017mql6o4546gj,GRAIN SPECIALITY COUS COUS,DRY,Sysco,MASS,g,each,case,1 case = 1 each → 1 each = 10000 g,10000,PACK,90.7,,,9.07,kg,,true,false,0,,,
-cbf77af4541e840758301f21,Granny Smith apple,DRY,Sysco,COUNT,each,each,case,1 case = 1 each → 1 each = 113 each,113,PACK,52.37,,,0.46345132743362827,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 113 each); COUNT_NO_EACH_MEASURE
+cbf77af4541e840758301f21,Granny Smith apple,DRY,Sysco,COUNT,each,each,case,1 case = 113 each,113,PACK,52.37,,,0.46345132743362827,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 c6148e529546e4e0aaa51716,Green Peppercorns,DRY,,VOLUME,ml,each,case,1 case = 24 each → 1 each = 212 ml,5088,PACK,153,,,30.07075471698113,L,,true,false,0,,,
 ce1435fbb22464adeb038e4a,Ground Cardamom,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 800 g,800,PACK,54.9,,,68.62499999999999,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 ce0c89811241a4dc9ad645b5,Ground Ginger,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 800 g,800,PACK,15.99,,,19.9875,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -137,7 +137,7 @@ c63f22c781ef749e1b7947a2,kelp,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 1
 ce1430415e4ac40c6acd3374,Ketchup,DRY,Sysco,VOLUME,ml,each,each,1 each = 1 each → 1 each = 11350 ml,11350,PACK,52.81,,,4.652863436123348,L,,true,false,1,Sysco,,DUPLICATE_CHAIN_UNITS
 cea6cc57bc012450e89c7b4e,Koji Rice,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 454 g,454,PACK,23.94,,,52.731277533039645,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c763943f3c795453a9c2c3fa,Kosher Salt,DRY,Sysco,MASS,g,g,case,1 case = 9 each → 1 each = 1360.776 g,12246.984,PACK,111.97,,,9.14265912325843,kg,,true,false,1,Snow Cap,,
-cd8d59ba7298d495ab69b75e,Lemon Juice,DRY,,VOLUME,ml,each,each,1 each = 1 each → 1 each = 946 ml,946,PACK,36.35,,,38.42494714587738,L,,true,false,1,Sysco,,DUPLICATE_CHAIN_UNITS
+cd8d59ba7298d495ab69b75e,Lemon Juice,DRY,,VOLUME,ml,each,each,1 each = 3800 ml,3800,PACK,36.35,,,9.565789473684212,L,,true,false,1,Sysco,,
 c1fc5e8c3c05f4b6badc90a5,Lentils Black Beluga,DRY,Sysco,MASS,g,kg,case,1 case = 2 each → 1 each = 2500 g,5000,PACK,38.4,,,7.68,kg,,true,false,0,,,
 ca246e44fa1eb43c39a1b7b2,Lentils French,DRY,,MASS,g,each,case,1 case = 2 each → 1 each = 2500 g,5000,PACK,68.31,,,13.662,kg,,true,false,0,,,
 ccebad1e2e2494e5899708f9,Lentils red,DRY,,MASS,g,each,case,1 case = 2 each → 1 each = 1500 g,3000,PACK,24.27,,,8.09,kg,,true,false,0,,,
@@ -150,7 +150,7 @@ cmrs88kjp0001mkbnxc2zt7qu,MAYONNAISE VEGAN,DRY,Sysco,VOLUME,ml,each,case,1 case 
 cb4add659ee0a4abab90b385,Mexican Chili Powder,DRY,,MASS,g,kg,case,1 case = 1000 g,1000,PACK,19.96,,,19.96,kg,,true,false,1,Snow Cap,,
 c37ac4e97c7994a1fb81d32a,Milk Condensed,DRY,Sysco,VOLUME,ml,each,case,1 case = 24 each → 1 each = 300 ml,7200,PACK,132.68,,,18.42777777777778,L,,true,false,0,,,
 cddcbada78a624632a61d70f,Millet,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 25000 g,25000,PACK,42.6,,,1.704,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-cb9eb37068e3549d5bf58a8f,Mirin Seasoning,DRY,Sysco,VOLUME,ml,pack,pack,1 pack = 12 each → 1 each = 1000 ml,12000,PACK,9,,,0.75,L,,true,false,1,Sysco,,
+cb9eb37068e3549d5bf58a8f,Mirin Seasoning,DRY,Sysco,VOLUME,ml,pack,pack,1 pack = 1000 ml,1000,PACK,9,,,9,L,,true,false,1,Sysco,,
 c35b8e31db9734c1ab4e58a5,Miso,DRY,Sysco,MASS,g,g,case,1 case = 1 each → 1 each = 1000 g,1000,PACK,16.97,,,16.97,kg,,true,false,1,Sysco,,
 cc1dea54487f34b0596ac2ce,Mixed mushrooms,DRY,Sysco,MASS,g,g,case,1 case = 1 each → 1 each = 2267.96 g,2267.96,PACK,39.65,,,17.482671652057356,kg,,true,false,0,,,
 c8812166e48964cb6a3926de,Molasses,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 25000 g,25000,PACK,72.44,,,2.8975999999999997,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -159,7 +159,7 @@ c8c2b1a8aaba6487a9078f62,Mustard Seeds,DRY,,MASS,g,kg,each,1 each = 1 each → 1
 c3d1578a6f596403d83924c1,Mustard Seeds Ground,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 2500 g,2500,PACK,22.75,,,9.1,kg,,true,false,1,Snow Cap,,DUPLICATE_CHAIN_UNITS
 cmqkbi502000114dsu6suxhhw,NOODLE RICE STK VERMICELLI,DRY,Sysco,MASS,g,each,CS,1 CS = 12 each → 1 each = 400 g,4800,PACK,34.16,,,7.116666666666666,kg,,true,false,0,,,
 cmqlfpz5g0003sito796zmlu5,NOODLE SOBA BUCKWHEAT,DRY,Sysco,MASS,g,each,case,1 case = 12 each → 1 each = 1300 g,15600,PACK,112.65,,,7.221153846153847,kg,,true,false,1,Sysco,,
-cc02f7a7459fc404294f4b6c,Nori sheets,DRY,Sysco,COUNT,each,each,pack,1 pack = 1 each → 1 each = 100 each,100,PACK,44.77,,,0.44770000000000004,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 100 each); COUNT_NO_EACH_MEASURE
+cc02f7a7459fc404294f4b6c,Nori sheets,DRY,Sysco,COUNT,each,each,pack,1 pack = 100 each,100,PACK,44.77,,,0.44770000000000004,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cb43733c6f17b4a8680ba519,Nutmeg,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 1000 g,1000,PACK,32.77,,,32.77,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 ca5e60fd41b324310920e534,Nutritional Yeast,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 2270 g,2270,PACK,59.33,,,26.13656387665198,kg,,true,false,1,Snow Cap,,DUPLICATE_CHAIN_UNITS
 c8d95912f3a83428e8ea3130,Oats gf,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 22700 g,22700,PACK,72.8,,,3.2070484581497793,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -207,7 +207,7 @@ c048754435fd844a9a875e0b,Tahini,DRY,Sysco,MASS,g,case,case,1 case = 2 each → 1
 c06d7b5a6ade54e299898072,Tamari Soy Sauce,DRY,Sysco,VOLUME,ml,each,case,1 case = 6 each → 1 each = 1890 ml,11340,PACK,27.46,,,2.421516754850088,L,,true,false,1,Sysco,,
 c89f9c4f799fa4f98874cef0,tapioca starch,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 5000 g,5000,PACK,18.79,,,3.7579999999999996,kg,,true,false,1,Snow Cap,,DUPLICATE_CHAIN_UNITS
 cmqsz60de0001og03ukevxoba,TOFU EXTRA FIRM ORGANIC,DRY,Sysco,MASS,g,each,case,1 case = 12 each → 1 each = 350 g,4200,PACK,97.94,,,23.319047619047616,kg,,true,false,1,Sysco,,
-ce30bf5dd0a504d5f8e603a4,Tomato Crushed San Benito,DRY,,MASS,g,cs,cs,1 cs = 6 oz → 1 oz = 2834.95 g,17009.699999999997,PACK,56.13,,,3.299881832131079,kg,,true,false,1,Snow Cap,,"UNIT_LABEL_CONTRADICTION(chain says 1 oz = 2834.95 g, but 1 oz is 28.3495 g)"
+ce30bf5dd0a504d5f8e603a4,Tomato Crushed San Benito,DRY,,MASS,g,cs,cs,1 cs = 6 box → 1 box = 2834.95 g,17009.699999999997,PACK,56.13,,,3.299881832131079,kg,,true,false,1,Snow Cap,,
 c650a5a16d10f487283d9a1e,Tomato Paste,DRY,Sysco,VOLUME,ml,each,case,1 case = 6 each → 1 each = 2840 ml,17040,PACK,93.38,,,5.480046948356807,L,,true,false,1,Snow Cap,,
 c5e9f3d965169498db70fc5b,Tomato Whole Peeled,DRY,,VOLUME,ml,ml,case,1 case = 6 each → 1 each = 2834.95 ml,17009.699999999997,PACK,65.49,,,3.8501560874089495,L,,true,false,1,Snow Cap,,
 c0844868fc1b646d29415908,tonka beans,DRY,,MASS,g,kg,each,1 each = 1 each → 1 each = 185 g,185,PACK,65.52,,,354.16216216216213,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -234,10 +234,10 @@ cmpgdmbn90004xuwkqv3zwx9k,Yeast Active Dry,DRY,Snow Cap,MASS,g,case,case,1 case 
 c7c06555e66224c6fb2efb96,Yuzu juice,DRY,,VOLUME,ml,ml,each,1 each = 1 each → 1 each = 1 ml,1,PACK,0,,,0,L,,true,false,0,,,ZERO_PRICE
 c64804606c71e46ebb2914b7,Albacore tuna,FISH,Intercity,MASS,g,lb,case,1 case = 4535.92 g,4535.92,RATE,,19.9,lb,43.87202596165717,kg,,true,false,1,Intercity,,
 c7a0f761ab2944d6a960958a,Cod,FISH,,MASS,g,kg,each,1 each = 1 each → 1 each = 1000 g,1000,RATE,,13.9,lb,30.64427944055451,kg,,true,false,1,Intercity,,DUPLICATE_CHAIN_UNITS
-cmqkabg670001yke4w4lx4noj,OYSTER N/SHELL ROYAL MIYAGI XSM,FISH,Intercity,COUNT,each,each,DZ,1 DZ = 1 each → 1 each = 12 each,12,PACK,9.85,,,0.8208333333333333,each,,true,false,1,Intercity,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each); COUNT_NO_EACH_MEASURE
+cmqkabg670001yke4w4lx4noj,OYSTER N/SHELL ROYAL MIYAGI XSM,FISH,Intercity,COUNT,each,each,DZ,1 DZ = 12 each,12,PACK,9.85,,,0.8208333333333333,each,,true,false,1,Intercity,,COUNT_NO_EACH_MEASURE
 cmq7bu7y20001lzoyy0ru2oq3,Oysters Kusshi,FISH,Intercity,COUNT,each,case,case,1 case = 5 each → 1 each = 12 each,60,PACK,11.89,,,0.19816666666666669,each,,true,false,1,Intercity,,COUNT_NO_EACH_MEASURE
 cmnmloj0s000rhgf02kwexkkc,Pacific Halibut,FISH,Two Rivers,MASS,g,kg,each,1 each = 1000 g,1000,PACK,38,,,38,kg,,true,false,0,,2026-04-01,
-cmqvmndg50001psi43euq46ue,SABLEFISH FLT B/I LG 2/2.8 LB PREM VR LONGLINES (NOT SPECIFIED),FISH,Intercity,MASS,g,lb,lb,1 lb = 4535.92 g,4535.92,RATE,,24.9,lb,54.89514806257606,kg,,true,false,0,,,"UNIT_LABEL_CONTRADICTION(chain says 1 lb = 4535.92 g, but 1 lb is 453.592 g)"
+cmqvmndg50001psi43euq46ue,SABLEFISH FLT B/I LG 2/2.8 LB PREM VR LONGLINES (NOT SPECIFIED),FISH,Intercity,MASS,g,lb,case,1 case = 4535.92 g,4535.92,RATE,,24.9,lb,54.89514806257606,kg,,true,false,0,,,
 c95967e189ee049be9111508,Salmon,FISH,Intercity,MASS,g,lb,case,1 case = 4535.92 g,4535.92,RATE,,19.9,lb,43.87202596165717,kg,,true,false,1,Intercity,,
 c3f46aed0708e462281b753b,Scallops,FISH,,MASS,g,kg,each,1 each = 1 each → 1 each = 1000 g,1000,PACK,110,,,110,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c05bbf9759c7b492fb12f1f7,Trout,FISH,,MASS,g,kg,each,1 each = 1 each → 1 each = 1000 g,1000,PACK,28,,,28,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -269,7 +269,7 @@ c283bf10cd0824590a8964b3,Ground Venison,MEAT,,MASS,g,kg,each,1 each = 1 each →
 cmq8nozy9000hmncoydet5a3c,HAM BNLS BSTN SAVOURY (Boston Ham),MEAT,Sysco,MASS,g,case,case,1 case = 1700 g,1700,RATE,,19.21,KG,19.21,kg,,true,false,1,Sysco,,
 c3407e4a3f7164a50963d0c4,Ham Rosemary,MEAT,,MASS,g,kg,each,1 each = 1 each → 1 each = 100 g,100,PACK,3.39,,,33.9,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c01ec1d1c07fa4faa9681ede,Nduja,MEAT,,MASS,g,kg,each,1 each = 1 each → 1 each = 450 g,450,RATE,,21.41,lb,47.201008836134676,kg,,true,false,1,Two Rivers,,DUPLICATE_CHAIN_UNITS
-ce92005751788448a83de619,Pigs Blood,MEAT,,MASS,g,lb,lb,1 lb = 2267.96 g,2267.96,RATE,,2.86,lb,6.305225841725603,kg,,true,false,2,Two Rivers,,"UNIT_LABEL_CONTRADICTION(chain says 1 lb = 2267.96 g, but 1 lb is 453.592 g)"
+ce92005751788448a83de619,Pigs Blood,MEAT,,MASS,g,lb,case,1 case = 2267.96 g,2267.96,RATE,,2.86,lb,6.305225841725603,kg,,true,false,2,Two Rivers,,
 ca035ee4aefe7457aa3479aa,Pork Back Ribs,MEAT,Sysco,MASS,g,kg,case,1 case = 1 each → 1 each = 4540 g,4540,RATE,,15.9,kg,15.9,kg,,true,false,1,Legends Haul,,
 c9a34699da84e40b2ba96236,pork belly,MEAT,Legends Haul,MASS,g,kg,case,1 case = 1000 g,1000,RATE,,12.53,kg,12.53,kg,,true,false,2,Intercity,,
 c0b05891f239b422b9dceb90,Pork Butt,MEAT,,MASS,g,kg,case,1 case = 6 g,6,RATE,,9.99,kg,9.99,kg,,true,false,1,Legends Haul,,
@@ -289,9 +289,9 @@ cmpvxqml7001gkapdvxktac36,Bean Puree,PREPD,,MASS,g,batch,batch,1 batch = 11000 g
 cmqbnfeww000014opjnhtinlb,Beef Tallow,PREPD,,MASS,g,batch,batch,1 batch = 1000 g,1000,PACK,0,,,0,kg,,true,true,0,,,ZERO_PRICE
 cmqbndjoq0000p55087j485jg,Beef Tallow Aioli,PREPD,,MASS,g,batch,batch,1 batch = 1000 g,1000,PACK,4.211313809630288,,,4.211313809630288,kg,,true,true,0,,,
 cmpvxqm5c001fkapd3vtjll59,Blood Pudding (Rice Version),PREPD,,MASS,g,batch,batch,1 batch = 4500 g,4500,PACK,21.62871160722019,,,4.806380357160042,kg,,true,true,0,,,
-cmpvxqfo20011kapda3d6y6md,Brioche French Toast Slice,PREPD,,COUNT,each,batch,batch,1 batch = 57 each,57,PACK,85.3317340743811,,,1.4970479662172123,each,,true,true,0,,,"UNIT_LABEL_CONTRADICTION(chain says 1 batch = 57 each, but 1 batch is 1 each); COUNT_NO_EACH_MEASURE"
+cmpvxqfo20011kapda3d6y6md,Brioche French Toast Slice,PREPD,,COUNT,each,batch,batch,1 batch = 57 each,57,PACK,85.3317340743811,,,1.4970479662172123,each,,true,true,0,,,COUNT_NO_EACH_MEASURE
 cmpvxqeqs000zkapdjn3hq73i,Burger Aioli,PREPD,,MASS,g,batch,batch,1 batch = 1300 g,1300,PACK,11.52537708737411,,,8.86567468259547,kg,,true,true,0,,,
-cmpvxqn0v001hkapdm8k1tgrj,Buttermilk Biscuits,PREPD,,COUNT,each,batch,batch,1 batch = 55 each,55,PACK,25.96885398753559,,,0.4721609815915562,each,,true,true,0,,,"UNIT_LABEL_CONTRADICTION(chain says 1 batch = 55 each, but 1 batch is 1 each); COUNT_NO_EACH_MEASURE"
+cmpvxqn0v001hkapdm8k1tgrj,Buttermilk Biscuits,PREPD,,COUNT,each,batch,batch,1 batch = 55 each,55,PACK,25.96885398753559,,,0.4721609815915562,each,,true,true,0,,,COUNT_NO_EACH_MEASURE
 cmpk043nn0000c7c868q1ep7v,Butternut Vegan Yolk,PREPD,,MASS,g,batch,batch,1 batch = 1200 g,1200,PACK,4.90734543637302,,,4.08945453031085,kg,,true,true,0,,,
 cmqai9oz60000wckpnjnbteby,Caesar Dressing,PREPD,,MASS,g,batch,batch,1 batch = 1000 g,1000,PACK,12.82473166496427,,,12.82473166496427,kg,,true,true,0,,,
 cmrl46jmf0000xzkc3d7sgi14,Caper and Dill Creme Fraiche,PREPD,,MASS,g,batch,batch,1 batch = 4200 g,4200,PACK,34.73900550738583,,,8.271191787472818,kg,,true,true,0,,,
@@ -306,7 +306,7 @@ cmpvxqig50017kapd4dxzsffm,Crispy Onions (GF),PREPD,,MASS,g,batch,batch,1 batch =
 cmqmvrrdo000011am9on1js3g,Croutons,PREPD,,MASS,g,batch,batch,1 batch = 1000 g,1000,PACK,12.03051984913184,,,12.03051984913184,kg,,true,true,0,,,
 cmq7p7zxp0001a8lhxopjljnm,Cured Salmon,PREPD,,MASS,g,batch,batch,1 batch = 2267.96 g,2267.96,PACK,201.7603512801294,,,88.96115949140611,kg,,true,true,0,,,
 cmpvxqbyz000tkapder52g9so,Dukkah,PREPD,,MASS,g,batch,batch,1 batch = 1300 g,1300,PACK,8.366506780804183,,,6.435774446772449,kg,,true,true,0,,,
-cmpgdfoks0000xuwkl8rsn39q,English Muffins (Sourdough Whole Wheat),PREPD,,COUNT,each,batch,batch,1 batch = 72 each,72,PACK,26.89658826425543,,,0.3735637258924365,each,,true,true,0,,,"UNIT_LABEL_CONTRADICTION(chain says 1 batch = 72 each, but 1 batch is 1 each); COUNT_NO_EACH_MEASURE"
+cmpgdfoks0000xuwkl8rsn39q,English Muffins (Sourdough Whole Wheat),PREPD,,COUNT,each,batch,batch,1 batch = 72 each,72,PACK,26.89658826425543,,,0.3735637258924365,each,,true,true,0,,,COUNT_NO_EACH_MEASURE
 cmpvxqjew0019kapdnkuqzn5m,French Toast Mix (Custard),PREPD,,MASS,g,batch,batch,1 batch = 6000 g,6000,PACK,35.1817340743811,,,5.863622345730183,kg,,true,true,0,,,
 cmqrkkmtm0000v9dg445ee2xt,Handcut Fries,PREPD,,MASS,g,batch,batch,1 batch = 1000 g,1000,PACK,1.854530062258593,,,1.854530062258593,kg,,true,true,0,,,
 cmq7oy80w0000a8lhlcl64ujg,Hash,PREPD,,MASS,g,batch,batch,1 batch = 35000 g,35000,PACK,86.66247951332345,,,2.476070843237813,kg,,true,true,0,,,
@@ -324,14 +324,14 @@ cmpvxqcgm000ukapddo3qdk3r,Pickle Red Onions,PREPD,,MASS,g,batch,batch,1 batch = 
 cmpvxqjvd001akapdjokiqnb8,Pickled Cucumber B&B,PREPD,,MASS,g,batch,batch,1 batch = 4000 g,4000,PACK,61.56962317828735,,,15.392405794571838,kg,,true,true,0,,,
 cmpvxq8b5000lkapd499mlcwe,"Pork, Fennel & Chilli Sausage",PREPD,,MASS,g,batch,batch,1 batch = 10000 g,10000,PACK,144.6116933631053,,,14.461169336310531,kg,,true,true,0,,,
 cmpvxqkc1001bkapdqpnqlkuq,Roasted Pepper Relish,PREPD,,MASS,g,batch,batch,1 batch = 2500 g,2500,PACK,3.546663060371435,,,1.418665224148574,kg,,true,true,0,,,
-cmpvxqalv000qkapd1pimhv9m,Scones,PREPD,,COUNT,each,batch,batch,1 batch = 25 each,25,PACK,10.47684467694567,,,0.4190737870778268,each,,true,true,0,,,"UNIT_LABEL_CONTRADICTION(chain says 1 batch = 25 each, but 1 batch is 1 each); COUNT_NO_EACH_MEASURE"
+cmpvxqalv000qkapd1pimhv9m,Scones,PREPD,,COUNT,each,batch,batch,1 batch = 25 each,25,PACK,10.47684467694567,,,0.4190737870778268,each,,true,true,0,,,COUNT_NO_EACH_MEASURE
 cmpvxq7t3000kkapdft3acmo9,Shakshuka Sauce (SHAQ),PREPD,,MASS,g,batch,batch,1 batch = 25000 g,25000,PACK,214.1428842629541,,,8.565715370518165,kg,,true,true,0,,,
 cmqaiaynx0000r1umjr346y18,Smashed Avocado,PREPD,,MASS,g,batch,batch,1 batch = 2500 g,2500,PACK,16.44962147368574,,,6.579848589474295,kg,,true,true,0,,,
 cmpj6hpak0000po3x2cs0b8oo,Smoked Brisket,PREPD,,MASS,g,batch,batch,1 batch = 9000 g,9000,PACK,299.5708173006217,,,33.28564636673574,kg,,true,true,0,,,
 cmpvxqcx3000vkapd41c4bnk5,Smoked Goat Cheese Cream,PREPD,,MASS,g,batch,batch,1 batch = 6776 g,6776,PACK,104.712949362678,,,15.453504923653778,kg,,true,true,0,,,
 cmpvxqglo0013kapdh6bcytk9,Smoked Miso Honey Butter,PREPD,,MASS,g,batch,batch,1 batch = 2500 g,2500,PACK,34.17431271659324,,,13.669725086637296,kg,,true,true,0,,,
 cmpvxqb2f000rkapdj9egzg06,Smoked Pulled Pork,PREPD,,MASS,g,batch,batch,1 batch = 9000 g,9000,PACK,178.9972079093191,,,19.88857865659101,kg,,true,true,0,,,
-cmpvxq8sd000mkapdqmpi5nbo,Sourdough Bread,PREPD,,COUNT,each,batch,batch,1 batch = 72 each,72,PACK,15.43752716670963,,,0.21441009953763376,each,,true,true,0,,,"UNIT_LABEL_CONTRADICTION(chain says 1 batch = 72 each, but 1 batch is 1 each); COUNT_NO_EACH_MEASURE"
+cmpvxq8sd000mkapdqmpi5nbo,Sourdough Bread,PREPD,,COUNT,each,batch,batch,1 batch = 72 each,72,PACK,15.43752716670963,,,0.21441009953763376,each,,true,true,0,,,COUNT_NO_EACH_MEASURE
 cmpvxqf6q0010kapds9yfvhxa,Sourdough Starter (Gary),PREPD,,MASS,g,batch,batch,1 batch = 2000 g,2000,PACK,5.5039580078125,,,2.75197900390625,kg,,true,true,0,,,
 cmpj765y3000011hlh9qlrtcs,Strawberries and Rhubarb Compote,PREPD,,MASS,g,batch,batch,1 batch = 14000 g,14000,PACK,145.9837676831637,,,10.427411977368836,kg,,true,true,0,,,
 cmpvxql87001dkapdqt5orzc0,Sun Dried Tomato Aioli (Pesto Rosso),PREPD,,MASS,g,batch,batch,1 batch = 1400 g,1400,PACK,18.01957918135104,,,12.871127986679314,kg,,true,true,0,,,
@@ -340,10 +340,10 @@ cmpvxqh1g0014kapdxgiqtinb,Vanilla Creme Patissiere (Pastry Cream),PREPD,,MASS,g,
 cmrc9kk1p0000ukyhjsu69qi7,Vegan Parm,PREPD,,MASS,g,batch,batch,1 batch = 200 g,200,PACK,8.521860907756507,,,42.60930453878253,kg,,true,true,0,,,
 cmpvxqiw00018kapdyvs3355s,Vinegar Reduction,PREPD,,VOLUME,ml,batch,batch,1 batch = 1250 ml,1250,PACK,33.45262260710066,,,26.762098085680528,L,,true,true,0,,,
 cmrpwoyoc0000xvb0zk7wvr8s,White Chocolate Snow,PREPD,,MASS,g,batch,batch,1 batch = 400 g,400,PACK,14.43800232102859,,,36.09500580257147,kg,,true,true,0,,,
-c23c86bfbe16942a58d80fc3,Apples,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 12 each,12,PACK,22.73,,,1.8941666666666668,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
+c23c86bfbe16942a58d80fc3,Apples,PROD,,COUNT,each,each,case,1 case = 12 each,12,PACK,22.73,,,1.8941666666666668,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 c2062309d1aef4213973847a,Arugula,PROD,Sysco,MASS,g,kg,case,1 case = 1 each → 1 each = 907.184 g,907.184,PACK,20.14,,,22.20056791125064,kg,,true,false,1,Sysco,,
 cmqd0qh7s000nd3kl8og7l6r1,ASPARAGUS FRESH LARGE,PROD,Sysco,MASS,g,each,case,1 case = 1 each → 1 each = 4989.512 g,4989.512,PACK,83.99,,,16.833309550112315,kg,,true,false,0,,,
-c8a5bb1aca1754d649a75233,Avocado,PROD,Sysco,COUNT,each,each,case,1 case = 1 each → 1 each = 70 each,70,PACK,65.96,,,0.9422857142857142,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 70 each); COUNT_NO_EACH_MEASURE
+c8a5bb1aca1754d649a75233,Avocado,PROD,Sysco,COUNT,each,each,case,1 case = 70 each,70,PACK,65.96,,,0.9422857142857142,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmq8n96xz0009n3kkh38kse8q,Baby Mixed Greens,PROD,Brew Creek Farm,MASS,g,box,box,1 box = 453.592 g,453.592,RATE,,15.95,lb,35.16375950193125,kg,,true,false,1,Brew Creek Farm,,
 c80998f4b6a544556bee8c1f,Basil,PROD,Sysco,MASS,g,g,case,1 case = 453.592 g,453.592,PACK,23.27,,,51.3016102576765,kg,,true,false,2,Sysco,,
 c05eba10d3a5948779398197,Beets,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 4535.92 g,4535.92,PACK,40.38,,,8.902273408702094,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
@@ -351,23 +351,23 @@ cmr5nbxup002bt9u7xt2u1jcx,Blueberries FARM,PROD,North Arm Farms,MASS,g,each,flat
 cmq8np4rm000jmncoydovx5jp,BLUEBERRY FRESH,PROD,Sysco,MASS,g,case,case,1 case = 12 clamshell → 1 clamshell = 170.097 g,2041.1640000000002,PACK,66.59,,,32.62354225334172,kg,,true,false,1,Sysco,,
 cmqd0qgr0000ld3klctxr3yp7,BROCCOLINI FRESH SWEET BABY,PROD,Sysco,MASS,g,each,case,1 case = 3 each → 1 each = 907.184 g,2721.5519999999997,PACK,45.96,,,16.887423058607737,kg,,true,false,1,Sysco,,
 ca26221ebe80f4e4e90ed849,Brussel Sprouts,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 11339.8 g,11339.8,PACK,60.24,,,5.312263002874831,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-cmprb28d10003w1gff2ez3rvw,CABBAGE RED FDSVC,PROD,,COUNT,each,each,case,1 case = 1 each → 1 each = 3 each,3,PACK,38.09,,,12.696666666666667,each,1 each = 3 lb,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 3 each)
+cmprb28d10003w1gff2ez3rvw,CABBAGE RED FDSVC,PROD,,COUNT,each,each,case,1 case = 3 each,3,PACK,38.09,,,12.696666666666667,each,1 each = 3 lb,true,false,1,Sysco,,
 c133c86313a104db7bcb8b03,Carrots,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 4535.92 g,4535.92,RATE,,3.34,lb,7.363445563413817,kg,,true,false,2,North Arm Farms,,DUPLICATE_CHAIN_UNITS
-c228c1efff67145dca2936f4,Celery,PROD,Sysco,COUNT,each,each,case,1 case = 5 each → 1 each = 6 each,30,PACK,27.55,,,0.9183333333333333,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 6 each); COUNT_NO_EACH_MEASURE
+c228c1efff67145dca2936f4,Celery,PROD,Sysco,COUNT,each,each,case,1 case = 5 pack → 1 pack = 6 each,30,PACK,27.55,,,0.9183333333333333,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 c0303b04d46834af48ee3fbf,Chilli Red Thai,PROD,Sysco,MASS,g,kg,case,1 case = 1 each → 1 each = 450 g,450,PACK,42.22,,,93.82222222222222,kg,,true,false,0,,,
 c60497b6a46a4479bb1f0c80,Chives,PROD,Sysco,MASS,g,g,case,1 case = 453.592 g,453.592,PACK,33.15,,,73.08329952909222,kg,,true,false,2,Sysco,,
 cmr5mub2q0007qp3lmzqsziqu,Chives FARM,PROD,Brew Creek Farm,MASS,g,each,each,1 each = 1 each → 1 each = 113.398 g,113.398,PACK,14,,,123.45896753029155,kg,,true,false,1,Brew Creek Farm,,DUPLICATE_CHAIN_UNITS
 cf6784a8d636149a79225e58,Cilantro,PROD,Sysco,MASS,g,case,case,1 case = 4 each → 1 each = 453.592 g,1814.368,PACK,40.88,,,22.531261574278208,kg,,true,false,1,Sysco,,
 cmr5nbyc6002dt9u7hum965y6,Cilantro FARM,PROD,,COUNT,each,each,bunch,1 bunch = 1 each → 1 each = 1 each,1,PACK,3.99,,,3.99,each,1 each = 80 g,true,false,1,North Arm Farms,,
-c554c543e9dbf4b14a6ffcbc,Ciucumber Medium,PROD,,COUNT,each,case,each,1 each = 1 each → 1 each = 24 each,24,PACK,39.99,,,1.66625,each,,true,false,0,,,DUPLICATE_CHAIN_UNITS; COUNT_UNIT_ORPHAN(case); COUNT_NO_EACH_MEASURE
-cmr5mua5c0003qp3lugzs5ol6,Cucumber Blossoms - NEW!!!,PROD,Brew Creek Farm,COUNT,each,each,dozen,1 dozen = 1 each → 1 each = 12 each,12,PACK,6,,,0.5,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each); COUNT_NO_EACH_MEASURE
+c554c543e9dbf4b14a6ffcbc,Ciucumber Medium,PROD,,COUNT,each,case,case,1 case = 24 each,24,PACK,39.99,,,1.66625,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
+cmr5mua5c0003qp3lugzs5ol6,Cucumber Blossoms - NEW!!!,PROD,Brew Creek Farm,COUNT,each,each,dozen,1 dozen = 12 each,12,PACK,6,,,0.5,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cmprb2h2u000bw1gfnborryjv,CUCUMBER FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,17.18,,,0.7158333333333333,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
-c9a24953627b446fbb652693,Cucumber Long,PROD,Sysco,COUNT,each,each,each,1 each = 1 each → 1 each = 6 each,6,PACK,22.46,,,3.7433333333333336,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 6 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
+c9a24953627b446fbb652693,Cucumber Long,PROD,Sysco,COUNT,each,each,case,1 case = 6 each,6,PACK,22.46,,,3.7433333333333336,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmq8qbmpl0007byt8nm771omr,"Cucumbers, Lebanese O/S",PROD,North Arm Farms,MASS,g,lb,each,1 each = 453.592 g,453.592,RATE,,4.39,lb,9.678301204606782,kg,,true,false,2,North Arm Farms,,
 c5c10003fd61b4bb5a711928,Dill,PROD,Sysco,MASS,g,box,box,1 box = 1 each → 1 each = 453.592 g,453.592,PACK,23.43,,,51.65435016490591,kg,,true,false,1,Sysco,,
 cmqmtqs900003lsz2nv7gu0hg,Edible Begonia - Open Flowers,PROD,Brew Creek Farm,COUNT,each,each,pack,1 pack = 20 each,20,PACK,16,,,0.8,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cmq8n96ck0007n3kkh6n2ocz8,Edible Flower Mix,PROD,Brew Creek Farm,COUNT,each,pack,pack,1 pack = 1 each → 1 each = 50 each,50,PACK,26,,,0.52,each,,true,false,1,Brew Creek Farm,,COUNT_NO_EACH_MEASURE
-c79811bfb1ddb4b35aff1cff,Eggplant,PROD,Sysco,COUNT,each,each,each,1 each = 1 each → 1 each = 24 each,24,PACK,70.3,,,2.9291666666666667,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 24 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
+c79811bfb1ddb4b35aff1cff,Eggplant,PROD,Sysco,COUNT,each,each,case,1 case = 24 each,24,PACK,70.3,,,2.9291666666666667,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 c810db4568c8446c7a24018a,Endive,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 4535.92 g,4535.92,PACK,47.28,,,10.4234642586289,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 ca1d72b76af7949d8b5e166d,Farm Squash Zuchinni,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,0,,,0,each,,true,false,0,,,ZERO_PRICE; COUNT_NO_EACH_MEASURE
 c375635f98ca34e61b74bb20,Fennel brew creek,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,0,,,0,each,,true,false,0,,,ZERO_PRICE; COUNT_NO_EACH_MEASURE
@@ -376,18 +376,18 @@ cmnmloj150013hgf0b9ypogz1,Garlic,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1
 c0573a0e926b54480b2ab71e,ginger,PROD,,MASS,g,kg,each,1 each = 1 each → 1 each = 2267.96 g,2267.96,PACK,35.96,,,15.85565882996173,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 cmq78go1j00014ohra86m7tnm,Golf Ball Onions,PROD,North Arm Farms,MASS,g,lb,bag,1 bag = 1 each → 1 each = 453.592 g,453.592,PACK,3.05,,,6.724104481560522,kg,,true,false,0,,,
 cmq8nox8q000bmnco611j2ek6,GRAPE RED FRSH SEEDLS CLAM,PROD,Sysco,MASS,g,case,case,1 case = 1 each → 1 each = 1360.776 g,1360.776,PACK,18.65,,,13.705415145475815,kg,,true,false,1,Sysco,,
-c7216d03fc20d403a8145429,grapefruit,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 6 each,6,PACK,21.59,,,3.598333333333333,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 6 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
+c7216d03fc20d403a8145429,grapefruit,PROD,,COUNT,each,each,case,1 case = 6 each,6,PACK,21.59,,,3.598333333333333,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 ca42d96c051e74f4ab38b92c,Grapes,PROD,Sysco,MASS,g,case,case,1 case = 6 each → 1 each = 1360.776 g,8164.656000000001,PACK,72.6,,,8.8919851614079,kg,,true,false,0,,,
 cmqkai5q40005yke4n4oc5sa9,"Green Onions O/S — bunch, Rootdown Farm in Pemberton, BC (organic)",PROD,North Arm Farms,COUNT,each,each,bunch,1 bunch = 1 each → 1 each = 1 each,1,PACK,4.39,,,4.39,each,,true,false,1,North Arm Farms,,COUNT_NO_EACH_MEASURE
 cmq78augb00017r8blf5ue25w,Heirloom Tomato,PROD,Sysco,MASS,g,lb,case,1 case = 1 each → 1 each = 4535.92 g,4535.92,PACK,67.77,,,14.940739695585458,kg,,true,false,2,Sysco,,
 ccd1293a5dbe245edad211c2,Horseradish,PROD,North Arm Farms,MASS,g,kg,each,1 each = 453.592 g,453.592,RATE,,9.99,lb,22.024197957635938,kg,,true,false,1,North Arm Farms,,
 cc9541fe75a434a93bc1f90f,Jalepenos,PROD,,MASS,g,kg,each,1 each = 1 each → 1 each = 4540 g,4540,PACK,45.52,,,10.026431718061675,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-c6d2b86aeb85f439d85c518d,Kale,PROD,Sysco,COUNT,each,each,case,1 case = 1 each → 1 each = 24 each,24,PACK,57.01,,,2.3754166666666667,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 24 each); COUNT_NO_EACH_MEASURE
+c6d2b86aeb85f439d85c518d,Kale,PROD,Sysco,COUNT,each,each,case,1 case = 24 each,24,PACK,57.01,,,2.3754166666666667,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmq8rjsnn00073d2p65abfoe9,KALE BABY,PROD,Sysco,MASS,g,pack,case,1 case = 2 pack → 1 pack = 680.3879999999999 g,1360.7759999999998,PACK,33.58,,,24.67709600992375,kg,1 each = 680.388 g,true,false,1,Sysco,,
 c22db7e6f57e14c4a9701a87,kennebec potato,PROD,Sysco,MASS,g,case,case,1 case = 1 each → 1 each = 22679.6 g,22679.6,PACK,35.05,,,1.5454417185488278,kg,,true,false,1,Sysco,,
 cmscgqvbd000lfe41ptzh14mv,"Kohlrabi, Green",PROD,North Arm Farms,COUNT,each,each,lb,1 lb = 1 each,1,RATE,,3.99,each,3.99,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
-cc2ed8515fc294be7b2a9157,Leeks Fresh,PROD,Sysco,COUNT,each,each,each,1 each = 1 each → 1 each = 12 each,12,PACK,54.91,,,4.575833333333333,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
-c4aa3faede1d74f20abe1d1f,Lemons,PROD,Sysco,COUNT,each,each,case,1 case = 1 each → 1 each = 140 each,140,PACK,66.84,,,0.4774285714285715,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 140 each); COUNT_NO_EACH_MEASURE
+cc2ed8515fc294be7b2a9157,Leeks Fresh,PROD,Sysco,COUNT,each,each,case,1 case = 12 each,12,PACK,54.91,,,4.575833333333333,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
+c4aa3faede1d74f20abe1d1f,Lemons,PROD,Sysco,COUNT,each,each,case,1 case = 140 each,140,PACK,66.84,,,0.4774285714285715,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmrs9gakq000nqp6gwiw98hbp,Lettuce - Red Tango,PROD,Brew Creek Farm,MASS,g,lb,case,1 case = 453.592 g,453.592,RATE,,12.5,lb,27.557805252297218,kg,,true,false,1,Brew Creek Farm,,
 cmqvpdobr000146plm3kjqz11,LETTUCE BOSTON /BUTTER FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,57.84,,,2.41,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cmqvyejsk0001ahaq3pwhn2in,LETTUCE BOSTON /BUTTER FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,57.84,,,2.41,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
@@ -397,7 +397,7 @@ cmq8zml6l0001niizasv72x15,LETTUCE ROMAINE HEART OF FRSH,PROD,Sysco,COUNT,each,ea
 cmqt2mxxi0001ca2vr1c9fn30,LETTUCE ROMAINE TSCN BABY,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,47.64,,,1.985,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 ca3354004f6ba4d639836455,Lettuce Spring Mix,PROD,Sysco,MASS,g,each,each,1 each = 1 each → 1 each = 1360.776 g,1360.776,PACK,28.88,,,21.223184418302495,kg,,true,false,1,Sysco,,DUPLICATE_CHAIN_UNITS
 cddddc59d060941d3a4a2a20,Limes,PROD,Sysco,MASS,g,each,each,1 each = 1 each → 1 each = 4535.92 g,4535.92,PACK,41.51,,,9.15139596818286,kg,,true,false,1,Sysco,,DUPLICATE_CHAIN_UNITS
-cmq8np5cd000lmncoemram07y,MELON CANTALOUPE FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 1 each → 1 each = 3 each,3,PACK,28.73,,,9.576666666666666,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 3 each); COUNT_NO_EACH_MEASURE
+cmq8np5cd000lmncoemram07y,MELON CANTALOUPE FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 3 each,3,PACK,28.73,,,9.576666666666666,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmq8noydx000fmncohrlubeiv,MELON WATERMELON SDLS FRESH,PROD,Sysco,COUNT,each,case,case,1 case = 1 each → 1 each = 1 each,1,PACK,27.52,,,27.52,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmr5muam40005qp3ltfne2nif,Microgreens - Amaranth Red Garnet Living Tray,PROD,Brew Creek Farm,COUNT,each,each,tray,1 tray = 1 each → 1 each = 1 each,1,PACK,32,,,32,each,,true,false,1,Brew Creek Farm,,COUNT_NO_EACH_MEASURE
 cmq8n97ix000bn3kklx175a9v,Microgreens - Arugula Precut,PROD,Brew Creek Farm,COUNT,each,pack,pack,1 pack = 1 each → 1 each = 1 each,1,PACK,24,,,24,each,,true,false,1,Brew Creek Farm,,COUNT_NO_EACH_MEASURE
@@ -419,7 +419,7 @@ cc0df3d54a80e4d55bcfdc36,Onions Yellow,PROD,Sysco,MASS,g,case,case,1 case = 2267
 c3fc7da6b212a4c4186f3900,Oranges,PROD,,COUNT,each,box,box,1 box = 1 each → 1 each = 138 each,138,PACK,67.84,,,0.49159420289855077,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 caa70cf46e7a943498915230,Parsley,PROD,Sysco,MASS,g,case,case,1 case = 453.592 g,453.592,PACK,19.21,,,42.35083511173037,kg,,true,false,1,Sysco,,
 c2a7914029a644f10b6ab1fd,peaches,PROD,,MASS,g,kg,case,1 case = 9071.84 g,9071.84,PACK,0,,,0,kg,1 each = 150 g,true,false,1,North Arm Farms,,ZERO_PRICE
-c5b0371b0c811444d84d0e94,Pears,PROD,Sysco,COUNT,each,case,each,1 each = 1 each → 1 each = 12 each,12,PACK,27.64,,,2.3033333333333332,each,,true,false,0,,,DUPLICATE_CHAIN_UNITS; COUNT_UNIT_ORPHAN(case); COUNT_NO_EACH_MEASURE
+c5b0371b0c811444d84d0e94,Pears,PROD,Sysco,COUNT,each,case,case,1 case = 12 each,12,PACK,27.64,,,2.3033333333333332,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cmprb2djl0007w1gfkqbcdd5g,PEPPER JALAPENO FRESH,PROD,Sysco,MASS,g,case,case,1 case = 1 each → 1 each = 4535.92 g,4535.92,PACK,29.61,,,6.527892908164165,kg,,true,false,1,Sysco,,
 cab130d3839db4777869a3d3,Pineapple,PROD,Sysco,COUNT,each,each,case,1 case = 3 each → 1 each = 1 each,3,PACK,40.89,,,13.63,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmq8zmmkt0003niiz2ten1hcr,POTATO YELLOW YUKON GLD FRSH,PROD,Sysco,MASS,g,case,case,1 case = 1 each → 1 each = 22679.6 g,22679.6,PACK,45.6,,,2.0106174712076053,kg,,true,false,1,Sysco,,
@@ -436,7 +436,7 @@ cmr5mubju0009qp3lnl7rm560,Shiso Leaves - Green,PROD,Brew Creek Farm,COUNT,each,e
 cmr5mu4ig0001qp3ljxyhhkjr,Shiso Leaves - Purple,PROD,Brew Creek Farm,COUNT,each,each,pack,1 pack = 1 each → 1 each = 1 each,1,PACK,11,,,11,each,,true,false,1,Brew Creek Farm,,COUNT_NO_EACH_MEASURE
 c28fd86d75d8b42e89033376,sorrel,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,22,,,22,each,,true,false,1,Brew Creek Farm,,COUNT_NO_EACH_MEASURE
 cmrs8ebl000011449lthie0bt,SPINACH BABY FRESH,PROD,Sysco,MASS,g,case,case,1 case = 1 pack → 1 pack = 907.184 g,907.184,PACK,38.53,,,42.47208945484048,kg,,true,false,0,,,
-cdef645fca0484acbafaba10,Squash Butternut,PROD,Sysco,COUNT,each,each,each,1 each = 30 each → 1 each = 1 each,30,PACK,51.85,,,1.7283333333333333,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 30 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
+cdef645fca0484acbafaba10,Squash Butternut,PROD,Sysco,COUNT,each,each,case,1 case = 30 pack → 1 pack = 1 each,30,PACK,51.85,,,1.7283333333333333,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 c6654a64d9da04a36aabcc21,Strawberries,PROD,Sysco,MASS,g,each,box,1 box = 6 each → 1 each = 2000 g,12000,PACK,92.93,,,7.7441666666666675,kg,,true,false,0,,,
 cmq8noxtc000dmncoso338ud5,STRAWBERRY FRESH CALIF CLAMSHL,PROD,Sysco,MASS,g,each,case,1 case = 2 each → 1 each = 1814.368 g,3628.736,PACK,52.2,,,14.385174341699148,kg,,true,false,1,Sysco,,
 cb1c0d04aa4734d789e2cf03,sunchokes,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,0,,,0,each,,true,false,0,,,ZERO_PRICE; COUNT_NO_EACH_MEASURE
@@ -448,7 +448,7 @@ cmrs8zwpo0001erugbcrc6lvi,"Tomatillos, Toma Verde — lb *** new crop - nimited 
 cmqlfpyns0001sitohuj3oyxt,TOMATO CHERRY MIXED 5LB,PROD,Sysco,MASS,g,each,case,1 case = 1 each → 1 each = 2267.96 g,2267.96,PACK,29.85,,,13.161607788497152,kg,,true,false,1,Sysco,,
 cmq8rzrwl000311ay24f98dxv,TOMATO FRESH BEEFSTEAK TRAY,PROD,Sysco,MASS,g,case,case,1 case = 1 each → 1 each = 6803.88 g,6803.88,PACK,33.33,,,4.898675461648353,kg,,true,false,1,Sysco,,
 cdbf82a8e124043038fda7cc,tomato red,PROD,,MASS,g,each,each,1 each = 1 each → 1 each = 4535.92 g,4535.92,PACK,26.68,,,5.8819379530503175,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
-c8d46150d63eb4874b7da5be,tuscan lettuce,PROD,Sysco,COUNT,each,each,each,1 each = 24 each → 1 each = 1 each,24,PACK,49.31,,,2.0545833333333334,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 24 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
-cmq8qboa70009byt80axaxxx8,Violas - Edible Flowers (20),PROD,North Arm Farms,COUNT,each,each,case,1 case = 1 each → 1 each = 20 each,20,PACK,6.79,,,0.3395,each,,true,false,1,North Arm Farms,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 20 each); COUNT_NO_EACH_MEASURE
+c8d46150d63eb4874b7da5be,tuscan lettuce,PROD,Sysco,COUNT,each,each,case,1 case = 24 pack → 1 pack = 1 each,24,PACK,49.31,,,2.0545833333333334,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
+cmq8qboa70009byt80axaxxx8,Violas - Edible Flowers (20),PROD,North Arm Farms,COUNT,each,each,case,1 case = 20 each,20,PACK,6.79,,,0.3395,each,,true,false,1,North Arm Farms,,COUNT_NO_EACH_MEASURE
 c0eec111399b84c76bbc5662,Yellow potato,PROD,Sysco,MASS,g,case,case,1 case = 1 each → 1 each = 22679.6 g,22679.6,PACK,38.48,,,1.696678953773435,kg,,true,false,2,Sysco,,
 cmr5nbyt7002ft9u73yrbcgee,"Zucchini, mixed baby",PROD,North Arm Farms,MASS,g,lb,case,1 case = 453.592 g,453.592,RATE,,6.49,lb,14.308012486992718,kg,,true,false,0,,,

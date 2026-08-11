@@ -125,7 +125,11 @@ async function main() {
     // is 10 lb). Skip the case where the leaf unit IS the base unit; there the
     // token is just a pack level's name and carries no fixed factor claim.
     const leaf = chain[chain.length - 1]
-    if (leaf && leaf.unit !== ci.baseUnit) {
+    // 'batch' carries a nominal factor of 1 in UNIT_FACTORS but is used as a
+    // genuine pack level on PREP items — "1 batch = 72 muffins" is the yield, not
+    // a contradiction. Exempt it; every other measurement token still has to
+    // agree with its own factor.
+    if (leaf && leaf.unit !== ci.baseUnit && leaf.unit !== 'batch') {
       const f = UNIT_FACTORS[leaf.unit]
       const bf = UNIT_FACTORS[ci.baseUnit]
       if (f && bf && f.dim === bf.dim) {
