@@ -2,18 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/lib/item-model'
-import { formatPurchaseDisplay } from '@/lib/count-uom'
+import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
+import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
+import { stockInHandKpis, stockInHandQty, stockInHandValue, theoreticalQty } from '@/lib/stock-in-hand'
+import { matchesPill, PILL_LABELS, INVENTORY_PILLS, type InventoryPill, type PillItem } from '@/lib/inventory-pills'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   // This route serves the full priced catalogue. API routes bypass middleware, so
   // the guard has to live here — it had none at all before.
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
+  }
+
+  const { searchParams } = new URL(req.url)
+  if (searchParams.get('view') === 'stock-in-hand') {
+    return stockInHandWorkbook(user, searchParams)
   }
 
   const items = await prisma.inventoryItem.findMany({
@@ -99,6 +108,130 @@ export async function GET(req: NextRequest) {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="inventory-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    },
+  })
+}
+
+/**
+ * Resolve filter IDs to human names for the KPI sheet. A file that leaves the
+ * building has to say what produced it, or it has to be re-derived to be trusted.
+ */
+async function resolveFilterLabels(searchParams: URLSearchParams) {
+  const supplierId    = searchParams.get('supplierId') || ''
+  const storageAreaId = searchParams.get('storageAreaId') || ''
+  const rcId          = searchParams.get('rcId') || ''
+
+  const [supplier, storageArea, rc] = await Promise.all([
+    supplierId    ? prisma.supplier.findUnique({ where: { id: supplierId }, select: { name: true } })       : null,
+    storageAreaId ? prisma.storageArea.findUnique({ where: { id: storageAreaId }, select: { name: true } }) : null,
+    rcId          ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { name: true } })        : null,
+  ])
+
+  const rawPill = searchParams.get('pill') || 'all'
+  const pill = (INVENTORY_PILLS as string[]).includes(rawPill) ? rawPill as InventoryPill : 'all'
+
+  return {
+    pill,
+    rows: [
+      ['Search',         searchParams.get('search') || '(none)'],
+      ['Category',       searchParams.get('category') || 'all'],
+      ['Supplier',       supplier?.name    ?? 'all'],
+      ['Storage area',   storageArea?.name ?? 'all'],
+      ['Revenue centre', rc?.name ?? (rcId ? rcId : 'all')],
+      ['Status filter',  PILL_LABELS[pill]],
+      ['Non-stocked items', searchParams.get('includeNonStocked') === 'true' ? 'included' : 'excluded'],
+    ] as (string | number)[][],
+  }
+}
+
+const BASIS_STATEMENT =
+  'Showing last physically counted quantities at current prices. ' +
+  'No sales, prep, wastage or purchase movement applied.'
+
+const CROSS_RC_NOTE =
+  'lastCountQty is a single global field on the item. An RC-scoped count writes it ' +
+  'but leaves that RC’s allocation alone, so on a non-default revenue centre this ' +
+  'reads "last count of this item anywhere", not "last count in this revenue centre".'
+
+/** Quantity in the item's count UOM. Value must NOT be converted — ppb is per base unit. */
+function countQty(row: InventoryListRow, baseQty: number): number {
+  return convertBaseToCountUom(baseQty, row.countUnit || row.baseUnit, {
+    dimension: row.dimension,
+    baseUnit: row.baseUnit,
+    packChain: row.packChain,
+    countUnit: row.countUnit ?? undefined,
+  })
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
+  const { rows: allRows, outOfScope } = await fetchInventoryList(user, parseInventoryListParams(searchParams))
+  const { pill, rows: filterRows } = await resolveFilterLabels(searchParams)
+
+  // Apply the same pill predicate the page applies, so the file matches the screen.
+  // InventoryListRow carries packChain via its `[key: string]: any` catch-all (not a
+  // statically declared field), so it satisfies PillItem at runtime but not structurally.
+  const rows = outOfScope ? [] : allRows.filter(r => matchesPill(pill, r as unknown as PillItem))
+  const kpis = stockInHandKpis(rows)
+
+  const wb = XLSX.utils.book_new()
+
+  const kpiData: (string | number)[][] = [
+    ['Stock in Hand'],
+    ['Generated:', new Date().toLocaleString()],
+    [],
+    ['Basis'],
+    [BASIS_STATEMENT],
+    [CROSS_RC_NOTE],
+    [],
+    ['Filters applied'],
+    ...filterRows,
+    [],
+    ['KPI Summary'],
+    ['Stock in Hand Value',  Number(kpis.value.toFixed(2))],
+    ['Coverage',             `${kpis.counted} / ${kpis.total}`],
+    ['Never Counted',        kpis.neverCounted],
+    ['Oldest Count',         kpis.oldestCountDate ? new Date(kpis.oldestCountDate).toLocaleDateString() : '—'],
+    ['Unverified Movement',  Number(kpis.unverifiedMovement.toFixed(2))],
+  ]
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kpiData), 'KPI Summary')
+
+  const headers = [
+    'Item Name', 'Category', 'Supplier', 'Storage Area', 'Count Unit',
+    'Stock in Hand (count unit)', 'Base Unit', 'Stock in Hand (base)',
+    'Price/Base Unit', 'Stock in Hand Value', 'Last Count Date', 'Counted?',
+    'Theoretical Stock (base)', 'Unverified Movement Value',
+  ]
+
+  const dataRows = rows.map(row => {
+    const qty  = stockInHandQty(row)          // base units, null = never counted
+    const ppb  = Number(row.pricePerBaseUnit)
+    const val  = stockInHandValue(row)
+    const theo = theoreticalQty(row)
+    return [
+      row.itemName,
+      row.category,
+      row.supplier?.name ?? '',
+      row.storageArea?.name ?? '',
+      row.countUnit || row.baseUnit,
+      qty === null ? '' : countQty(row, qty),  // blank, never 0 — a gap is not a zero
+      row.baseUnit,
+      qty === null ? '' : qty,
+      ppb,
+      val,
+      row.lastCountDate ? new Date(row.lastCountDate).toLocaleDateString() : '',
+      qty === null ? 'Never' : 'Yes',
+      theo,
+      theo * ppb - val,
+    ]
+  })
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...dataRows]), 'Stock in Hand')
+
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  return new NextResponse(buffer, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="stock-in-hand-${new Date().toISOString().slice(0, 10)}.xlsx"`,
     },
   })
 }
