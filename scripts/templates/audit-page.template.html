@@ -183,13 +183,29 @@
     background: var(--paper-2); border-radius: 3px; padding: 6px 8px;
     grid-column: 1 / -1; overflow-x: auto; white-space: nowrap;
   }
-  .mark {
-    grid-column: 1 / -1; display: flex; align-items: center; gap: 7px;
-    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
-    border-top: 1px solid var(--line); padding-top: 9px; cursor: pointer;
-    user-select: none; min-height: 30px;
+  /* what to actually do about this flag — the reason the page exists */
+  .todo {
+    grid-column: 1 / -1; margin: 0; font-size: 13.5px; color: var(--ink);
+    background: var(--gold-soft); border-left: 2px solid var(--gold);
+    padding: 9px 11px; border-radius: 0 3px 3px 0;
   }
-  .mark input { width: 15px; height: 15px; accent-color: var(--gold); cursor: pointer; }
+  .acts {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 7px;
+    border-top: 1px solid var(--line); padding-top: 10px;
+  }
+  .act {
+    appearance: none; cursor: pointer; font-family: var(--mono); font-size: 12px;
+    padding: 7px 12px; min-height: 36px; border-radius: 3px;
+    border: 1px solid var(--line-2); background: var(--paper); color: var(--ink-2);
+  }
+  .act:hover { border-color: var(--ink-3); color: var(--ink); }
+  .act.on { background: var(--good); border-color: var(--good); color: var(--paper); font-weight: 600; }
+  .grp-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin: 22px 0 2px; font-size: 15px; font-weight: 640; letter-spacing: -0.01em;
+  }
+  .grp-head:first-child { margin-top: 6px; }
+  .grp-n { font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 400; }
 
   /* ── evidence table ───────────────────────────────────────── */
   .scroller { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; margin-top: 16px; background: var(--paper); }
@@ -264,14 +280,14 @@
   </section>
 
   <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" id="tab-proven" aria-selected="true" aria-controls="p-proven">Format conflicts<span class="ct" id="c-proven"></span></button>
-    <button class="tab" role="tab" id="tab-review" aria-selected="false" aria-controls="p-review">Review list<span class="ct" id="c-review"></span></button>
+    <button class="tab" role="tab" id="tab-proven" aria-selected="false" aria-controls="p-proven">Format conflicts<span class="ct" id="c-proven"></span></button>
+    <button class="tab" role="tab" id="tab-review" aria-selected="true" aria-controls="p-review">To fix<span class="ct" id="c-review"></span></button>
     <button class="tab" role="tab" id="tab-format" aria-selected="false" aria-controls="p-format">Pack formats<span class="ct" id="c-format"></span></button>
     <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="p-all">All items<span class="ct" id="c-all"></span></button>
   </nav>
 
   <!-- ── EVIDENCE ─────────────────────────────────────────── -->
-  <section id="p-proven" role="tabpanel" aria-labelledby="tab-proven">
+  <section id="p-proven" role="tabpanel" aria-labelledby="tab-proven" hidden>
     <h2>The pack format disagrees with the invoice</h2>
     <p class="lede">
       Each item's <code>packChain</code> is compared against its primary supplier offer's
@@ -309,28 +325,30 @@
   </section>
 
   <!-- ── REVIEW LIST ──────────────────────────────────────── -->
-  <section id="p-review" role="tabpanel" aria-labelledby="tab-review" hidden>
+  <section id="p-review" role="tabpanel" aria-labelledby="tab-review">
     <div class="controls">
-      <div class="row" id="sev-filters"></div>
+      <div class="row" id="grp-filters"></div>
       <div class="row" id="cat-filters"></div>
       <div class="row">
-        <input type="search" id="q" placeholder="Search item, supplier or reason…" aria-label="Search findings">
-        <select id="sort" aria-label="Sort findings">
+        <input type="search" id="q" placeholder="Search item, supplier or reason…" aria-label="Search open items">
+        <select id="sort" aria-label="Sort open items">
+          <option value="grp">Group</option>
           <option value="sev">Severity</option>
           <option value="drift">Biggest drift</option>
           <option value="name">Name A–Z</option>
-          <option value="cat">Category</option>
         </select>
-        <button class="chip" id="hide-done" aria-pressed="false">Hide reviewed</button>
+        <button class="chip" id="show-cleared" aria-pressed="false">Show cleared</button>
       </div>
       <div class="progress">
         <span id="prog-t"></span>
         <span class="bar"><i id="prog-b"></i></span>
+        <button class="chip" id="export" style="min-height:26px;padding:3px 8px">Copy decisions</button>
         <button class="chip" id="reset" style="min-height:26px;padding:3px 8px">Reset</button>
       </div>
     </div>
     <div class="list" id="findings"></div>
     <p class="empty" id="no-findings" hidden>Nothing matches those filters.</p>
+    <p class="empty" id="all-clear" hidden>Every flag cleared. Re-run the audit to confirm against live data.</p>
   </section>
 
   <!-- ── PACK FORMATS ─────────────────────────────────────── -->
@@ -397,9 +415,14 @@
   const el = (t, c, txt) => { const n = document.createElement(t); if (c) n.className = c; if (txt != null) n.textContent = txt; return n; };
   const KEY = 'fergies-audit-reviewed-v1';
 
-  let done = new Set();
-  try { done = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { done = new Set(); }
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...done])); } catch (e) {} };
+  // id -> 'fixed' | 'ok'. Older builds stored a bare array of ids; read those as
+  // 'fixed' so a saved pass is not silently discarded.
+  let done = new Map();
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+    done = Array.isArray(raw) ? new Map(raw.map((id) => [id, 'fixed'])) : new Map(Object.entries(raw));
+  } catch (e) { done = new Map(); }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(done))); } catch (e) {} };
 
   // ── header numbers ────────────────────────────────────────
   $('#run-items').textContent = DATA.totals.items + ' active items · ' + DATA.totals.purchased + ' purchased · ' + DATA.totals.prep + ' prep-linked';
@@ -457,10 +480,14 @@
     $('#tb-coll').append(tr);
   });
 
-  // ── review list ───────────────────────────────────────────
-  const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM'];
+  // ── worklist ──────────────────────────────────────────────
+  // Two ways to clear a flag, because a flag is a question, not a verdict:
+  // "fixed" means the item was changed, "correct" means the price was already
+  // right and the benchmark is too narrow. Both are decisions worth keeping —
+  // the export hands them back so the bands can be widened for good.
+  const GROUPS = [...new Set(DATA.findings.map((f) => f.grp))];
   const CATS = [...new Set(DATA.findings.map((f) => f.c))].sort();
-  const state = { sev: new Set(), cat: new Set(), q: '', sort: 'sev', hide: false };
+  const state = { grp: new Set(), cat: new Set(), q: '', sort: 'grp', showCleared: false };
 
   const mkChips = (host, values, key, label) => {
     values.forEach((v) => {
@@ -475,43 +502,67 @@
       host.append(b);
     });
   };
-  mkChips($('#sev-filters'), SEVS, 'sev', (v) => v + ' ' + DATA.findings.filter((f) => f.sev === v).length);
+  mkChips($('#grp-filters'), GROUPS, 'grp', (v) => v + ' ' + DATA.findings.filter((f) => f.grp === v).length);
   mkChips($('#cat-filters'), CATS, 'cat');
 
   $('#q').addEventListener('input', (e) => { state.q = e.target.value.toLowerCase(); render(); });
   $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; render(); });
-  $('#hide-done').addEventListener('click', (e) => {
-    state.hide = !state.hide; e.target.setAttribute('aria-pressed', String(state.hide)); render();
+  $('#show-cleared').addEventListener('click', (e) => {
+    state.showCleared = !state.showCleared;
+    e.target.setAttribute('aria-pressed', String(state.showCleared));
+    render();
   });
   $('#reset').addEventListener('click', () => { done.clear(); save(); render(); });
+  $('#export').addEventListener('click', async (e) => {
+    const rows = DATA.findings.filter((f) => done.has(f.id)).map((f) => ({
+      id: f.id, item: f.n, decision: done.get(f.id), priceAtDecision: f.p, unit: f.u,
+    }));
+    const text = JSON.stringify(rows, null, 2);
+    try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied ' + rows.length; }
+    catch { e.target.textContent = 'Copy failed'; }
+    setTimeout(() => { e.target.textContent = 'Copy decisions'; }, 1600);
+  });
 
   const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
   const mag = (f) => f.r == null ? 0 : Math.max(f.r, 1 / f.r);
+  const grpRank = (g) => GROUPS.indexOf(g);
 
   function render() {
     const host = $('#findings');
     host.textContent = '';
     let rows = DATA.findings.filter((f) => {
-      if (state.sev.size && !state.sev.has(f.sev)) return false;
+      if (state.grp.size && !state.grp.has(f.grp)) return false;
       if (state.cat.size && !state.cat.has(f.c)) return false;
-      if (state.hide && done.has(f.id)) return false;
+      if (!state.showCleared && done.has(f.id)) return false;
       if (state.q) {
-        const hay = (f.n + ' ' + f.c + ' ' + (f.s || '') + ' ' + f.v + ' ' + f.why.join(' ')).toLowerCase();
+        const hay = (f.n + ' ' + f.c + ' ' + (f.s || '') + ' ' + f.grp + ' ' + f.why.join(' ')).toLowerCase();
         if (!hay.includes(state.q)) return false;
       }
       return true;
     });
     rows.sort((a, b) => {
       if (state.sort === 'name') return a.n.localeCompare(b.n);
-      if (state.sort === 'cat') return a.c.localeCompare(b.c) || rank[a.sev] - rank[b.sev];
       if (state.sort === 'drift') return mag(b) - mag(a);
-      return rank[a.sev] - rank[b.sev] || mag(b) - mag(a);
+      if (state.sort === 'sev') return rank[a.sev] - rank[b.sev] || mag(b) - mag(a);
+      return grpRank(a.grp) - grpRank(b.grp) || rank[a.sev] - rank[b.sev] || a.n.localeCompare(b.n);
     });
 
-    $('#no-findings').hidden = rows.length > 0;
+    const cleared = DATA.findings.filter((f) => done.has(f.id)).length;
+    $('#all-clear').hidden = !(cleared === DATA.findings.length && DATA.findings.length > 0);
+    $('#no-findings').hidden = rows.length > 0 || !$('#all-clear').hidden;
 
+    let lastGrp = null;
     rows.forEach((f) => {
-      const card = el('div', 'card' + (done.has(f.id) ? ' done' : ''));
+      if (state.sort === 'grp' && f.grp !== lastGrp) {
+        lastGrp = f.grp;
+        const open = DATA.findings.filter((x) => x.grp === f.grp && !done.has(x.id)).length;
+        const h = el('h3', 'grp-head');
+        h.append(el('span', null, f.grp));
+        h.append(el('span', 'grp-n', open + ' open'));
+        host.append(h);
+      }
+      const decision = done.get(f.id);
+      const card = el('div', 'card' + (decision ? ' done' : ''));
 
       const main = el('div', 'card-main');
       main.append(el('p', 'name', f.n));
@@ -519,8 +570,8 @@
       meta.append(el('span', 'sev ' + f.sev, f.sev));
       meta.append(el('span', null, f.c));
       if (f.s) meta.append(el('span', null, f.s));
-      meta.append(el('span', null, f.v));
       if (f.src) meta.append(el('span', 'src', f.src));
+      if (decision) meta.append(el('span', 'sev MEDIUM', decision === 'ok' ? 'PRICE CONFIRMED' : 'FIXED'));
       main.append(meta);
       card.append(main);
 
@@ -540,23 +591,28 @@
       f.why.forEach((r) => why.append(el('li', null, r)));
       card.append(why);
 
+      card.append(el('p', 'todo', f.todo));
       if (f.ch) card.append(el('div', 'chain', f.ch));
 
-      const mark = el('label', 'mark');
-      const cb = el('input'); cb.type = 'checkbox'; cb.checked = done.has(f.id);
-      cb.addEventListener('change', () => {
-        if (cb.checked) done.add(f.id); else done.delete(f.id);
-        save(); render();
-      });
-      mark.append(cb, el('span', null, done.has(f.id) ? 'Reviewed' : 'Mark reviewed'));
-      card.append(mark);
+      const acts = el('div', 'acts');
+      const mk = (kind, text) => {
+        const b = el('button', 'act' + (decision === kind ? ' on' : ''), text);
+        b.addEventListener('click', () => {
+          if (done.get(f.id) === kind) done.delete(f.id); else done.set(f.id, kind);
+          save(); render();
+        });
+        return b;
+      };
+      acts.append(mk('fixed', decision === 'fixed' ? '✓ Fixed' : 'Mark fixed'));
+      if (f.ok) acts.append(mk('ok', decision === 'ok' ? '✓ Price is correct' : 'Price is correct'));
+      card.append(acts);
 
       host.append(card);
     });
 
-    const n = DATA.findings.filter((f) => done.has(f.id)).length;
-    $('#prog-t').textContent = n + ' / ' + DATA.findings.length + ' reviewed';
-    $('#prog-b').style.width = (100 * n / DATA.findings.length) + '%';
+    $('#prog-t').textContent = cleared + ' / ' + DATA.findings.length + ' cleared';
+    $('#prog-b').style.width = (100 * cleared / (DATA.findings.length || 1)) + '%';
+    $('#c-review').textContent = (DATA.findings.length - cleared) || '0';
   }
   render();
 

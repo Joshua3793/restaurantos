@@ -72,12 +72,49 @@ function main() {
     prep: r.isPrepLinked, an: r.anomalies, inv: r.lastInvoiceDate,
   }))
 
-  const findings = drift.map((f) => ({
-    id: f.id, n: f.name, c: f.category, s: f.supplier, sev: f.severity, v: f.verdict,
-    p: money(f.price), u: f.unit, lo: f.benchLo, hi: f.benchHi, src: f.benchSrc,
-    note: f.benchNote, r: f.ratio == null ? null : sig(f.ratio),
-    why: f.reasons, ch: f.packChain,
-  }))
+  /**
+   * What a person actually has to DO about a flag, and whether "the price is
+   * genuinely this" is a legitimate answer.
+   *
+   * A drift flag is a question, not a defect: an above-market price on a
+   * specialty good usually means the benchmark is too narrow, not that the item
+   * is wrong. Those get a second resolution — confirming the price is correct —
+   * which feeds back into the band so it stops asking.
+   */
+  const actionFor = (f: DriftRow): { group: string; todo: string; confirmable: boolean } => {
+    if (f.verdict.includes('NO PRICE')) return {
+      group: 'Needs a price',
+      todo: 'Open the item and enter what you pay, with the pack it comes in. Until then every recipe using it costs $0.',
+      confirmable: false,
+    }
+    if (f.verdict.includes('DUPLICATE')) return {
+      group: 'Duplicate rows',
+      todo: 'Two active rows carry this product. Keep the one you actually buy against and deactivate the other — deactivating preserves its history.',
+      confirmable: false,
+    }
+    if (f.verdict.includes('DIMENSION MISMATCH')) return {
+      group: 'Wrong purchase unit',
+      todo: 'This is priced per each but the product sells by weight (or the reverse). Set the item’s purchase unit to match how the supplier bills it.',
+      confirmable: false,
+    }
+    const dir = f.ratio != null && f.ratio > 1 ? 'higher' : 'lower'
+    return {
+      group: 'Confirm or correct the price',
+      todo: `Check a recent invoice. If the pack on the item matches what you receive, the price is right and the benchmark is too narrow — mark it correct. If the pack is wrong, fix the pack and the price follows. It reads ${dir} than comparable BC foodservice.`,
+      confirmable: true,
+    }
+  }
+
+  const findings = drift.map((f) => {
+    const a = actionFor(f)
+    return {
+      id: f.id, n: f.name, c: f.category, s: f.supplier, sev: f.severity, v: f.verdict,
+      p: money(f.price), u: f.unit, lo: f.benchLo, hi: f.benchHi, src: f.benchSrc,
+      note: f.benchNote, r: f.ratio == null ? null : sig(f.ratio),
+      why: f.reasons, ch: f.packChain,
+      grp: a.group, todo: a.todo, ok: a.confirmable,
+    }
+  })
 
   const proven = offers.map((o) => ({
     n: o.name, c: o.category, s: o.supplier, fmt: o.offerFormat, op: o.offerPrice,
