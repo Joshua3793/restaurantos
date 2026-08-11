@@ -63,3 +63,6 @@ data.sql
 * 2.ts
 * 2.tsx
 ppb-snapshot-pre-backfill.json
+
+# Inventory audit pipeline intermediates (regenerate with scripts/audit-*.ts)
+docs/audits/*.json

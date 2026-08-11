@@ -1,0 +1,607 @@
+<title>Inventory Price Audit — Fergie's OS</title>
+<style>
+  :root {
+    --ground: #fafaf9;
+    --paper: #ffffff;
+    --paper-2: #f4f4f5;
+    --ink: #09090b;
+    --ink-2: #3f3f46;
+    --ink-3: #71717a;
+    --line: #e4e4e7;
+    --line-2: #d4d4d8;
+    --gold: #d97706;
+    --gold-ink: #b45309;
+    --gold-soft: #fef3c7;
+    --sev-1: #b91c1c;
+    --sev-2: #dc2626;
+    --sev-3: #a16207;
+    --good: #15803d;
+    --shadow: 0 1px 2px rgb(9 9 11 / 0.04), 0 1px 1px rgb(9 9 11 / 0.03);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0c0a09;
+      --paper: #1c1917;
+      --paper-2: #262322;
+      --ink: #fafaf9;
+      --ink-2: #d6d3d1;
+      --ink-3: #a1a1aa;
+      --line: #292524;
+      --line-2: #3f3a37;
+      --gold: #f59e0b;
+      --gold-ink: #fbbf24;
+      --gold-soft: #422006;
+      --sev-1: #f87171;
+      --sev-2: #ef4444;
+      --sev-3: #d4a017;
+      --good: #4ade80;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0c0a09; --paper: #1c1917; --paper-2: #262322;
+    --ink: #fafaf9; --ink-2: #d6d3d1; --ink-3: #a1a1aa;
+    --line: #292524; --line-2: #3f3a37;
+    --gold: #f59e0b; --gold-ink: #fbbf24; --gold-soft: #422006;
+    --sev-1: #f87171; --sev-2: #ef4444; --sev-3: #d4a017;
+    --good: #4ade80; --shadow: none;
+  }
+  :root[data-theme="light"] {
+    --ground: #fafaf9; --paper: #ffffff; --paper-2: #f4f4f5;
+    --ink: #09090b; --ink-2: #3f3f46; --ink-3: #71717a;
+    --line: #e4e4e7; --line-2: #d4d4d8;
+    --gold: #d97706; --gold-ink: #b45309; --gold-soft: #fef3c7;
+    --sev-1: #b91c1c; --sev-2: #dc2626; --sev-3: #a16207;
+    --good: #15803d;
+    --shadow: 0 1px 2px rgb(9 9 11 / 0.04), 0 1px 1px rgb(9 9 11 / 0.03);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px 96px; }
+
+  /* ── masthead ─────────────────────────────────────────────── */
+  .masthead { padding: 28px 0 20px; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--gold-ink); margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(26px, 5.5vw, 38px); line-height: 1.1; margin: 0 0 12px;
+    letter-spacing: -0.02em; text-wrap: balance; font-weight: 640;
+  }
+  .standfirst { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 15px; }
+  .runline {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+    margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 14px;
+  }
+
+  /* ── verdict tiles ────────────────────────────────────────── */
+  .tiles {
+    display: grid; gap: 1px; background: var(--line);
+    grid-template-columns: repeat(2, 1fr);
+    border: 1px solid var(--line); margin: 22px 0 8px;
+  }
+  @media (min-width: 720px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+  .tile { background: var(--paper); padding: 14px 14px 13px; }
+  .tile-n {
+    font-family: var(--mono); font-size: 30px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1;
+  }
+  .tile-l {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--ink-3); margin-top: 8px;
+  }
+  .tile-s { font-size: 12.5px; color: var(--ink-2); margin-top: 5px; }
+  .tile.crit .tile-n { color: var(--sev-1); }
+
+  /* ── tabs ─────────────────────────────────────────────────── */
+  .tabs {
+    display: flex; gap: 2px; overflow-x: auto; margin: 26px 0 0;
+    border-bottom: 1px solid var(--line); scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    appearance: none; background: none; border: 0; cursor: pointer;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-3);
+    padding: 11px 13px; border-bottom: 2px solid transparent;
+    white-space: nowrap; margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--gold); }
+  .tab .ct { color: var(--ink-3); margin-left: 5px; font-size: 11px; }
+
+  /* ── controls ─────────────────────────────────────────────── */
+  .controls {
+    position: sticky; top: 0; z-index: 20; background: var(--ground);
+    padding: 12px 0 10px; border-bottom: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip {
+    appearance: none; cursor: pointer; font-family: var(--mono); font-size: 11.5px;
+    letter-spacing: 0.03em; padding: 6px 10px; border-radius: 3px;
+    border: 1px solid var(--line-2); background: var(--paper); color: var(--ink-2);
+    min-height: 32px;
+  }
+  .chip:hover { border-color: var(--ink-3); }
+  .chip[aria-pressed="true"] {
+    background: var(--gold-soft); border-color: var(--gold); color: var(--gold-ink);
+  }
+  input[type="search"], select {
+    font-family: var(--mono); font-size: 13px; padding: 7px 10px;
+    border: 1px solid var(--line-2); border-radius: 3px;
+    background: var(--paper); color: var(--ink); min-height: 34px;
+  }
+  input[type="search"] { flex: 1 1 200px; min-width: 0; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .progress { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+  .bar { flex: 1; height: 3px; background: var(--line); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--gold); width: 0%; transition: width .25s ease; }
+
+  /* ── finding cards ────────────────────────────────────────── */
+  .list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+  .card {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 4px;
+    padding: 13px 14px; box-shadow: var(--shadow);
+    display: grid; gap: 10px;
+    grid-template-columns: 1fr auto;
+  }
+  .card.done { opacity: 0.42; }
+  .card-main { min-width: 0; grid-column: 1; }
+  .card-fig { grid-column: 2; text-align: right; white-space: nowrap; }
+  .name { font-weight: 600; font-size: 15px; margin: 0 0 5px; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .sev {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 2px; font-weight: 600; display: inline-block;
+  }
+  .sev.CRITICAL { background: var(--sev-1); color: var(--paper); }
+  .sev.HIGH { border: 1px solid var(--sev-2); color: var(--sev-2); padding: 1px 5px; }
+  .sev.MEDIUM { border: 1px solid var(--line-2); color: var(--sev-3); padding: 1px 5px; }
+  .drift {
+    font-family: var(--mono); font-size: 24px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.05;
+  }
+  .drift.over { color: var(--sev-2); }
+  .drift.under { color: var(--gold-ink); }
+  .drift.none { color: var(--ink-3); font-size: 17px; }
+  .price { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .why { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; grid-column: 1 / -1; }
+  .why li { font-size: 13px; color: var(--ink-2); padding-left: 13px; position: relative; overflow-wrap: anywhere; }
+  .why li::before { content: "—"; position: absolute; left: 0; color: var(--ink-3); }
+  .chain {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+    background: var(--paper-2); border-radius: 3px; padding: 6px 8px;
+    grid-column: 1 / -1; overflow-x: auto; white-space: nowrap;
+  }
+  .mark {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+    border-top: 1px solid var(--line); padding-top: 9px; cursor: pointer;
+    user-select: none; min-height: 30px;
+  }
+  .mark input { width: 15px; height: 15px; accent-color: var(--gold); cursor: pointer; }
+
+  /* ── evidence table ───────────────────────────────────────── */
+  .scroller { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; margin-top: 16px; background: var(--paper); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 640px; }
+  th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 500; background: var(--paper-2); position: sticky; top: 0;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+  .factor { font-family: var(--mono); font-weight: 600; color: var(--sev-2); font-variant-numeric: tabular-nums; }
+  .arrow { color: var(--ink-3); }
+  .fix { color: var(--good); font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  h2 { font-size: 20px; letter-spacing: -0.015em; margin: 34px 0 6px; font-weight: 640; }
+  h2:first-of-type { margin-top: 22px; }
+  .lede { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 68ch; }
+  .lede code { font-family: var(--mono); font-size: 12.5px; background: var(--paper-2); padding: 1px 4px; border-radius: 2px; }
+  .empty { font-family: var(--mono); font-size: 13px; color: var(--ink-3); padding: 34px 0; text-align: center; }
+  .src {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+    border: 1px solid var(--line-2); border-radius: 2px; padding: 1px 4px; color: var(--ink-3);
+  }
+  footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); }
+  footer p { max-width: 70ch; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (min-width: 720px) {
+    .card { grid-template-columns: 1fr 180px; align-items: start; }
+    .why { grid-column: 1; }
+    .chain { grid-column: 1 / -1; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Fergie's OS · Inventory</p>
+    <h1>Price audit against the BC market</h1>
+    <p class="standfirst">
+      Every active item priced off the pack-chain spine, normalised to $/kg, $/L or
+      $/each, and checked against British Columbia price bands. Work the list from
+      the top — the first section needs no judgement call at all.
+    </p>
+    <p class="runline">
+      <span id="run-items"></span><span>·</span><span id="run-bench"></span><span>·</span><span id="run-gen"></span>
+    </p>
+  </header>
+
+  <section class="tiles">
+    <div class="tile crit">
+      <div class="tile-n" id="t-proven"></div>
+      <div class="tile-l">Cost provably wrong</div>
+      <div class="tile-s">Chain contradicts the supplier's own pack format</div>
+    </div>
+    <div class="tile">
+      <div class="tile-n" id="t-flag"></div>
+      <div class="tile-l">Flagged vs market</div>
+      <div class="tile-s">More than 1.25× outside the BC band</div>
+    </div>
+    <div class="tile crit">
+      <div class="tile-n" id="t-zero"></div>
+      <div class="tile-l">Priced at $0</div>
+      <div class="tile-s">Every recipe using these under-costs silently</div>
+    </div>
+    <div class="tile">
+      <div class="tile-n" id="t-coll"></div>
+      <div class="tile-l">Count unit shadowed</div>
+      <div class="tile-s">Count screens divide by the pack size</div>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-proven" aria-selected="true" aria-controls="p-proven">Evidence<span class="ct" id="c-proven"></span></button>
+    <button class="tab" role="tab" id="tab-review" aria-selected="false" aria-controls="p-review">Review list<span class="ct" id="c-review"></span></button>
+    <button class="tab" role="tab" id="tab-format" aria-selected="false" aria-controls="p-format">Pack formats<span class="ct" id="c-format"></span></button>
+    <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="p-all">All items<span class="ct" id="c-all"></span></button>
+  </nav>
+
+  <!-- ── EVIDENCE ─────────────────────────────────────────── -->
+  <section id="p-proven" role="tabpanel" aria-labelledby="tab-proven">
+    <h2>The cost is wrong by a known factor</h2>
+    <p class="lede">
+      No market judgement here. Each item's <code>packChain</code> is compared against its
+      primary supplier offer's own stated format — both written by the same invoice-approve
+      path, so they must agree. Where they disagree the pack total is the divisor, so the
+      cost is off by exactly that ratio.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th>Item</th><th>Supplier</th><th>Offer says</th><th class="num">Error</th>
+          <th class="num">Now</th><th class="num">Should be</th>
+        </tr></thead>
+        <tbody id="tb-proven"></tbody>
+      </table>
+    </div>
+
+    <h2>Cost is right, pack total is not</h2>
+    <p class="lede">
+      These are <strong>RATE</strong>-priced — the $/unit comes straight from the rate, so
+      the price holds. The wrong pack total corrupts count conversions and stock on hand
+      instead. Don't "correct" these prices.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th>Item</th><th>Supplier</th><th>Offer says</th><th class="num">Chain says</th><th class="num">Rate (correct)</th>
+        </tr></thead>
+        <tbody id="tb-stock"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── REVIEW LIST ──────────────────────────────────────── -->
+  <section id="p-review" role="tabpanel" aria-labelledby="tab-review" hidden>
+    <div class="controls">
+      <div class="row" id="sev-filters"></div>
+      <div class="row" id="cat-filters"></div>
+      <div class="row">
+        <input type="search" id="q" placeholder="Search item, supplier or reason…" aria-label="Search findings">
+        <select id="sort" aria-label="Sort findings">
+          <option value="sev">Severity</option>
+          <option value="drift">Biggest drift</option>
+          <option value="name">Name A–Z</option>
+          <option value="cat">Category</option>
+        </select>
+        <button class="chip" id="hide-done" aria-pressed="false">Hide reviewed</button>
+      </div>
+      <div class="progress">
+        <span id="prog-t"></span>
+        <span class="bar"><i id="prog-b"></i></span>
+        <button class="chip" id="reset" style="min-height:26px;padding:3px 8px">Reset</button>
+      </div>
+    </div>
+    <div class="list" id="findings"></div>
+    <p class="empty" id="no-findings" hidden>Nothing matches those filters.</p>
+  </section>
+
+  <!-- ── PACK FORMATS ─────────────────────────────────────── -->
+  <section id="p-format" role="tabpanel" aria-labelledby="tab-format" hidden>
+    <h2>The count unit is shadowed by a pack level</h2>
+    <p class="lede">
+      A chain level is named with the same token as the base unit (<code>each</code>), so
+      <code>basePerUnit(item, 'each')</code> resolves to the pack size instead of 1. Valuation is
+      unaffected — <code>stockValue</code> uses <code>pricePerBaseUnit × stockOnHand</code> — which is why
+      this never showed up on a cost report. The count screen shows the wrong number.
+      Fix by renaming the middle level to a container token (<code>case</code>, <code>pack</code>, <code>tray</code>).
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th>Item</th><th class="num">Divisor</th><th class="num">True on hand</th>
+          <th class="num">Count shows</th><th>Chain</th>
+        </tr></thead>
+        <tbody id="tb-coll"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── ALL ITEMS ────────────────────────────────────────── -->
+  <section id="p-all" role="tabpanel" aria-labelledby="tab-all" hidden>
+    <div class="controls">
+      <div class="row" id="cat-filters-all"></div>
+      <div class="row">
+        <input type="search" id="q-all" placeholder="Search all 454 items…" aria-label="Search all items">
+        <select id="sort-all" aria-label="Sort items">
+          <option value="name">Name A–Z</option>
+          <option value="price-d">Price high → low</option>
+          <option value="price-a">Price low → high</option>
+          <option value="cat">Category</option>
+        </select>
+      </div>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th>Item</th><th>Cat</th><th class="num">Price</th><th>Pack chain</th><th>Supplier</th><th class="num">Last invoice</th>
+        </tr></thead>
+        <tbody id="tb-all"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="no-items" hidden>No items match.</p>
+  </section>
+
+  <footer>
+    <p>
+      <strong>STATCAN</strong> bands derive from Statistics Canada table 18-10-0245-01,
+      <em>Monthly average retail prices for selected products</em>, GEO = British Columbia.
+      Retail is an upper bound on wholesale, so bands sit near 0.4–1.0× the retail figure.
+      <strong>FS</strong> bands are BC foodservice distributor ranges — industry judgement,
+      not a published quote. Treat an FS flag as worth a look, not as proof; the Evidence
+      tab is the part that needs no judgement.
+    </p>
+    <p>Your reviewed ticks are saved in this browser only.</p>
+  </footer>
+</div>
+
+<script>
+  const DATA = __DATA__;
+  const $ = (s) => document.querySelector(s);
+  const el = (t, c, txt) => { const n = document.createElement(t); if (c) n.className = c; if (txt != null) n.textContent = txt; return n; };
+  const KEY = 'fergies-audit-reviewed-v1';
+
+  let done = new Set();
+  try { done = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { done = new Set(); }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...done])); } catch (e) {} };
+
+  // ── header numbers ────────────────────────────────────────
+  $('#run-items').textContent = DATA.totals.items + ' active items · ' + DATA.totals.purchased + ' purchased · ' + DATA.totals.prep + ' prep-linked';
+  $('#run-bench').textContent = 'BC benchmark ' + DATA.benchmarkMonth;
+  $('#run-gen').textContent = 'Audited ' + DATA.generated;
+  $('#t-proven').textContent = DATA.totals.provenCost;
+  $('#t-flag').textContent = DATA.totals.flagged;
+  $('#t-zero').textContent = DATA.totals.zero;
+  $('#t-coll').textContent = DATA.totals.collisions;
+  $('#c-proven').textContent = DATA.totals.provenCost + DATA.totals.provenStock;
+  $('#c-review').textContent = DATA.findings.length;
+  $('#c-format').textContent = DATA.totals.collisions;
+  $('#c-all').textContent = DATA.totals.items;
+
+  // ── tabs ──────────────────────────────────────────────────
+  const tabs = [...document.querySelectorAll('.tab')];
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    tabs.forEach((o) => {
+      const on = o === t;
+      o.setAttribute('aria-selected', String(on));
+      document.getElementById(o.getAttribute('aria-controls')).hidden = !on;
+    });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }));
+
+  // ── evidence tables ───────────────────────────────────────
+  const err = (f) => f < 1 ? (1 / f).toFixed(1) + '× high' : f.toFixed(1) + '× low';
+  DATA.proven.filter((p) => p.impact === 'COST_AND_STOCK').forEach((p) => {
+    const tr = el('tr');
+    tr.append(el('td', null, p.n));
+    tr.append(el('td', 'mono', p.s));
+    tr.append(el('td', 'mono', p.fmt + ' @ $' + p.op));
+    const e = el('td', 'num'); e.append(el('span', 'factor', err(p.f))); tr.append(e);
+    tr.append(el('td', 'num', p.now));
+    const s = el('td', 'num'); s.append(el('span', 'arrow', '→ ')); s.append(el('span', 'fix', p.should)); tr.append(s);
+    $('#tb-proven').append(tr);
+  });
+  DATA.proven.filter((p) => p.impact === 'STOCK_ONLY').forEach((p) => {
+    const tr = el('tr');
+    tr.append(el('td', null, p.n));
+    tr.append(el('td', 'mono', p.s));
+    tr.append(el('td', 'mono', p.fmt));
+    tr.append(el('td', 'num', p.cb.toLocaleString() + ' base'));
+    const g = el('td', 'num'); g.append(el('span', 'fix', p.now)); tr.append(g);
+    $('#tb-stock').append(tr);
+  });
+
+  DATA.collisions.forEach((c) => {
+    const tr = el('tr');
+    tr.append(el('td', null, c.n));
+    const f = el('td', 'num'); f.append(el('span', 'factor', c.f + '×')); tr.append(f);
+    tr.append(el('td', 'num', c.soh.toLocaleString() + ' ' + c.bu));
+    tr.append(el('td', 'num', c.shows + ' ' + c.cu));
+    tr.append(el('td', 'mono', c.ch));
+    $('#tb-coll').append(tr);
+  });
+
+  // ── review list ───────────────────────────────────────────
+  const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM'];
+  const CATS = [...new Set(DATA.findings.map((f) => f.c))].sort();
+  const state = { sev: new Set(), cat: new Set(), q: '', sort: 'sev', hide: false };
+
+  const mkChips = (host, values, key, label) => {
+    values.forEach((v) => {
+      const b = el('button', 'chip', label ? label(v) : v);
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', () => {
+        const on = b.getAttribute('aria-pressed') === 'true';
+        b.setAttribute('aria-pressed', String(!on));
+        if (on) state[key].delete(v); else state[key].add(v);
+        render();
+      });
+      host.append(b);
+    });
+  };
+  mkChips($('#sev-filters'), SEVS, 'sev', (v) => v + ' ' + DATA.findings.filter((f) => f.sev === v).length);
+  mkChips($('#cat-filters'), CATS, 'cat');
+
+  $('#q').addEventListener('input', (e) => { state.q = e.target.value.toLowerCase(); render(); });
+  $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; render(); });
+  $('#hide-done').addEventListener('click', (e) => {
+    state.hide = !state.hide; e.target.setAttribute('aria-pressed', String(state.hide)); render();
+  });
+  $('#reset').addEventListener('click', () => { done.clear(); save(); render(); });
+
+  const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
+  const mag = (f) => f.r == null ? 0 : Math.max(f.r, 1 / f.r);
+
+  function render() {
+    const host = $('#findings');
+    host.textContent = '';
+    let rows = DATA.findings.filter((f) => {
+      if (state.sev.size && !state.sev.has(f.sev)) return false;
+      if (state.cat.size && !state.cat.has(f.c)) return false;
+      if (state.hide && done.has(f.id)) return false;
+      if (state.q) {
+        const hay = (f.n + ' ' + f.c + ' ' + (f.s || '') + ' ' + f.v + ' ' + f.why.join(' ')).toLowerCase();
+        if (!hay.includes(state.q)) return false;
+      }
+      return true;
+    });
+    rows.sort((a, b) => {
+      if (state.sort === 'name') return a.n.localeCompare(b.n);
+      if (state.sort === 'cat') return a.c.localeCompare(b.c) || rank[a.sev] - rank[b.sev];
+      if (state.sort === 'drift') return mag(b) - mag(a);
+      return rank[a.sev] - rank[b.sev] || mag(b) - mag(a);
+    });
+
+    $('#no-findings').hidden = rows.length > 0;
+
+    rows.forEach((f) => {
+      const card = el('div', 'card' + (done.has(f.id) ? ' done' : ''));
+
+      const main = el('div', 'card-main');
+      main.append(el('p', 'name', f.n));
+      const meta = el('div', 'meta');
+      meta.append(el('span', 'sev ' + f.sev, f.sev));
+      meta.append(el('span', null, f.c));
+      if (f.s) meta.append(el('span', null, f.s));
+      meta.append(el('span', null, f.v));
+      if (f.src) meta.append(el('span', 'src', f.src));
+      main.append(meta);
+      card.append(main);
+
+      const fig = el('div', 'card-fig');
+      if (f.r == null) {
+        fig.append(el('div', 'drift none', f.p > 0 ? '$' + f.p.toFixed(2) : 'NO PRICE'));
+      } else {
+        const over = f.r > 1;
+        fig.append(el('div', 'drift ' + (over ? 'over' : 'under'),
+          (over ? f.r.toFixed(1) : (1 / f.r).toFixed(1)) + '×' + (over ? ' over' : ' under')));
+      }
+      fig.append(el('div', 'price', '$' + f.p.toFixed(2) + '/' + f.u +
+        (f.lo != null ? '  ·  band $' + f.lo + '–' + f.hi : '')));
+      card.append(fig);
+
+      const why = el('ul', 'why');
+      f.why.forEach((r) => why.append(el('li', null, r)));
+      card.append(why);
+
+      if (f.ch) card.append(el('div', 'chain', f.ch));
+
+      const mark = el('label', 'mark');
+      const cb = el('input'); cb.type = 'checkbox'; cb.checked = done.has(f.id);
+      cb.addEventListener('change', () => {
+        if (cb.checked) done.add(f.id); else done.delete(f.id);
+        save(); render();
+      });
+      mark.append(cb, el('span', null, done.has(f.id) ? 'Reviewed' : 'Mark reviewed'));
+      card.append(mark);
+
+      host.append(card);
+    });
+
+    const n = DATA.findings.filter((f) => done.has(f.id)).length;
+    $('#prog-t').textContent = n + ' / ' + DATA.findings.length + ' reviewed';
+    $('#prog-b').style.width = (100 * n / DATA.findings.length) + '%';
+  }
+  render();
+
+  // ── all items ─────────────────────────────────────────────
+  const ACATS = [...new Set(DATA.items.map((i) => i.c))].sort();
+  const astate = { cat: new Set(), q: '', sort: 'name' };
+  ACATS.forEach((v) => {
+    const b = el('button', 'chip', v);
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', () => {
+      const on = b.getAttribute('aria-pressed') === 'true';
+      b.setAttribute('aria-pressed', String(!on));
+      if (on) astate.cat.delete(v); else astate.cat.add(v);
+      renderAll();
+    });
+    $('#cat-filters-all').append(b);
+  });
+  $('#q-all').addEventListener('input', (e) => { astate.q = e.target.value.toLowerCase(); renderAll(); });
+  $('#sort-all').addEventListener('change', (e) => { astate.sort = e.target.value; renderAll(); });
+
+  function renderAll() {
+    const tb = $('#tb-all');
+    tb.textContent = '';
+    let rows = DATA.items.filter((i) => {
+      if (astate.cat.size && !astate.cat.has(i.c)) return false;
+      if (astate.q && !(i.n + ' ' + (i.s || '') + ' ' + i.ch).toLowerCase().includes(astate.q)) return false;
+      return true;
+    });
+    rows.sort((a, b) => {
+      if (astate.sort === 'price-d') return b.p - a.p;
+      if (astate.sort === 'price-a') return a.p - b.p;
+      if (astate.sort === 'cat') return a.c.localeCompare(b.c) || a.n.localeCompare(b.n);
+      return a.n.localeCompare(b.n);
+    });
+    $('#no-items').hidden = rows.length > 0;
+    const frag = document.createDocumentFragment();
+    rows.forEach((i) => {
+      const tr = el('tr');
+      tr.append(el('td', null, i.n));
+      tr.append(el('td', 'mono', i.c));
+      tr.append(el('td', 'num', '$' + i.p.toFixed(2) + '/' + i.u));
+      tr.append(el('td', 'mono', i.ch));
+      tr.append(el('td', 'mono', i.s || '—'));
+      tr.append(el('td', 'num mono', i.inv || '—'));
+      frag.append(tr);
+    });
+    tb.append(frag);
+  }
+  renderAll();
+</script>

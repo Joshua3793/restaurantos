@@ -1,0 +1,89 @@
+severity,verdict,category,name,price,unit,benchLo,benchHi,benchSrc,ratio,packChain,supplier,lastInvoiceDate,reasons
+CRITICAL,BELOW MARKET + FORMAT,BREAD,Puff pastry sheet(pepridge farm),0.014084285714285714,each,1.5,8,FS,0.00938952380952381,1 case = 20 each → 1 each = 350 each,Sysco,,$0.01/each is 106.5× BELOW the bottom of the BC band ($1.5–$8/each) — under-costing risk | pack format is malformed: HUGE_PACK(7000 each per purchase unit)
+CRITICAL,ABOVE MARKET,PROD,Fingerling Potatoes,72.62032840085362,kg,3,9,FS,8.068925377872624,1 bag = 1 each → 1 each = 453.592 g,North Arm Farms,,$72.62/kg is 8.1× the top of the BC band ($3–$9/kg)
+CRITICAL,ABOVE MARKET + FORMAT,BREAD,PUFF PASTRY CROISSANT,18.236,each,0.8,3.2,FS,5.6987499999999995,1 each = 1 each → 1 each = 10 each,,,$18.24/each is 5.7× the top of the BC band ($0.8–$3.2/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 10 each)
+CRITICAL,BELOW MARKET,DRY,Sugar icing,0.21875,kg,1,4,STATCAN,0.21875,1 case = 24 each → 1 each = 1000 g,Sysco,,$0.22/kg is 4.6× BELOW the bottom of the BC band ($1–$4/kg) — under-costing risk
+CRITICAL,BELOW MARKET,DRY,Mirin Seasoning,0.75,L,3,12,FS,0.25,1 pack = 12 each → 1 each = 1000 ml,Sysco,,$0.75/L is 4.0× BELOW the bottom of the BC band ($3–$12/L) — under-costing risk
+CRITICAL,NO PRICE,DRY,Apple mustard,0,kg,,,,,1 each = 1 each → 1 each = 1 g,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,DRY,Cracked coriander seed,0,kg,,,,,1 each = 1 each → 1 each = 1 g,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,DRY,Kalamata olive brine,0,kg,,,,,1 each = 1 each → 1 each = 1 g,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,DRY,"TRSM Spicy Pork Pepperoni, Cold Smoked",0,kg,,,,,1 each = 453.592 g,Two Rivers,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,DRY,Yuzu juice,0,L,,,,,1 each = 1 each → 1 each = 1 ml,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,MEAT,Beef Fat Trim,0,each,,,,,1 case = 1 each → 1 each = 1 each,Legends Haul,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,MEAT,duck fat,0,each,,,,,1 each = 1 each → 1 each = 1 each,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,PROD,Farm Squash Zuchinni,0,each,,,,,1 each = 1 each → 1 each = 1 each,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,PROD,Fennel brew creek,0,each,,,,,1 each = 1 each → 1 each = 1 each,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,PROD,peaches,0,kg,,,,,1 case = 9071.84 g,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,PROD,sunchokes,0,each,,,,,1 each = 1 each → 1 each = 1 each,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,PROD,sweet potato,0,each,,,,,1 each = 1 each → 1 each = 1 each,,,price is $0 — every recipe using this item under-costs silently
+CRITICAL,NO PRICE,PROD,thai vhilis,0,each,,,,,1 each = 1 each → 1 each = 1 each,,,price is $0 — every recipe using this item under-costs silently
+HIGH,ABOVE MARKET,DRY,Figs Dried,108.48017621145374,kg,3,30,FS,3.6160058737151246,1 each = 1 each → 1 each = 2270 g,,,$108.48/kg is 3.6× the top of the BC band ($3–$30/kg)
+HIGH,BELOW MARKET,FISH,Oysters Kusshi,0.19816666666666669,each,0.7,2.4,FS,0.2830952380952381,1 case = 5 each → 1 each = 12 each,Intercity,,$0.20/each is 3.5× BELOW the bottom of the BC band ($0.7–$2.4/each) — under-costing risk
+HIGH,BELOW MARKET,DRY,CHEESE CURD,3.423,kg,12,22,FS,0.28525,1 case = 5 each → 1 each = 2000 g,Sysco,,$3.42/kg is 3.5× BELOW the bottom of the BC band ($12–$22/kg) — under-costing risk
+HIGH,ABOVE MARKET,DRY,Baking Powder,37.61,kg,4,14,FS,2.6864285714285714,1 each = 1 each → 1 each = 3000 g,Sysco,,$37.61/kg is 2.7× the top of the BC band ($4–$14/kg)
+HIGH,ABOVE MARKET + FORMAT,PROD,CABBAGE RED FDSVC,12.696666666666667,each,1.5,5,STATCAN,2.5393333333333334,1 case = 1 each → 1 each = 3 each,,,$12.70/each is 2.5× the top of the BC band ($1.5–$5/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 3 each)
+HIGH,ABOVE MARKET,DRY,coconut milk,24.977083333333333,L,3,10,FS,2.497708333333333,1 case = 12 each → 1 each = 400 ml,Sysco,,$24.98/L is 2.5× the top of the BC band ($3–$10/L)
+HIGH,ABOVE MARKET,FROZEN,BLUEBERRY CULTIVATED IQF CAN,29.772000000000002,kg,5,12,FS,2.4810000000000003,1 case = 1 each → 1 each = 2500 g,Sysco,,$29.77/kg is 2.5× the top of the BC band ($5–$12/kg)
+HIGH,ABOVE MARKET,PROD,Chilli Red Thai,93.82222222222222,kg,12,40,FS,2.3455555555555554,1 case = 1 each → 1 each = 450 g,Sysco,,$93.82/kg is 2.3× the top of the BC band ($12–$40/kg)
+HIGH,ABOVE MARKET + FORMAT,PROD,Cucumber Long,3.7433333333333336,each,0.5,1.6,STATCAN,2.3395833333333336,1 each = 1 each → 1 each = 6 each,Sysco,,$3.74/each is 2.3× the top of the BC band ($0.5–$1.6/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 6 each)
+HIGH,ABOVE MARKET,PROD,SPINACH BABY FRESH,42.47208945484048,kg,8,20,FS,2.123604472742024,1 case = 1 pack → 1 pack = 907.184 g,Sysco,,$42.47/kg is 2.1× the top of the BC band ($8–$20/kg)
+HIGH,ABOVE MARKET,PROD,Pineapple,13.63,each,2.5,6.5,FS,2.096923076923077,1 case = 3 each → 1 each = 1 each,Sysco,,$13.63/each is 2.1× the top of the BC band ($2.5–$6.5/each)
+HIGH,ABOVE MARKET + FORMAT,PROD,grapefruit,3.598333333333333,each,0.6,1.8,FS,1.999074074074074,1 each = 1 each → 1 each = 6 each,,,$3.60/each is 2.0× the top of the BC band ($0.6–$1.8/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 6 each)
+HIGH,ABOVE MARKET + FORMAT,PROD,MELON CANTALOUPE FRESH,9.576666666666666,each,2,5,STATCAN,1.9153333333333333,1 case = 1 each → 1 each = 3 each,Sysco,,$9.58/each is 1.9× the top of the BC band ($2–$5/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 3 each)
+HIGH,ABOVE MARKET + FORMAT,PROD,Pears,2.3033333333333332,each,0.4,1.3,STATCAN,1.7717948717948717,1 each = 1 each → 1 each = 12 each,Sysco,,$2.30/each is 1.8× the top of the BC band ($0.4–$1.3/each) | pack format is malformed: COUNT_UNIT_ORPHAN(case)
+HIGH,ABOVE MARKET + FORMAT,PROD,Apples,1.8941666666666668,each,0.35,1.1,STATCAN,1.721969696969697,1 each = 1 each → 1 each = 12 each,,,$1.89/each is 1.7× the top of the BC band ($0.35–$1.1/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each)
+HIGH,ABOVE MARKET + FORMAT,PROD,Leeks Fresh,4.575833333333333,each,1,3.5,FS,1.3073809523809523,1 each = 1 each → 1 each = 12 each,Sysco,,$4.58/each is 1.3× the top of the BC band ($1–$3.5/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each)
+HIGH,FORMAT,BREAD,GF Brioche Bun,1.6879166666666665,each,0.4,2,FS,,1 case = 4 each → 1 each = 6 each,,,pack format is malformed: COUNT_UNIT_ORPHAN(pack)
+HIGH,FORMAT,BREAD,GF ENGLISH MUFFIN,1.6879166666666665,each,0.4,2,FS,,1 case = 4 each → 1 each = 6 each,Sysco,,pack format is malformed: COUNT_UNIT_ORPHAN(pack)
+HIGH,FORMAT,BREAD,Naan Bread Round 8 in,0.8885416666666667,each,0.4,1.6,FS,,1 case = 6 each → 1 each = 8 each,Sysco,,pack format is malformed: COUNT_UNIT_ORPHAN(pack)
+HIGH,FORMAT,BREAD,Pastry shell chocolate,2.0983333333333336,each,0.3,3,FS,,1 each = 1 each → 1 each = 60 each,,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 60 each)
+HIGH,FORMAT,BREAD,Pita Bread,0.27402777777777776,each,0.15,0.8,STATCAN,,1 case = 24 each → 1 each = 6 each,,,pack format is malformed: COUNT_UNIT_ORPHAN(pack)
+HIGH,FORMAT,BREAD,Yellow corn Tortillas,0.1071388888888889,each,0.06,0.35,FS,,1 case = 12 each → 1 each = 60 each,Sysco,,pack format is malformed: COUNT_UNIT_ORPHAN(pack)
+HIGH,FORMAT,DRY,Granny Smith apple,0.46345132743362827,each,0.35,1.1,STATCAN,,1 case = 1 each → 1 each = 113 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 113 each)
+HIGH,FORMAT,DRY,Nori sheets,0.44770000000000004,each,0.1,1,FS,,1 pack = 1 each → 1 each = 100 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 100 each)
+HIGH,FORMAT,DRY,Tomato Crushed San Benito,3.299881832131079,kg,1.8,6,STATCAN,,1 cs = 6 oz → 1 oz = 2834.95 g,,,"compared across kg/L assuming density ≈ 1 g/ml | pack format is malformed: UNIT_LABEL_CONTRADICTION(chain says 1 oz = 2834.95 g, but 1 oz is 28.3495 g)"
+HIGH,DIMENSION MISMATCH,DRY,TRSM Sour Tuscan Salami,22.08,each,14,75,FS,,1 lb = 1 each,Two Rivers,,"item is priced per each but the BC benchmark for this product is per kg — dimension mismatch, likely the wrong dimension on the item"
+HIGH,FORMAT,FISH,OYSTER N/SHELL ROYAL MIYAGI XSM,0.8208333333333333,each,0.7,2.4,FS,,1 DZ = 1 each → 1 each = 12 each,Intercity,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each)
+HIGH,FORMAT,FISH,SABLEFISH FLT B/I LG 2/2.8 LB PREM VR LONGLINES (NOT SPECIFIED),54.89514806257606,kg,45,90,FS,,1 lb = 4535.92 g,Intercity,,"pack format is malformed: UNIT_LABEL_CONTRADICTION(chain says 1 lb = 4535.92 g, but 1 lb is 453.592 g)"
+HIGH,FORMAT,MEAT,Pigs Blood,6.305225841725603,kg,2,10,FS,,1 lb = 2267.96 g,,,"pack format is malformed: UNIT_LABEL_CONTRADICTION(chain says 1 lb = 2267.96 g, but 1 lb is 453.592 g)"
+HIGH,FORMAT,PROD,Avocado,0.9422857142857142,each,0.7,2.5,STATCAN,,1 case = 1 each → 1 each = 70 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 70 each)
+HIGH,FORMAT,PROD,Celery,0.9183333333333333,each,0.6,4.2,STATCAN,,1 case = 5 each → 1 each = 6 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 6 each)
+HIGH,FORMAT,PROD,Ciucumber Medium,1.66625,each,0.5,1.6,STATCAN,,1 each = 1 each → 1 each = 24 each,,,pack format is malformed: COUNT_UNIT_ORPHAN(case)
+HIGH,FORMAT,PROD,Cucumber Blossoms - NEW!!!,0.5,each,0.2,40,FS,,1 dozen = 1 each → 1 each = 12 each,Brew Creek Farm,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each)
+HIGH,FORMAT,PROD,Eggplant,2.9291666666666667,each,1,3.2,FS,,1 each = 1 each → 1 each = 24 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 24 each)
+HIGH,FORMAT,PROD,Kale,2.3754166666666667,each,1.2,3.5,FS,,1 case = 1 each → 1 each = 24 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 24 each)
+HIGH,FORMAT,PROD,Lemons,0.4774285714285715,each,0.3,1.1,STATCAN,,1 case = 1 each → 1 each = 140 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 140 each)
+HIGH,DIMENSION MISMATCH,PROD,Red Peppers,70.86,each,3,9,STATCAN,,1 cs = 1 each,,,"item is priced per each but the BC benchmark for this product is per kg — dimension mismatch, likely the wrong dimension on the item"
+HIGH,FORMAT,PROD,Squash Butternut,1.7283333333333333,each,1.2,5,STATCAN,,1 each = 30 each → 1 each = 1 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 30 each)
+HIGH,FORMAT,PROD,tuscan lettuce,2.0545833333333334,each,1.2,3.4,STATCAN,,1 each = 24 each → 1 each = 1 each,Sysco,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 24 each)
+HIGH,FORMAT,PROD,Violas - Edible Flowers (20),0.3395,each,0.2,40,FS,,1 case = 1 each → 1 each = 20 each,North Arm Farms,,pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 20 each)
+MEDIUM,ABOVE MARKET,PROD,MELON WATERMELON SDLS FRESH,27.52,each,5,14,FS,1.9657142857142857,1 case = 1 each → 1 each = 1 each,Sysco,,$27.52/each is 2.0× the top of the BC band ($5–$14/each)
+MEDIUM,ABOVE MARKET,PROD,Salad Mix O/S,50.684315420025044,kg,9,26,STATCAN,1.94939674692404,1 each = 453.592 g,North Arm Farms,,$50.68/kg is 1.9× the top of the BC band ($9–$26/kg)
+MEDIUM,ABOVE MARKET,DRY,Lemon Juice,38.42494714587738,L,4,20,FS,1.921247357293869,1 each = 1 each → 1 each = 946 ml,,,$38.42/L is 1.9× the top of the BC band ($4–$20/L)
+MEDIUM,ABOVE MARKET,PROD,Carrots,7.363445563413817,kg,1.2,4,STATCAN,1.8408613908534543,1 each = 1 each → 1 each = 4535.92 g,Sysco,,$7.36/kg is 1.8× the top of the BC band ($1.2–$4/kg)
+MEDIUM,ABOVE MARKET,PROD,BLUEBERRY FRESH,32.62354225334172,kg,5,18,FS,1.81241901407454,1 case = 12 clamshell → 1 clamshell = 170.097 g,Sysco,,$32.62/kg is 1.8× the top of the BC band ($5–$18/kg)
+MEDIUM,ABOVE MARKET,PROD,MUSHROOM CRIMINI UNSIZD FRESH,21.259928158638896,kg,4,12,STATCAN,1.7716606798865746,1 case = 1 each → 1 each = 1360.776 g,Sysco,,$21.26/kg is 1.8× the top of the BC band ($4–$12/kg)
+MEDIUM,ABOVE MARKET,MEAT,Ground Venison,79.32,kg,22,45,FS,1.7626666666666666,1 each = 1 each → 1 each = 1000 g,,,$79.32/kg is 1.8× the top of the BC band ($22–$45/kg)
+MEDIUM,ABOVE MARKET,PROD,Sage,79.0137392193866,kg,9,45,FS,1.7558608715419244,1 pack = 1 each → 1 each = 113.398 g,Sysco,,$79.01/kg is 1.8× the top of the BC band ($9–$45/kg)
+MEDIUM,ABOVE MARKET,DRY,poppy seed,34.74999999999999,kg,3,20,STATCAN,1.7374999999999996,1 each = 1 each → 1 each = 640 g,,,$34.75/kg is 1.7× the top of the BC band ($3–$20/kg)
+MEDIUM,ABOVE MARKET,DRY,TOFU EXTRA FIRM ORGANIC,23.319047619047616,kg,4,14,STATCAN,1.665646258503401,1 case = 12 each → 1 each = 350 g,Sysco,,$23.32/kg is 1.7× the top of the BC band ($4–$14/kg)
+MEDIUM,ABOVE MARKET,PROD,Chives FARM,123.45896753029155,kg,25,75,FS,1.646119567070554,1 each = 1 each → 1 each = 113.398 g,Brew Creek Farm,,$123.46/kg is 1.6× the top of the BC band ($25–$75/kg)
+MEDIUM,ABOVE MARKET,DRY,Almond slices,48.94,kg,12,30,STATCAN,1.6313333333333333,1 case = 3 each → 1 each = 1000 g,Sysco,,$48.94/kg is 1.6× the top of the BC band ($12–$30/kg)
+MEDIUM,ABOVE MARKET,PROD,Beets,8.902273408702094,kg,1.8,5.5,FS,1.6185951652185624,1 each = 1 each → 1 each = 4535.92 g,Sysco,,$8.90/kg is 1.6× the top of the BC band ($1.8–$5.5/kg)
+MEDIUM,ABOVE MARKET,DAIRY,Cheddar smoked,34.23,kg,11,22,STATCAN,1.5559090909090907,1 case = 1000 g,Sysco,,$34.23/kg is 1.6× the top of the BC band ($11–$22/kg)
+MEDIUM,ABOVE MARKET,PROD,"Green Onions O/S — bunch, Rootdown Farm in Pemberton, BC (organic)",4.39,each,0.8,3,FS,1.4633333333333332,1 bunch = 1 each → 1 each = 1 each,North Arm Farms,,$4.39/each is 1.5× the top of the BC band ($0.8–$3/each)
+MEDIUM,BELOW MARKET,DRY,Flaked SkipJack Tuna,18.382513661202186,kg,26,55,FS,0.7070197562000841,1 case = 6 each → 1 each = 1220 g,,,$18.38/kg is 1.4× BELOW the bottom of the BC band ($26–$55/kg) — under-costing risk
+MEDIUM,ABOVE MARKET,PROD,Baby Mixed Greens,35.16375950193125,kg,9,26,STATCAN,1.3524522885358174,1 box = 453.592 g,Brew Creek Farm,,$35.16/kg is 1.4× the top of the BC band ($9–$26/kg)
+MEDIUM,ABOVE MARKET,PROD,Golf Ball Onions,6.724104481560522,kg,1.2,5,STATCAN,1.3448208963121044,1 bag = 1 each → 1 each = 453.592 g,North Arm Farms,,$6.72/kg is 1.3× the top of the BC band ($1.2–$5/kg)
+MEDIUM,BELOW MARKET,DRY,Garlic Powder,2.976190476190476,kg,4,70,FS,0.744047619047619,1 case = 12 each → 1 each = 525 g,Sysco,,$2.98/kg is 1.3× BELOW the bottom of the BC band ($4–$70/kg) — under-costing risk
+MEDIUM,ABOVE MARKET,PROD,Limes,9.15139596818286,kg,2.5,7,STATCAN,1.3073422811689799,1 each = 1 each → 1 each = 4535.92 g,Sysco,,$9.15/kg is 1.3× the top of the BC band ($2.5–$7/kg)
+MEDIUM,ABOVE MARKET,PROD,ONION FRESH CIPPOLINI,16.75514559339671,kg,5,13,FS,1.2888573533382084,1 case = 1 each → 1 each = 4535.92 g,Sysco,,$16.76/kg is 1.3× the top of the BC band ($5–$13/kg)
+MEDIUM,FORMAT,PREPD,Brioche French Toast Slice,1.4970479662172123,each,,,,,1 batch = 57 each,,,pack format is malformed on a recipe-linked item
+MEDIUM,FORMAT,PREPD,Buttermilk Biscuits,0.4721609815915562,each,,,,,1 batch = 55 each,,,pack format is malformed on a recipe-linked item
+MEDIUM,FORMAT,PREPD,English Muffins (Sourdough Whole Wheat),0.3735637258924365,each,,,,,1 batch = 72 each,,,pack format is malformed on a recipe-linked item
+MEDIUM,FORMAT,PREPD,Scones,0.4190737870778268,each,,,,,1 batch = 25 each,,,pack format is malformed on a recipe-linked item
+MEDIUM,FORMAT,PREPD,Sourdough Bread,0.21441009953763376,each,,,,,1 batch = 72 each,,,pack format is malformed on a recipe-linked item
+MEDIUM,DUPLICATE,PROD,LETTUCE BOSTON /BUTTER FRESH,2.41,each,1.2,3.4,STATCAN,,1 case = 24 each → 1 each = 1 each,Sysco,,duplicate item — another active row carries the same product name
+MEDIUM,DUPLICATE,PROD,LETTUCE BOSTON /BUTTER FRESH,2.41,each,1.2,3.4,STATCAN,,1 case = 24 each → 1 each = 1 each,Sysco,,duplicate item — another active row carries the same product name
+MEDIUM,DUPLICATE,PROD,LETTUCE ROMAINE HEART OF FRSH,1.6664583333333332,each,1.2,3.2,STATCAN,,1 case = 4 pack → 1 pack = 12 each,Sysco,,duplicate item — another active row carries the same product name
+MEDIUM,DUPLICATE,PROD,LETTUCE ROMAINE HEART OF FRSH,3.2408333333333332,each,1.2,3.2,STATCAN,,1 case = 12 each → 1 each = 1 each,Sysco,,duplicate item — another active row carries the same product name
