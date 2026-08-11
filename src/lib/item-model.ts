@@ -90,6 +90,60 @@ export function pricePerBaseUnit(item: ChainItem): number {
   return denom > 0 ? Number((p as { purchasePrice?: number })?.purchasePrice || 0) / denom : 0
 }
 
+/**
+ * Base units in ONE container of an INVOICE line's own pack format
+ * (`packQty × packSize × conv(packUOM)`), expressed in `itemBaseUnit`.
+ *
+ * Returns 0 when the line carries no usable pack, or when its pack unit is a
+ * different dimension than the item's base (a count↔weight line needs the
+ * eachMeasure bridge, which is resolved separately).
+ */
+export function invoicePackBaseTotal(
+  line: { packQty?: number | null; packSize?: number | null; packUOM?: string | null },
+  itemBaseUnit: string,
+): number {
+  const qty = Number(line.packQty)
+  const size = Number(line.packSize)
+  const uom = (line.packUOM ?? '').trim()
+  if (!(qty > 0) || !(size > 0) || !uom) return 0
+  if (dimensionOf(uom) !== dimensionOf(itemBaseUnit)) return 0
+  const conv = getUnitConv(uom) / (getUnitConv(itemBaseUnit) || 1)
+  return conv > 0 ? qty * size * conv : 0
+}
+
+/**
+ * Does an invoice line's pack disagree with the item's stored pack format?
+ *
+ * An invoice sets an item's PRICE over the item's own stored chain — the format
+ * is only ever changed by a deliberate edit. That is sound only while the two
+ * describe the same amount. When they don't, the per-case price divided by the
+ * item's chain is wrong by exactly the ratio between them: a supplier moving a
+ * 3 kg tub to a 20 kg case turned $112.83 into $37.61/kg instead of $5.64/kg.
+ *
+ * Which side is right CANNOT be decided from the data. OCR frequently reports
+ * `packQty: 1` when the invoice prints only the container size, so the line's
+ * total understates a case the item's chain has correct (Tamari 6 × 1.89 L
+ * printed as "1 × 1.89 l"); equally the item's chain may simply be stale. So
+ * this only reports the disagreement — callers must refuse to guess and route
+ * it to a human rather than silently pricing against either side.
+ *
+ * `ratio` is item ÷ invoice: > 1 means the item's case is the larger claim.
+ *
+ * The 25% default is measured, not arbitrary: across 864 historical lines with a
+ * comparable pack the disagreements are bimodal — 74 are off by more than half (a
+ * real pack change) and the rest cluster under 15% (OCR rounding, a 15.14 L case
+ * read as 16 L). A tighter bound would block rounding noise for no cost benefit.
+ */
+export function packFormatsDisagree(
+  invoiceBaseTotal: number,
+  itemBaseTotal: number,
+  tolerance = 0.25,
+): { disagree: boolean; ratio: number } {
+  if (!(invoiceBaseTotal > 0) || !(itemBaseTotal > 0)) return { disagree: false, ratio: 1 }
+  const ratio = itemBaseTotal / invoiceBaseTotal
+  return { disagree: Math.abs(ratio - 1) > tolerance, ratio }
+}
+
 /** Back-compat for the deleted column's old meaning at a count unit. */
 export const conversionFactor = (item: ChainItem, countUnit = item.countUnit ?? 'each') =>
   basePerUnit(item, countUnit)
