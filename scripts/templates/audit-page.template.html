@@ -243,8 +243,8 @@
   <section class="tiles">
     <div class="tile crit">
       <div class="tile-n" id="t-proven"></div>
-      <div class="tile-l">Cost provably wrong</div>
-      <div class="tile-s">Chain contradicts the supplier's own pack format</div>
+      <div class="tile-l">Pack format conflicts</div>
+      <div class="tile-s">Chain and supplier format disagree — one is stale</div>
     </div>
     <div class="tile">
       <div class="tile-n" id="t-flag"></div>
@@ -264,7 +264,7 @@
   </section>
 
   <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" id="tab-proven" aria-selected="true" aria-controls="p-proven">Evidence<span class="ct" id="c-proven"></span></button>
+    <button class="tab" role="tab" id="tab-proven" aria-selected="true" aria-controls="p-proven">Format conflicts<span class="ct" id="c-proven"></span></button>
     <button class="tab" role="tab" id="tab-review" aria-selected="false" aria-controls="p-review">Review list<span class="ct" id="c-review"></span></button>
     <button class="tab" role="tab" id="tab-format" aria-selected="false" aria-controls="p-format">Pack formats<span class="ct" id="c-format"></span></button>
     <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="p-all">All items<span class="ct" id="c-all"></span></button>
@@ -272,18 +272,21 @@
 
   <!-- ── EVIDENCE ─────────────────────────────────────────── -->
   <section id="p-proven" role="tabpanel" aria-labelledby="tab-proven">
-    <h2>The cost is wrong by a known factor</h2>
+    <h2>The pack format disagrees with the invoice</h2>
     <p class="lede">
-      No market judgement here. Each item's <code>packChain</code> is compared against its
-      primary supplier offer's own stated format — both written by the same invoice-approve
-      path, so they must agree. Where they disagree the pack total is the divisor, so the
-      cost is off by exactly that ratio.
+      Each item's <code>packChain</code> is compared against its primary supplier offer's
+      stated format. <strong>A disagreement does not by itself mean the cost is wrong</strong> —
+      it means one of the two is stale, and the data does not say which. The chain is stale
+      when a supplier changed pack size (approve writes the new price over the old format, so
+      the cost is wrong by the ratio); the format triple is stale when someone edited the item
+      afterwards. Check <code>lastUpdated</code> on both, and use the BC band as the tiebreaker.
+      In this snapshot it was an even 16 / 16.
     </p>
     <div class="scroller">
       <table>
         <thead><tr>
-          <th>Item</th><th>Supplier</th><th>Offer says</th><th class="num">Error</th>
-          <th class="num">Now</th><th class="num">Should be</th>
+          <th>Item</th><th>Supplier</th><th>Offer says</th><th class="num">Ratio</th>
+          <th class="num">Item says</th><th class="num">Invoice implies</th>
         </tr></thead>
         <tbody id="tb-proven"></tbody>
       </table>
@@ -382,8 +385,7 @@
       <em>Monthly average retail prices for selected products</em>, GEO = British Columbia.
       Retail is an upper bound on wholesale, so bands sit near 0.4–1.0× the retail figure.
       <strong>FS</strong> bands are BC foodservice distributor ranges — industry judgement,
-      not a published quote. Treat an FS flag as worth a look, not as proof; the Evidence
-      tab is the part that needs no judgement.
+      not a published quote. Treat an FS flag as worth a look, not as proof.
     </p>
     <p>Your reviewed ticks are saved in this browser only.</p>
   </footer>

@@ -20,14 +20,26 @@ inputs to the page build, not deliverables. Re-run the pipeline to recreate them
 
 ## The three checks
 
-**1. Pack chain vs supplier offer** (`audit-offer-pack-mismatch.ts`) — the only
-check that involves no market judgement. An item's `packChain` is compared with
-its primary `InventorySupplierPrice.{packQty,packSize,packUOM}`. Both are written
-by the same invoice-approve path, so they must agree; where they disagree, one is
-wrong. For **PACK**-priced items the chain total is the cost divisor, so the
-$/unit is off by exactly that ratio. For **RATE**-priced items the rate sets the
-price directly — the cost is *correct* and only counts/stock are affected. The
-two are reported separately; do not "fix" a RATE item's price.
+**1. Pack chain vs supplier offer** (`audit-offer-pack-mismatch.ts`) — compares an
+item's `packChain` with its primary offer's `{packQty,packSize,packUOM}` triple.
+
+⚠️ **A disagreement does NOT by itself mean the cost is wrong.** The item's chain
+always equals its primary offer's `packChain` (verified: 197/197 items) — the
+triple is a separate record written from each invoice's OCR. So a mismatch means
+one of the two is stale, and **the data does not say which**:
+
+- The **chain** is stale when a supplier changed pack size. Approve writes the
+  new price over the old format, so the cost is wrong by the ratio. This is the
+  real bug — see `packFormatsDisagree` in `src/lib/item-model.ts`.
+- The **triple** is stale when someone edited the item afterwards.
+  `mirrorItemToPrimaryOffer` syncs the chain to the offer but never the triple.
+
+Split them by comparing `item.lastUpdated` with `offer.lastUpdated`, and use the
+BC band as the tiebreaker for which side is credible. In the audited snapshot it
+was an even 16/16.
+
+For **RATE**-priced items the rate sets $/unit directly — the cost is correct and
+only counts and stock are affected. Never "fix" a RATE item's price.
 
 **2. Market bands** (`market-benchmarks-bc.ts`, `audit-price-drift.ts`) — ordered
 regex → price band per product class. Each band is tagged with its provenance:

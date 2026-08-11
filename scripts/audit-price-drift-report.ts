@@ -53,27 +53,24 @@ const offerCost = offerRows.filter((o) => o.impact === 'COST_AND_STOCK')
 const offerStock = offerRows.filter((o) => o.impact === 'STOCK_ONLY')
 
 const offerSection = `
-## ⛔ Proven wrong by the app's own data — ${offerRows.length} items
+## ⚠️ Pack format conflicts — ${offerRows.length} items
 
-No market judgement is involved here. Each item's \`packChain\` is compared
-against its **primary supplier offer's own stated purchase format**
-(\`packQty × packSize packUOM\`). Both are written by the same invoice-approve
-path, so they must agree. Where they disagree, one of them is wrong — and for
-PACK-priced items the chain total is the divisor, so the cost is off by exactly
-that ratio.
+Each item's \`packChain\` is compared with its primary supplier offer's stated
+format (\`packQty × packSize packUOM\`).
 
-### ${offerCost.length} items where the **$/unit cost is wrong**
+**A disagreement does not by itself mean the cost is wrong.** The item's chain
+always equals its primary offer's \`packChain\` (197/197 verified) — the format
+triple is a separate record written from each invoice. So a mismatch means one of
+the two is stale, and the data does not say which:
 
-| Item | Supplier | Offer says | Chain says | Error | Current | Should be |
-|---|---|---|---|---|---|---|
-${offerCost
-  .map(
-    (o) =>
-      `| **${o.name}** | ${o.supplier} | ${o.offerFormat} @ $${o.offerPrice} | ${o.chainBaseTotal} base | **${
-        o.factor < 1 ? `${(1 / o.factor).toFixed(1)}× too high` : `${o.factor.toFixed(1)}× too low`
-      }** | ${o.currentPerDisplay} | ${o.impliedPerDisplay} |`,
-  )
-  .join('\n')}
+- the **chain** is stale when a supplier changed pack size — approve writes the
+  new price over the old format, so the cost IS wrong by the ratio;
+- the **triple** is stale when someone edited the item afterwards.
+
+Compare \`lastUpdated\` on both and use the BC band as the tiebreaker. In this
+snapshot the split was an even 16 / 16.
+
+### ${offerCost.length} items where the two disagree on a PACK-priced item
 
 ### ${offerStock.length} items where the cost is fine but the pack total is not
 

@@ -22,45 +22,24 @@ band-edge noise is excluded.
 
 ---
 
-## ⛔ Proven wrong by the app's own data — 32 items
+## ⚠️ Pack format conflicts — 32 items
 
-No market judgement is involved here. Each item's `packChain` is compared
-against its **primary supplier offer's own stated purchase format**
-(`packQty × packSize packUOM`). Both are written by the same invoice-approve
-path, so they must agree. Where they disagree, one of them is wrong — and for
-PACK-priced items the chain total is the divisor, so the cost is off by exactly
-that ratio.
+Each item's `packChain` is compared with its primary supplier offer's stated
+format (`packQty × packSize packUOM`).
 
-### 26 items where the **$/unit cost is wrong**
+**A disagreement does not by itself mean the cost is wrong.** The item's chain
+always equals its primary offer's `packChain` (197/197 verified) — the format
+triple is a separate record written from each invoice. So a mismatch means one of
+the two is stale, and the data does not say which:
 
-| Item | Supplier | Offer says | Chain says | Error | Current | Should be |
-|---|---|---|---|---|---|---|
-| **Sugar icing** | Sysco | 1 × 1 kg @ $5.25 | 24000 base | **24.0× too low** | $0.22/kg | $5.25/kg |
-| **Red Peppers** | Sysco | 1 × 24 each @ $70.86 | 1 base | **24.0× too high** | $70.86/each | $2.95/each |
-| **Garlic Powder** | Sysco | 1 × 525 g @ $18.75 | 6300 base | **12.0× too low** | $2.98/kg | $35.71/kg |
-| **Mirin Seasoning** | Sysco | 1 × 1 l @ $9 | 12000 base | **12.0× too low** | $0.75/L | $9.00/L |
-| **Fingerling Potatoes** | Sysco | 1 × 12 lb @ $32.94 | 453.592 base | **12.0× too high** | $72.62/kg | $6.05/kg |
-| **Baking Powder** | Snow Cap | 1 × 20 kg @ $112.83 | 3000 base | **6.7× too high** | $37.61/kg | $5.64/kg |
-| **Tamari Soy Sauce** | Sysco | 1 × 1.89 l @ $27.46 | 11340 base | **6.0× too low** | $2.42/L | $14.53/L |
-| **Figs Dried** | Snow Cap | 1 × 13.6 kg @ $246.25 | 2270 base | **6.0× too high** | $108.48/kg | $18.11/kg |
-| **OYSTER N/SHELL ROYAL MIYAGI XSM** | Intercity | 1 × 5 dozen @ $9.85 | 12 base | **5.0× too high** | $0.82/each | $0.16/each |
-| **Celery** | Sysco | 6 × 1 each @ $27.55 | 30 base | **5.0× too low** | $0.92/each | $4.59/each |
-| **Star anise** | Sysco | 1 × 1 lb @ $25.92 | 2250 base | **5.0× too low** | $11.52/kg | $57.14/kg |
-| **Lemon Juice** | Sysco | 1 × 3.8 l @ $36.35 | 946 base | **4.0× too high** | $38.42/L | $9.57/L |
-| **Vanilla extract** | Snow Cap | 1 × 4 l @ $136.88 | 16000 base | **4.0× too low** | $8.55/L | $34.22/L |
-| **CUCUMBER FRESH** | Sysco | 1 × 6 each @ $17.18 | 24 base | **4.0× too low** | $0.72/each | $2.86/each |
-| **coconut milk** | Sysco | 6 × 2.841 l @ $119.89 | 4800 base | **3.6× too high** | $24.98/L | $7.03/L |
-| **black seasame seed** | Sysco | 1 × 1 kg @ $30.36 | 3000 base | **3.0× too low** | $10.12/kg | $30.36/kg |
-| **Cheddar whiite** | Sysco | 1 × 2.25 kg @ $48.57 | 4540 base | **2.0× too low** | $10.70/kg | $21.59/kg |
-| **Mustard Dijon** | Sysco | 1 × 5 l @ $46.09 | 10000 base | **2.0× too low** | $4.61/L | $9.22/L |
-| **PEPPER JALAPENO FRESH** | Sysco | 1 × 5 lb @ $29.61 | 4535.92 base | **2.0× too low** | $6.53/kg | $13.06/kg |
-| **Vinegar Red Wine** | Sysco | 1 × 5 l @ $17.02 | 10000 base | **2.0× too low** | $1.70/L | $3.40/L |
-| **Cucumber Long** | Sysco | 1 × 12 each @ $22.46 | 6 base | **2.0× too high** | $3.74/each | $1.87/each |
-| **Cashews** | Snow Cap | 1 × 5 kg @ $99.06 | 3000 base | **1.7× too high** | $33.02/kg | $19.81/kg |
-| **MUSHROOM CRIMINI UNSIZD FRESH** | Sysco | 1 × 5 lb @ $28.93 | 1360.776 base | **1.7× too high** | $21.26/kg | $12.76/kg |
-| **Squash Butternut** | Sysco | 1 × 35 each @ $51.85 | 30 base | **1.2× too high** | $1.73/each | $1.48/each |
-| **Lime Juice** | Sysco | 6 × 1 l @ $57.64 | 5443.103999999999 base | **1.1× too high** | $10.59/L | $9.61/L |
-| **Heavy Cream 35%** | Sysco | 16 × 946 ml @ $111.26 | 16000 base | **1.1× too low** | $6.95/L | $7.35/L |
+- the **chain** is stale when a supplier changed pack size — approve writes the
+  new price over the old format, so the cost IS wrong by the ratio;
+- the **triple** is stale when someone edited the item afterwards.
+
+Compare `lastUpdated` on both and use the BC band as the tiebreaker. In this
+snapshot the split was an even 16 / 16.
+
+### 26 items where the two disagree on a PACK-priced item
 
 ### 6 items where the cost is fine but the pack total is not
 
