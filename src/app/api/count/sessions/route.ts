@@ -111,21 +111,26 @@ export async function POST(req: NextRequest) {
   // ── Maps: consumption, purchases, wastage, prep, transfers ─────────────────
   // finalizedAt orders same-day prep AND transfers against the count moment.
   const finalizedAt = earliestLastCount ? await buildCountFinalizedMap(itemIds) : new Map<string, Date>()
+
+  // End of the count's own day — a back-dated count must not absorb movements
+  // that happened after the date it claims to describe.
+  const sessionDay = sessionDate ? new Date(sessionDate) : new Date()
+  const until = new Date(sessionDay.getTime() + 24 * 60 * 60 * 1000)
   const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = await Promise.all([
     earliestLastCount
-      ? buildConsumptionMap(earliestLastCount, revenueCenterId, cutoff)
+      ? buildConsumptionMap(earliestLastCount, revenueCenterId, cutoff, until)
       : Promise.resolve(new Map<string, number>()),
     earliestLastCount
-      ? buildPurchaseMap(earliestLastCount, revenueCenterId, cutoff)
+      ? buildPurchaseMap(earliestLastCount, revenueCenterId, cutoff, until)
       : Promise.resolve(new Map<string, number>()),
     earliestLastCount
-      ? buildWastageMap(earliestLastCount, itemIds, revenueCenterId, cutoff)
+      ? buildWastageMap(earliestLastCount, itemIds, revenueCenterId, cutoff, until)
       : Promise.resolve(new Map<string, number>()),
     earliestLastCount
-      ? buildPrepMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt)
+      ? buildPrepMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt, until)
       : Promise.resolve({ consumption: new Map<string, number>(), output: new Map<string, number>() }),
     earliestLastCount
-      ? buildTransferMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt)
+      ? buildTransferMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt, until)
       : Promise.resolve(new Map<string, number>()),
   ])
 

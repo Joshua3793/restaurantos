@@ -140,6 +140,12 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   await prisma.$transaction([
     ...stockUpdates,
     ...lineUpdates,
+    // A session can be reopened and finalized again. Snapshots are the session's
+    // valuation, not an audit log of finalize attempts, so the previous set must
+    // go — appending leaves two complete sets under one sessionId and every
+    // reader that sums by session silently doubles. (Seen live: the 1 Aug count
+    // carried 826 rows totalling $49,294.75 for a $23,854.07 position.)
+    prisma.inventorySnapshot.deleteMany({ where: { sessionId: session.id } }),
     prisma.inventorySnapshot.createMany({ data: snapshotData }),
     prisma.countSession.update({
       where: { id: session.id },

@@ -86,13 +86,19 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   // finalizedAt orders same-day prep AND transfers against the count moment.
   const finalizedAt = earliestLastCount ? await buildCountFinalizedMap(itemIds) : new Map<string, Date>()
+
+  // Close the movement window at the END of the session's own day. A count states
+  // a position on one date; re-syncing it later must not subtract what was used
+  // after that date. Reopening the 1 Aug count on the 11th drove 177 of 413 lines
+  // to zero without this bound.
+  const until = new Date(session.sessionDate.getTime() + 24 * 60 * 60 * 1000)
   const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = earliestLastCount
     ? await Promise.all([
-        buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff),
-        buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff),
-        buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff),
-        buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt),
-        buildTransferMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt),
+        buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff, until),
+        buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff, until),
+        buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff, until),
+        buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt, until),
+        buildTransferMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt, until),
       ])
     : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }, new Map<string, number>()]
 

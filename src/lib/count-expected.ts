@@ -48,7 +48,24 @@ type RecipeForExpansion = {
  * (Previously such items received nothing, which silently dropped their purchases.)
  */
 const DAY_MS = 24 * 60 * 60 * 1000
-function inWindow(cutoff: Map<string, Date> | undefined, id: string, date: Date): boolean {
+
+/**
+ * `until` closes the window at the top. A count is a statement about one date, so
+ * its expected quantities must reflect the world on THAT date — movements after it
+ * belong to the next period. Without an upper bound, re-syncing a session weeks
+ * later rebuilds its baseline against today and subtracts everything consumed since:
+ * the reopened 1 Aug count had 177 of 413 lines driven to zero, because stock that
+ * was genuinely on the shelf on the 1st had been eaten by the 11th.
+ *
+ * Omitted for live theoretical stock, which legitimately means "as of now".
+ */
+function inWindow(
+  cutoff: Map<string, Date> | undefined,
+  id: string,
+  date: Date,
+  until?: Date,
+): boolean {
+  if (until && date.getTime() > until.getTime()) return false
   if (!cutoff) return true
   const c = cutoff.get(id)
   if (c == null) return true
@@ -77,7 +94,11 @@ export function prepEventCounts(
   id: string,
   logCreatedAt: Date,
   logDate: Date,
+  until?: Date,
 ): boolean {
+  // Checked first: the finalizedAt branch below ignores the window entirely, so a
+  // late prep log would otherwise slip past an upper bound.
+  if (until && logDate.getTime() > until.getTime()) return false
   const f = finalizedAt?.get(id)
   if (f != null) return logCreatedAt.getTime() > f.getTime()
   return inWindow(cutoff, id, logDate)
@@ -118,19 +139,20 @@ function expandRecipeIngredients(
   visitedRecipes: Set<string>,
   eventDate?: Date,
   cutoff?: Map<string, Date>,
+  until?: Date,
 ): void {
   if (visitedRecipes.has(recipe.id)) return
   visitedRecipes.add(recipe.id)
 
   for (const ing of recipe.ingredients) {
-    if (ing.inventoryItemId && ing.inventoryItem && (!eventDate || inWindow(cutoff, ing.inventoryItemId, eventDate))) {
+    if (ing.inventoryItemId && ing.inventoryItem && (!eventDate || inWindow(cutoff, ing.inventoryItemId, eventDate, until))) {
       const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, ing.inventoryItem.baseUnit)
       map.set(ing.inventoryItemId, (map.get(ing.inventoryItemId) ?? 0) + consumed)
     }
 
     if (ing.linkedRecipeId && ing.linkedRecipe && !visitedRecipes.has(ing.linkedRecipeId)) {
       const prep = ing.linkedRecipe
-      if (prep.inventoryItemId && prep.inventoryItem && (!eventDate || inWindow(cutoff, prep.inventoryItemId, eventDate))) {
+      if (prep.inventoryItemId && prep.inventoryItem && (!eventDate || inWindow(cutoff, prep.inventoryItemId, eventDate, until))) {
         const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, prep.inventoryItem.baseUnit)
         map.set(prep.inventoryItemId, (map.get(prep.inventoryItemId) ?? 0) + consumed)
       }
@@ -142,6 +164,7 @@ export async function buildConsumptionMap(
   since: Date,
   rcId?: string | null,
   cutoff?: Map<string, Date>,
+  until?: Date,
 ): Promise<Map<string, number>> {
   const lineItems = await prisma.saleLineItem.findMany({
     where: {
@@ -189,7 +212,7 @@ export async function buildConsumptionMap(
     // mid-period gets the full period's consumption, not just the post-count portion —
     // acceptable until per-day sales granularity exists.)
     const effectiveDate = li.sale.endDate ?? li.sale.date
-    expandRecipeIngredients(recipe, batches, map, new Set<string>(), effectiveDate, cutoff)
+    expandRecipeIngredients(recipe, batches, map, new Set<string>(), effectiveDate, cutoff, until)
   }
   return map
 }
@@ -198,6 +221,7 @@ export async function buildPurchaseMap(
   since: Date,
   rcId?: string | null,
   cutoff?: Map<string, Date>,
+  until?: Date,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
 
@@ -244,7 +268,7 @@ export async function buildPurchaseMap(
     // AFTER the count — the goods were already on the shelf when it was counted.
     // invoiceDate is a nullable "YYYY-MM-DD" OCR string; fall back to createdAt.
     const receivedDate = parseInvoiceDate(si.session.invoiceDate) ?? si.session.createdAt
-    if (!inWindow(cutoff, si.matchedItemId, receivedDate)) continue
+    if (!inWindow(cutoff, si.matchedItemId, receivedDate, until)) continue
     const qty = Number(si.rawQty ?? 0)
     if (qty <= 0) continue
 
@@ -306,6 +330,7 @@ export async function buildWastageMap(
   itemIds: string[],
   rcId?: string | null,
   cutoff?: Map<string, Date>,
+  until?: Date,
 ): Promise<Map<string, number>> {
   const wastageRows = await prisma.wastageLog.findMany({
     where: {
@@ -324,7 +349,7 @@ export async function buildWastageMap(
 
   const map = new Map<string, number>()
   for (const w of wastageRows) {
-    if (!inWindow(cutoff, w.inventoryItemId, w.date)) continue
+    if (!inWindow(cutoff, w.inventoryItemId, w.date, until)) continue
     const converted = convertQty(Number(w.qtyWasted), w.unit, w.inventoryItem.baseUnit)
     map.set(w.inventoryItemId, (map.get(w.inventoryItemId) ?? 0) + converted)
   }
@@ -360,6 +385,7 @@ export async function buildTransferMap(
   rcId?: string | null,
   cutoff?: Map<string, Date>,
   finalizedAt?: Map<string, Date>,
+  until?: Date,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
   if (!rcId) return map
@@ -375,7 +401,7 @@ export async function buildTransferMap(
   for (const t of transfers) {
     // Timestamp-precise vs the count moment, with a day-granular fallback — the same
     // rule prep uses (see prepEventCounts). logCreatedAt and logDate are both createdAt.
-    if (!prepEventCounts(finalizedAt, cutoff, t.inventoryItemId, t.createdAt, t.createdAt)) continue
+    if (!prepEventCounts(finalizedAt, cutoff, t.inventoryItemId, t.createdAt, t.createdAt, until)) continue
     // A transfer can't have fromRcId === toRcId (validated on write), so at most
     // one branch applies per row.
     const signed = t.toRcId === rcId ? Number(t.quantity) : -Number(t.quantity)
@@ -510,6 +536,7 @@ export async function buildPrepMap(
   rcId?: string | null,
   cutoff?: Map<string, Date>,
   finalizedAt?: Map<string, Date>,
+  until?: Date,
 ): Promise<{ consumption: Map<string, number>; output: Map<string, number> }> {
   const logs = await prisma.prepLog.findMany({
     where: {
@@ -563,16 +590,16 @@ export async function buildPrepMap(
       // conversion afterward — same pattern as recipeCosts.ts.
       const qty = Number(ing.qtyBase) * scale
       if (ing.inventoryItemId && ing.inventoryItem) {
-        if (prepEventCounts(finalizedAt, cutoff, ing.inventoryItem.id, log.createdAt, log.logDate))
+        if (prepEventCounts(finalizedAt, cutoff, ing.inventoryItem.id, log.createdAt, log.logDate, until))
           add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         const prep = ing.linkedRecipe.inventoryItem
-        if (prepEventCounts(finalizedAt, cutoff, prep.id, log.createdAt, log.logDate))
+        if (prepEventCounts(finalizedAt, cutoff, prep.id, log.createdAt, log.logDate, until))
           add(consumption, prep.id, convertQty(qty, ing.unit, prep.baseUnit))
       }
     }
 
-    if (recipe.inventoryItemId && recipe.inventoryItem && prepEventCounts(finalizedAt, cutoff, recipe.inventoryItem.id, log.createdAt, log.logDate)) {
+    if (recipe.inventoryItemId && recipe.inventoryItem && prepEventCounts(finalizedAt, cutoff, recipe.inventoryItem.id, log.createdAt, log.logDate, until)) {
       const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
       add(output, recipe.inventoryItem.id, yieldInBase)
     }
