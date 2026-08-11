@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, formatPricePerBase, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
 import { matchesPill, isCountedThisWeek, type InventoryPill } from '@/lib/inventory-pills'
+import { stockInHandQty, stockInHandValue, stockInHandKpis } from '@/lib/stock-in-hand'
 import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit, asChainItem,
   validateChainItem, type Dimension, type PackLink, type Pricing,
@@ -204,6 +205,10 @@ function InventoryPageInner() {
   // Inactive items no longer belong to the operational catalogue: the default view
   // fetches active items only, and this switch swaps to an inactive-only view.
   const [showInactive, setShowInactive] = useState(false)
+  // Stock in Hand: report the last PHYSICALLY counted quantity, no theoretical
+  // movement. A view mode, not a row filter — it redefines the Stock and Value
+  // columns and the KPI row, which is why it gets a visible basis line.
+  const [stockInHand, setStockInHand] = useState(false)
   // Default-deny: `role` is null while /api/me is in flight, so the export controls
   // stay hidden rather than flashing and then 403-ing. Mirrors CostChrome.
   const { role } = useUser()
@@ -245,7 +250,10 @@ function InventoryPageInner() {
   const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
   const [filterNeedsReview, setFilterNeedsReview] = useState(false)
 
-  const fetchItems = useCallback(() => {
+  // The single place the list query is built. Both the list fetch and the export
+  // button call it, so the downloaded file always covers exactly the rows the
+  // screen was showing — two hand-rolled param sets would drift (and did).
+  const listParams = useCallback(() => {
     const p = new URLSearchParams()
     if (search)         p.set('search', search)
     if (catFilter)      p.set('category', catFilter)
@@ -255,8 +263,21 @@ function InventoryPageInner() {
     if (showNonStocked) p.set('includeNonStocked', 'true')
     // Active items are the catalogue; inactive ones only exist in the dedicated view.
     p.set('isActive', showInactive ? 'false' : 'true')
-    fetch(`/api/inventory?${p}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
+    return p
   }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, activeKind, activeLocationId, showNonStocked, showInactive])
+
+  const fetchItems = useCallback(() => {
+    fetch(`/api/inventory?${listParams()}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
+  }, [listParams])
+
+  // Export the current view: the list filters, plus the basis (Stock in Hand vs the
+  // priced catalogue) and the active status pill, which the page applies client-side.
+  const exportHref = () => {
+    const p = listParams()
+    if (stockInHand) p.set('view', 'stock-in-hand')
+    if (activePill !== 'all') p.set('pill', activePill)
+    return `/api/inventory/export?${p.toString()}`
+  }
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
@@ -343,6 +364,10 @@ function InventoryPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
+  // Stock in Hand KPIs — same function the xlsx export calls, so the strip and the
+  // sheet cannot disagree.
+  const sihKpis = useMemo(() => stockInHandKpis(items), [items])
+
   // Pill filter. matchesPill is the shared predicate the export also applies, so a
   // filtered export always matches the screen that produced it.
   const pillFiltered = useMemo(() => {
@@ -362,6 +387,24 @@ function InventoryPageInner() {
   const invValue = (i: InventoryItem) =>
     effStock(i) * parseFloat(String(i.pricePerBaseUnit))
 
+  // Basis-aware readers. Deliberately SEPARATE from effStock/displayStock/invValue:
+  // those still drive the order list, the pills and the par comparisons, which must
+  // stay on theoretical stock even while this view is on.
+  const basisQtyBase = (i: InventoryItem): number | null =>
+    stockInHand ? stockInHandQty(i) : effStock(i)
+
+  const basisDisplayStock = (i: InventoryItem): number | null => {
+    const q = basisQtyBase(i)
+    if (q === null) return null
+    return convertBaseToCountUom(q, i.countUnit || i.baseUnit, {
+      dimension: i.dimension, baseUnit: i.baseUnit,
+      packChain: i.packChain, countUnit: i.countUnit,
+    })
+  }
+
+  const basisValue = (i: InventoryItem): number =>
+    stockInHand ? stockInHandValue(i) : invValue(i)
+
   // Sort
   const sortedItems = useMemo(() => {
     const copy = [...pillFiltered]
@@ -374,8 +417,10 @@ function InventoryPageInner() {
         case 'category': return (a.category.localeCompare(b.category) || a.itemName.localeCompare(b.itemName)) * dir
         case 'supplier': return ((a.supplier?.name ?? '').localeCompare(b.supplier?.name ?? '')) * dir
         case 'price':    return (parseFloat(String(a.purchasePrice)) - parseFloat(String(b.purchasePrice))) * dir
-        case 'stock':    return (effStock(a) - effStock(b)) * dir
-        case 'value':    return (invValue(a) - invValue(b)) * dir
+        // Sort follows the visible basis. Never-counted rows (null) sink to the
+        // bottom of a descending sort, which is where a gap belongs.
+        case 'stock':    return ((basisQtyBase(a) ?? -Infinity) - (basisQtyBase(b) ?? -Infinity)) * dir
+        case 'value':    return (basisValue(a) - basisValue(b)) * dir
         default:         return 0
       }
     }
@@ -392,7 +437,7 @@ function InventoryPageInner() {
     // Flat mode — sort entirely by active column, default A-Z by name
     if (colSort) return copy.sort(byCol(colSort.col))
     return copy.sort((a, b) => a.itemName.localeCompare(b.itemName))
-  }, [pillFiltered, sortBy, colSort, catNames])
+  }, [pillFiltered, sortBy, colSort, catNames, stockInHand])
 
   // Category groups (only in 'category' mode)
   const categoryGroups = useMemo(() => {
@@ -573,8 +618,11 @@ function InventoryPageInner() {
 
   // Row renderer
   const renderRow = (item: InventoryItem) => {
-    const itemValue = invValue(item)
-    const stockQty  = displayStock(item)
+    const itemValue = basisValue(item)
+    const basisQty  = basisDisplayStock(item)        // null = never counted
+    const stockQty  = displayStock(item)             // theoretical — drives the status pill
+    // isOut/isLow keep reading theoretical on purpose: the status pill answers "can we
+    // serve this tonight", which last month's counted quantity cannot.
     const isOut     = stockQty <= 0
     const isLow     = !isOut && item.parLevel != null && stockQty < item.parLevel
     return (
@@ -618,7 +666,9 @@ function InventoryPageInner() {
         <td className="px-3 py-[13px]">
           <div>
             <span className="font-mono text-[13px] text-ink-2 whitespace-nowrap">
-              {stockQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUnit || formatPurchaseDisplay(item)}</small>
+              {basisQty === null
+                ? <span className="text-ink-4">&mdash;</span>
+                : <>{basisQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUnit || formatPurchaseDisplay(item)}</small></>}
             </span>
             {item.countedStock != null && item.lastCountDate && (
               <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
@@ -695,7 +745,7 @@ function InventoryPageInner() {
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className={`font-mono text-[10.5px] ${inStock ? 'text-ink-3' : 'text-gold-2 font-semibold'}`}>
-              {displayStock(item).toFixed(1)} {item.countUnit || item.baseUnit}
+              {(() => { const q = basisDisplayStock(item); return q === null ? '—' : q.toFixed(1) })()} {item.countUnit || item.baseUnit}
               {!inStock && ' · OUT'}
             </span>
             {item.supplier && <span className="font-mono text-[10px] text-ink-4">· {item.supplier.name}</span>}
@@ -739,6 +789,9 @@ function InventoryPageInner() {
   const toggleInactiveView = () => {
     setShowInactive(v => !v)
     setActivePill('all')
+    // The inactive view replaces the KPI row with its own banner, so the two view
+    // modes must not both be on.
+    setStockInHand(false)
     setCheckedIds(new Set())
     // Clear immediately so the other view's rows never flash (or feed the KPIs)
     // while the refetch is in flight.
@@ -800,10 +853,10 @@ function InventoryPageInner() {
           </button>
           {canExport && (
             <button
-              onClick={() => window.location.href = '/api/inventory/export'}
+              onClick={() => { window.location.href = exportHref() }}
               className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
             >
-              <Download size={13} className="text-ink-3" /> Export
+              <Download size={13} className="text-ink-3" /> {stockInHand ? 'Export Stock in Hand' : 'Export'}
             </button>
           )}
           <button
@@ -828,8 +881,24 @@ function InventoryPageInner() {
         </div>
       )}
 
+      {/* Stock in Hand basis line — this view reports a different number from the rest
+          of the app, so it says so on screen rather than only in the exported file. */}
+      {stockInHand && !showInactive && (
+        <div className="flex items-start gap-3 rounded-xl border border-line bg-bg-2 px-4 py-3">
+          <AlertCircle size={15} className="text-ink-3 mt-0.5 shrink-0" />
+          <div className="text-[13px] text-ink-2">
+            <span className="font-semibold">Stock in Hand</span> — showing last physically counted
+            quantities at current prices. No sales, prep, wastage or purchase movement applied.
+            {activeRcId && !activeRc?.isDefault && (
+              <> Counts are recorded per item, not per revenue centre, so these are each item&rsquo;s
+              most recent count anywhere.</>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Mobile KPI strip */}
-      <div className={`${showInactive ? 'hidden' : 'flex'} sm:hidden gap-3 overflow-x-auto pb-0.5`} style={{ scrollbarWidth: 'none' }}>
+      <div className={`${showInactive || stockInHand ? 'hidden' : 'flex'} sm:hidden gap-3 overflow-x-auto pb-0.5`} style={{ scrollbarWidth: 'none' }}>
         <div className="flex-shrink-0 bg-ink text-paper rounded-[12px] px-3 py-2.5 min-w-[140px]">
           <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-4">Theoretical Value</div>
           <div className="font-mono text-[18px] font-semibold text-paper mt-0.5 tracking-[-0.02em]">
@@ -852,8 +921,34 @@ function InventoryPageInner() {
         </div>
       </div>
 
+      {/* Mobile KPI strip — Stock in Hand basis */}
+      {stockInHand && !showInactive && (
+      <div className="flex sm:hidden gap-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex-shrink-0 bg-ink text-paper rounded-[12px] px-3 py-2.5 min-w-[140px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-4">Stock In Hand</div>
+          <div className="font-mono text-[18px] font-semibold text-paper mt-0.5 tracking-[-0.02em]">
+            {(() => { const [d,c] = formatCurrency(sihKpis.value).split('.'); return <>{d}<span className="text-gold">.{c ?? '00'}</span></> })()}
+          </div>
+        </div>
+        <div className="flex-shrink-0 bg-paper border border-line rounded-[12px] px-3 py-2.5 min-w-[100px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">Coverage</div>
+          <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">
+            {sihKpis.counted}<span className="text-[12px] font-normal text-ink-4"> / {sihKpis.total}</span>
+          </div>
+        </div>
+        <div className="flex-shrink-0 bg-gold-soft border border-[#fcd34d] rounded-[12px] px-3 py-2.5 min-w-[100px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-gold-2">Never Counted</div>
+          <div className="font-mono text-[18px] font-semibold text-gold-2 mt-0.5 tracking-[-0.02em]">{sihKpis.neverCounted}</div>
+        </div>
+        <div className="flex-shrink-0 bg-paper border border-line rounded-[12px] px-3 py-2.5 min-w-[140px]">
+          <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">Unverified</div>
+          <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">{formatCurrency(sihKpis.unverifiedMovement)}</div>
+        </div>
+      </div>
+      )}
+
       {/* Desktop KPI row */}
-      <div className={`${showInactive ? 'hidden' : 'hidden sm:grid'} gap-3`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
+      <div className={`${showInactive || stockInHand ? 'hidden' : 'hidden sm:grid'} gap-3`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
         {/* Hero — Current Stock Value */}
         <div className="bg-ink text-paper rounded-xl border border-ink p-5 flex flex-col justify-between min-h-[128px] relative">
           <div className="absolute right-4 top-[18px] flex gap-[2px] items-end h-[18px]">
@@ -925,6 +1020,66 @@ function InventoryPageInner() {
         </div>
       </div>
 
+      {/* Desktop KPI row — Stock in Hand basis. Same numbers the xlsx export writes. */}
+      {stockInHand && (
+      <div className={`${showInactive ? 'hidden' : 'hidden sm:grid'} gap-3`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
+        <div className="bg-ink text-paper rounded-xl border border-ink p-5 flex flex-col justify-between min-h-[128px]">
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">STOCK IN HAND VALUE</div>
+            <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2 whitespace-nowrap">
+              {formatCurrency(sihKpis.value).split('.')[0]}
+              <sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline ml-[1px]">
+                .{formatCurrency(sihKpis.value).split('.')[1] ?? '00'}
+              </sub>
+            </div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-4 mt-2">Last counted quantities, current prices</div>
+        </div>
+
+        <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px] relative">
+          <div className="absolute top-0 left-0 w-8 h-[2px] bg-gold rounded-[1px]" />
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">COVERAGE</div>
+            <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-ink whitespace-nowrap">
+              {sihKpis.counted}
+              <span className="text-[18px] font-normal text-ink-3"> / {sihKpis.total}</span>
+            </div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">items physically counted</div>
+        </div>
+
+        <div className="rounded-xl p-5 flex flex-col justify-between min-h-[128px]" style={{ background: '#fffbeb', border: '1px solid #fcd34d' }}>
+          <div>
+            <div className="font-mono text-[10.5px] text-gold-2 tracking-[0.01em]">NEVER COUNTED</div>
+            <div className="text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 text-gold-2">{sihKpis.neverCounted}</div>
+          </div>
+          <div className="font-mono text-[11px] text-gold-2 font-medium mt-2">valued at $0 here</div>
+        </div>
+
+        <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px]">
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">OLDEST COUNT</div>
+            <div className="text-[22px] font-semibold tracking-[-0.03em] leading-none mt-3 text-ink">
+              {sihKpis.oldestCountDate
+                ? new Date(sihKpis.oldestCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
+                : '—'}
+            </div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">in the current view</div>
+        </div>
+
+        <div className="bg-paper border border-line rounded-xl p-5 flex flex-col justify-between min-h-[128px]">
+          <div>
+            <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">UNVERIFIED MOVEMENT</div>
+            <div className="text-[26px] font-semibold tracking-[-0.03em] leading-none mt-2 text-ink whitespace-nowrap">
+              {formatCurrency(sihKpis.unverifiedMovement)}
+            </div>
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">theoretical minus counted</div>
+        </div>
+      </div>
+      )}
+
       {/* Mobile controls — Sort & Filter always visible, pills scroll separately */}
       <div className="flex sm:hidden flex-col gap-2">
         {/* Always-visible controls row */}
@@ -976,11 +1131,11 @@ function InventoryPageInner() {
           {/* Export CSV */}
           {canExport && (
             <button
-              onClick={() => { window.location.href = '/api/inventory/export' }}
-              title="Export CSV"
+              onClick={() => { window.location.href = exportHref() }}
+              title={stockInHand ? 'Export Stock in Hand' : 'Export CSV'}
               className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
             >
-              <Download size={11} /> CSV
+              <Download size={11} /> {stockInHand ? 'SIH' : 'CSV'}
             </button>
           )}
         </div>
@@ -997,6 +1152,19 @@ function InventoryPageInner() {
               {p.label}
             </button>
           ))}
+          {/* Stock in Hand switch — a view mode: it swaps the basis of the stock and
+              value columns and the KPI strip, it does not filter rows. */}
+          <button
+            onClick={() => setStockInHand(v => !v)}
+            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-[0.04em] transition-colors ${
+              stockInHand ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-2 border border-line'
+            }`}
+          >
+            Stock in Hand
+            <span className={`relative inline-flex w-[26px] h-[15px] shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${stockInHand ? 'bg-gold' : 'bg-line-2'}`}>
+              <span className={`pointer-events-none inline-block h-[11px] w-[11px] transform rounded-full bg-white shadow transition duration-200 ${stockInHand ? 'translate-x-[11px]' : 'translate-x-0'}`} />
+            </span>
+          </button>
           {/* Inactive-items switch — swaps the whole view, not a client-side filter */}
           <button
             onClick={toggleInactiveView}
@@ -1043,11 +1211,25 @@ function InventoryPageInner() {
         >
           {showNonStocked ? 'Hide non-stocked' : 'Show non-stocked'}
         </button>
+        {/* Stock in Hand switch — a view mode: it swaps the basis of the stock and
+            value columns and the KPI strip, it does not filter rows. */}
+        <button
+          onClick={() => setStockInHand(v => !v)}
+          title="Show last physically counted quantities only — no theoretical movement"
+          className={`ml-auto flex items-center gap-2 font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
+            stockInHand ? 'bg-ink text-paper border border-ink' : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
+          }`}
+        >
+          Stock in Hand
+          <span className={`relative inline-flex w-[26px] h-[15px] shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${stockInHand ? 'bg-gold' : 'bg-line-2'}`}>
+            <span className={`pointer-events-none inline-block h-[11px] w-[11px] transform rounded-full bg-white shadow transition duration-200 ${stockInHand ? 'translate-x-[11px]' : 'translate-x-0'}`} />
+          </span>
+        </button>
         {/* Inactive-items switch — swaps the whole view, not a client-side filter */}
         <button
           onClick={toggleInactiveView}
           title="View items removed from the system (excluded from KPIs and calculations)"
-          className={`ml-auto flex items-center gap-2 font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-2 font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
             showInactive ? 'bg-ink text-paper border border-ink' : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
           }`}
         >
@@ -1525,7 +1707,7 @@ function InventoryPageInner() {
       <div className="block sm:hidden bg-paper rounded-[12px] border border-line overflow-hidden">
         {categoryGroups ? (
           categoryGroups.map(([cat, rows]) => {
-            const catValue = rows.reduce((s, i) => s + invValue(i), 0)
+            const catValue = rows.reduce((s, i) => s + basisValue(i), 0)
             const collapsed = collapsedCats.has(cat)
             const belowPar = rows.filter(r => r.parLevel != null && displayStock(r) < (r.parLevel ?? 0)).length
             return (
@@ -1573,8 +1755,10 @@ function InventoryPageInner() {
                 )}
                 <SortTh col="supplier" label="Supplier" colSort={colSort} onSort={toggleColSort} className="text-left hidden md:table-cell" />
                 <SortTh col="price" label="Purchase price" colSort={colSort} onSort={toggleColSort} className="text-left" />
-                <SortTh col="stock" label="Theoretical stock" colSort={colSort} onSort={toggleColSort} className="text-left" />
-                <SortTh col="value" label="Inv value" colSort={colSort} onSort={toggleColSort} className="text-left" />
+                {/* The column headers name the basis: in Stock in Hand mode these two
+                    columns report counted quantities, not theoretical ones. */}
+                <SortTh col="stock" label={stockInHand ? 'Stock in hand' : 'Theoretical stock'} colSort={colSort} onSort={toggleColSort} className="text-left" />
+                <SortTh col="value" label={stockInHand ? 'Counted value' : 'Inv value'} colSort={colSort} onSort={toggleColSort} className="text-left" />
                 <th className="px-3 py-[10px] font-mono text-[10.5px] text-ink-3 tracking-[0.01em] hidden sm:table-cell">Status</th>
                 <th className="px-3 py-[10px] font-mono text-[10.5px] text-ink-3 tracking-[0.01em] text-right w-24">Active</th>
               </tr>
@@ -1582,7 +1766,7 @@ function InventoryPageInner() {
             <tbody>
               {categoryGroups ? (
                 categoryGroups.map(([cat, rows]) => {
-                  const catValue  = rows.reduce((s, i) => s + invValue(i), 0)
+                  const catValue  = rows.reduce((s, i) => s + basisValue(i), 0)
                   const allChecked = rows.length > 0 && rows.every(r => checkedIds.has(r.id))
                   const collapsed  = collapsedCats.has(cat)
                   return (
