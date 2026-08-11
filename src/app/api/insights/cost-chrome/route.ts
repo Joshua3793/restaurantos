@@ -34,7 +34,11 @@ async function defaultTargetPct(): Promise<number> {
  */
 export async function GET(req: NextRequest) {
   let user
-  try { user = await requireSession() }
+  // MANAGER+ only. Every field below is cost or money, and STAFF/LEAD "never
+  // sees cost or money" (ROLE_DESCRIPTIONS in src/lib/roles.ts). The strip is
+  // mounted on STAFF-reachable routes (/count, /prep, /inventory, /today), so
+  // this guard — not the route list — is what keeps the numbers out of reach.
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
