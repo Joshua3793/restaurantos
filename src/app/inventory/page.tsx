@@ -675,10 +675,15 @@ function InventoryPageInner() {
             </span>
             {item.countedStock != null && item.lastCountDate && (
               <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
-                counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
-                  dimension: item.dimension, baseUnit: item.baseUnit,
-                  packChain: item.packChain, countUnit: item.countUnit,
-                }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                {stockInHand
+                  // The headline above is already the counted quantity in this mode —
+                  // showing countedStock (current real stock, not the frozen count) here
+                  // too would contradict it wherever stock has moved since the count.
+                  ? <>counted {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>
+                  : <>counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
+                      dimension: item.dimension, baseUnit: item.baseUnit,
+                      packChain: item.packChain, countUnit: item.countUnit,
+                    }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>}
               </div>
             )}
           </div>
@@ -748,17 +753,27 @@ function InventoryPageInner() {
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className={`font-mono text-[10.5px] ${inStock ? 'text-ink-3' : 'text-gold-2 font-semibold'}`}>
-              {(() => { const q = basisDisplayStock(item); return q === null ? '—' : q.toFixed(1) })()} {item.countUnit || item.baseUnit}
+              {(() => {
+                const q = basisDisplayStock(item)
+                // Never-counted rows show a bare em-dash — appending a unit to "—"
+                // reads as a broken value ("— kg"), not "unknown quantity".
+                return q === null ? '—' : <>{q.toFixed(1)} {item.countUnit || item.baseUnit}</>
+              })()}
               {!inStock && ' · OUT'}
             </span>
             {item.supplier && <span className="font-mono text-[10px] text-ink-4">· {item.supplier.name}</span>}
           </div>
           {item.countedStock != null && item.lastCountDate && (
             <div className="font-mono text-[9.5px] text-ink-4 mt-0.5">
-              counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
-                dimension: item.dimension, baseUnit: item.baseUnit,
-                packChain: item.packChain, countUnit: item.countUnit,
-              }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+              {stockInHand
+                // The headline above is already the counted quantity in this mode —
+                // showing countedStock (current real stock, not the frozen count) here
+                // too would contradict it wherever stock has moved since the count.
+                ? <>counted {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>
+                : <>counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
+                    dimension: item.dimension, baseUnit: item.baseUnit,
+                    packChain: item.packChain, countUnit: item.countUnit,
+                  }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>}
             </div>
           )}
           {item.allergens && item.allergens.length > 0 && (
@@ -799,6 +814,23 @@ function InventoryPageInner() {
     // Clear immediately so the other view's rows never flash (or feed the KPIs)
     // while the refetch is in flight.
     setItems([])
+  }
+
+  // Mirrors toggleInactiveView: the basis line and both Stock in Hand KPI strips
+  // are guarded `stockInHand && !showInactive`, so turning Stock in Hand on while
+  // already viewing inactive items would otherwise leave counted quantities on
+  // screen with no basis line and no KPI strip saying so. Make the state
+  // unreachable rather than patching the guard.
+  const toggleStockInHand = () => {
+    setStockInHand(v => !v)
+    if (showInactive) {
+      setShowInactive(false)
+      setActivePill('all')
+      setCheckedIds(new Set())
+      // Clear immediately so the inactive rows never flash while the active
+      // catalogue reloads.
+      setItems([])
+    }
   }
 
   const pills: { key: InventoryPill; label: string }[] = [
@@ -1138,7 +1170,7 @@ function InventoryPageInner() {
               title={stockInHand ? 'Export Stock in Hand' : 'Export CSV'}
               className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
             >
-              <Download size={11} /> {stockInHand ? 'SIH' : 'CSV'}
+              <Download size={11} /> {stockInHand ? 'Counted' : 'CSV'}
             </button>
           )}
         </div>
@@ -1158,7 +1190,7 @@ function InventoryPageInner() {
           {/* Stock in Hand switch — a view mode: it swaps the basis of the stock and
               value columns and the KPI strip, it does not filter rows. */}
           <button
-            onClick={() => setStockInHand(v => !v)}
+            onClick={toggleStockInHand}
             className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-[0.04em] transition-colors ${
               stockInHand ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-2 border border-line'
             }`}
@@ -1217,7 +1249,7 @@ function InventoryPageInner() {
         {/* Stock in Hand switch — a view mode: it swaps the basis of the stock and
             value columns and the KPI strip, it does not filter rows. */}
         <button
-          onClick={() => setStockInHand(v => !v)}
+          onClick={toggleStockInHand}
           title="Show last physically counted quantities only — no theoretical movement"
           className={`ml-auto flex items-center gap-2 font-mono text-[11px] px-3 py-[6px] rounded-full transition-colors whitespace-nowrap ${
             stockInHand ? 'bg-ink text-paper border border-ink' : 'bg-paper border border-line text-ink-2 hover:border-ink-3'
