@@ -11,6 +11,8 @@
  * the caller's job (convertBaseToCountUom); value must NOT be converted —
  * pricePerBaseUnit is already per base unit.
  */
+import { matchesPill, type InventoryPill, type PillItem } from './inventory-pills'
+import { resolveCountUom } from './count-uom'
 
 /** The fields Stock in Hand needs. Both an API row and a Prisma row satisfy it. */
 export interface StockInHandItem {
@@ -99,4 +101,36 @@ export function stockInHandKpis(items: StockInHandItem[]): StockInHandKpis {
     theoreticalValue,
     unverifiedMovement: theoreticalValue - value,
   }
+}
+
+/**
+ * Normalize each row's countUnit through resolveCountUom — the same repair the
+ * page's normalizeItem applies to every row the moment the list lands — and
+ * ONLY THEN apply the status-pill filter. Order matters: matchesPill's lowStock
+ * branch converts theoretical stock into count units before comparing it to
+ * par, so filtering against the raw stored countUnit can select a different
+ * row set than the screen did. A stored unit the chain can't resolve (an empty
+ * string, or a cross-dimension leftover like 'ml' on a MASS item) measures in
+ * BASE units on the raw path instead of the resolved count unit — e.g. 12,500 g
+ * vs a par of 20 kg reads as "not low" unresolved and "low" resolved.
+ *
+ * Exported so a test can prove the ordering is load-bearing without pulling in
+ * Prisma or Next: reverting this function to filter-then-normalize (or to skip
+ * the resolveCountUom step) must make that test fail.
+ */
+export function selectStockInHandRows<T extends PillItem>(
+  rows: T[],
+  pill: InventoryPill,
+  now: Date = new Date(),
+): T[] {
+  const normalized = rows.map(r => ({
+    ...r,
+    countUnit: resolveCountUom({
+      dimension: r.dimension,
+      baseUnit: r.baseUnit,
+      packChain: r.packChain,
+      countUnit: r.countUnit ?? undefined,
+    }),
+  }))
+  return normalized.filter(r => matchesPill(pill, r, now))
 }

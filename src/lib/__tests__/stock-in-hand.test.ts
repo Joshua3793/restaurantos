@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  stockInHandQty, stockInHandValue, theoreticalQty, stockInHandKpis,
+  stockInHandQty, stockInHandValue, theoreticalQty, stockInHandKpis, selectStockInHandRows,
   type StockInHandItem,
 } from '../stock-in-hand'
+import { resolveCountUom } from '../count-uom'
+import type { PillItem } from '../inventory-pills'
 
 const item = (over: Partial<StockInHandItem> = {}): StockInHandItem => ({
   lastCountQty: 10,
@@ -104,5 +106,60 @@ describe('stockInHandKpis', () => {
       value: 0, counted: 0, total: 0, neverCounted: 0,
       oldestCountDate: null, theoreticalValue: 0, unverifiedMovement: 0,
     })
+  })
+})
+
+/**
+ * Call-site coverage for the export bug fixed in c62f9f2: the export's
+ * stockInHandWorkbook must normalize each row's countUnit (resolveCountUom)
+ * BEFORE applying the status-pill filter, or a Low-stock-filtered export can
+ * contain a different row set than the screen that produced it. The two
+ * tests originally added for that fix (inventory-pills.test.ts) only exercise
+ * matchesPill + resolveCountUom directly — reverting the normalization line
+ * in the route left both green, because neither test goes through the route's
+ * call site. selectStockInHandRows is the extracted, testable version of that
+ * call site; these tests fail if its normalize-then-filter ordering regresses.
+ */
+describe('selectStockInHandRows', () => {
+  // Mirrors the flour fixture in inventory-pills.test.ts: MASS, base g, a real
+  // multi-link chain, 12,500 g on hand, par 20 (count units). The STORED
+  // countUnit is deliberately one the chain cannot resolve — an empty string,
+  // or a cross-dimension leftover like 'ml' on a MASS item (the known
+  // purchaseUnit corruption class documented in project_countuom_purchaseunit_repair) —
+  // so the RAW value measures in BASE units (12,500 > par 20 → not low) while
+  // the RESOLVED value is 'kg' (12.5 < 20 → low). The lowStock verdict, and
+  // therefore the row's membership in the returned set, flips between them.
+  const packChain = [{ unit: 'case', per: 12 }, { unit: 'kg', per: 1000 }]
+  const flour = (countUnit: string): PillItem & { itemName: string } => ({
+    itemName: 'Flour',
+    lastCountDate: null,
+    pricePerBaseUnit: 0.004,
+    theoreticalStock: 12500,
+    stockOnHand: 12500,
+    parLevel: 20,
+    baseUnit: 'g',
+    dimension: 'MASS',
+    packChain,
+    countUnit,
+  })
+
+  it('resolves an unresolvable stored countUnit before filtering, so a low-stock row is not dropped', () => {
+    for (const stored of ['', 'ml']) {
+      const resolved = resolveCountUom({ dimension: 'MASS', baseUnit: 'g', packChain, countUnit: stored })
+      expect(resolved).toBe('kg')
+
+      const result = selectStockInHandRows([flour(stored)], 'lowStock')
+      // Filtering the RAW '' / 'ml' countUnit against par (without resolving first) would
+      // compare 12,500 base units to par 20 and exclude this row — the row only survives
+      // into the Low-stock export because selectStockInHandRows resolves countUnit first.
+      expect(result).toHaveLength(1)
+      expect(result[0].itemName).toBe('Flour')
+      expect(result[0].countUnit).toBe('kg')
+    }
+  })
+
+  it('excludes a well-stocked row, proving the function actually filters', () => {
+    const wellStocked = { ...flour('kg'), theoreticalStock: 50000, stockOnHand: 50000 } // 50 kg > par 20
+    expect(selectStockInHandRows([wellStocked], 'lowStock')).toHaveLength(0)
   })
 })

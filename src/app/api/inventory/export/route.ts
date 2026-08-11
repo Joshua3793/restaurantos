@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/lib/item-model'
-import { formatPurchaseDisplay, convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
-import { stockInHandKpis, stockInHandQty, stockInHandValue, theoreticalQty } from '@/lib/stock-in-hand'
-import { matchesPill, PILL_LABELS, INVENTORY_PILLS, type InventoryPill, type PillItem } from '@/lib/inventory-pills'
+import { stockInHandKpis, stockInHandQty, stockInHandValue, theoreticalQty, selectStockInHandRows } from '@/lib/stock-in-hand'
+import { PILL_LABELS, INVENTORY_PILLS, type InventoryPill, type PillItem } from '@/lib/inventory-pills'
 
 export const dynamic = 'force-dynamic'
 
@@ -158,13 +158,24 @@ const BASIS_STATEMENT =
   'Showing last physically counted quantities at current prices. ' +
   'No sales, prep, wastage or purchase movement applied.'
 
+// Always true, independent of scope comparability: an RC-scoped count overwrites the
+// GLOBAL lastCountQty on the item without touching that RC's stockOnHand allocation
+// (see src/lib/count-finalize.ts ~117-124), so a counted quantity read anywhere — even
+// in the comparable default-RC or unscoped case — may have been physically counted in
+// a different revenue centre than the one the export is scoped to.
+const COUNT_SCOPE_CAVEAT =
+  'Note: lastCountQty is a single global field on the item, not per revenue centre. An ' +
+  'RC-scoped count writes it but leaves that RC’s allocation alone, so a counted quantity ' +
+  'always reads "last count of this item anywhere" — it may have been counted in a ' +
+  'different revenue centre than the one this export is scoped to.'
+
+// Only true when the scope makes the counted (global) and theoretical (scope-filtered)
+// bases outright incomparable, not merely "counted somewhere else".
 const CROSS_RC_NOTE =
-  'Scope note: lastCountQty is a single global field on the item. An RC-scoped count ' +
-  'writes it but leaves that RC’s allocation alone, so a counted quantity always reads ' +
-  '"last count of this item anywhere", while theoretical stock is scoped to this view. ' +
-  'Outside the whole default stock pool the two bases are therefore not comparable: ' +
-  'Unverified Movement is reported as n/a and the per-row Unverified Movement Value ' +
-  'column is left blank rather than printing a difference between two different scopes.'
+  'Scope note: theoretical stock, unlike lastCountQty, is scoped to this view. Outside ' +
+  'the whole default stock pool the two bases are therefore not comparable: Unverified ' +
+  'Movement is reported as n/a and the per-row Unverified Movement Value column is left ' +
+  'blank rather than printing a difference between two different scopes.'
 
 const UNVERIFIED_NA_REASON =
   'counted quantities are global, theoretical stock is scoped to this view'
@@ -207,24 +218,26 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
   const { pill, rows: filterRows } = await resolveFilterLabels(searchParams)
   const comparable = scopeIsComparable(searchParams)
 
-  // Repair the count unit BEFORE anything reads it — the page's normalizeItem does the
-  // same thing to every row the moment the list lands, so the raw column is never what
-  // the screen shows. InventoryItem.countUnit defaults to "each", so a MASS/VOLUME item
-  // that never had one set would otherwise be exported as "12.5 each" where the app says
-  // "12.5 kg". It also has to happen before matchesPill: the lowStock predicate compares
-  // par against a quantity converted through this unit, so an unresolvable stored unit
-  // (a cross-dimension leftover, an unknown container name, an empty string) would select
-  // a different row set than the screen did.
-  const allRows = outOfScope ? [] : rawRows.map(r => ({ ...r, countUnit: resolveCountUom(countDims(r)) }))
-
-  // Apply the same pill predicate the page applies, so the file matches the screen.
+  // Repair the count unit BEFORE anything reads it, then apply the same pill predicate
+  // the page applies — in that order, so the file matches the screen. Extracted into
+  // selectStockInHandRows (src/lib/stock-in-hand.ts) so a test can pin the ordering
+  // without pulling Prisma/Next into the test's import graph: InventoryItem.countUnit
+  // defaults to "each", so a MASS/VOLUME item that never had one set would otherwise be
+  // exported as "12.5 each" where the app says "12.5 kg", and the lowStock predicate
+  // compares par against a quantity converted through this unit, so an unresolvable
+  // stored unit (a cross-dimension leftover, an unknown container name, an empty string)
+  // would select a different row set than the screen did if filtered before normalizing.
+  //
   // InventoryListRow carries packChain via its `[key: string]: any` catch-all (not a
   // statically declared field), so it satisfies PillItem at runtime but not structurally.
   // Narrow the assertion to just the one genuinely-missing named field (packChain) so
   // every other PillItem field stays under real structural checking — if PillItem later
   // gains a required field InventoryListRow doesn't populate, this call site should fail.
-  const rows = allRows.filter(r =>
-    matchesPill(pill, r as InventoryListRow & Pick<PillItem, 'packChain'>))
+  // outOfScope stays a short-circuit at this call site (not inside the pure helper) so
+  // the fail-closed empty result doesn't depend on — or get diluted by — row-selection logic.
+  const rows = outOfScope
+    ? []
+    : selectStockInHandRows(rawRows as (InventoryListRow & Pick<PillItem, 'packChain'>)[], pill)
   const kpis = stockInHandKpis(rows)
 
   const wb = XLSX.utils.book_new()
@@ -235,8 +248,10 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
     [],
     ['Basis'],
     [BASIS_STATEMENT],
-    // Only when the scope makes the counted and theoretical bases incomparable — the
-    // page shows the same caveat under the same condition.
+    // Always true — a counted quantity is global, not per-RC, regardless of whether this
+    // view's scope happens to be comparable to it — plus, only when the scope makes the
+    // counted and theoretical bases outright incomparable, the incomparability explanation.
+    [COUNT_SCOPE_CAVEAT],
     ...(comparable ? [] : [[CROSS_RC_NOTE]]),
     [],
     ['Filters applied'],
