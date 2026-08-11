@@ -379,6 +379,15 @@ function InventoryPageInner() {
   // cannot disagree when a pill is active.
   const sihKpis = useMemo(() => stockInHandKpis(pillFiltered), [pillFiltered])
 
+  // Unverified Movement is theoretical MINUS counted, and those two are not always
+  // measured over the same stock. lastCountQty is a single global column on the item,
+  // while theoreticalStock is computed per scope (getTheoreticalStockMap(rcId, …)), so
+  // the subtraction only means something when the view IS the whole default stock pool:
+  // the unscoped All view, or an RC view whose RC is the default one. On a non-default
+  // RC — or under the location lens — the difference is fabricated, so it is suppressed
+  // rather than shown. The export reconstructs this same predicate from its scope params.
+  const scopeComparable = activeKind === 'all' || (activeKind === 'rc' && !!activeRc?.isDefault)
+
   // Column sort: first click → smart default direction; same column → flip direction
   const toggleColSort = (col: ColKey) => {
     setColSort(prev => {
@@ -924,9 +933,10 @@ function InventoryPageInner() {
           <div className="text-[13px] text-ink-2">
             <span className="font-semibold">Stock in Hand</span> — showing last physically counted
             quantities at current prices. No sales, prep, wastage or purchase movement applied.
-            {activeRcId && !activeRc?.isDefault && (
+            {!scopeComparable && (
               <> Counts are recorded per item, not per revenue centre, so these are each item&rsquo;s
-              most recent count anywhere.</>
+              most recent count anywhere, while theoretical stock is scoped to this view. The two
+              are not comparable here, so Unverified Movement is not shown.</>
             )}
           </div>
         </div>
@@ -977,7 +987,12 @@ function InventoryPageInner() {
         </div>
         <div className="flex-shrink-0 bg-paper border border-line rounded-[12px] px-3 py-2.5 min-w-[140px]">
           <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">Unverified</div>
-          <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">{formatCurrency(sihKpis.unverifiedMovement)}</div>
+          <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">
+            {scopeComparable ? formatCurrency(sihKpis.unverifiedMovement) : '—'}
+          </div>
+          {!scopeComparable && (
+            <div className="font-mono text-[9px] text-ink-3 leading-tight mt-0.5">counted &amp; theoretical<br />scoped differently</div>
+          )}
         </div>
       </div>
       )}
@@ -1107,10 +1122,14 @@ function InventoryPageInner() {
           <div>
             <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">UNVERIFIED MOVEMENT</div>
             <div className="text-[26px] font-semibold tracking-[-0.03em] leading-none mt-2 text-ink whitespace-nowrap">
-              {formatCurrency(sihKpis.unverifiedMovement)}
+              {scopeComparable ? formatCurrency(sihKpis.unverifiedMovement) : '—'}
             </div>
           </div>
-          <div className="font-mono text-[11px] text-ink-3 mt-2">theoretical minus counted</div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">
+            {scopeComparable
+              ? 'theoretical minus counted'
+              : 'counted and theoretical are scoped differently'}
+          </div>
         </div>
       </div>
       )}

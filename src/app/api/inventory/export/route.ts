@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/lib/item-model'
-import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
+import { formatPurchaseDisplay, convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
 import { stockInHandKpis, stockInHandQty, stockInHandValue, theoreticalQty } from '@/lib/stock-in-hand'
@@ -130,6 +130,14 @@ async function resolveFilterLabels(searchParams: URLSearchParams) {
   const rawPill = searchParams.get('pill') || 'all'
   const pill = (INVENTORY_PILLS as string[]).includes(rawPill) ? rawPill as InventoryPill : 'all'
 
+  // Read isActive exactly the way parseInventoryListParams/fetchInventoryList do:
+  // null or '' applies no filter at all; 'true' keeps active items; anything else
+  // (the page sends 'false') keeps inactive ones.
+  const rawActive = searchParams.get('isActive')
+  const activeLabel = rawActive === null || rawActive === ''
+    ? 'active and inactive items'
+    : rawActive === 'true' ? 'active items only' : 'inactive items only'
+
   return {
     pill,
     rows: [
@@ -139,6 +147,8 @@ async function resolveFilterLabels(searchParams: URLSearchParams) {
       ['Storage area',   storageArea?.name ?? 'all'],
       ['Revenue centre', rc?.name ?? (rcId ? `(unknown: ${rcId})` : 'all')],
       ['Status filter',  PILL_LABELS[pill]],
+      ['Needs review',   searchParams.get('needsReview') === 'true' ? 'flagged items only' : 'all'],
+      ['Item status',    activeLabel],
       ['Non-stocked items', searchParams.get('includeNonStocked') === 'true' ? 'included' : 'excluded'],
     ] as (string | number)[][],
   }
@@ -149,24 +159,63 @@ const BASIS_STATEMENT =
   'No sales, prep, wastage or purchase movement applied.'
 
 const CROSS_RC_NOTE =
-  'lastCountQty is a single global field on the item. An RC-scoped count writes it ' +
-  'but leaves that RC’s allocation alone, so on a non-default revenue centre this ' +
-  'reads "last count of this item anywhere", not "last count in this revenue centre".'
+  'Scope note: lastCountQty is a single global field on the item. An RC-scoped count ' +
+  'writes it but leaves that RC’s allocation alone, so a counted quantity always reads ' +
+  '"last count of this item anywhere", while theoretical stock is scoped to this view. ' +
+  'Outside the whole default stock pool the two bases are therefore not comparable: ' +
+  'Unverified Movement is reported as n/a and the per-row Unverified Movement Value ' +
+  'column is left blank rather than printing a difference between two different scopes.'
 
-/** Quantity in the item's count UOM. Value must NOT be converted — ppb is per base unit. */
-function countQty(row: InventoryListRow, baseQty: number): number {
-  return convertBaseToCountUom(baseQty, row.countUnit || row.baseUnit, {
+const UNVERIFIED_NA_REASON =
+  'counted quantities are global, theoretical stock is scoped to this view'
+
+/**
+ * Unverified Movement subtracts a GLOBAL counted value (InventoryItem.lastCountQty)
+ * from a SCOPE-FILTERED theoretical value, so the subtraction only means something
+ * when the view IS the whole default stock pool. The export sees only the scope
+ * params the page writes via setScopeParams, which is enough to reconstruct the
+ * page's own predicate exactly:
+ *   rcId + isDefault=true → the default RC        (comparable)
+ *   rcId, no isDefault    → a non-default RC      (not comparable)
+ *   locationId            → a location lens       (not comparable)
+ *   neither               → the unscoped All view (comparable)
+ */
+function scopeIsComparable(searchParams: URLSearchParams): boolean {
+  const rcId = searchParams.get('rcId') || ''
+  if (rcId) return searchParams.get('isDefault') === 'true'
+  return !(searchParams.get('locationId') || '')
+}
+
+/** The count-UOM facts resolveCountUom / convertBaseToCountUom read off a list row. */
+function countDims(row: InventoryListRow) {
+  return {
     dimension: row.dimension,
     baseUnit: row.baseUnit,
     packChain: row.packChain,
     countUnit: row.countUnit ?? undefined,
-  })
+  }
+}
+
+/** Quantity in the item's count UOM. Value must NOT be converted — ppb is per base unit. */
+function countQty(row: InventoryListRow, baseQty: number): number {
+  return convertBaseToCountUom(baseQty, row.countUnit || row.baseUnit, countDims(row))
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
-  const { rows: allRows, outOfScope } = await fetchInventoryList(user, parseInventoryListParams(searchParams))
+  const { rows: rawRows, outOfScope } = await fetchInventoryList(user, parseInventoryListParams(searchParams))
   const { pill, rows: filterRows } = await resolveFilterLabels(searchParams)
+  const comparable = scopeIsComparable(searchParams)
+
+  // Repair the count unit BEFORE anything reads it — the page's normalizeItem does the
+  // same thing to every row the moment the list lands, so the raw column is never what
+  // the screen shows. InventoryItem.countUnit defaults to "each", so a MASS/VOLUME item
+  // that never had one set would otherwise be exported as "12.5 each" where the app says
+  // "12.5 kg". It also has to happen before matchesPill: the lowStock predicate compares
+  // par against a quantity converted through this unit, so an unresolvable stored unit
+  // (a cross-dimension leftover, an unknown container name, an empty string) would select
+  // a different row set than the screen did.
+  const allRows = outOfScope ? [] : rawRows.map(r => ({ ...r, countUnit: resolveCountUom(countDims(r)) }))
 
   // Apply the same pill predicate the page applies, so the file matches the screen.
   // InventoryListRow carries packChain via its `[key: string]: any` catch-all (not a
@@ -174,7 +223,7 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
   // Narrow the assertion to just the one genuinely-missing named field (packChain) so
   // every other PillItem field stays under real structural checking — if PillItem later
   // gains a required field InventoryListRow doesn't populate, this call site should fail.
-  const rows = outOfScope ? [] : allRows.filter(r =>
+  const rows = allRows.filter(r =>
     matchesPill(pill, r as InventoryListRow & Pick<PillItem, 'packChain'>))
   const kpis = stockInHandKpis(rows)
 
@@ -186,7 +235,9 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
     [],
     ['Basis'],
     [BASIS_STATEMENT],
-    [CROSS_RC_NOTE],
+    // Only when the scope makes the counted and theoretical bases incomparable — the
+    // page shows the same caveat under the same condition.
+    ...(comparable ? [] : [[CROSS_RC_NOTE]]),
     [],
     ['Filters applied'],
     ...filterRows,
@@ -196,7 +247,9 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
     ['Coverage',             `${kpis.counted} / ${kpis.total}`],
     ['Never Counted',        kpis.neverCounted],
     ['Oldest Count',         kpis.oldestCountDate ? new Date(kpis.oldestCountDate).toLocaleDateString() : '—'],
-    ['Unverified Movement',  Number(kpis.unverifiedMovement.toFixed(2))],
+    comparable
+      ? ['Unverified Movement', Number(kpis.unverifiedMovement.toFixed(2))]
+      : ['Unverified Movement', 'n/a', UNVERIFIED_NA_REASON],
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kpiData), 'KPI Summary')
 
@@ -230,7 +283,9 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
       row.lastCountDate ? new Date(row.lastCountDate).toLocaleDateString() : '',
       qty === null ? 'Never' : 'Yes',
       theo,
-      theo * ppb - val,
+      // A global counted value minus a scope-filtered theoretical one is a fabricated
+      // number outside the default stock pool — leave the cell blank instead.
+      comparable ? theo * ppb - val : '',
     ]
   })
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...dataRows]), 'Stock in Hand')

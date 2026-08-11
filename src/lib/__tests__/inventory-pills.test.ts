@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { matchesPill, isCountedThisWeek, type PillItem } from '../inventory-pills'
+import { resolveCountUom } from '../count-uom'
 
 const NOW = new Date('2026-08-11T12:00:00.000Z')
 
@@ -112,5 +113,57 @@ describe('matchesPill', () => {
       dimension: 'MASS', packChain: [], parLevel: 'Infinity' as any,
     })
     expect(matchesPill('lowStock', wellStocked, NOW)).toBe(false)
+  })
+})
+
+/**
+ * The STORED countUnit is not what the app filters on: /inventory rewrites every row's
+ * countUnit through resolveCountUom the moment the list lands (normalizeItem), so the
+ * xlsx export has to do the same before it applies matchesPill. The lowStock predicate
+ * converts theoretical stock into count units to compare it against par, which makes the
+ * unit load-bearing on the ROW SET, not only on the displayed label.
+ */
+describe('lowStock over a raw vs resolved countUnit', () => {
+  // A 12 × 1 kg case of flour: MASS, base g, real multi-link chain, par 20 (count units).
+  const flour = (countUnit: string): PillItem => ({
+    lastCountDate: null,
+    pricePerBaseUnit: 0.004,
+    theoreticalStock: 12500,
+    stockOnHand: 12500,
+    parLevel: 20,
+    baseUnit: 'g',
+    dimension: 'MASS',
+    packChain: [{ unit: 'case', per: 12 }, { unit: 'kg', per: 1000 }],
+    countUnit,
+  })
+
+  const dims = (i: PillItem) => ({
+    dimension: i.dimension, baseUnit: i.baseUnit,
+    packChain: i.packChain, countUnit: i.countUnit ?? undefined,
+  })
+
+  it('resolves the schema default "each" on a MASS item to the chain leaf', () => {
+    // InventoryItem.countUnit is String @default("each"), so a MASS item that never had
+    // one set stores "each" — the screen shows kg. The verdict happens to survive here
+    // because the generic "each" label falls through to the chain leaf inside
+    // resolveUnitBase, so this pair pins the label fix without claiming a row-set change.
+    const raw = flour('each')
+    const resolved = resolveCountUom(dims(raw))
+    expect(resolved).toBe('kg')
+    expect(matchesPill('lowStock', raw, NOW)).toBe(true)                          // 12.5 < 20
+    expect(matchesPill('lowStock', { ...raw, countUnit: resolved }, NOW)).toBe(true)
+  })
+
+  it('selects a different row set when an unresolvable stored unit is not resolved first', () => {
+    // A stored unit the chain cannot resolve — an empty string, or a cross-dimension
+    // leftover like 'ml' on a MASS item — measures in BASE units on the raw path:
+    // 12,500 > par 20 → not low, while the screen measures 12.5 kg < 20 → low.
+    for (const stored of ['', 'ml']) {
+      const raw = flour(stored)
+      const resolved = resolveCountUom(dims(raw))
+      expect(resolved).toBe('kg')
+      expect(matchesPill('lowStock', raw, NOW)).toBe(false)
+      expect(matchesPill('lowStock', { ...raw, countUnit: resolved }, NOW)).toBe(true)
+    }
   })
 })
