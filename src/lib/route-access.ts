@@ -26,6 +26,9 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/variance', 'MANAGER'],
   ['/signals', 'MANAGER'],
   ['/tips', 'MANAGER'],
+  // A Lead runs the operational close (checklist, temps, sign-off) and WRITES
+  // the handover note (PATCH /api/eod/close), but does not read the handover
+  // money recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.
   ['/end-of-day', 'LEAD'],
 ] as const
 

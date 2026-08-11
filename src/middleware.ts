@@ -2,21 +2,10 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { Role } from '@prisma/client'
 import { atLeast, ROLE_RANK } from '@/lib/roles'
+import { requiredClearance } from '@/lib/route-access'
 
 // Routes that never require authentication
 const PUBLIC_PREFIXES = ['/login', '/auth']
-
-// Routes that require ADMIN role
-const ADMIN_PREFIXES = ['/settings', '/setup']
-
-// Routes that require MANAGER or above
-const MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals', '/tips']
-
-// Routes a Shift Lead may reach. /end-of-day moved out of MANAGER_PREFIXES:
-// a Lead runs the operational close (checklist, temps, sign-off) and WRITES the
-// handover note (PATCH /api/eod/close), but does not read the handover money
-// recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.
-const LEAD_PREFIXES = ['/end-of-day']
 
 // v2 redesign: 301 redirects from old URLs to new IA.
 // Order: longest match first.
@@ -108,18 +97,17 @@ export async function middleware(request: NextRequest) {
       ? (rawRole as Role)
       : 'STAFF'
 
-  const needs = (prefixes: string[]) => prefixes.some((p) => pathname.startsWith(p))
-
-  if (needs(ADMIN_PREFIXES) && !atLeast(role, 'ADMIN')) {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
-
-  if (needs(MANAGER_PREFIXES) && !atLeast(role, 'MANAGER')) {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
-
-  if (needs(LEAD_PREFIXES) && !atLeast(role, 'LEAD')) {
-    return NextResponse.redirect(new URL('/', request.url))
+  // Role-gated route the user cannot reach → RENDER the no-access screen at
+  // this URL. Deliberately a rewrite, not a redirect: the address bar keeps
+  // reading /pass, back/forward behave, and the user can carry on navigating
+  // from the sidebar instead of being flung back to /count with no explanation.
+  const need = requiredClearance(pathname)
+  if (need && !atLeast(role, need)) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/no-access'
+    url.searchParams.set('from', pathname)
+    url.searchParams.set('need', need)
+    return NextResponse.rewrite(url)
   }
 
   return response
