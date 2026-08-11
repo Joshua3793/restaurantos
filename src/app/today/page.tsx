@@ -31,7 +31,16 @@ export default function TodayPage() {
   return (
     // Replaces MScreen, which is md:hidden and shared with mobile-only screens.
     // On desktop the padding comes from AppShell, so it is cleared at md+.
-    <div className="min-h-screen bg-bg text-ink px-4 pb-28 md:min-h-0 md:px-0 md:pb-0">
+    //
+    // Managers keep md:hidden: the effect above bounces them to /pass, but it
+    // only runs after first paint, and / -> /today -> /pass is their normal
+    // desktop landing path — without this they would see the mobile Today
+    // screen flash on every login.
+    <div
+      className={`min-h-screen bg-bg text-ink px-4 pb-28 md:min-h-0 md:px-0 md:pb-0 ${
+        isManager ? 'md:hidden' : ''
+      }`}
+    >
       {isManager ? <TodayManager /> : <TodayChef />}
     </div>
   )
