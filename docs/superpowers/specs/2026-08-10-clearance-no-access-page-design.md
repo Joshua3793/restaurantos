@@ -122,6 +122,16 @@ Content, driven by `searchParams`:
 Direct navigation to `/no-access` with no params renders the same screen with
 generic copy. The route is not itself gated.
 
+**The params must be read server-side and passed down as props.**
+`useSearchParams()` does not work here: a rewrite leaves the browser URL on
+`/pass`, so the client router sees `/pass`'s params and finds no `need` — the
+server render would have them and the client would not. This forces a two-file
+split: `src/app/no-access/page.tsx` is a server component (`force-dynamic`)
+that reads `searchParams`, resolves the page name via `navLabelFor(from)`, and
+renders `src/components/access/NoAccessCard.tsx`, a client component taking
+`{ pageLabel, need }` as props and using `useUser()` only for the viewer's own
+clearance.
+
 ### 4. Nav: dimmed and locked, never hidden
 
 `src/components/Navigation.tsx`:
@@ -166,18 +176,32 @@ cost-chrome strip and sidebar offsets already work there.
 ## Testing
 
 `route-access.ts` is pure, so it joins the existing vitest suite
-(`src/lib/__tests__/`, run by `npm test`). New file
+(`src/lib/__tests__/`, run by `npm test`).
+
 `src/lib/__tests__/route-access.test.ts`:
 
 1. **Longest-prefix match** — `/setup/suppliers` → ADMIN, `/reports/waste` →
    MANAGER, `/prep` → null.
-2. **Every role against every gate** — the full `ROLE_RANK` × table matrix,
+2. **Segment matching** — `/passport` must not inherit `/pass`'s MANAGER gate.
+3. **Every role against every gate** — the full `ROLE_RANK` × table matrix,
    including OWNER passing all of them and STAFF passing none.
-3. **Null role denies** — `canAccess(null, '/pass') === false`.
-4. **Nav parity (the regression guard)** — every `href` in `Navigation.tsx`'s
-   `navGroups` and `setupItems` resolves through `requiredClearance` to the
-   clearance middleware enforces. This is the test that would have caught the
-   original defect, and it fails if either table drifts.
+4. **Null role denies** — `canAccess(null, '/pass') === false`.
+
+`src/lib/__tests__/nav-items.test.ts` — **the regression guard**: every `href`
+in `navGroups` and `setupItems` resolves through `requiredClearance` to the
+clearance middleware enforces. This is the test that would have caught the
+original defect, and it fails if either table drifts.
+
+This guard forces one structural change the spec above did not anticipate:
+`vitest.config.ts` collects only `src/**/*.test.ts`, so a `.tsx` client
+component cannot be imported by a test. The nav data (`NavItem`, `NavGroup`,
+`navGroups`, `setupItems`) therefore moves out of `Navigation.tsx` into a new
+`src/lib/nav-items.ts`, which also hosts `allNavItems` and
+`navLabelFor(pathname)` — the lookup the no-access screen uses to name the page
+it is standing in for. `Navigation.tsx` imports the tables from there and keeps
+only rendering. The moved `NavItem` type drops its `adminOnly` and `minRole`
+fields: clearance derives from `href`, so a nav item can no longer hold an
+opinion that contradicts middleware.
 
 `npm run build` is the type-check for the middleware and component changes.
 
@@ -202,9 +226,12 @@ a real STAFF user.
 | File | Change |
 |---|---|
 | `src/lib/route-access.ts` | new — the clearance table + `requiredClearance` / `canAccess` |
-| `src/lib/__tests__/route-access.test.ts` | new — matrix + nav-parity regression guard |
-| `src/app/no-access/page.tsx` | new — the explanation screen |
+| `src/lib/__tests__/route-access.test.ts` | new — prefix matching + role matrix |
+| `src/lib/nav-items.ts` | new — nav tables extracted from `Navigation.tsx` + `navLabelFor` |
+| `src/lib/__tests__/nav-items.test.ts` | new — the nav↔middleware parity regression guard |
+| `src/app/no-access/page.tsx` | new — server route; reads `from`/`need`, passes them as props |
+| `src/components/access/NoAccessCard.tsx` | new — the client screen |
 | `src/middleware.ts` | three redirects → one rewrite; prefix constants deleted |
 | `src/components/Navigation.tsx` | `canSeeNavItem`/`adminOnly`/`minRole` deleted; dim + lock instead of filter, both renderers |
-| `src/app/today/page.tsx` | drop the below-MANAGER desktop bounce; responsive container |
+| `src/app/today/page.tsx` | drop the below-MANAGER desktop bounce; container replaces `MScreen` |
 | `src/components/mobile/today/TodayChef.tsx` | two-column grid at `md:` |
