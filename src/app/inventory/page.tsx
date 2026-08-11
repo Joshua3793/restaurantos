@@ -933,10 +933,11 @@ function InventoryPageInner() {
           <div className="text-[13px] text-ink-2">
             <span className="font-semibold">Stock in Hand</span> — showing last physically counted
             quantities at current prices. No sales, prep, wastage or purchase movement applied.
+            {' '}Counts are recorded per item, not per revenue centre, so a quantity always reads
+            as this item&rsquo;s most recent count anywhere.
             {!scopeComparable && (
-              <> Counts are recorded per item, not per revenue centre, so these are each item&rsquo;s
-              most recent count anywhere, while theoretical stock is scoped to this view. The two
-              are not comparable here, so Unverified Movement is not shown.</>
+              <> Theoretical stock, by contrast, is scoped to this view, so the two are not
+              comparable here and Unverified Movement is not shown.</>
             )}
           </div>
         </div>
