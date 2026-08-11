@@ -276,6 +276,7 @@ function InventoryPageInner() {
     const p = listParams()
     if (stockInHand) p.set('view', 'stock-in-hand')
     if (activePill !== 'all') p.set('pill', activePill)
+    if (filterNeedsReview) p.set('needsReview', 'true')
     return `/api/inventory/export?${p.toString()}`
   }
 

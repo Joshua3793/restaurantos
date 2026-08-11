@@ -20,6 +20,7 @@ export interface InventoryListParams {
   rcId: string
   isDefault: boolean
   includeNonStocked: boolean
+  needsReview: boolean
 }
 
 export interface InventoryListRow {
@@ -59,6 +60,7 @@ export function parseInventoryListParams(searchParams: URLSearchParams): Invento
     rcId:              searchParams.get('rcId') || '',
     isDefault:         searchParams.get('isDefault') === 'true',
     includeNonStocked: searchParams.get('includeNonStocked') === 'true',
+    needsReview:       searchParams.get('needsReview') === 'true',
   }
 }
 
@@ -99,7 +101,7 @@ export async function fetchInventoryList(
   user: User,
   params: InventoryListParams,
 ): Promise<{ rows: InventoryListRow[]; outOfScope: boolean }> {
-  const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, includeNonStocked } = params
+  const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, includeNonStocked, needsReview } = params
 
   // Inventory items carry no revenueCenterId column (RC association lives in
   // StockAllocation / ItemRevenueCenter), so scopedRcWhere does not apply to the
@@ -120,6 +122,7 @@ export async function fetchInventoryList(
       storageAreaId ? { storageAreaId } : {},
       isActive !== null && isActive !== '' ? { isActive: isActive === 'true' } : {},
       includeNonStocked ? {} : { isStocked: true },
+      needsReview ? { needsReview: true } : {},
     ],
   }
 
