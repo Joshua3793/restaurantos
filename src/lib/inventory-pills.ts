@@ -32,8 +32,10 @@ export interface PillItem {
   lastCountDate?: string | Date | null
   pricePerBaseUnit: number | string
   theoreticalStock?: number | string | null
+  /** Per-RC allocation, the page's middle fallback. Set when viewing a non-default RC. */
+  rcStock?: number | string | null
   stockOnHand?: number | string | null
-  parLevel?: number | null
+  parLevel?: number | string | null
   baseUnit: string
   countUnit?: string | null
   dimension: string
@@ -52,14 +54,16 @@ function effStock(item: PillItem): number {
   if (item.theoreticalStock !== null && item.theoreticalStock !== undefined) {
     return num(item.theoreticalStock)
   }
+  if (item.rcStock !== null && item.rcStock !== undefined) {
+    return num(item.rcStock)
+  }
   return num(item.stockOnHand)
 }
 
 /** Theoretical on-hand converted to the item's count UOM — par is in count units. */
 function displayStock(item: PillItem): number {
   return convertBaseToCountUom(effStock(item), item.countUnit || item.baseUnit, {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dimension: item.dimension as any,
+    dimension: item.dimension,
     baseUnit: item.baseUnit,
     packChain: item.packChain,
     countUnit: item.countUnit ?? undefined,
@@ -87,7 +91,7 @@ export function matchesPill(
     case 'lowStock':
       return item.parLevel != null
         && displayStock(item) > 0
-        && displayStock(item) < item.parLevel
+        && displayStock(item) < num(item.parLevel)
     default: return true
   }
 }

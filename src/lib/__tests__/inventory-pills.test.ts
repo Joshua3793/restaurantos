@@ -55,6 +55,23 @@ describe('matchesPill', () => {
     expect(matchesPill('outOfStock', item({ theoreticalStock: 3 }), NOW)).toBe(false)
   })
 
+  it('effStock uses rcStock when theoreticalStock is null', () => {
+    // When theoreticalStock is null, rcStock should be used
+    expect(matchesPill('outOfStock', item({ theoreticalStock: null, rcStock: 7 }), NOW)).toBe(false)
+    expect(matchesPill('outOfStock', item({ theoreticalStock: null, rcStock: 0 }), NOW)).toBe(true)
+  })
+
+  it('effStock uses theoreticalStock over rcStock', () => {
+    // When both are present, theoreticalStock wins
+    expect(matchesPill('outOfStock', item({ theoreticalStock: 5, rcStock: 0 }), NOW)).toBe(false)
+  })
+
+  it('effStock falls back to stockOnHand when both theoretical and rcStock are null', () => {
+    // The full fallback chain: theoretical -> rcStock -> stockOnHand
+    expect(matchesPill('outOfStock', item({ theoreticalStock: null, rcStock: null, stockOnHand: 0 }), NOW)).toBe(true)
+    expect(matchesPill('outOfStock', item({ theoreticalStock: null, rcStock: null, stockOnHand: 5 }), NOW)).toBe(false)
+  })
+
   it('lowStock compares against par in COUNT units', () => {
     // 500 g theoretical, par 1 kg → count unit kg → 0.5 < 1 → low
     const low = item({
@@ -70,5 +87,14 @@ describe('matchesPill', () => {
 
   it('lowStock is false with no par set', () => {
     expect(matchesPill('lowStock', item({ theoreticalStock: 1, parLevel: null }), NOW)).toBe(false)
+  })
+
+  it('lowStock works when parLevel arrives as a string', () => {
+    // 500 g theoretical, par '1' (as string) kg → count unit kg → 0.5 < 1 → low
+    const low = item({
+      theoreticalStock: 500, baseUnit: 'g', countUnit: 'kg',
+      dimension: 'MASS', packChain: [], parLevel: '1' as any,
+    })
+    expect(matchesPill('lowStock', low, NOW)).toBe(true)
   })
 })
