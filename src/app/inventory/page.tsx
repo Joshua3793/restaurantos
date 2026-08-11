@@ -364,10 +364,6 @@ function InventoryPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
-  // Stock in Hand KPIs — same function the xlsx export calls, so the strip and the
-  // sheet cannot disagree.
-  const sihKpis = useMemo(() => stockInHandKpis(items), [items])
-
   // Pill filter. matchesPill is the shared predicate the export also applies, so a
   // filtered export always matches the screen that produced it.
   const pillFiltered = useMemo(() => {
@@ -375,6 +371,12 @@ function InventoryPageInner() {
     if (activePill === 'all') return base
     return base.filter(i => matchesPill(activePill, i))
   }, [items, activePill, filterNeedsReview])
+
+  // Stock in Hand KPIs — same function the xlsx export calls, computed over the same
+  // pill-filtered set the export builds its KPI sheet from (the route applies the
+  // active pill before calling stockInHandKpis too), so the strip and the sheet
+  // cannot disagree when a pill is active.
+  const sihKpis = useMemo(() => stockInHandKpis(pillFiltered), [pillFiltered])
 
   // Column sort: first click → smart default direction; same column → flip direction
   const toggleColSort = (col: ColKey) => {
