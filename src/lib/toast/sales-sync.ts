@@ -7,10 +7,12 @@
  * of truth for stock.
  *
  * Net-sales basis: we sum **selection prices** (net, post-discount, pre-tax),
- * skipping voided/deferred lines. This naturally excludes tax and gift cards and
- * keeps the food/non-food ratio consistent with the absolute total (both come
- * from the same line items). Service charges (rare for the café; catering is
- * excluded) are not included.
+ * skipping voided/deferred lines, then subtract refunds (`refunds.ts` — a
+ * refunded line is NOT voided and keeps its full price, so it has to come off
+ * explicitly). That matches Toast's own `gross − discounts − refunds`. This
+ * naturally excludes tax and gift cards and keeps the food/non-food ratio
+ * consistent with the absolute total (both come from the same line items).
+ * Service charges (rare for the café; catering is excluded) are not included.
  *
  * Revenue-center routing is driven entirely by `ToastRevenueCenterMap`: each row
  * targets EITHER a leaf RC (`revenueCenterId`) OR a whole location (`locationId`).
@@ -37,6 +39,7 @@ import {
   staleToastRcIds,
   NO_RC_ROUTE_GUID,
 } from '@/lib/toast/sync-routing'
+import { checkRefunds } from '@/lib/toast/refunds'
 
 const TZ = 'America/Los_Angeles'
 const SOURCE = 'toast'
@@ -191,6 +194,11 @@ export interface DaySyncResult {
   skippedUnmappedRcOrders: number
   /** Tips on checks that routed to no revenue center — reported, never dropped. */
   unattributedTips: number
+  /**
+   * Refunded net sales that could not be placed in any revenue center, so the
+   * day's revenue is overstated by this much. Reported, never dropped.
+   */
+  unattributedRefunds: number
   // Lines that could not be placed in ANY revenue center and were therefore not
   // counted. Surfaced rather than dropped in silence — this is money missing from
   // the day's revenue, and it means a mapping is absent.
@@ -261,7 +269,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   } catch (e) {
     return {
       businessDate: yyyymmdd, ordersPulled: 0, status: 'error',
-      perRc: [], skippedUnmappedRcOrders: 0, unattributedTips: 0,
+      perRc: [], skippedUnmappedRcOrders: 0, unattributedTips: 0, unattributedRefunds: 0,
       unroutableLines: 0, unroutableRevenue: 0, clearedStaleRcs: 0,
       error: e instanceof Error ? e.message : String(e),
     }
@@ -270,6 +278,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   const buckets = new Map<string, RcBucket>()
   let skippedUnmappedRcOrders = 0
   let unattributedTips = 0
+  let unattributedRefunds = 0
   let unroutableLines = 0
   let unroutableRevenue = 0
 
@@ -295,12 +304,22 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     // revenue in this order so covers can be attributed to the dominant RC.
     const orderRcRevenue = new Map<string, number>()
     let routedAny = false
+    // Refunded net sales this order's live selections don't account for — see
+    // `checkRefunds`. Settled once at order level, after routing is known.
+    let unattributedRefund = 0
 
     for (const check of order.checks ?? []) {
       if (check.voided || check.deleted) continue
 
       // Revenue this check routed, per RC — the weights the tip is split by.
+      // Refund-adjusted, deliberately: a tip should be split by what each RC
+      // actually kept, not by revenue that went back to the customer.
       const checkRcRevenue = new Map<string, number>()
+
+      // Net sales are gross MINUS refunds. A refunded-but-not-voided selection
+      // keeps its full `price`, so the refund has to come off explicitly.
+      const refunds = checkRefunds(check)
+      unattributedRefund += refunds.unattributed
 
       for (const sel of check.selections ?? []) {
         if (sel.voided || sel.deferred) continue
@@ -324,12 +343,14 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
 
         const bucket = getBucket(rcId)
         routedAny = true
-        const price = sel.price ?? 0
+        const price = (sel.price ?? 0) - (refunds.bySelection.get(sel.guid) ?? 0)
         bucket.totalRevenue += price
         if (cls.isFood) bucket.foodRevenue += price
         orderRcRevenue.set(rcId, (orderRcRevenue.get(rcId) ?? 0) + price)
         checkRcRevenue.set(rcId, (checkRcRevenue.get(rcId) ?? 0) + price)
 
+        // Quantity is deliberately NOT reduced by a refund: the item was rung in
+        // and made, so it still consumed stock. Only the money comes back.
         const qty = Math.round(sel.quantity ?? 0)
         if (qty <= 0) continue
         if (item?.recipeId) {
@@ -361,6 +382,25 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
         }
         unattributedTips += split.unattributed
       }
+    }
+
+    // An unattributed refund has no line to tell us what it was, so it lands on
+    // the order's effective RC (or, failing that, wherever this order took the
+    // most money). It reduces total revenue only: with no line there is no
+    // food/non-food to read, and guessing would corrupt `foodSalesPct` worse
+    // than omitting it.
+    //
+    // Only ever applied to an RC that ALREADY has a bucket — same guard, and the
+    // same reason, as splitTipAcrossRcs: a bucket conjured here would go on to
+    // delete that RC's manual sales entry and replace it with a negative row.
+    // Anything that can't be placed is reported, never silently dropped.
+    if (unattributedRefund > 0) {
+      const dominant = orderRcRevenue.size
+        ? [...orderRcRevenue.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        : undefined
+      const refundRc = [orderRc ?? orderFallback, dominant].find((id) => id && buckets.has(id))
+      if (refundRc) getBucket(refundRc).totalRevenue -= unattributedRefund
+      else unattributedRefunds += unattributedRefund
     }
 
     if (!routedAny) { if (rcGuid) skippedUnmappedRcOrders++; continue }
@@ -466,6 +506,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
   }
 
   const unattributedTipsTotal = Math.round(unattributedTips * 100) / 100
+  const unattributedRefundsTotal = Math.round(unattributedRefunds * 100) / 100
 
   // The write loop above is overwrite-on-present: it only touches RCs that produced
   // revenue on THIS pull. An RC whose orders were all voided or moved since the last
@@ -498,6 +539,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
 
   if (manualConflicts.length) console.warn(`[toast-sync ${yyyymmdd}] manual/Toast conflicts left in place:\n  ${manualConflicts.join('\n  ')}`)
   if (unattributedTipsTotal > 0) console.warn(`[toast-sync ${yyyymmdd}] ${unattributedTipsTotal.toFixed(2)} in tips could not be attributed to a revenue center`)
+  if (unattributedRefundsTotal > 0) console.warn(`[toast-sync ${yyyymmdd}] $${unattributedRefundsTotal.toFixed(2)} in refunds could not be attributed to a revenue center — revenue is overstated by that much`)
   if (unroutableLines) console.warn(`[toast-sync ${yyyymmdd}] ${unroutableLines} line(s) worth $${unroutableRevenue.toFixed(2)} could not be routed to any revenue center`)
 
   return {
@@ -507,6 +549,7 @@ export async function syncBusinessDay(yyyymmdd: number): Promise<DaySyncResult> 
     perRc,
     skippedUnmappedRcOrders,
     unattributedTips: unattributedTipsTotal,
+    unattributedRefunds: unattributedRefundsTotal,
     unroutableLines,
     unroutableRevenue,
     clearedStaleRcs: staleRcIds.length,

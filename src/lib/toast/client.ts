@@ -200,6 +200,32 @@ export interface ToastRef {
   externalId?: string | null
 }
 
+/** Links a refund back to the transaction that issued it. */
+export interface ToastRefundTransactionRef {
+  guid?: string
+}
+
+/**
+ * Line-level refund. Present on a selection that was refunded WITHOUT being
+ * voided — the selection keeps its full `price`, so the refund has to be
+ * subtracted separately or the line reads as full revenue.
+ */
+export interface ToastRefundDetails {
+  /** Net-sales portion refunded, excluding tax. */
+  refundAmount?: number
+  /** Tax refunded alongside it — never part of net sales. */
+  taxRefundAmount?: number
+  refundTransaction?: ToastRefundTransactionRef
+}
+
+/** Payment-level refund. `refundAmount` covers net sales + tax; tip is separate. */
+export interface ToastPaymentRefund {
+  refundAmount?: number
+  taxRefundAmount?: number
+  tipRefundAmount?: number
+  refundTransaction?: ToastRefundTransactionRef
+}
+
 export interface ToastSelection {
   guid: string
   item?: ToastRef // the menu item → maps to ToastItemMap.toastItemGuid
@@ -214,6 +240,7 @@ export interface ToastSelection {
   selectionType?: string // e.g. NONE, HOUSE_ACCOUNT_PAY_BALANCE, COMBO
   voided?: boolean
   deferred?: boolean // gift cards etc.
+  refundDetails?: ToastRefundDetails | null
 }
 
 /**
@@ -230,7 +257,11 @@ export interface ToastPayment {
   type?: string // CASH | CREDIT | GIFTCARD | HOUSE_ACCOUNT | OTHER | UNDETERMINED …
   paymentStatus?: string // OPEN | PROCESSING | AUTHORIZED | CAPTURED | VOIDED | DENIED | ERROR
   refundStatus?: string // NONE | PARTIAL | FULL
-  refund?: { refundAmount?: number; tipRefundAmount?: number }
+  /**
+   * Carries `refundTransaction` so a payment refund can be matched against the
+   * line-level `refundDetails` that already explain it — see `refunds.ts`.
+   */
+  refund?: ToastPaymentRefund | null
   voidInfo?: { voidDate?: string } | null
 }
 
