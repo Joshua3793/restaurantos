@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } fr
 import { useSearchParams } from 'next/navigation'
 import { formatCurrency, formatUnitPrice, formatPricePerBase, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
+import { matchesPill, isCountedThisWeek, type InventoryPill } from '@/lib/inventory-pills'
 import {
   DIMENSION_BASE, pricePerBaseUnit as chainPricePerBaseUnit, basePerUnit, asChainItem,
   validateChainItem, type Dimension, type PackLink, type Pricing,
@@ -58,7 +59,6 @@ interface InventoryItem {
 type SortMode  = 'category' | 'all'
 type ColKey    = 'item' | 'category' | 'supplier' | 'price' | 'stock' | 'value'
 type ColDir    = 'asc' | 'desc'
-type FilterPill = 'all' | 'counted' | 'notCounted' | 'highValue' | 'outOfStock' | 'lowStock'
 
 // First-click direction per column: text cols go A→Z, numeric cols go high→low
 const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
@@ -144,12 +144,6 @@ function normalizeItem(item: InventoryItem): InventoryItem {
   return { ...item, countUnit: resolveCountUom(dims) }
 }
 
-function isCountedThisWeek(item: InventoryItem) {
-  if (!item.lastCountDate) return false
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
-  return new Date(item.lastCountDate) >= weekAgo
-}
-
 function SortIcon({ col, colSort }: { col: ColKey; colSort: { col: ColKey; dir: ColDir } | null }) {
   if (!colSort || colSort.col !== col)
     return <ChevronsUpDown size={9} className="text-ink-4 ml-[3px] inline-block shrink-0" />
@@ -203,7 +197,7 @@ function InventoryPageInner() {
   const [areaFilter,      setAreaFilter]      = useState('')
   const [sortBy,       setSortBy]       = useState<SortMode>('category')
   const [colSort,      setColSort]      = useState<{ col: ColKey; dir: ColDir } | null>(null)
-  const [activePill,   setActivePill]   = useState<FilterPill>('all')
+  const [activePill,   setActivePill]   = useState<InventoryPill>('all')
   const [showNonStocked, setShowNonStocked] = useState(false)
   // Inactive items no longer belong to the operational catalogue: the default view
   // fetches active items only, and this switch swaps to an inactive-only view.
@@ -338,22 +332,17 @@ function InventoryPageInner() {
   const kpis = useMemo(() => {
     const totalValue = items.reduce((s, i) =>
       s + effStock(i) * parseFloat(String(i.pricePerBaseUnit)), 0)
-    const counted = items.filter(isCountedThisWeek).length
+    const counted = items.filter(i => isCountedThisWeek(i)).length
     return { totalValue, counted, notCounted: items.length - counted, activeCount: items.length }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
-  // Pill filter
+  // Pill filter. matchesPill is the shared predicate the export also applies, so a
+  // filtered export always matches the screen that produced it.
   const pillFiltered = useMemo(() => {
     const base = filterNeedsReview ? items.filter(i => i.needsReview) : items
-    switch (activePill) {
-      case 'counted':    return base.filter(isCountedThisWeek)
-      case 'notCounted': return base.filter(i => !isCountedThisWeek(i))
-      case 'highValue':  return base.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01)
-      case 'outOfStock': return base.filter(i => effStock(i) <= 0)
-      case 'lowStock':   return base.filter(i => i.parLevel != null && displayStock(i) > 0 && displayStock(i) < i.parLevel)
-      default:           return base
-    }
+    if (activePill === 'all') return base
+    return base.filter(i => matchesPill(activePill, i))
   }, [items, activePill, filterNeedsReview])
 
   // Column sort: first click → smart default direction; same column → flip direction
@@ -750,7 +739,7 @@ function InventoryPageInner() {
     setItems([])
   }
 
-  const pills: { key: FilterPill; label: string }[] = [
+  const pills: { key: InventoryPill; label: string }[] = [
     { key: 'all',        label: 'All Items' },
     { key: 'counted',    label: 'Counted This Week' },
     { key: 'notCounted', label: 'Not Counted' },
@@ -1016,12 +1005,9 @@ function InventoryPageInner() {
       {/* Desktop filter chips */}
       <div className="hidden sm:flex gap-1.5 flex-wrap items-center">
         {pills.map(p => {
-          const count = p.key === 'all' ? items.length
-            : p.key === 'counted' ? kpis.counted
-            : p.key === 'notCounted' ? kpis.notCounted
-            : p.key === 'outOfStock' ? items.filter(i => effStock(i) <= 0).length
-            : p.key === 'lowStock' ? items.filter(i => i.parLevel != null && displayStock(i) > 0 && displayStock(i) < i.parLevel!).length
-            : items.filter(i => parseFloat(String(i.pricePerBaseUnit)) > 0.01).length
+          const count = p.key === 'all'
+            ? items.length
+            : items.filter(i => matchesPill(p.key, i)).length
           return (
             <button
               key={p.key}

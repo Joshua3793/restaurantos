@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest'
+import { matchesPill, isCountedThisWeek, type PillItem } from '../inventory-pills'
+
+const NOW = new Date('2026-08-11T12:00:00.000Z')
+
+const item = (over: Partial<PillItem> = {}): PillItem => ({
+  lastCountDate: '2026-08-09T00:00:00.000Z',
+  pricePerBaseUnit: 5,
+  theoreticalStock: 10,
+  stockOnHand: 10,
+  parLevel: null,
+  baseUnit: 'g',
+  countUnit: 'g',
+  dimension: 'MASS',
+  packChain: [],
+  ...over,
+})
+
+describe('isCountedThisWeek', () => {
+  it('is true within 7 days', () => {
+    expect(isCountedThisWeek(item({ lastCountDate: '2026-08-09T00:00:00.000Z' }), NOW)).toBe(true)
+  })
+
+  it('is false beyond 7 days', () => {
+    expect(isCountedThisWeek(item({ lastCountDate: '2026-07-01T00:00:00.000Z' }), NOW)).toBe(false)
+  })
+
+  it('is false when never counted', () => {
+    expect(isCountedThisWeek(item({ lastCountDate: null }), NOW)).toBe(false)
+  })
+})
+
+describe('matchesPill', () => {
+  it('all matches everything', () => {
+    expect(matchesPill('all', item({ lastCountDate: null }), NOW)).toBe(true)
+  })
+
+  it('counted / notCounted are complements', () => {
+    const fresh = item({ lastCountDate: '2026-08-10T00:00:00.000Z' })
+    const stale = item({ lastCountDate: '2026-06-01T00:00:00.000Z' })
+    expect(matchesPill('counted', fresh, NOW)).toBe(true)
+    expect(matchesPill('notCounted', fresh, NOW)).toBe(false)
+    expect(matchesPill('counted', stale, NOW)).toBe(false)
+    expect(matchesPill('notCounted', stale, NOW)).toBe(true)
+  })
+
+  it('highValue needs a price above a cent per base unit', () => {
+    expect(matchesPill('highValue', item({ pricePerBaseUnit: 0.5 }), NOW)).toBe(true)
+    expect(matchesPill('highValue', item({ pricePerBaseUnit: 0.001 }), NOW)).toBe(false)
+  })
+
+  it('outOfStock reads theoretical stock, not the counted quantity', () => {
+    expect(matchesPill('outOfStock', item({ theoreticalStock: 0 }), NOW)).toBe(true)
+    expect(matchesPill('outOfStock', item({ theoreticalStock: -2 }), NOW)).toBe(true)
+    expect(matchesPill('outOfStock', item({ theoreticalStock: 3 }), NOW)).toBe(false)
+  })
+
+  it('lowStock compares against par in COUNT units', () => {
+    // 500 g theoretical, par 1 kg → count unit kg → 0.5 < 1 → low
+    const low = item({
+      theoreticalStock: 500, baseUnit: 'g', countUnit: 'kg',
+      dimension: 'MASS', packChain: [], parLevel: 1,
+    })
+    expect(matchesPill('lowStock', low, NOW)).toBe(true)
+  })
+
+  it('lowStock excludes items at or below zero (those are outOfStock)', () => {
+    expect(matchesPill('lowStock', item({ theoreticalStock: 0, parLevel: 5 }), NOW)).toBe(false)
+  })
+
+  it('lowStock is false with no par set', () => {
+    expect(matchesPill('lowStock', item({ theoreticalStock: 1, parLevel: null }), NOW)).toBe(false)
+  })
+})
