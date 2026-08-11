@@ -55,7 +55,7 @@ ws["A2"].font = NOTE
 
 HEADERS = [
     ("Item", 38), ("Category", 10), ("Storage area", 16), ("Supplier", 16),
-    ("Quantity basis", 26), ("Qty counted", 12), ("Count unit", 12),
+    ("Quantity basis", 30), ("Counted on", 12), ("Qty counted", 12), ("Count unit", 12),
     ("Qty (base)", 12), ("Base unit", 10),
     ("Price at count ($/base)", 20), ("Price now ($/base)", 18),
     ("Value at count", 15), ("Value at current prices", 21), ("Change", 12),
@@ -76,26 +76,26 @@ for n, r in enumerate(rows):
     i = first + n
     vals = [
         r["item"], r["category"], r["storageArea"], r["supplier"], r["basis"],
-        r["countQty"], r["countUom"], r["qtyBase"], r["baseUnit"],
+        r.get("countedOn", ""), r["countQty"], r["countUom"], r["qtyBase"], r["baseUnit"],
         r["priceAtCountPerBase"], r["priceNowPerBase"],
-        f"=H{i}*J{i}", f"=H{i}*K{i}", f"=M{i}-L{i}",
+        f"=I{i}*K{i}", f"=I{i}*L{i}", f"=N{i}-M{i}",
         r["priceNowPerUnit"], r["perUnit"], r["packChain"],
     ]
     for col, v in enumerate(vals, start=1):
         c = ws.cell(row=i, column=col, value=v)
         c.font = BODY
         c.border = BOX
-    for col in (6, 8):
+    for col in (7, 9):
         ws.cell(row=i, column=col).number_format = QTY
-    for col in (10, 11):
+    for col in (11, 12):
         ws.cell(row=i, column=col).number_format = MONEY5
-    for col in (12, 13, 14, 15):
+    for col in (13, 14, 15, 16):
         ws.cell(row=i, column=col).number_format = MONEY
 
 last = first + len(rows) - 1
 tot = last + 1
 ws.cell(row=tot, column=1, value="TOTAL").font = BOLD
-for col in (12, 13, 14):
+for col in (13, 14, 15):
     L = get_column_letter(col)
     c = ws.cell(row=tot, column=col, value=f"=SUM({L}{first}:{L}{last})")
     c.font = BOLD
@@ -103,7 +103,7 @@ for col in (12, 13, 14):
     c.border = TOPLINE
 ws.cell(row=tot, column=1).border = TOPLINE
 
-ws.auto_filter.ref = f"A{HROW}:Q{last}"
+ws.auto_filter.ref = f"A{HROW}:R{last}"
 
 # ───────────────────────────────────────────────────────────── Summary ──
 s = wb.create_sheet("Summary")
@@ -121,8 +121,8 @@ for n, cat in enumerate(cats):
     i = 5 + n
     s.cell(row=i, column=1, value=cat).font = BODY
     s.cell(row=i, column=2, value=f'=COUNTIF(Valuation!$B${first}:$B${last},$A{i})').font = BODY
-    s.cell(row=i, column=3, value=f'=SUMIF(Valuation!$B${first}:$B${last},$A{i},Valuation!$L${first}:$L${last})').font = BODY
-    s.cell(row=i, column=4, value=f'=SUMIF(Valuation!$B${first}:$B${last},$A{i},Valuation!$M${first}:$M${last})').font = BODY
+    s.cell(row=i, column=3, value=f'=SUMIF(Valuation!$B${first}:$B${last},$A{i},Valuation!$M${first}:$M${last})').font = BODY
+    s.cell(row=i, column=4, value=f'=SUMIF(Valuation!$B${first}:$B${last},$A{i},Valuation!$N${first}:$N${last})').font = BODY
     s.cell(row=i, column=5, value=f"=D{i}-C{i}").font = BODY
     for col in (3, 4, 5):
         s.cell(row=i, column=col).number_format = MONEY
@@ -148,13 +148,15 @@ for i, h in enumerate(["Quantity basis", "Lines", "Value at current prices", "% 
     c = s.cell(row=brow + 2, column=i, value=h)
     c.font = HEAD_FONT
     c.fill = HEAD_FILL
-bases = ["Physically counted", "Carried — no movement", "Not counted (expected qty used)", "Skipped"]
-bases = [b for b in bases if any(r["basis"] == b for r in rows)]
+# Derived from the data — a multi-session month-end produces bases like
+# "Physically counted 2026-07-31", which no hardcoded list would anticipate.
+bases = sorted({r["basis"] for r in rows},
+               key=lambda b: (not b.startswith("Physically"), b))
 for n, b in enumerate(bases):
     i = brow + 3 + n
     s.cell(row=i, column=1, value=b).font = BODY
     s.cell(row=i, column=2, value=f'=COUNTIF(Valuation!$E${first}:$E${last},$A{i})').font = BODY
-    s.cell(row=i, column=3, value=f'=SUMIF(Valuation!$E${first}:$E${last},$A{i},Valuation!$M${first}:$M${last})').font = BODY
+    s.cell(row=i, column=3, value=f'=SUMIF(Valuation!$E${first}:$E${last},$A{i},Valuation!$N${first}:$N${last})').font = BODY
     s.cell(row=i, column=3).number_format = MONEY
     s.cell(row=i, column=4, value=f"=IF($C${brow + 3 + len(bases)}=0,0,C{i}/$C${brow + 3 + len(bases)})").font = BODY
     s.cell(row=i, column=4).number_format = "0.0%"
@@ -181,9 +183,17 @@ n.column_dimensions["A"].width = 118
 LINES = [
     "",
     f"Scope. Revenue centre {data['revenueCenter']}, which is the default revenue centre — its stock is held on the "
-    "inventory record itself rather than as a per-centre allocation. All 413 lines of the source count are included.",
+    f"inventory record itself rather than as a per-centre allocation. {len(rows)} items, being every item that appeared "
+    "on either count sheet.",
     "",
-    f"Quantities. Taken from the physical count \"{data['label']}\" dated {data['sessionDate']}. Quantities are shown "
+    "Sources. The month-end was counted across more than one session: " + data["label"] + ". No single session holds "
+    "the whole position — items counted in one session appear in the other as carried-forward lines. Each item is "
+    "therefore taken from the session in which it was PHYSICALLY counted, shown per line in 'Quantity basis' and "
+    "'Counted on'.",
+    "",
+    f"Quantities. As recorded by the count itself, not recomputed. Several items' pack formats have since been "
+    "corrected, and re-resolving a counter's entry through a corrected pack would answer a different question than the "
+    "one they answered on the day — so the quantity each count froze is used unchanged. Quantities are shown "
     "both in the unit the counter worked in (Qty counted / Count unit) and in the item's base unit, which is what the "
     "system stores and what the valuation multiplies.",
     "",
@@ -214,7 +224,7 @@ LINES = [
     "which is the check that these quantities are the count's own. If the totals differ from these figures, a price "
     "has been edited since this file was produced.",
     "",
-    f"Source count session id: {data['sessionId']}",
+    "Source count sessions: " + ", ".join(data["sessionIds"]),
     f"Count finalized: {data['finalizedAt'] or 'n/a'}",
     f"Prices as at: {data['exportedAt'][:19].replace('T', ' ')} UTC",
     f"Count total as stored by the system at finalize: ${data['storedTotal']:,.2f}",
