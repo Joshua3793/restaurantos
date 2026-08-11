@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 import { getVocab } from '@/lib/rc-vocab'
 import { AlertsBell } from '@/components/AlertsBell'
 import { RcSelector } from '@/components/navigation/RcSelector'
@@ -16,6 +18,14 @@ import { SpineAuditDrawer } from './SpineAuditDrawer'
  * numerator) and WTD sales are thin early in the week, so the ratio routinely
  * runs >100%. Labelled "Purchases ÷ sales · WTD" so it isn't read as broken.
  * The accurate theoretical food-cost % lives on the Pass / Reports pages.
+ *
+ * ROLE GATE: the KPI block is MANAGER+ only. SPINE_ROUTES includes routes STAFF
+ * uses daily (/count, /prep, /inventory, /today), so being on a spine route is
+ * NOT authorisation — `showKpis` also requires clearance. Below MANAGER (and
+ * while the role is still loading) the bar renders as the brand + RC + bell
+ * shell only, and no cost fetch is ever issued. /api/insights/cost-chrome and
+ * /api/insights/spine-audit enforce the same floor server-side; this gate is
+ * cosmetic on its own and must never be the only one.
  */
 
 interface ChromeData {
@@ -30,12 +40,18 @@ interface ChromeData {
 
 export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: boolean; desktopOnly?: boolean }) {
   const { activeRcId, activeRc, activeKind } = useRc()
+  const { role } = useUser()
   const [data, setData] = useState<ChromeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [auditOpen, setAuditOpen] = useState(false)
 
+  // Default-deny: `role` is null while /api/me is in flight, so the KPIs stay
+  // hidden until clearance is positively confirmed — never a flash-then-hide.
+  const showKpis = onSpine && role !== null && atLeast(role, 'MANAGER')
+
   useEffect(() => {
-    if (!onSpine) return // off-spine routes show only the brand shell — no live KPIs
+    // Off-spine routes and below-MANAGER users show only the brand shell.
+    if (!showKpis) return
     let cancelled = false
     const fetchData = async () => {
       try {
@@ -49,7 +65,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
     fetchData()
     const i = setInterval(fetchData, 60_000)
     return () => { cancelled = true; clearInterval(i) }
-  }, [activeRcId, onSpine])
+  }, [activeRcId, showKpis])
 
   const fcPct = data?.foodCostPct ?? null
   const fcClass = fcPct === null
@@ -67,8 +83,10 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
   // The number is unchanged — this is the WTD purchases ÷ sales ratio.
   const costLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'COGS %'
 
+  // Mobile shows this bar ONLY to carry the KPIs (brand/RC/bell are md:-only),
+  // so below MANAGER it collapses entirely rather than leaving an empty band.
   return (
-    <div className={`${(onSpine && !desktopOnly) ? 'flex' : 'hidden'} md:flex md:fixed md:top-0 md:inset-x-0 md:z-50 md:h-11 bg-ink text-paper px-4 md:px-8 py-[10px] md:py-0 items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
+    <div className={`${(showKpis && !desktopOnly) ? 'flex' : 'hidden'} md:flex md:fixed md:top-0 md:inset-x-0 md:z-50 md:h-11 bg-ink text-paper px-4 md:px-8 py-[10px] md:py-0 items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto md:overflow-visible`}>
       {/* Brand — detached from the collapsible nav so it stays pinned in the top bar (desktop) */}
       <Link
         href="/"
@@ -85,7 +103,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
         <RcSelector compact />
       </div>
 
-      {onSpine && (
+      {showKpis && (
         <>
           <div className="hidden md:block w-px h-[14px] bg-ink-2" />
           <CCItem
@@ -115,7 +133,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
 
       <div className="hidden md:block flex-1" />
 
-      {onSpine && (
+      {showKpis && (
         <span className="hidden md:inline-block font-mono text-[10.5px] text-ink-3 min-w-0 max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap">
           computed from{' '}
           <button
@@ -134,7 +152,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
       <div className="hidden md:block shrink-0 [&>div>button]:text-ink-4 [&>div>button]:p-1.5 [&>div>button:hover]:text-white [&>div>button:hover]:bg-white/10">
         <AlertsBell dropdownAlign="right" />
       </div>
-      <SpineAuditDrawer open={auditOpen} onClose={() => setAuditOpen(false)} />
+      {showKpis && <SpineAuditDrawer open={auditOpen} onClose={() => setAuditOpen(false)} />}
     </div>
   )
 }

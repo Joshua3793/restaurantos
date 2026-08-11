@@ -18,7 +18,10 @@ export const dynamic = 'force-dynamic'
  * - Items with stale or missing prices (data-quality nudges)
  */
 export async function GET(_req: NextRequest) {
-  try { await requireSession() }
+  // MANAGER+ only — mirrors /api/insights/cost-chrome, whose strip is the only
+  // entry point to this drawer. Leaks more than the strip does: item-level
+  // inventory values, supplier names and invoice totals.
+  try { await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
