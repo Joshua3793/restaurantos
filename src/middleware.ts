@@ -107,7 +107,13 @@ export async function middleware(request: NextRequest) {
     url.pathname = '/no-access'
     url.searchParams.set('from', pathname)
     url.searchParams.set('need', need)
-    return NextResponse.rewrite(url)
+    const blocked = NextResponse.rewrite(url)
+    // Carry over any session cookie the Supabase client rotated above. Unlike
+    // the redirect this replaced, a rewrite is terminal — there is no follow-up
+    // request to re-refresh on, so dropping them here strands the client with a
+    // spent refresh token for as long as it stays on a gated URL.
+    response.cookies.getAll().forEach(cookie => blocked.cookies.set(cookie))
+    return blocked
   }
 
   return response
