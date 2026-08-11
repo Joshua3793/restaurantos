@@ -1,6 +1,4 @@
 severity,verdict,category,name,price,unit,benchLo,benchHi,benchSrc,ratio,packChain,supplier,lastInvoiceDate,reasons
-CRITICAL,BELOW MARKET + FORMAT,BREAD,Puff pastry sheet(pepridge farm),0.014084285714285714,each,1.5,8,FS,0.00938952380952381,1 case = 20 each → 1 each = 350 each,Sysco,,$0.01/each is 106.5× BELOW the bottom of the BC band ($1.5–$8/each) — under-costing risk | pack format is malformed: HUGE_PACK(7000 each per purchase unit)
-CRITICAL,ABOVE MARKET,PROD,Fingerling Potatoes,72.62032840085362,kg,3,9,FS,8.068925377872624,1 bag = 1 each → 1 each = 453.592 g,North Arm Farms,,$72.62/kg is 8.1× the top of the BC band ($3–$9/kg)
 CRITICAL,ABOVE MARKET + FORMAT,BREAD,PUFF PASTRY CROISSANT,18.236,each,0.8,3.2,FS,5.6987499999999995,1 each = 1 each → 1 each = 10 each,,,$18.24/each is 5.7× the top of the BC band ($0.8–$3.2/each) | pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 10 each)
 CRITICAL,BELOW MARKET,DRY,Sugar icing,0.21875,kg,1,4,STATCAN,0.21875,1 case = 24 each → 1 each = 1000 g,Sysco,,$0.22/kg is 4.6× BELOW the bottom of the BC band ($1–$4/kg) — under-costing risk
 CRITICAL,BELOW MARKET,DRY,Mirin Seasoning,0.75,L,3,12,FS,0.25,1 pack = 12 each → 1 each = 1000 ml,Sysco,,$0.75/L is 4.0× BELOW the bottom of the BC band ($3–$12/L) — under-costing risk

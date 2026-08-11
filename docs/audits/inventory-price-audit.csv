@@ -16,7 +16,6 @@ cd150799d548845968f02b19,Pita Bread,BREAD,,COUNT,each,pack,case,1 case = 24 each
 cmqd0u6ra0013d3klj7kisr5f,Pizza Margherita RETAIL 12 x 615g WOOZA,BREAD,Legends Haul,MASS,g,each,case,1 case = 12 each → 1 each = 615 g,7380,PACK,160,,,21.680216802168022,kg,,true,false,1,Legends Haul,,
 cmqd0u78c0015d3klxv7091qs,Pizza Pepperoni RETAIL 12 x 600g WOOZA,BREAD,Legends Haul,MASS,g,each,case,1 case = 12 each → 1 each = 600 g,7200,PACK,160,,,22.22222222222222,kg,,true,false,1,Legends Haul,,
 c377ddd2be8bb428797ab0ac,PUFF PASTRY CROISSANT,BREAD,,COUNT,each,each,each,1 each = 1 each → 1 each = 10 each,10,PACK,182.36,,,18.236,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 10 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
-c5db2e837222d49fda1ea8ff,Puff pastry sheet(pepridge farm),BREAD,Sysco,COUNT,each,case,case,1 case = 20 each → 1 each = 350 each,7000,PACK,98.59,,,0.014084285714285714,each,,true,false,0,,,HUGE_PACK(7000 each per purchase unit); COUNT_NO_EACH_MEASURE
 cc7aef2abcf8e4bb0a8ccb48,Spring roll wrappers,BREAD,,MASS,g,kg,each,1 each = 1 each → 1 each = 11000 g,11000,PACK,138,,,12.545454545454545,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 c88568a5e30f543fcb9e21bf,Yellow corn Tortillas,BREAD,Sysco,COUNT,each,pack,case,1 case = 12 each → 1 each = 60 each,720,PACK,77.14,,,0.1071388888888889,each,,true,false,1,Sysco,,COUNT_UNIT_ORPHAN(pack); COUNT_NO_EACH_MEASURE
 cmqd2rwjq0003m7sn6hredhy9,DETERGENT POT/PAN MANUAL,CHM,Sysco,MASS,g,each,case,1 case = 3 each → 1 each = 907.184 g,2721.5519999999997,PACK,198.75,,,73.02818391858763,kg,,true,false,1,Sysco,,
@@ -372,7 +371,7 @@ c79811bfb1ddb4b35aff1cff,Eggplant,PROD,Sysco,COUNT,each,each,each,1 each = 1 eac
 c810db4568c8446c7a24018a,Endive,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 4535.92 g,4535.92,PACK,47.28,,,10.4234642586289,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 ca1d72b76af7949d8b5e166d,Farm Squash Zuchinni,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,0,,,0,each,,true,false,0,,,ZERO_PRICE; COUNT_NO_EACH_MEASURE
 c375635f98ca34e61b74bb20,Fennel brew creek,PROD,,COUNT,each,each,each,1 each = 1 each → 1 each = 1 each,1,PACK,0,,,0,each,,true,false,0,,,ZERO_PRICE; COUNT_NO_EACH_MEASURE
-cmq78d50c0001grtm3araah6g,Fingerling Potatoes,PROD,North Arm Farms,MASS,g,lb,bag,1 bag = 1 each → 1 each = 453.592 g,453.592,PACK,32.94,,,72.62032840085362,kg,,true,false,2,Sysco,,
+cmq78d50c0001grtm3araah6g,Fingerling Potatoes,PROD,North Arm Farms,MASS,g,lb,bag,1 bag = 453.592 g,453.592,RATE,,6.45,kg,6.45,kg,,true,false,2,Sysco,,
 cmnmloj150013hgf0b9ypogz1,Garlic,PROD,Sysco,MASS,g,kg,each,1 each = 1 each → 1 each = 2267.96 g,2267.96,PACK,26.9,,,11.860879380588722,kg,,true,false,1,Sysco,,DUPLICATE_CHAIN_UNITS
 c0573a0e926b54480b2ab71e,ginger,PROD,,MASS,g,kg,each,1 each = 1 each → 1 each = 2267.96 g,2267.96,PACK,35.96,,,15.85565882996173,kg,,true,false,0,,,DUPLICATE_CHAIN_UNITS
 cmq78go1j00014ohra86m7tnm,Golf Ball Onions,PROD,North Arm Farms,MASS,g,lb,bag,1 bag = 1 each → 1 each = 453.592 g,453.592,PACK,3.05,,,6.724104481560522,kg,,true,false,0,,,
@@ -390,8 +389,8 @@ cmscgqvbd000lfe41ptzh14mv,"Kohlrabi, Green",PROD,North Arm Farms,COUNT,each,each
 cc2ed8515fc294be7b2a9157,Leeks Fresh,PROD,Sysco,COUNT,each,each,each,1 each = 1 each → 1 each = 12 each,12,PACK,54.91,,,4.575833333333333,each,,true,false,0,,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 12 each); DUPLICATE_CHAIN_UNITS; COUNT_NO_EACH_MEASURE
 c4aa3faede1d74f20abe1d1f,Lemons,PROD,Sysco,COUNT,each,each,case,1 case = 1 each → 1 each = 140 each,140,PACK,66.84,,,0.4774285714285715,each,,true,false,1,Sysco,,COUNT_UNIT_COLLISION(counting in 'each' resolves to 140 each); COUNT_NO_EACH_MEASURE
 cmrs9gakq000nqp6gwiw98hbp,Lettuce - Red Tango,PROD,Brew Creek Farm,MASS,g,lb,case,1 case = 453.592 g,453.592,RATE,,12.5,lb,27.557805252297218,kg,,true,false,1,Brew Creek Farm,,
-cmqvyejsk0001ahaq3pwhn2in,LETTUCE BOSTON /BUTTER FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,57.84,,,2.41,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 cmqvpdobr000146plm3kjqz11,LETTUCE BOSTON /BUTTER FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,57.84,,,2.41,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
+cmqvyejsk0001ahaq3pwhn2in,LETTUCE BOSTON /BUTTER FRESH,PROD,Sysco,COUNT,each,each,case,1 case = 24 each → 1 each = 1 each,24,PACK,57.84,,,2.41,each,,true,false,0,,,COUNT_NO_EACH_MEASURE
 c06fdf5b142864abda44929c,Lettuce Burger,PROD,,COUNT,each,case,case,1 case = 24 each → 1 each = 1 each,24,PACK,46.4,,,1.9333333333333333,each,1 each = 1.43 kg,true,false,1,Sysco,,
 cmq8zjdhk0001vlm6r99hy1fr,LETTUCE ROMAINE HEART OF FRSH,PROD,Sysco,COUNT,each,each,case,1 case = 4 pack → 1 pack = 12 each,48,PACK,79.99,,,1.6664583333333332,each,,true,false,1,Sysco,,COUNT_NO_EACH_MEASURE
 cmq8zml6l0001niizasv72x15,LETTUCE ROMAINE HEART OF FRSH,PROD,Sysco,COUNT,each,each,case,1 case = 12 each → 1 each = 1 each,12,PACK,38.89,,,3.2408333333333332,each,,true,false,0,,,COUNT_NO_EACH_MEASURE

@@ -1,14 +1,14 @@
 # Inventory price audit — BC market comparison
 
-**Scope:** every active inventory item (454) was priced from the pack-chain spine
+**Scope:** every active inventory item (453) was priced from the pack-chain spine
 (`pricePerBaseUnit`), normalised to $/kg, $/L or $/each, and compared against a
 British Columbia price band.
 
-- **396** purchased items compared against a BC benchmark (100% of food items;
+- **395** purchased items compared against a BC benchmark (100% of food items;
   the two exclusions are a cleaning chemical and the $0 non-stocked "Water" utility row).
 - **58** PREP-linked items derive their cost from a recipe, not a purchase
   price — market comparison does not apply, so they are checked for pack-format defects only.
-- **88** items are flagged for manual revision.
+- **86** items are flagged for manual revision.
 
 **Benchmark sources**
 
@@ -39,9 +39,9 @@ the two is stale, and the data does not say which:
 Compare `lastUpdated` on both and use the BC band as the tiebreaker. In this
 snapshot the split was an even 16 / 16.
 
-### 26 items where the two disagree on a PACK-priced item
+### 25 items where the two disagree on a PACK-priced item
 
-### 6 items where the cost is fine but the pack total is not
+### 7 items where the cost is fine but the pack total is not
 
 These are **RATE**-priced ($/kg set directly), so the unit cost is right. The
 wrong pack total corrupts count conversions and stock-on-hand instead.
@@ -49,6 +49,7 @@ wrong pack total corrupts count conversions and stock-on-hand instead.
 | Item | Supplier | Offer says | Chain says | Rate (correct) |
 |---|---|---|---|---|
 | Beef Chuck Flat | Legends Haul | 6 × 4 kg | 1000 base | $27.00/kg |
+| Fingerling Potatoes | Sysco | 1 × 12 lb | 453.592 base | $6.45/kg |
 | Grana Padano | Sysco | 2 × 4 kg | 1000 base | $29.30/kg |
 | Cheddar smoked | Sysco | 1 × 3.4 kg | 1000 base | $34.23/kg |
 | Pork Back Ribs | Legends Haul | 1 × 7 kg | 4540 base | $15.90/kg |
@@ -57,15 +58,13 @@ wrong pack total corrupts count conversions and stock-on-hand instead.
 
 ---
 
-## 🔴 CRITICAL — 18 items
+## 🔴 CRITICAL — 16 items
 
 Cost math is provably wrong here: the item has no price at all, or it is off by
 a multiple large enough that no supplier variation explains it.
 
 | Item | Category | Current | BC benchmark | Drift | What looks wrong |
 |---|---|---|---|---|---|
-| **Puff pastry sheet(pepridge farm)** | BREAD | $0.01/each | $1.5–$8/each <sub>FS</sub> | 106.5× under | $0.01/each is 106.5× BELOW the bottom of the BC band ($1.5–$8/each) — under-costing risk<br>pack format is malformed: HUGE_PACK(7000 each per purchase unit) |
-| **Fingerling Potatoes** | PROD | $72.62/kg | $3–$9/kg <sub>FS</sub> | 8.1× over | $72.62/kg is 8.1× the top of the BC band ($3–$9/kg) |
 | **PUFF PASTRY CROISSANT** | BREAD | $18.24/each | $0.8–$3.2/each <sub>FS</sub> | 5.7× over | $18.24/each is 5.7× the top of the BC band ($0.8–$3.2/each)<br>pack format is malformed: COUNT_UNIT_COLLISION(counting in 'each' resolves to 10 each) |
 | **Sugar icing** | DRY | $0.22/kg | $1–$4/kg <sub>STATCAN</sub> | 4.6× under | $0.22/kg is 4.6× BELOW the bottom of the BC band ($1–$4/kg) — under-costing risk |
 | **Mirin Seasoning** | DRY | $0.75/L | $3–$12/L <sub>FS</sub> | 4.0× under | $0.75/L is 4.0× BELOW the bottom of the BC band ($3–$12/L) — under-costing risk |
@@ -233,7 +232,7 @@ never shown up on a cost report — but every count screen shows the wrong numbe
 
 ## Advisory — items with no count↔weight bridge
 
-70 COUNT-dimension items have no `eachMeasure`. They cost correctly when a
+69 COUNT-dimension items have no `eachMeasure`. They cost correctly when a
 recipe calls for them by the each, but a recipe or invoice that expresses them
 by weight cannot be converted. Not a price defect — listed for completeness in
 `inventory-price-audit.csv`.
