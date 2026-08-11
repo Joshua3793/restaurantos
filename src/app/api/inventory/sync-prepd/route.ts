@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncPrepToInventory } from '@/lib/recipeCosts'
 import { dimensionOf } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/inventory/sync-prepd
@@ -14,6 +17,15 @@ import { dimensionOf } from '@/lib/item-model'
  * Call after bulk imports or whenever PREPD items are missing / prices look stale.
  */
 export async function POST() {
+  // API routes bypass middleware, so this guards itself — it creates inventory
+  // items and rewrites every PREP item's cost. Matches the sibling maintenance
+  // route at /api/prep/sync-from-recipes.
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   // ── 1. Backfill missing inventory links for active PREP recipes ────────────
   const unlinked = await prisma.recipe.findMany({
     where: { type: 'PREP', isActive: true, inventoryItemId: null },
