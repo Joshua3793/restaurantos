@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
-import { lineCountedBase, resolveCountUom } from '@/lib/count-uom'
+import { lineCountedBase, resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
@@ -189,12 +189,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           data: { priceAtCount: pricePerBaseUnit(asChainItem(item)) },
         })
       }
-      const itemDims = {
-        dimension: item.dimension,
-        baseUnit:  item.baseUnit,
-        packChain: item.packChain,
-        countUnit: item.countUnit,
-      }
+      const itemDims = countDimsOf(item)
       const countedBase = lineCountedBase(l, itemDims)
       const expected    = Number(l.expectedQty)
       const ppb         = pricePerBaseUnit(asChainItem(item))
@@ -215,12 +210,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           sessionId:       params.id,
           inventoryItemId: item.id,
           expectedQty:     getExpected(item.id, Number(item.stockOnHand)),
-          selectedUom:     resolveCountUom({
-            dimension: item.dimension,
-            baseUnit:  item.baseUnit,
-            packChain: item.packChain,
-            countUnit: item.countUnit,
-          }) || item.baseUnit,
+          selectedUom:     resolveCountUom(countDimsOf(item)) || item.baseUnit,
           priceAtCount:    pricePerBaseUnit(asChainItem(item)),
           sortOrder:       nextSort++,
         },

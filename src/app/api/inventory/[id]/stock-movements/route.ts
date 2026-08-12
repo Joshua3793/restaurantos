@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { getCountedStockMap } from '@/lib/counted-stock'
+import { getTheoreticalStock } from '@/lib/count-expected'
 import { computeScale } from '@/lib/prep-utils'
 import { asChainItem, basePerUnit } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
@@ -30,18 +32,25 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     where: { id: params.id },
     select: {
       id: true, baseUnit: true,
-      stockOnHand: true, lastCountDate: true, lastCountQty: true,
+      stockOnHand: true,
       dimension: true, packChain: true, countUnit: true, pricing: true,
     },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const nonNullItem = item
 
-  // lastCountQty is the physically verified quantity — use as baseline.
-  // Fall back to stockOnHand if item has never been formally counted.
-  const baseQty = nonNullItem.lastCountQty != null ? Number(nonNullItem.lastCountQty) : Number(nonNullItem.stockOnHand)
-  // Look back 90 days if never formally counted
-  const since: Date = nonNullItem.lastCountDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+  // This drawer is a GLOBAL (all-RC) view, so its baseline is the all-RC counted
+  // quantity: each revenue centre's own most recent physical count, summed — the same
+  // ΣRC construction getTheoreticalStockMap uses. It must NOT read the item's global
+  // lastCountQty/lastCountDate columns: an RC-scoped count overwrites those without
+  // touching any other RC's stock, so a satellite RC counting 0 made this panel report
+  // "last count 0 / theoretical 0" for an item the inventory list valued at $1,575.
+  const countedMap = await getCountedStockMap(null, [params.id])
+  const counted = countedMap.get(params.id) ?? null
+  // Never counted anywhere → fall back to the item's own pool figure, and look back 90 days.
+  const baseQty = counted ? counted.qtyBase : Number(nonNullItem.stockOnHand)
+  const countDate: Date | null = counted ? new Date(counted.date) : null
+  const since: Date = countDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
   // Resolve the display unit exactly like the drawer header does: a stored
   // countUOM that is no longer valid for the item's purchase structure (e.g.
@@ -241,13 +250,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // Sort newest first
   raw.sort((a, b) => b.date.getTime() - a.date.getTime())
 
-  // Compute theoretical from baseline + all movements. Transfers are net-zero at the
-  // global level (they only shuffle stock between RCs), so they're excluded here.
-  const totalMovement  = raw.reduce((sum, m) => (m.type === 'TRANSFER' ? sum : sum + m.qtyBase), 0)
-  const theoreticalBase = Math.max(0, baseQty + totalMovement)
+  // The headline theoretical figure comes from the theoretical ENGINE, not from this
+  // route's own ledger sum, so the drawer and the inventory list cannot report
+  // different theoretical stock for the same item — they now call the same function.
+  // (The ledger below stays as provenance: it is deliberately more detailed than the
+  // engine's window and shows transfers, which are net-zero globally.)
+  const theoreticalBase = (await getTheoreticalStock(params.id, null)) ?? Math.max(0, baseQty)
 
   const response: StockMovementsResponse = {
-    lastCount:   { qty: toDisplay(baseQty), unit: displayUnit, date: nonNullItem.lastCountDate?.toISOString() ?? null },
+    lastCount:   { qty: toDisplay(baseQty), unit: displayUnit, date: countDate?.toISOString() ?? null },
     theoretical: { qty: toDisplay(theoreticalBase), unit: displayUnit },
     movements: raw.map(m => ({
       id:          m.id,
