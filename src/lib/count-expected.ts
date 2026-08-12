@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/prisma'
-import { convertQty, UNIT_FACTORS, canonicalUom } from '@/lib/uom'
+import { convertQty } from '@/lib/uom'
 import { computeScale } from '@/lib/prep-utils'
-import { asChainItem, basePerUnit, dimensionOf, PRICING_SELECT } from '@/lib/item-model'
+import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
+import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
@@ -239,7 +240,9 @@ export async function buildPurchaseMap(
       // opening receipt (showed 0 on-hand despite being bought).
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
       matchedItemId: { not: null },
-      rawQty: { not: null },
+      // NOT filtered on rawQty: a per-weight line can carry the billed weight in
+      // totalQty with no container count at all. Excluding those credited zero
+      // stock for goods that were bought and paid for.
     },
     select: {
       matchedItemId: true,
@@ -247,6 +250,7 @@ export async function buildPurchaseMap(
       rawUnit: true,
       totalQty: true,
       totalQtyUOM: true,
+      rateUOM: true,
       invoicePackQty: true,
       invoicePackSize: true,
       invoicePackUOM: true,
@@ -268,56 +272,25 @@ export async function buildPurchaseMap(
     // AFTER the count — the goods were already on the shelf when it was counted.
     // invoiceDate is a nullable "YYYY-MM-DD" OCR string; fall back to createdAt.
     const receivedDate = parseInvoiceDate(si.session.invoiceDate) ?? si.session.createdAt
+    // `until` gate arrives from upstream (#81 count-reopen window).
     if (!inWindow(cutoff, si.matchedItemId, receivedDate, until)) continue
-    const qty = Number(si.rawQty ?? 0)
-    if (qty <= 0) continue
-
-    const chainItem = asChainItem(si.matchedItem)
-    const baseUnit = chainItem.baseUnit
-    let baseUnits: number
-
-    // For RATE (per-weight / catch-weight) pricing, the invoice bills a weight/volume
-    // directly. Use the invoice's stated total when present, else rawQty — each paired
-    // with ITS OWN unit (never cross totalQty with rawUnit). Multiplying a per-weight
-    // qty by case size was a 10× inflation (bug #4).
-    const isRate = chainItem.pricing.mode === 'RATE'
-    let billedQty = qty
-    let billedUOM: string | null = null
-    if (isRate) {
-      if (si.totalQty != null && Number(si.totalQty) > 0) {
-        billedQty = Number(si.totalQty); billedUOM = si.totalQtyUOM ?? baseUnit
-      } else {
-        billedQty = qty; billedUOM = si.rawUnit ?? baseUnit
-      }
-    }
-
-    if (isRate && billedUOM && UNIT_FACTORS[canonicalUom(billedUOM)]) {
-      // Billed unit is a real measurement unit → convert the weight/volume directly.
-      baseUnits = convertQty(billedQty, billedUOM, baseUnit)
-    } else {
-      // CASE pricing, OR a RATE line billed in a CONTAINER unit the backbone can't
-      // convert (CS, PK, case, tray…): expand the raw line qty (purchase units) via the
-      // pack structure. Without this, a RATE line billed in cases passed straight through
-      // convertQty unscaled, under-counting purchases (e.g. "Beef Digital" billed in CS).
-      const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
-      const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
-      const packUOM  = si.invoicePackUOM ?? null
-      // Only trust the invoice's pack format when its UOM is the SAME dimension as the
-      // item's base unit. Otherwise convertQty does a cross-dimension passthrough that
-      // silently inflates/zeros (e.g. a COUNT item whose case is described by weight:
-      // "6 × 240 G" → convertQty(1440 g → each) returned 1440 muffins instead of 24 →
-      // 60× inflation). On a dimension mismatch, derive from the item's OWN chain.
-      if (packQty > 0 && packSize > 0 && packUOM && dimensionOf(packUOM) === chainItem.dimension) {
-        // Invoice supplied its own pack format (one-off) → compute base from it.
-        baseUnits = convertQty(qty * packQty * packSize, packUOM, baseUnit)
-      } else {
-        // DEFAULT case path: base units received = qtyShipped × the chain's
-        // top-level base content (levelBaseUnits[top]). No legacy pack fields.
-        const top = chainItem.packChain[0]?.unit
-        const perCase = top ? basePerUnit(chainItem, top) : 1
-        baseUnits = qty * perCase
-      }
-    }
+    // ONE receiving rule, shared with the RC split editor and the approved-invoice
+    // report. This used to be a hand-copied duplicate of lineReceivedBaseUnits and
+    // the two had already drifted (this copy grew a pack-dimension guard the other
+    // never got), so the same line credited different stock depending on who asked.
+    // Decimal columns are stringified here rather than widening LineQtyInput —
+    // line-qty.ts is client-safe and must not learn about Prisma types.
+    const baseUnits = lineReceivedBaseUnits({
+      rawQty:         si.rawQty?.toString() ?? null,
+      rawUnit:        si.rawUnit,
+      totalQty:       si.totalQty?.toString() ?? null,
+      totalQtyUOM:    si.totalQtyUOM,
+      rateUOM:        si.rateUOM,
+      invoicePackQty:  si.invoicePackQty?.toString() ?? null,
+      invoicePackSize: si.invoicePackSize?.toString() ?? null,
+      invoicePackUOM:  si.invoicePackUOM,
+    }, asChainItem(si.matchedItem))
+    if (baseUnits <= 0) continue
 
     map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
   }
