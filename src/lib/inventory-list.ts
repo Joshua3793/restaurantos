@@ -9,6 +9,7 @@ import { type User } from '@prisma/client'
 import { prisma } from './prisma'
 import { asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 import { getTheoreticalStockMap } from './count-expected'
+import { getCountedStockMap, type CountedStock } from './counted-stock'
 import { resolveScopedRcIds } from './rc-scope'
 
 export interface InventoryListParams {
@@ -19,6 +20,8 @@ export interface InventoryListParams {
   isActive: string | null
   rcId: string
   isDefault: boolean
+  /** location lens — narrows "All" to the revenue centres under this location */
+  locationId: string
   includeNonStocked: boolean
   needsReview: boolean
 }
@@ -36,6 +39,10 @@ export interface InventoryListRow {
   lastCountDate: string | null
   theoreticalStock: number
   countedStock: number
+  /** last physically counted qty (base units) for THIS scope; null = never counted here */
+  countedQtyScoped: number | null
+  /** ISO date of the oldest count behind countedQtyScoped; null when never counted here */
+  countedDateScoped: string | null
   pricePerBaseUnit: number
   parLevel?: number | null
   // packChain, pricing, purchasePrice, stockOnHand, lastCountQty and the rest of the
@@ -47,8 +54,10 @@ export interface InventoryListRow {
 /** Read the list params off a URL. Both the list route and the export use this. */
 export function parseInventoryListParams(searchParams: URLSearchParams): InventoryListParams {
   // Location lens: InventoryItem has no RC column and per-RC stock lives in
-  // StockAllocation. v1 shows the global catalog for a location (rcId stays '').
-  // locationId is accepted but does not narrow the catalog — documented simplification.
+  // StockAllocation, so a location narrows the list through its REVENUE CENTRES —
+  // it behaves as "All revenue centres, limited to this location's". It used to be
+  // accepted and ignored, which made a one-RC location (CATERING) show the whole
+  // catalogue — every KITCHEN item — under a chip that named only CATERING.
   // Non-stocked (recipe-only) items are hidden from the operational list by default;
   // the inventory page passes includeNonStocked=true to reveal them.
   return {
@@ -59,17 +68,26 @@ export function parseInventoryListParams(searchParams: URLSearchParams): Invento
     isActive:          searchParams.get('isActive'),
     rcId:              searchParams.get('rcId') || '',
     isDefault:         searchParams.get('isDefault') === 'true',
+    locationId:        searchParams.get('locationId') || '',
     includeNonStocked: searchParams.get('includeNonStocked') === 'true',
     needsReview:       searchParams.get('needsReview') === 'true',
   }
 }
 
-/** Attach theoreticalStock, countedStock, lastCountDate to each item row. */
+/** Attach theoreticalStock, countedStock, lastCountDate and the scoped counted figure. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function attachTheoreticalFields<T extends Record<string, any>>(
   items: T[],
   theoMap: Map<string, number>,
-): (T & { theoreticalStock: number; countedStock: number; lastCountDate: string | null; pricePerBaseUnit: number })[] {
+  countedMap: Map<string, CountedStock>,
+): (T & {
+  theoreticalStock: number
+  countedStock: number
+  lastCountDate: string | null
+  countedQtyScoped: number | null
+  countedDateScoped: string | null
+  pricePerBaseUnit: number
+})[] {
   return items.map(item => {
     // Use a pre-set countedStock when the caller already captured the raw value (e.g. the
     // "All RCs" path pre-sets it before inflating stockOnHand with allocTotal). Otherwise
@@ -79,6 +97,12 @@ function attachTheoreticalFields<T extends Record<string, any>>(
     const lastCountDate = item.lastCountDate
       ? (item.lastCountDate instanceof Date ? item.lastCountDate.toISOString() : String(item.lastCountDate))
       : null
+    // The last PHYSICALLY counted quantity for the revenue centres this response is
+    // scoped to — the Stock in Hand basis. Deliberately not lastCountQty: that column
+    // is global, so in a non-default RC it reports another RC's count (see
+    // src/lib/counted-stock.ts). Absent from the map = never counted in this scope,
+    // which is null and NOT zero.
+    const scopedCount = countedMap.get(item.id) ?? null
     // Re-populate the `pricePerBaseUnit` response field by computing it from the
     // chain so client readers (inventory/page, GlobalSearch, setup/categories,
     // wastage selectedItem) survive the legacy column drop.
@@ -87,6 +111,8 @@ function attachTheoreticalFields<T extends Record<string, any>>(
       theoreticalStock: theoretical,
       countedStock: counted,
       lastCountDate,
+      countedQtyScoped:  scopedCount ? scopedCount.qtyBase : null,
+      countedDateScoped: scopedCount ? scopedCount.date    : null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pricePerBaseUnit: chainPricePerBaseUnit(asChainItem(item as any)),
     }
@@ -101,7 +127,7 @@ export async function fetchInventoryList(
   user: User,
   params: InventoryListParams,
 ): Promise<{ rows: InventoryListRow[]; outOfScope: boolean }> {
-  const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, includeNonStocked, needsReview } = params
+  const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, locationId, includeNonStocked, needsReview } = params
 
   // Inventory items carry no revenueCenterId column (RC association lives in
   // StockAllocation / ItemRevenueCenter), so scopedRcWhere does not apply to the
@@ -113,6 +139,20 @@ export async function fetchInventoryList(
   if (rcId && allowed !== null && !allowed.has(rcId)) {
     return { rows: [], outOfScope: true }
   }
+
+  // The location lens is "All revenue centres, narrowed to this location's". It runs
+  // through the same allowed-set machinery the "All" path already uses for a scoped
+  // user, intersected with that scope so a lens can only ever narrow access, never
+  // widen it. An empty intersection yields an empty list, not the whole catalogue.
+  let lensRcIds: Set<string> | null = null
+  if (locationId && !rcId) {
+    const rcs = await prisma.revenueCenter.findMany({ where: { locationId }, select: { id: true } })
+    lensRcIds = new Set(
+      rcs.map(rc => rc.id).filter(id => allowed === null || allowed.has(id)),
+    )
+  }
+  // What "All" means for this request: the lens when there is one, else the user's scope.
+  const scope = lensRcIds ?? allowed
 
   const itemWhere = {
     AND: [
@@ -160,8 +200,11 @@ export async function fetchInventoryList(
       }
     })
     const itemIds = items.map(i => i.id)
-    const theoMap = await getTheoreticalStockMap(rcId, itemIds)
-    return { rows: attachTheoreticalFields(items, theoMap), outOfScope: false }
+    const [theoMap, countedMap] = await Promise.all([
+      getTheoreticalStockMap(rcId, itemIds),
+      getCountedStockMap([rcId], itemIds),
+    ])
+    return { rows: attachTheoreticalFields(items, theoMap, countedMap), outOfScope: false }
   }
 
   // Default RC (Cafe): stockOnHand IS Cafe's pool – return as-is
@@ -187,41 +230,47 @@ export async function fetchInventoryList(
       }
     })
     const itemIds = result.map(i => i.id)
-    const theoMap = await getTheoreticalStockMap(rcId, itemIds)
-    return { rows: attachTheoreticalFields(result, theoMap), outOfScope: false }
+    const [theoMap, countedMap] = await Promise.all([
+      getTheoreticalStockMap(rcId, itemIds),
+      // getCountedStockMap attributes pre-RC (null) count sessions to the default RC,
+      // so this path also picks up the counts that predate the revenue-centre model.
+      getCountedStockMap([rcId], itemIds),
+    ])
+    return { rows: attachTheoreticalFields(result, theoMap, countedMap), outOfScope: false }
   }
 
   // "All Revenue Centers": total physical stock = stockOnHand (Cafe pool) + all RC allocations
   // Exclude default-RC allocations: the default RC's stock already lives in stockOnHand, so
   // summing its allocation on top would double-count it.
   //
-  // Scope: for a scoped user (allowed !== null) "All" must mean "aggregate of MY RCs", not
-  // every RC. We therefore (a) only sum non-default allocations in allowed RCs, (b) include
-  // the default RC's stockOnHand pool only when the default RC is itself in scope, (c) list
-  // only items that are members of / allocated to an allowed RC, and (d) pass the allowed set
-  // into getTheoreticalStockMap so the per-RC sum is limited the same way.
-  // allowed === null (ADMIN / unscoped) leaves every clause untouched — behavior unchanged.
-  const defaultRc = allowed !== null
+  // Scope: `scope` is the set of RCs "All" aggregates over — a scoped user's allowed RCs,
+  // or the location lens's RCs when one is selected. We therefore (a) only sum non-default
+  // allocations in in-scope RCs, (b) include the default RC's stockOnHand pool only when the
+  // default RC is itself in scope, (c) list only items that are members of / allocated to an
+  // in-scope RC, and (d) pass the same set into getTheoreticalStockMap / getCountedStockMap
+  // so the per-RC sums are limited identically.
+  // scope === null (ADMIN / unscoped, no lens) leaves every clause untouched.
+  const defaultRc = scope !== null
     ? await prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { id: true } })
     : null
-  const defaultRcInScope = allowed === null || (defaultRc !== null && allowed.has(defaultRc.id))
+  const defaultRcInScope = scope === null || (defaultRc !== null && scope.has(defaultRc.id))
 
   // Restrict the listed items to those with membership or a non-default allocation in an
-  // allowed RC (mirrors the per-RC view, which lists items via StockAllocation). When the
+  // in-scope RC (mirrors the per-RC view, which lists items via ItemRevenueCenter). When the
   // default RC is in scope, its pool items (everything) are visible too.
   let scopedItemFilter: Record<string, unknown> = {}
-  if (allowed !== null) {
+  if (scope !== null) {
     if (defaultRcInScope) {
       // default RC in scope → all items visible (default pool spans the whole catalogue)
       scopedItemFilter = {}
-    } else if (allowed.size === 0) {
+    } else if (scope.size === 0) {
       scopedItemFilter = { id: { in: [] } }
     } else {
-      const allowedIds = [...allowed]
+      const scopeIds = [...scope]
       scopedItemFilter = {
         OR: [
-          { stockAllocations: { some: { revenueCenterId: { in: allowedIds } } } },
-          { revenueCenters: { some: { revenueCenterId: { in: allowedIds } } } },
+          { stockAllocations: { some: { revenueCenterId: { in: scopeIds } } } },
+          { revenueCenters: { some: { revenueCenterId: { in: scopeIds } } } },
         ],
       }
     }
@@ -232,9 +281,9 @@ export async function fetchInventoryList(
     include: {
       ...itemInclude,
       stockAllocations: {
-        where: allowed === null
+        where: scope === null
           ? { revenueCenter: { isDefault: false } }
-          : { revenueCenter: { isDefault: false }, revenueCenterId: { in: [...allowed] } },
+          : { revenueCenter: { isDefault: false }, revenueCenterId: { in: [...scope] } },
         select: { quantity: true },
       },
     },
@@ -250,6 +299,11 @@ export async function fetchInventoryList(
     return { ...item, stockOnHand: rawStockOnHand + allocTotal, countedStock: rawStockOnHand }
   })
   const itemIds = items.map(i => i.id)
-  const theoMap = await getTheoreticalStockMap(null, itemIds, allowed)
-  return { rows: attachTheoreticalFields(items, theoMap), outOfScope: false }
+  const [theoMap, countedMap] = await Promise.all([
+    getTheoreticalStockMap(null, itemIds, scope),
+    // Same scope rule as the theoretical map: "All" is Σ over the RCs in scope — the
+    // location lens's RCs, or a scoped user's allowed set, or every RC.
+    getCountedStockMap(scope === null ? null : [...scope], itemIds),
+  ])
+  return { rows: attachTheoreticalFields(items, theoMap, countedMap), outOfScope: false }
 }

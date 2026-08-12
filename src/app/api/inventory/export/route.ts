@@ -5,7 +5,7 @@ import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/li
 import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
-import { stockInHandKpis, stockInHandQty, stockInHandValue, theoreticalQty, selectStockInHandRows } from '@/lib/stock-in-hand'
+import { stockInHandKpis, stockInHandQty, stockInHandDate, stockInHandValue, theoreticalQty, selectStockInHandRows } from '@/lib/stock-in-hand'
 import { PILL_LABELS, INVENTORY_PILLS, type InventoryPill, type PillItem } from '@/lib/inventory-pills'
 
 export const dynamic = 'force-dynamic'
@@ -120,11 +120,17 @@ async function resolveFilterLabels(searchParams: URLSearchParams) {
   const supplierId    = searchParams.get('supplierId') || ''
   const storageAreaId = searchParams.get('storageAreaId') || ''
   const rcId          = searchParams.get('rcId') || ''
+  // A location lens narrows the rows through its revenue centres, so the file has to
+  // name it. It used to be silently ignored, which printed "Revenue centre: all" on a
+  // file that was in fact narrowed — or, before that, on one that really was the whole
+  // catalogue under a location's name.
+  const locationId    = searchParams.get('locationId') || ''
 
-  const [supplier, storageArea, rc] = await Promise.all([
+  const [supplier, storageArea, rc, location] = await Promise.all([
     supplierId    ? prisma.supplier.findUnique({ where: { id: supplierId }, select: { name: true } })       : null,
     storageAreaId ? prisma.storageArea.findUnique({ where: { id: storageAreaId }, select: { name: true } }) : null,
     rcId          ? prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { name: true } })        : null,
+    locationId    ? prisma.location.findUnique({ where: { id: locationId }, select: { name: true } })       : null,
   ])
 
   const rawPill = searchParams.get('pill') || 'all'
@@ -145,7 +151,8 @@ async function resolveFilterLabels(searchParams: URLSearchParams) {
       ['Category',       searchParams.get('category') || 'all'],
       ['Supplier',       supplier?.name    ?? 'all'],
       ['Storage area',   storageArea?.name ?? 'all'],
-      ['Revenue centre', rc?.name ?? (rcId ? `(unknown: ${rcId})` : 'all')],
+      ['Revenue centre', rc?.name ?? (rcId ? `(unknown: ${rcId})` : locationId ? 'all in the location below' : 'all')],
+      ['Location',       location?.name ?? (locationId ? `(unknown: ${locationId})` : 'all')],
       ['Status filter',  PILL_LABELS[pill]],
       ['Needs review',   searchParams.get('needsReview') === 'true' ? 'flagged items only' : 'all'],
       ['Item status',    activeLabel],
@@ -158,44 +165,15 @@ const BASIS_STATEMENT =
   'Showing last physically counted quantities at current prices. ' +
   'No sales, prep, wastage or purchase movement applied.'
 
-// Always true, independent of scope comparability: an RC-scoped count overwrites the
-// GLOBAL lastCountQty on the item without touching that RC's stockOnHand allocation
-// (see src/lib/count-finalize.ts ~117-124), so a counted quantity read anywhere — even
-// in the comparable default-RC or unscoped case — may have been physically counted in
-// a different revenue centre than the one the export is scoped to.
+// Counted quantities are reconstructed per revenue centre from the count history
+// (src/lib/counted-stock.ts), NOT read off the item's global lastCountQty column, so a
+// scoped file reports the counts taken in its own scope. A file that leaves the building
+// still has to say which counts it is made of, and what a blank means.
 const COUNT_SCOPE_CAVEAT =
-  'Note: lastCountQty is a single global field on the item, not per revenue centre. An ' +
-  'RC-scoped count writes it but leaves that RC’s allocation alone, so a counted quantity ' +
-  'always reads "last count of this item anywhere" — it may have been counted in a ' +
-  'different revenue centre than the one this export is scoped to.'
-
-// Only true when the scope makes the counted (global) and theoretical (scope-filtered)
-// bases outright incomparable, not merely "counted somewhere else".
-const CROSS_RC_NOTE =
-  'Scope note: theoretical stock, unlike lastCountQty, is scoped to this view. Outside ' +
-  'the whole default stock pool the two bases are therefore not comparable: Unverified ' +
-  'Movement is reported as n/a and the per-row Unverified Movement Value column is left ' +
-  'blank rather than printing a difference between two different scopes.'
-
-const UNVERIFIED_NA_REASON =
-  'counted quantities are global, theoretical stock is scoped to this view'
-
-/**
- * Unverified Movement subtracts a GLOBAL counted value (InventoryItem.lastCountQty)
- * from a SCOPE-FILTERED theoretical value, so the subtraction only means something
- * when the view IS the whole default stock pool. The export sees only the scope
- * params the page writes via setScopeParams, which is enough to reconstruct the
- * page's own predicate exactly:
- *   rcId + isDefault=true → the default RC        (comparable)
- *   rcId, no isDefault    → a non-default RC      (not comparable)
- *   locationId            → a location lens       (not comparable)
- *   neither               → the unscoped All view (comparable)
- */
-function scopeIsComparable(searchParams: URLSearchParams): boolean {
-  const rcId = searchParams.get('rcId') || ''
-  if (rcId) return searchParams.get('isDefault') === 'true'
-  return !(searchParams.get('locationId') || '')
-}
+  'Scope: counted quantities are the last physical count taken in the revenue centre(s) ' +
+  'this export is scoped to — "all" sums each revenue centre\'s own latest count, the same ' +
+  'way theoretical stock does, so the two bases are subtractable. An item never counted in ' +
+  'this scope is left blank (never counted), which is not the same as a counted zero.'
 
 /** The count-UOM facts resolveCountUom / convertBaseToCountUom read off a list row. */
 function countDims(row: InventoryListRow) {
@@ -216,7 +194,6 @@ function countQty(row: InventoryListRow, baseQty: number): number {
 async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
   const { rows: rawRows, outOfScope } = await fetchInventoryList(user, parseInventoryListParams(searchParams))
   const { pill, rows: filterRows } = await resolveFilterLabels(searchParams)
-  const comparable = scopeIsComparable(searchParams)
 
   // Repair the count unit BEFORE anything reads it, then apply the same pill predicate
   // the page applies — in that order, so the file matches the screen. Extracted into
@@ -248,11 +225,7 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
     [],
     ['Basis'],
     [BASIS_STATEMENT],
-    // Always true — a counted quantity is global, not per-RC, regardless of whether this
-    // view's scope happens to be comparable to it — plus, only when the scope makes the
-    // counted and theoretical bases outright incomparable, the incomparability explanation.
     [COUNT_SCOPE_CAVEAT],
-    ...(comparable ? [] : [[CROSS_RC_NOTE]]),
     [],
     ['Filters applied'],
     ...filterRows,
@@ -262,9 +235,9 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
     ['Coverage',             `${kpis.counted} / ${kpis.total}`],
     ['Never Counted',        kpis.neverCounted],
     ['Oldest Count',         kpis.oldestCountDate ? new Date(kpis.oldestCountDate).toLocaleDateString() : '—'],
-    comparable
-      ? ['Unverified Movement', Number(kpis.unverifiedMovement.toFixed(2))]
-      : ['Unverified Movement', 'n/a', UNVERIFIED_NA_REASON],
+    // Counted and theoretical are now scoped identically (per RC, "all" = Σ RC), so the
+    // subtraction means the same thing in every scope and no longer needs suppressing.
+    ['Unverified Movement',  Number(kpis.unverifiedMovement.toFixed(2))],
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kpiData), 'KPI Summary')
 
@@ -277,6 +250,7 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
 
   const dataRows = rows.map(row => {
     const qty  = stockInHandQty(row)          // base units, null = never counted
+    const countDate = stockInHandDate(row)
     const ppbRaw = Number(row.pricePerBaseUnit)
     // Mirror stock-in-hand.ts's private num() normalization (null/undefined/''/non-finite
     // -> 0) so a bad price can't leak NaN into the sheet without duplicating that module's
@@ -295,12 +269,11 @@ async function stockInHandWorkbook(user: any, searchParams: URLSearchParams) {
       qty === null ? '' : qty,
       ppb,
       val,
-      row.lastCountDate ? new Date(row.lastCountDate).toLocaleDateString() : '',
+      // The date of the count IN THIS SCOPE, not the item's global lastCountDate.
+      countDate ? new Date(countDate).toLocaleDateString() : '',
       qty === null ? 'Never' : 'Yes',
       theo,
-      // A global counted value minus a scope-filtered theoretical one is a fabricated
-      // number outside the default stock pool — leave the cell blank instead.
-      comparable ? theo * ppb - val : '',
+      theo * ppb - val,
     ]
   })
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...dataRows]), 'Stock in Hand')

@@ -1,49 +1,74 @@
 import { describe, it, expect } from 'vitest'
 import {
-  stockInHandQty, stockInHandValue, theoreticalQty, stockInHandKpis, selectStockInHandRows,
-  type StockInHandItem,
+  stockInHandQty, stockInHandDate, stockInHandValue, theoreticalQty, stockInHandKpis,
+  selectStockInHandRows, type StockInHandItem,
 } from '../stock-in-hand'
 import { resolveCountUom } from '../count-uom'
 import type { PillItem } from '../inventory-pills'
 
 const item = (over: Partial<StockInHandItem> = {}): StockInHandItem => ({
-  lastCountQty: 10,
-  lastCountDate: '2026-08-01T00:00:00.000Z',
+  countedQtyScoped: 10,
+  countedDateScoped: '2026-08-01T00:00:00.000Z',
   pricePerBaseUnit: 2,
   theoreticalStock: 8,
   ...over,
 })
 
 describe('stockInHandQty', () => {
-  it('returns the last counted quantity', () => {
+  it('returns the last counted quantity for the scope', () => {
     expect(stockInHandQty(item())).toBe(10)
   })
 
   it('parses Prisma Decimals that arrive as strings', () => {
-    expect(stockInHandQty(item({ lastCountQty: '12.5' }))).toBe(12.5)
+    expect(stockInHandQty(item({ countedQtyScoped: '12.5' }))).toBe(12.5)
   })
 
   it('returns null when never counted', () => {
-    expect(stockInHandQty(item({ lastCountQty: null }))).toBeNull()
-    expect(stockInHandQty(item({ lastCountQty: undefined }))).toBeNull()
+    expect(stockInHandQty(item({ countedQtyScoped: null }))).toBeNull()
+    expect(stockInHandQty(item({ countedQtyScoped: undefined }))).toBeNull()
   })
 
   it('returns 0 for a genuine zero count, not null', () => {
-    expect(stockInHandQty(item({ lastCountQty: 0 }))).toBe(0)
+    expect(stockInHandQty(item({ countedQtyScoped: 0 }))).toBe(0)
+  })
+
+  // The bug this field exists to fix: a CATERING view read the item's global
+  // lastCountQty and reported the KITCHEN count. Nothing here may fall back to it.
+  it('never falls back to the item-global lastCountQty', () => {
+    const crossRc = { ...item({ countedQtyScoped: null }), lastCountQty: 999 } as StockInHandItem
+    expect(stockInHandQty(crossRc)).toBeNull()
+    expect(stockInHandValue(crossRc)).toBe(0)
+  })
+})
+
+describe('stockInHandDate', () => {
+  it('reports the scoped count date as an ISO string', () => {
+    expect(stockInHandDate(item())).toBe('2026-08-01T00:00:00.000Z')
+    expect(stockInHandDate(item({ countedDateScoped: new Date('2026-07-02T00:00:00.000Z') })))
+      .toBe('2026-07-02T00:00:00.000Z')
+  })
+
+  it('is null when never counted in scope, and never falls back to lastCountDate', () => {
+    const crossRc = { ...item({ countedDateScoped: null }), lastCountDate: '2026-08-01' } as StockInHandItem
+    expect(stockInHandDate(crossRc)).toBeNull()
+  })
+
+  it('is null for an unparseable date rather than throwing', () => {
+    expect(stockInHandDate(item({ countedDateScoped: 'not a date' }))).toBeNull()
   })
 })
 
 describe('stockInHandValue', () => {
   it('values the counted quantity at the current price', () => {
-    expect(stockInHandValue(item({ lastCountQty: 10, pricePerBaseUnit: 2 }))).toBe(20)
+    expect(stockInHandValue(item({ countedQtyScoped: 10, pricePerBaseUnit: 2 }))).toBe(20)
   })
 
   it('parses a string price', () => {
-    expect(stockInHandValue(item({ lastCountQty: 4, pricePerBaseUnit: '1.25' }))).toBe(5)
+    expect(stockInHandValue(item({ countedQtyScoped: 4, pricePerBaseUnit: '1.25' }))).toBe(5)
   })
 
   it('is 0 when never counted, however large the theoretical stock', () => {
-    expect(stockInHandValue(item({ lastCountQty: null, theoreticalStock: 999 }))).toBe(0)
+    expect(stockInHandValue(item({ countedQtyScoped: null, theoreticalStock: 999 }))).toBe(0)
   })
 })
 
@@ -64,8 +89,8 @@ describe('theoreticalQty', () => {
 describe('stockInHandKpis', () => {
   it('sums value, counts coverage and reports never-counted', () => {
     const k = stockInHandKpis([
-      item({ lastCountQty: 10, pricePerBaseUnit: 2, theoreticalStock: 10 }),
-      item({ lastCountQty: null, pricePerBaseUnit: 5, theoreticalStock: 4 }),
+      item({ countedQtyScoped: 10, pricePerBaseUnit: 2, theoreticalStock: 10 }),
+      item({ countedQtyScoped: null, pricePerBaseUnit: 5, theoreticalStock: 4 }),
     ])
     expect(k.value).toBe(20)
     expect(k.counted).toBe(1)
@@ -75,7 +100,7 @@ describe('stockInHandKpis', () => {
 
   it('computes unverified movement as theoretical value minus stock in hand value', () => {
     const k = stockInHandKpis([
-      item({ lastCountQty: 10, theoreticalStock: 8, pricePerBaseUnit: 2 }),
+      item({ countedQtyScoped: 10, theoreticalStock: 8, pricePerBaseUnit: 2 }),
     ])
     expect(k.theoreticalValue).toBe(16)
     expect(k.value).toBe(20)
@@ -84,7 +109,7 @@ describe('stockInHandKpis', () => {
 
   it('counts a never-counted item toward theoretical value but not stock in hand', () => {
     const k = stockInHandKpis([
-      item({ lastCountQty: null, theoreticalStock: 4, pricePerBaseUnit: 5 }),
+      item({ countedQtyScoped: null, theoreticalStock: 4, pricePerBaseUnit: 5 }),
     ])
     expect(k.value).toBe(0)
     expect(k.theoreticalValue).toBe(20)
@@ -93,9 +118,9 @@ describe('stockInHandKpis', () => {
 
   it('reports the earliest count date among counted items only', () => {
     const k = stockInHandKpis([
-      item({ lastCountQty: 1, lastCountDate: '2026-08-05T00:00:00.000Z' }),
-      item({ lastCountQty: 1, lastCountDate: '2026-07-02T00:00:00.000Z' }),
-      item({ lastCountQty: null, lastCountDate: '2026-01-01T00:00:00.000Z' }),
+      item({ countedQtyScoped: 1, countedDateScoped: '2026-08-05T00:00:00.000Z' }),
+      item({ countedQtyScoped: 1, countedDateScoped: '2026-07-02T00:00:00.000Z' }),
+      item({ countedQtyScoped: null, countedDateScoped: '2026-01-01T00:00:00.000Z' }),
     ])
     expect(k.oldestCountDate).toBe('2026-07-02T00:00:00.000Z')
   })

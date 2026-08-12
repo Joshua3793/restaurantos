@@ -14,10 +14,21 @@
 import { matchesPill, type InventoryPill, type PillItem } from './inventory-pills'
 import { resolveCountUom } from './count-uom'
 
-/** The fields Stock in Hand needs. Both an API row and a Prisma row satisfy it. */
+/** The fields Stock in Hand needs. Every row comes from fetchInventoryList. */
 export interface StockInHandItem {
-  lastCountQty?: number | string | null
-  lastCountDate?: string | Date | null
+  /**
+   * Last physically counted quantity (base units) for the revenue centres the row
+   * was fetched under; null = never counted in that scope.
+   *
+   * Required, not optional, and deliberately NOT falling back to the item's
+   * `lastCountQty`: that column is a single global field which an RC-scoped count
+   * overwrites without touching any other RC's stock, so falling back to it would
+   * quietly restore the bug this field exists to fix (a CATERING view reporting
+   * KITCHEN's counts). A caller that cannot supply it has no counted basis to show.
+   */
+  countedQtyScoped: number | string | null
+  /** ISO date of the oldest count behind countedQtyScoped; null when never counted. */
+  countedDateScoped?: string | Date | null
   pricePerBaseUnit: number | string
   theoreticalStock?: number | string | null
   stockOnHand?: number | string | null
@@ -31,11 +42,19 @@ function num(v: number | string | Date | null | undefined): number | null {
 }
 
 /**
- * Last counted quantity in BASE units. `null` means never counted — which is
- * NOT the same as a counted zero, and the two must stay distinguishable.
+ * Last counted quantity in BASE units, for the scope the row was fetched under.
+ * `null` means never counted here — which is NOT the same as a counted zero, and
+ * the two must stay distinguishable.
  */
 export function stockInHandQty(item: StockInHandItem): number | null {
-  return num(item.lastCountQty)
+  return num(item.countedQtyScoped)
+}
+
+/** The date that counted quantity is as of. Null when never counted in scope. */
+export function stockInHandDate(item: StockInHandItem): string | null {
+  if (!item.countedDateScoped) return null
+  const d = new Date(item.countedDateScoped)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 /** Last counted quantity valued at the CURRENT price. Never counted → 0. */
@@ -82,13 +101,12 @@ export function stockInHandKpis(items: StockInHandItem[]): StockInHandKpis {
     if (stockInHandQty(item) === null) continue
     counted++
 
-    if (!item.lastCountDate) continue
-    const d = new Date(item.lastCountDate)
-    const ms = d.getTime()
-    if (Number.isNaN(ms)) continue
+    const iso = stockInHandDate(item)
+    if (!iso) continue
+    const ms = new Date(iso).getTime()
     if (oldestMs === null || ms < oldestMs) {
       oldestMs = ms
-      oldestCountDate = d.toISOString()
+      oldestCountDate = iso
     }
   }
 
