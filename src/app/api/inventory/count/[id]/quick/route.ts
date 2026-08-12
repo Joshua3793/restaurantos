@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { computeExpectedForItem } from '@/lib/count-expected'
 import { finalizeCountSession } from '@/lib/count-finalize'
-import { convertBaseToCountUom, resolveCountUom, countDimsOf } from '@/lib/count-uom'
+import { convertBaseToCountUom, resolveCountUom, countDimsOf, assertCountableUom, CountUomError } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
@@ -60,6 +60,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const item = await prisma.inventoryItem.findUnique({ where: { id: params.id } })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Validate the unit BEFORE creating anything — finalize would reject it anyway,
+  // but by then the session row exists and is orphaned in a never-finalized state.
+  // Freezing the base here also makes this line chain-edit-proof from birth.
+  let uomFactor: number
+  try { uomFactor = assertCountableUom(selectedUom, countDimsOf(item)) }
+  catch (e) {
+    if (e instanceof CountUomError) {
+      return NextResponse.json({ error: 'Invalid count unit', message: e.message, itemName: item.itemName }, { status: 400 })
+    }
+    throw e
+  }
+
   const expected = await computeExpectedForItem(params.id, rcId)
   if (!expected) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -76,6 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           expectedQty:     expected.expectedBase,
           countedQty,
           selectedUom,
+          countedQtyBase:  countedQty * uomFactor,
           priceAtCount:    pricePerBaseUnit(asChainItem(item)),
           sortOrder:       0,
         }],

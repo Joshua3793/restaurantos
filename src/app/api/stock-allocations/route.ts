@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { convertCountQtyToBase, convertBaseToCountUom, countDimsOf } from '@/lib/count-uom'
+import { convertBaseToCountUom, countDimsOf, resolveCountUom, assertCountableUom, CountUomError } from '@/lib/count-uom'
 import { getTheoreticalStock } from '@/lib/count-expected'
+import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
+
+export const dynamic = 'force-dynamic'
 
 // GET /api/stock-allocations?itemId= — allocations for a specific inventory item
 export async function GET(req: NextRequest) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const itemId = searchParams.get('itemId')
 
@@ -25,6 +35,13 @@ export async function GET(req: NextRequest) {
 // so the default RC's theoretical drops and the target RC's rises. Only a count ever
 // changes real stock in hand.
 export async function POST(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json().catch(() => ({}))
   const { inventoryItemId, rcId, quantity, notes } = body
 
@@ -40,6 +57,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Quantity must be a positive number' }, { status: 400 })
   }
 
+  try { await assertRcWritable(user, rcId) }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
 
@@ -53,10 +76,20 @@ export async function POST(req: NextRequest) {
 
   // `quantity` arrives in the item's countUOM (e.g. kg); transfers are persisted in
   // baseUnit (e.g. g) — the canonical unit for all stock, matching how the theoretical
-  // engine reads StockTransfer.quantity. Convert before persisting / comparing.
-  const countUOM = item.countUnit || item.baseUnit
+  // engine reads StockTransfer.quantity. Resolve the unit through resolveCountUom
+  // (self-heals a stored countUnit that no longer fits the item) and then REFUSE to
+  // convert if it still has no meaning for this item — this persists a quantity, so
+  // it gets the same strict treatment as a count write, never the 1:1 fallback.
   const dims = countDimsOf(item)
-  const qtyBase = convertCountQtyToBase(qty, countUOM, dims)
+  const countUOM = resolveCountUom(dims) || item.baseUnit
+  let qtyBase: number
+  try { qtyBase = qty * assertCountableUom(countUOM, dims) }
+  catch (e) {
+    if (e instanceof CountUomError) {
+      return NextResponse.json({ error: 'Invalid count unit', message: e.message }, { status: 400 })
+    }
+    throw e
+  }
 
   // Guard against pulling more than the main pool's THEORETICAL on-hand (not raw
   // stockOnHand): since pulls no longer decrement stockOnHand, the raw value would

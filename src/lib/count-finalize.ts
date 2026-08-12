@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { lineCountedBase, countDimsOf, countUomFactor } from '@/lib/count-uom'
+import { lineCountedBase, countDimsOf, countUomFactor, lineConversionUnits } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
@@ -49,10 +49,15 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   // "each" converted 25 peaches into 25 CASES (226.8 kg, $1,575 of stock that was
   // never there). Refuse the whole finalize and name the lines: converting through a
   // guess is what produced the phantom, and a half-finalized session is worse.
+  //
+  // A line carrying `countedQtyBase` is exempt: its base quantity was frozen when the
+  // count was entered, so no conversion happens here and a stale unit label is inert.
+  // For legacy lines the check covers BOTH conversion inputs — the single selectedUom
+  // and every mixed-unit entry's unit (entries are what lineCountedBase converts).
   const badUnits = session.lines
-    .filter(l => !l.skipped && l.countedQty !== null)
-    .filter(l => countUomFactor(l.selectedUom, countDimsOf(l.inventoryItem)) === null)
-    .map(l => `${l.inventoryItem.itemName} (counted in "${l.selectedUom}")`)
+    .map(l => ({ line: l, units: lineConversionUnits(l) }))
+    .filter(({ line, units }) => units !== null && units.some(u => countUomFactor(u, countDimsOf(line.inventoryItem)) === null))
+    .map(({ line, units }) => `${line.inventoryItem.itemName} (counted in "${units!.join(' + ')}")`)
   if (badUnits.length > 0) {
     return {
       ok: false,
@@ -122,6 +127,10 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
                 priceAtCount: price,
                 variancePct:  expected > 0 ? ((qtyBase - expected) / expected) * 100 : 0,
                 varianceCost: lineVarCost,
+                // Freeze the base on legacy lines that reached finalize without one
+                // (counted before the column existed, or created by direct insert).
+                // qtyBase IS the frozen value when the line already carries it.
+                countedQtyBase: qtyBase,
               },
         })
       )

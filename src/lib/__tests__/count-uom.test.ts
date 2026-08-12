@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   convertCountQtyToBase, countUomFactor, assertCountableUom, CountUomError,
-  getCountableUoms, countEntriesToBase, lineCountedBase,
+  getCountableUoms, countEntriesToBase, lineCountedBase, lineConversionUnits,
 } from '../count-uom'
 
 /**
@@ -138,5 +138,56 @@ describe('mixed-unit and line-level conversion follow the same rule', () => {
 
   it('prefers entries over the single qty when present', () => {
     expect(lineCountedBase({ entries: [{ unit: 'each', qty: 4 }], countedQty: 25, selectedUom: 'each' }, peaches)).toBe(600)
+  })
+})
+
+describe('countedQtyBase — the conversion frozen at entry time', () => {
+  it('wins over re-deriving qty/uom through the chain', () => {
+    // The chain says 25 each = 3,750 g today; the frozen base says 3,600 (the chain
+    // was different when the count was entered). History must not restate.
+    expect(lineCountedBase({ countedQty: 25, selectedUom: 'each', countedQtyBase: 3600 }, peaches)).toBe(3600)
+  })
+
+  it('wins over entries too', () => {
+    expect(lineCountedBase({
+      entries: [{ unit: 'each', qty: 4 }], countedQty: 600, selectedUom: 'g', countedQtyBase: 555,
+    }, peaches)).toBe(555)
+  })
+
+  it('accepts a Prisma-Decimal-style stringifiable value', () => {
+    expect(lineCountedBase({ countedQty: 25, selectedUom: 'each', countedQtyBase: '3600' as never }, peaches)).toBe(3600)
+  })
+
+  it('falls back to re-derivation when absent or null', () => {
+    expect(lineCountedBase({ countedQty: 25, selectedUom: 'each', countedQtyBase: null }, peaches)).toBe(3750)
+    expect(lineCountedBase({ countedQty: 25, selectedUom: 'each' }, peaches)).toBe(3750)
+  })
+})
+
+describe('lineConversionUnits — what a finalize guard must validate', () => {
+  it('is null for skipped, uncounted, and frozen-base lines (nothing converts)', () => {
+    expect(lineConversionUnits({ skipped: true, countedQty: 5, selectedUom: 'portion' })).toBeNull()
+    expect(lineConversionUnits({ countedQty: null, selectedUom: 'portion' })).toBeNull()
+    // Frozen base: the stale unit label is inert — finalize must not block on it.
+    expect(lineConversionUnits({ countedQty: 5, selectedUom: 'portion', countedQtyBase: 285 })).toBeNull()
+  })
+
+  it('returns the single selectedUom for a plain counted line', () => {
+    expect(lineConversionUnits({ countedQty: 25, selectedUom: 'each' })).toEqual(['each'])
+  })
+
+  it('returns every entry unit when entries are present — NOT selectedUom', () => {
+    // Entries lines store selectedUom = baseUnit (always valid); the real conversion
+    // inputs are the entries' own units. Checking only selectedUom is the gap this
+    // closes: a stale entry unit used to slip through the finalize guard and convert
+    // 1:1 silently.
+    const units = lineConversionUnits({
+      countedQty: 1300, selectedUom: 'g',
+      entries: [{ unit: 'each', qty: 2 }, { unit: 'kg', qty: 1 }],
+    })
+    expect(units).toEqual(['each', 'kg'])
+    // And on the peaches-without-bridge item, that "each" entry is exactly what the
+    // finalize guard must now catch:
+    expect(units!.some(u => countUomFactor(u, peachesNoBridge) === null)).toBe(true)
   })
 })
