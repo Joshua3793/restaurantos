@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { lineCountedBase } from '@/lib/count-uom'
+import { lineCountedBase, countDimsOf } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 
 // GET /api/count/sessions/:id/report
@@ -22,10 +22,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const totalValue = lines.reduce((s, l) => {
     const item = l.inventoryItem
-    const itemDims = {
-      dimension: item.dimension, baseUnit: item.baseUnit,
-      packChain: item.packChain, countUnit: item.countUnit,
-    }
+    const itemDims = countDimsOf(item)
     const qtyBase = lineCountedBase(l, itemDims)
     return s + qtyBase * Number(l.priceAtCount)
   }, 0)

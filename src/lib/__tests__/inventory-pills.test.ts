@@ -142,23 +142,28 @@ describe('lowStock over a raw vs resolved countUnit', () => {
     packChain: i.packChain, countUnit: i.countUnit ?? undefined,
   })
 
-  it('resolves the schema default "each" on a MASS item to the chain leaf', () => {
+  it('treats the schema default "each" on a MASS item as unresolvable, not as the chain leaf', () => {
     // InventoryItem.countUnit is String @default("each"), so a MASS item that never had
-    // one set stores "each" — the screen shows kg. The verdict happens to survive here
-    // because the generic "each" label falls through to the chain leaf inside
-    // resolveUnitBase, so this pair pins the label fix without claiming a row-set change.
+    // one set stores "each" — the screen shows kg. "each" on a by-weight item now only
+    // resolves through the item's own eachMeasure bridge (this flour declares none), so
+    // the raw path measures in BASE units like any other unresolvable unit. It used to
+    // fall through to the chain leaf, which on this fixture happens to be kg — the
+    // coincidence that made a 12.5-vs-12,500 difference look like agreement. That same
+    // fallback resolved "each" to the CASE on a single-link chain, which is how counting
+    // 25 peaches stored 226.8 kg.
     const raw = flour('each')
     const resolved = resolveCountUom(dims(raw))
     expect(resolved).toBe('kg')
-    expect(matchesPill('lowStock', raw, NOW)).toBe(true)                          // 12.5 < 20
-    expect(matchesPill('lowStock', { ...raw, countUnit: resolved }, NOW)).toBe(true)
+    expect(matchesPill('lowStock', raw, NOW)).toBe(false)                         // 12,500 > 20
+    expect(matchesPill('lowStock', { ...raw, countUnit: resolved }, NOW)).toBe(true)  // 12.5 < 20
   })
 
   it('selects a different row set when an unresolvable stored unit is not resolved first', () => {
-    // A stored unit the chain cannot resolve — an empty string, or a cross-dimension
-    // leftover like 'ml' on a MASS item — measures in BASE units on the raw path:
-    // 12,500 > par 20 → not low, while the screen measures 12.5 kg < 20 → low.
-    for (const stored of ['', 'ml']) {
+    // A stored unit the chain cannot resolve — an empty string, a cross-dimension
+    // leftover like 'ml' on a MASS item, or the schema-default 'each' — measures in BASE
+    // units on the raw path: 12,500 > par 20 → not low, while the screen measures
+    // 12.5 kg < 20 → low.
+    for (const stored of ['', 'ml', 'each']) {
       const raw = flour(stored)
       const resolved = resolveCountUom(dims(raw))
       expect(resolved).toBe('kg')

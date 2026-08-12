@@ -3,21 +3,11 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { computeExpectedForItem } from '@/lib/count-expected'
 import { finalizeCountSession } from '@/lib/count-finalize'
-import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { convertBaseToCountUom, resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
-function itemDims(item: {
-  dimension: string; baseUnit: string; packChain: unknown; countUnit: string | null
-}) {
-  return {
-    dimension: item.dimension,
-    baseUnit:  item.baseUnit,
-    packChain: item.packChain,
-    countUnit: item.countUnit,
-  }
-}
 
 // GET /api/inventory/count/:id/quick?rcId=... → expected on-hand for live preview
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -29,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const expected = await computeExpectedForItem(params.id, rcId)
   if (!expected) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const dims = itemDims(item)
+  const dims = countDimsOf(item)
   // Default count unit, self-healing from the purchase format like the count routes.
   const countUom = resolveCountUom(dims) || item.baseUnit
   const expectedCount = convertBaseToCountUom(expected.expectedBase, countUom, dims)

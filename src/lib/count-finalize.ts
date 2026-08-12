@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { lineCountedBase } from '@/lib/count-uom'
+import { lineCountedBase, countDimsOf, countUomFactor } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
@@ -42,6 +42,28 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   // count would clobber the main (default RC) pool.
   const isRcScopedCount = !!session.revenueCenterId && !session.revenueCenter?.isDefault
 
+  // A line's selectedUom can go stale while the session is open: edit an item's pack
+  // format (or its dimension) after the session was created and the line keeps the unit
+  // it was created with. Finalize is where that stale unit turns into stock, so it is
+  // where it has to be caught — a MASS item whose line still carried the COUNT-era
+  // "each" converted 25 peaches into 25 CASES (226.8 kg, $1,575 of stock that was
+  // never there). Refuse the whole finalize and name the lines: converting through a
+  // guess is what produced the phantom, and a half-finalized session is worse.
+  const badUnits = session.lines
+    .filter(l => !l.skipped && l.countedQty !== null)
+    .filter(l => countUomFactor(l.selectedUom, countDimsOf(l.inventoryItem)) === null)
+    .map(l => `${l.inventoryItem.itemName} (counted in "${l.selectedUom}")`)
+  if (badUnits.length > 0) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        `${badUnits.length} line${badUnits.length === 1 ? '' : 's'} ${badUnits.length === 1 ? 'is' : 'are'} counted in a unit ` +
+        `that is no longer valid for the item — its pack format changed after the count started. ` +
+        `Re-enter ${badUnits.length === 1 ? 'it' : 'them'} in a listed unit, then approve: ${badUnits.join('; ')}`,
+    }
+  }
+
   const now = new Date()
   // The count's EFFECTIVE date (what the user set), not when they clicked approve.
   // `lastCountDate` gates theoretical-stock movements (a movement only applies if it
@@ -63,12 +85,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
 
   for (const line of session.lines) {
     const item = line.inventoryItem
-    const itemDims = {
-      dimension: item.dimension,
-      baseUnit:  item.baseUnit,
-      packChain: item.packChain,
-      countUnit: item.countUnit,
-    }
+    const itemDims = countDimsOf(item)
 
     // Always use the current price from the inventory item — ensures that any
     // invoice approvals that happened after the count was created are reflected
@@ -161,12 +178,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
       .filter(line => !line.skipped && line.countedQty !== null)
       .map(line => {
         const item = line.inventoryItem
-        const itemDims = {
-          dimension: item.dimension,
-          baseUnit:  item.baseUnit,
-          packChain: item.packChain,
-          countUnit: item.countUnit,
-        }
+        const itemDims = countDimsOf(item)
         const qtyBase = lineCountedBase(line, itemDims)
         return prisma.stockAllocation.upsert({
           where: {

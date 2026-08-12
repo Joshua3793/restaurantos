@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { convertCountQtyToBase, countEntriesToBase, type CountEntry } from '@/lib/count-uom'
+import { convertCountQtyToBase, countEntriesToBase, countDimsOf, assertCountableUom, CountUomError, type CountEntry } from '@/lib/count-uom'
 import { withPpb } from '@/lib/item-model'
 
 // PATCH /api/count/sessions/:id/lines/:lineId
@@ -32,11 +32,31 @@ export async function PATCH(
   }
 
   const item = line.inventoryItem
-  const itemDims = {
-    dimension: item.dimension,
-    baseUnit:  item.baseUnit,
-    packChain: item.packChain,
-    countUnit: item.countUnit,
+  const itemDims = countDimsOf(item)
+
+  // Refuse a unit this item cannot be counted in, rather than converting through a
+  // guess. Every unit that reaches a stored quantity is validated here: the body's
+  // selectedUom, each mixed-unit entry's unit, and — because a line's unit can go
+  // stale while the session is open, if the item's pack format is edited underneath
+  // it — the unit already on the line whenever it is used to convert.
+  try {
+    if (selectedUom !== undefined) assertCountableUom(String(selectedUom), itemDims)
+    if (Array.isArray(entries)) {
+      for (const e of entries as { unit?: unknown }[]) {
+        if (e?.unit) assertCountableUom(String(e.unit), itemDims)
+      }
+    }
+    if (countedQty !== undefined && selectedUom === undefined) {
+      assertCountableUom(line.selectedUom, itemDims)
+    }
+  } catch (e) {
+    if (e instanceof CountUomError) {
+      return NextResponse.json(
+        { error: 'Invalid count unit', message: e.message, itemName: item.itemName },
+        { status: 400 },
+      )
+    }
+    throw e
   }
 
   let data: Parameters<typeof prisma.countLine.update>[0]['data'] = {}

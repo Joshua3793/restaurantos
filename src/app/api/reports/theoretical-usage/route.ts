@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
-import { convertCountQtyToBase } from '@/lib/count-uom'
+import { convertCountQtyToBase, countDimsOf } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { scopeWhereFromParams } from '@/lib/rc-scope'
@@ -118,6 +118,7 @@ export async function GET(req: NextRequest) {
             select: {
               id: true, baseUnit: true,
               dimension: true, packChain: true, countUnit: true,
+              eachMeasureQty: true, eachMeasureUnit: true,
             },
           },
         },
@@ -142,19 +143,13 @@ export async function GET(req: NextRequest) {
     for (const cl of openingSession.lines) {
       if (cl.countedQty === null) continue
       const item = cl.inventoryItem
-      const dims = {
-        dimension: item.dimension, baseUnit: item.baseUnit,
-        packChain: item.packChain, countUnit: item.countUnit,
-      }
+      const dims = countDimsOf(item)
       openMap[item.id] = convertCountQtyToBase(Number(cl.countedQty), cl.selectedUom, dims)
     }
     for (const cl of closingSession.lines) {
       if (cl.countedQty === null) continue
       const item = cl.inventoryItem
-      const dims = {
-        dimension: item.dimension, baseUnit: item.baseUnit,
-        packChain: item.packChain, countUnit: item.countUnit,
-      }
+      const dims = countDimsOf(item)
       closeMap[item.id] = convertCountQtyToBase(Number(cl.countedQty), cl.selectedUom, dims)
     }
     // Actual usage = opening - closing (positive = used, negative = gained/purchased)

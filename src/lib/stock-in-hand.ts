@@ -70,13 +70,13 @@ export function theoreticalQty(item: StockInHandItem): number {
 }
 
 export interface StockInHandKpis {
-  /** Σ lastCountQty × current pricePerBaseUnit */
+  /** Σ scoped counted qty × current pricePerBaseUnit */
   value: number
   /** items with a count */
   counted: number
   /** items in view */
   total: number
-  /** items with no lastCountQty */
+  /** items never counted in this scope */
   neverCounted: number
   /** earliest lastCountDate among counted items, ISO string */
   oldestCountDate: string | null

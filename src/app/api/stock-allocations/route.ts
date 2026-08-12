@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { convertCountQtyToBase, convertBaseToCountUom } from '@/lib/count-uom'
+import { convertCountQtyToBase, convertBaseToCountUom, countDimsOf } from '@/lib/count-uom'
 import { getTheoreticalStock } from '@/lib/count-expected'
 
 // GET /api/stock-allocations?itemId= — allocations for a specific inventory item
@@ -55,12 +55,7 @@ export async function POST(req: NextRequest) {
   // baseUnit (e.g. g) — the canonical unit for all stock, matching how the theoretical
   // engine reads StockTransfer.quantity. Convert before persisting / comparing.
   const countUOM = item.countUnit || item.baseUnit
-  const dims = {
-    dimension: item.dimension,
-    baseUnit:  item.baseUnit,
-    packChain: item.packChain,
-    countUnit: item.countUnit,
-  }
+  const dims = countDimsOf(item)
   const qtyBase = convertCountQtyToBase(qty, countUOM, dims)
 
   // Guard against pulling more than the main pool's THEORETICAL on-hand (not raw

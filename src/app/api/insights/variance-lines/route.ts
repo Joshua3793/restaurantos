@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { lineCountedBase } from '@/lib/count-uom'
+import { lineCountedBase, countDimsOf } from '@/lib/count-uom'
 import { scopeWhereFromParams } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
         select: {
           id: true, itemName: true, category: true,
           baseUnit: true, dimension: true, packChain: true, countUnit: true,
+          eachMeasureQty: true, eachMeasureUnit: true,
         },
       },
     },
@@ -98,7 +99,7 @@ export async function GET(req: NextRequest) {
 
   for (const l of latestPerItemRc.values()) {
     const it = l.inventoryItem
-    const dims = { dimension: it.dimension, baseUnit: it.baseUnit, packChain: it.packChain, countUnit: it.countUnit }
+    const dims = countDimsOf(it)
     const expectedBase = Number(l.expectedQty)
     const countedBase  = lineCountedBase(l, dims)
     const varianceValue = l.varianceCost != null ? Number(l.varianceCost) : (countedBase - expectedBase) * Number(l.priceAtCount)

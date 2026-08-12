@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
-import { resolveCountUom } from '@/lib/count-uom'
+import { resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
@@ -191,12 +191,7 @@ export async function POST(req: NextRequest) {
             noMovement,
             // Derive from the purchase format (self-heals legacy items whose
             // stored countUOM no longer matches their structure).
-            selectedUom:     resolveCountUom({
-              dimension: item.dimension,
-              baseUnit:  item.baseUnit,
-              packChain: item.packChain,
-              countUnit: item.countUnit,
-            }) || item.baseUnit,
+            selectedUom:     resolveCountUom(countDimsOf(item)) || item.baseUnit,
             priceAtCount:    pricePerBaseUnit(asChainItem(item)),
             sortOrder:       i,
           }
