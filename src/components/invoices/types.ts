@@ -137,6 +137,11 @@ export interface Session {
     recipe: { id: string; name: string; menuPrice: string | number | null }
   }>
   createdAt: string
+  /** Who approved it, and when — the audit line on the approved report. */
+  approvedBy?: string | null
+  approvedAt?: string | null
+  /** Accounting/received date the purchase lands on (see src/lib/purchase-date.ts). */
+  purchaseDate?: string | null
   revenueCenterId?: string | null
   parentSessionId?: string | null
   errorMessage?: string | null
