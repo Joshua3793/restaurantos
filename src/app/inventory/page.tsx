@@ -56,6 +56,11 @@ interface InventoryItem {
   isStocked?: boolean
   needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
+  // Last PHYSICAL count for the revenue centre(s) this list was fetched under — the
+  // Stock in Hand basis. Distinct from lastCountQty/lastCountDate, which are single
+  // global columns an RC-scoped count overwrites (src/lib/counted-stock.ts).
+  countedQtyScoped: number | null
+  countedDateScoped: string | null
   recipe?: { id: string; name: string } | null
 }
 
@@ -67,6 +72,28 @@ type ColDir    = 'asc' | 'desc'
 const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
   item: 'asc', category: 'asc', supplier: 'asc',
   price: 'desc', stock: 'desc', value: 'desc',
+}
+
+/**
+ * The "counted …" sub-line under a row's stock figure. Null when there is nothing
+ * to say. Defined once because the desktop row and the mobile card must not drift.
+ */
+function countedSubline(item: InventoryItem, stockInHand: boolean) {
+  const short = (d: string) => new Date(d).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+  if (!item.countedDateScoped || item.countedQtyScoped == null) return null
+  // Both branches read the count taken in THIS scope. They used to read countedStock
+  // (which on a non-default RC is the DEFAULT pool's stock) dated by the item's global
+  // lastCountDate — so a CATERING row reported the KITCHEN count, in a view whose
+  // headline quantity was CATERING's.
+  if (stockInHand) {
+    // The headline above is already that counted quantity, so repeating it here would
+    // just restate the row; only the date it is as of adds anything.
+    return <>counted {short(item.countedDateScoped)}</>
+  }
+  return <>counted {convertBaseToCountUom(item.countedQtyScoped, item.countUnit || item.baseUnit, {
+    dimension: item.dimension, baseUnit: item.baseUnit,
+    packChain: item.packChain, countUnit: item.countUnit,
+  }).toFixed(1)} on {short(item.countedDateScoped)}</>
 }
 
 const DEFAULT_CHAIN: PackLink[] = [{ unit: 'case', per: 1 }]
@@ -379,14 +406,10 @@ function InventoryPageInner() {
   // cannot disagree when a pill is active.
   const sihKpis = useMemo(() => stockInHandKpis(pillFiltered), [pillFiltered])
 
-  // Unverified Movement is theoretical MINUS counted, and those two are not always
-  // measured over the same stock. lastCountQty is a single global column on the item,
-  // while theoreticalStock is computed per scope (getTheoreticalStockMap(rcId, …)), so
-  // the subtraction only means something when the view IS the whole default stock pool:
-  // the unscoped All view, or an RC view whose RC is the default one. On a non-default
-  // RC — or under the location lens — the difference is fabricated, so it is suppressed
-  // rather than shown. The export reconstructs this same predicate from its scope params.
-  const scopeComparable = activeKind === 'all' || (activeKind === 'rc' && !!activeRc?.isDefault)
+  // Unverified Movement is theoretical MINUS counted. Both sides are now measured over
+  // the same stock in every scope — countedQtyScoped is built per RC and summed for
+  // "all" (src/lib/counted-stock.ts) exactly the way getTheoreticalStockMap builds
+  // theoretical — so the subtraction no longer has to be suppressed anywhere.
 
   // Column sort: first click → smart default direction; same column → flip direction
   const toggleColSort = (col: ColKey) => {
@@ -682,17 +705,9 @@ function InventoryPageInner() {
                 ? <span className="text-ink-4">&mdash;</span>
                 : <>{basisQty.toFixed(1)}<small className="font-mono text-[10.5px] text-ink-3 ml-[3px] font-normal">{item.countUnit || formatPurchaseDisplay(item)}</small></>}
             </span>
-            {item.countedStock != null && item.lastCountDate && (
+            {countedSubline(item, stockInHand) && (
               <div className="font-mono text-[10px] text-ink-4 whitespace-nowrap mt-0.5">
-                {stockInHand
-                  // The headline above is already the counted quantity in this mode —
-                  // showing countedStock (current real stock, not the frozen count) here
-                  // too would contradict it wherever stock has moved since the count.
-                  ? <>counted {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>
-                  : <>counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
-                      dimension: item.dimension, baseUnit: item.baseUnit,
-                      packChain: item.packChain, countUnit: item.countUnit,
-                    }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>}
+                {countedSubline(item, stockInHand)}
               </div>
             )}
           </div>
@@ -772,17 +787,9 @@ function InventoryPageInner() {
             </span>
             {item.supplier && <span className="font-mono text-[10px] text-ink-4">· {item.supplier.name}</span>}
           </div>
-          {item.countedStock != null && item.lastCountDate && (
+          {countedSubline(item, stockInHand) && (
             <div className="font-mono text-[9.5px] text-ink-4 mt-0.5">
-              {stockInHand
-                // The headline above is already the counted quantity in this mode —
-                // showing countedStock (current real stock, not the frozen count) here
-                // too would contradict it wherever stock has moved since the count.
-                ? <>counted {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>
-                : <>counted {convertBaseToCountUom(item.countedStock, item.countUnit || item.baseUnit, {
-                    dimension: item.dimension, baseUnit: item.baseUnit,
-                    packChain: item.packChain, countUnit: item.countUnit,
-                  }).toFixed(1)} on {new Date(item.lastCountDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}</>}
+              {countedSubline(item, stockInHand)}
             </div>
           )}
           {item.allergens && item.allergens.length > 0 && (
@@ -933,12 +940,11 @@ function InventoryPageInner() {
           <div className="text-[13px] text-ink-2">
             <span className="font-semibold">Stock in Hand</span> — showing last physically counted
             quantities at current prices. No sales, prep, wastage or purchase movement applied.
-            {' '}Counts are recorded per item, not per revenue centre, so a quantity always reads
-            as this item&rsquo;s most recent count anywhere.
-            {!scopeComparable && (
-              <> Theoretical stock, by contrast, is scoped to this view, so the two are not
-              comparable here and Unverified Movement is not shown.</>
-            )}
+            {activeKind === 'rc' && activeRc
+              ? <> Quantities are the last count taken in {activeRc.name}; an item never counted
+                there shows a dash, not a zero.</>
+              : <> Each revenue centre contributes its own most recent count and the quantities are
+                summed; an item never counted anywhere shows a dash, not a zero.</>}
           </div>
         </div>
       )}
@@ -989,11 +995,8 @@ function InventoryPageInner() {
         <div className="flex-shrink-0 bg-paper border border-line rounded-[12px] px-3 py-2.5 min-w-[140px]">
           <div className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">Unverified</div>
           <div className="font-mono text-[18px] font-semibold text-ink mt-0.5 tracking-[-0.02em]">
-            {scopeComparable ? formatCurrency(sihKpis.unverifiedMovement) : '—'}
+            {formatCurrency(sihKpis.unverifiedMovement)}
           </div>
-          {!scopeComparable && (
-            <div className="font-mono text-[9px] text-ink-3 leading-tight mt-0.5">counted &amp; theoretical<br />scoped differently</div>
-          )}
         </div>
       </div>
       )}
@@ -1123,14 +1126,10 @@ function InventoryPageInner() {
           <div>
             <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">UNVERIFIED MOVEMENT</div>
             <div className="text-[26px] font-semibold tracking-[-0.03em] leading-none mt-2 text-ink whitespace-nowrap">
-              {scopeComparable ? formatCurrency(sihKpis.unverifiedMovement) : '—'}
+              {formatCurrency(sihKpis.unverifiedMovement)}
             </div>
           </div>
-          <div className="font-mono text-[11px] text-ink-3 mt-2">
-            {scopeComparable
-              ? 'theoretical minus counted'
-              : 'counted and theoretical are scoped differently'}
-          </div>
+          <div className="font-mono text-[11px] text-ink-3 mt-2">theoretical minus counted</div>
         </div>
       </div>
       )}
