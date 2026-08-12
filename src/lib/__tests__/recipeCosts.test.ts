@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 // under test never touch it, so stub it out.
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
-import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
+import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor } from '@/lib/recipeCosts'
 
 /** $24/case of 12,000 ml → $0.002/ml */
 const oilItem = {
@@ -165,6 +165,38 @@ describe('linkedRecipeUnitCost', () => {
       costPerUnit: 0,
       yieldUnit: 'batch',
     })
+  })
+})
+
+describe('prepCountUnitFor', () => {
+  it('keeps the recipe yield unit for mass/volume yields', () => {
+    expect(prepCountUnitFor('kg')).toBe('kg')
+    expect(prepCountUnitFor('lb')).toBe('lb')
+    expect(prepCountUnitFor('g')).toBe('g')
+    expect(prepCountUnitFor('l')).toBe('l')
+    expect(prepCountUnitFor('ml')).toBe('ml')
+  })
+
+  it('canonicalises aliases', () => {
+    expect(prepCountUnitFor('Kg')).toBe('kg')
+    expect(prepCountUnitFor('litre')).toBe('l')
+  })
+
+  it('never returns "batch" — a pack level is not a display unit', () => {
+    expect(prepCountUnitFor('batch')).not.toBe('batch')
+    expect(prepCountUnitFor('batch')).toBe('each')
+  })
+
+  it('collapses COUNT yield words to the canonical base', () => {
+    // 'portion'/'serve' are neither a chain level nor a measured unit, so the
+    // count converters cannot resolve them — they must not become the countUnit.
+    expect(prepCountUnitFor('portion')).toBe('each')
+    expect(prepCountUnitFor('serve')).toBe('each')
+    expect(prepCountUnitFor('each')).toBe('each')
+  })
+
+  it('rejects container units', () => {
+    expect(prepCountUnitFor('case')).toBe('each')
   })
 })
 

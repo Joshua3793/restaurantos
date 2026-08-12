@@ -4,7 +4,7 @@
  * Unit conversions are applied so e.g. 5 kg of an item priced per g costs correctly.
  */
 import { prisma } from './prisma'
-import { convertQty, convertQtyBridged, dimensionallyCostable } from './uom'
+import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isKnownUnit, unitKind } from './uom'
 import { getUnitConv } from './utils'
 import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
@@ -297,6 +297,33 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
 }
 
 /**
+ * The count/display unit for a PREP recipe's linked InventoryItem.
+ *
+ * "batch" is a PACK LEVEL, not a legible display unit — an inventory row reading
+ * "0.4 batch" tells nobody how much Bacon Jam is in the walk-in. The unit a human
+ * thinks in is the recipe's own yield unit (kg / l / lb / each), which is exactly
+ * what both linked-item create paths already write (recipes POST, sync-prepd) and
+ * what the PrepItem row stores (`resolvePrepUnit`).
+ *
+ * The 'batch' link STAYS in the chain: it carries the yield→base factor the spine
+ * prices off, it keeps "1 batch" selectable in a count session, and it keeps
+ * historical count lines stored with selectedUom='batch' resolving to the same
+ * quantity they always did. Only the DEFAULT changes.
+ *
+ * COUNT yields fall back to the canonical base ('each'): count words like
+ * 'portion'/'serve' are neither a chain level nor a measured unit, so
+ * `resolveUnitBase` can't resolve them and would fall through to the leaf level —
+ * making 1 portion resolve to a whole batch.
+ */
+export function prepCountUnitFor(yieldUnit: string): string {
+  const dim   = dimensionOf(yieldUnit)
+  const canon = canonicalUom(yieldUnit)
+  return dim !== 'COUNT' && isKnownUnit(canon) && unitKind(canon) !== 'container'
+    ? canon
+    : DIMENSION_BASE[dim]
+}
+
+/**
  * After any ingredient change on a PREP recipe, sync cost to its linked InventoryItem.
  * Updates ALL pricing fields so the inventory display matches the recipe exactly.
  */
@@ -336,7 +363,7 @@ export async function syncPrepToInventory(recipeId: string) {
       packChain:          prepChain as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pricing:            prepPricing as any,
-      countUnit:          'batch',
+      countUnit:          prepCountUnitFor(yieldUnit),
       lastUpdated: new Date(),
     },
   })
