@@ -275,6 +275,13 @@ model CountLine {
   // Optional mixed-unit count: [{ unit, qty }] summed to base. When present it is
   // authoritative; countedQty/selectedUom remain as the single-unit fallback + display.
   entries         Json?
+  // The counted quantity in the item's baseUnit, FROZEN at the moment the count was
+  // entered (like InventorySnapshot freezes it at finalize). A unit name's meaning is
+  // resolved through the item's CURRENT pack chain, so re-deriving countedQty/selectedUom
+  // later silently restates history whenever the chain is edited — 75 historical lines
+  // drifted $44k from their own snapshots this way. Null only on legacy lines that
+  // predate the column; readers fall back to re-derivation for those.
+  countedQtyBase  Decimal?
   skipped         Boolean       @default(false)
   noMovement      Boolean       @default(false)
   carriedForward  Boolean       @default(false)

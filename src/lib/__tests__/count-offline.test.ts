@@ -134,4 +134,38 @@ describe('count offline queue — selected UOM', () => {
     expect(failed).toBe(1)
     expect(loadCountQueue()).toHaveLength(1)
   })
+
+  it('keeps a 5xx mutation queued but DROPS a 4xx one and surfaces its message', async () => {
+    // A 400 is the server refusing the mutation (e.g. the item's units changed under
+    // the count). Retrying can never succeed — it used to replay every few seconds
+    // forever, silently. It must leave the queue and come back as `rejected`.
+    ;(globalThis as unknown as { fetch: unknown }).fetch = vi.fn(async (url: string) => (
+      String(url).includes('/lines/bad')
+        ? { ok: false, status: 400, json: async () => ({ error: 'Invalid count unit', message: '"portion" is not a valid count unit for this item' }) }
+        : { ok: false, status: 503, json: async () => ({}) }
+    ) as unknown as Response)
+    enqueueCountMutation({ sessionId: 's1', lineId: 'bad',  type: 'count', qty: 30, uom: 'portion' })
+    enqueueCountMutation({ sessionId: 's1', lineId: 'flaky', type: 'count', qty: 4, uom: 'kg' })
+
+    const { synced, failed, rejected } = await flushCountQueue()
+
+    expect(synced).toBe(0)
+    expect(failed).toBe(1)
+    expect(rejected).toEqual([{ lineId: 'bad', message: '"portion" is not a valid count unit for this item' }])
+    // Only the 5xx mutation survives for the next flush.
+    expect(loadCountQueue().map(m => m.lineId)).toEqual(['flaky'])
+  })
+
+  it('a rejected count does not resurrect on the next flush', async () => {
+    ;(globalThis as unknown as { fetch: unknown }).fetch = vi.fn(async () => (
+      { ok: false, status: 400, json: async () => ({ error: 'nope' }) }
+    ) as unknown as Response)
+    enqueueCountMutation({ sessionId: 's1', lineId: 'l1', type: 'count', qty: 30, uom: 'portion' })
+
+    await flushCountQueue()
+    const second = await flushCountQueue()
+
+    expect(second.rejected).toEqual([])
+    expect(loadCountQueue()).toHaveLength(0)
+  })
 })

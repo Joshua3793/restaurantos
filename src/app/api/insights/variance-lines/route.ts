@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
     select: {
       expectedQty: true,
       countedQty: true,
+      countedQtyBase: true,   // frozen base — lineCountedBase prefers it over re-deriving
       selectedUom: true,
       entries: true,
       variancePct: true,

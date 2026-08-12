@@ -109,9 +109,15 @@ function deduplicateQueue(queue: CountMutation[]): CountMutation[] {
 
 // ── Flush ──────────────────────────────────────────────────────────────────────
 
-export async function flushCountQueue(): Promise<{ synced: number; failed: number }> {
+/** A mutation the server rejected outright (4xx) — dropped from the queue, must be surfaced. */
+export interface RejectedMutation {
+  lineId:  string
+  message: string
+}
+
+export async function flushCountQueue(): Promise<{ synced: number; failed: number; rejected: RejectedMutation[] }> {
   const queue = loadCountQueue()
-  if (queue.length === 0) return { synced: 0, failed: 0 }
+  if (queue.length === 0) return { synced: 0, failed: 0, rejected: [] }
 
   // Snapshot the ids we're flushing so we only remove THESE afterwards — a mutation
   // enqueued while we await below must survive (clearing the whole queue dropped it).
@@ -120,6 +126,7 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
   let synced = 0
   let failed = 0
   const failedKeys = new Set<string>()
+  const rejected: RejectedMutation[] = []
 
   for (const m of deduped) {
     try {
@@ -144,23 +151,32 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
                   },
         ),
       })
-      // A 4xx/5xx is NOT a successful sync — keep it queued for retry. (fetch only
-      // rejects on network failure, so without this an HTTP error silently "synced".)
-      if (!res.ok) throw new Error(String(res.status))
-      synced++
+      if (res.ok) {
+        synced++
+      } else if (res.status >= 400 && res.status < 500) {
+        // The server REJECTED this mutation (invalid unit, conflict, deleted line…).
+        // Retrying can never succeed — a 400 replayed every few seconds just spins
+        // silently forever (seen with the stale-unit guard). Drop it from the queue
+        // and hand the message up so the page can tell the counter to re-enter.
+        const body = await res.json().catch(() => null) as { message?: string; error?: string } | null
+        rejected.push({ lineId: m.lineId, message: body?.message || body?.error || `HTTP ${res.status}` })
+      } else {
+        // 5xx — the server had a bad moment; keep it queued for retry.
+        throw new Error(String(res.status))
+      }
     } catch {
       failed++
       failedKeys.add(dedupeKey(m))
     }
   }
 
-  // Drop only the snapshotted mutations whose key fully synced. Keep failed keys
-  // (retry next flush) and anything enqueued during the flush.
+  // Drop only the snapshotted mutations whose key fully synced (or was rejected).
+  // Keep failed keys (retry next flush) and anything enqueued during the flush.
   const remaining = loadCountQueue().filter(m => !snapshotIds.has(m.id) || failedKeys.has(dedupeKey(m)))
   if (remaining.length > 0) {
     try { localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining)) } catch { /* ok */ }
   } else {
     clearCountQueue()
   }
-  return { synced, failed }
+  return { synced, failed, rejected }
 }

@@ -195,6 +195,32 @@ export class CountUomError extends Error {
 }
 
 /**
+ * The units a stored count line still needs to CONVERT through — i.e. what a
+ * finalize-time guard must validate.
+ *
+ * Returns `null` when the line needs no conversion at all: it was skipped, never
+ * counted, or carries a frozen `countedQtyBase` (the base was fixed when the count
+ * was entered, so a stale unit label is inert). Otherwise returns the units
+ * `lineCountedBase` will resolve — every mixed-unit entry's unit when entries are
+ * present (they take precedence), else the single `selectedUom`. Checking only
+ * selectedUom is the historical bug this exists to prevent: an entries line stores
+ * selectedUom = baseUnit (always valid) while the entries carry the real units.
+ */
+export function lineConversionUnits(line: {
+  skipped?: boolean
+  countedQty: number | { toString(): string } | null
+  countedQtyBase?: number | { toString(): string } | null
+  entries?: unknown
+  selectedUom: string
+}): string[] | null {
+  if (line.skipped || line.countedQty == null) return null
+  if (line.countedQtyBase != null && Number.isFinite(Number(line.countedQtyBase))) return null
+  const entries = Array.isArray(line.entries) ? (line.entries as { unit?: unknown }[]) : null
+  if (entries && entries.length) return entries.map(e => String(e?.unit ?? '')).filter(Boolean)
+  return [line.selectedUom]
+}
+
+/**
  * Returns the stored countUnit if it resolves (is a chain level or same-dim
  * unit), else the leaf level name, else baseUnit.
  */
@@ -382,11 +408,27 @@ export function countEntriesToBase(entries: CountEntry[] | null | undefined, ite
   return entries.reduce((sum, e) => sum + convertCountQtyToBase(Number(e.qty) || 0, e.unit, item), 0)
 }
 
-/** Resolve a line's counted base: entries if present, else the single qty/uom. */
+/**
+ * Resolve a line's counted base.
+ *
+ * `countedQtyBase` — the base quantity FROZEN when the count was entered — wins
+ * whenever present. A unit name's meaning is resolved through the item's CURRENT
+ * pack chain, so re-deriving from qty/uom restates history the moment the chain is
+ * edited; the frozen value is what the counter actually recorded. Legacy lines
+ * (null) fall back to re-derivation: entries if present, else the single qty/uom.
+ */
 export function lineCountedBase(
-  line: { entries?: unknown; countedQty: number | { toString(): string } | null; selectedUom: string },
+  line: {
+    entries?: unknown
+    countedQty: number | { toString(): string } | null
+    selectedUom: string
+    countedQtyBase?: number | { toString(): string } | null
+  },
   item: ItemDims,
 ): number {
+  if (line.countedQtyBase != null && Number.isFinite(Number(line.countedQtyBase))) {
+    return Number(line.countedQtyBase)
+  }
   const entries = Array.isArray(line.entries) ? (line.entries as CountEntry[]) : null
   if (entries && entries.length) return countEntriesToBase(entries, item)
   return line.countedQty != null ? convertCountQtyToBase(Number(line.countedQty), line.selectedUom, item) : 0

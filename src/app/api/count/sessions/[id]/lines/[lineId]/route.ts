@@ -70,13 +70,17 @@ export async function PATCH(
       : null
 
   if (skipped === true) {
-    data = { skipped: true, countedQty: line.expectedQty, variancePct: 0, varianceCost: 0, entries: Prisma.DbNull }
+    // expectedQty is already in baseUnit, so it doubles as the frozen base.
+    data = {
+      skipped: true, countedQty: line.expectedQty, countedQtyBase: line.expectedQty,
+      variancePct: 0, varianceCost: 0, entries: Prisma.DbNull,
+    }
   } else if (skipped === false) {
     // Reset to uncounted. selectedUom rides along when the reset was triggered by a
     // unit change on a counted line — the stored qty is meaningless in the new unit,
     // so the count is dropped and the unit kept for re-entry.
     data = {
-      skipped: false, countedQty: null, variancePct: null, varianceCost: null,
+      skipped: false, countedQty: null, countedQtyBase: null, variancePct: null, varianceCost: null,
       carriedForward: false, entries: Prisma.DbNull,
       ...(selectedUom !== undefined ? { selectedUom } : {}),
     }
@@ -91,6 +95,7 @@ export async function PATCH(
     data = {
       entries:      validEntries as unknown as Prisma.InputJsonValue,
       countedQty:   countedBase,
+      countedQtyBase: countedBase,
       selectedUom:  item.baseUnit,
       skipped:      false,
       carriedForward: false,
@@ -108,6 +113,7 @@ export async function PATCH(
     const price     = Number(line.priceAtCount)
     data = {
       countedQty:   counted,
+      countedQtyBase: countedBase,
       skipped:      false,
       carriedForward: carriedForward === true,
       entries:      Prisma.DbNull,  // single-unit path clears any prior mixed-unit entries
@@ -120,8 +126,22 @@ export async function PATCH(
       ...(notes       !== undefined ? { notes }       : {}),
     }
   } else {
-    if (selectedUom !== undefined) data.selectedUom = selectedUom
-    if (notes       !== undefined) data.notes       = notes
+    if (selectedUom !== undefined) {
+      data.selectedUom = selectedUom
+      // A bare unit change on a line that already carries a count re-states what the
+      // stored qty MEANS, so the frozen base (and the variance derived from it) must
+      // follow. The count UI resets to uncounted instead (skipped: false above), but
+      // the API must not be able to leave countedQtyBase inconsistent with qty/uom.
+      if (!line.skipped && line.countedQty != null && !Array.isArray(line.entries)) {
+        const countedBase = convertCountQtyToBase(Number(line.countedQty), String(selectedUom), itemDims)
+        const expected    = Number(line.expectedQty)
+        const price       = Number(line.priceAtCount)
+        data.countedQtyBase = countedBase
+        data.variancePct    = expected > 0 ? ((countedBase - expected) / expected) * 100 : 0
+        data.varianceCost   = (countedBase - expected) * price
+      }
+    }
+    if (notes !== undefined) data.notes = notes
   }
 
   const updated = await prisma.countLine.update({

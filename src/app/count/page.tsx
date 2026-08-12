@@ -386,10 +386,14 @@ export default function CountPage() {
       const q = loadCountQueue()
       if (q.length === 0) return
       setOfflineSyncing(true)
-      const { synced } = await flushCountQueue()
+      const { synced, rejected } = await flushCountQueue()
       setOfflineSyncing(false)
-      setPendingCount(0)
-      if (synced > 0) setToast(`Synced ${synced} offline update${synced !== 1 ? 's' : ''}.`)
+      setPendingCount(loadCountQueue().length)
+      if (rejected.length > 0) {
+        // Rejected = the server refused it (e.g. the item's units changed under the
+        // count) — it's been dropped from the queue and must be re-entered.
+        setToast(`${rejected.length} queued count${rejected.length !== 1 ? 's' : ''} rejected — re-enter: ${rejected[0].message}`)
+      } else if (synced > 0) setToast(`Synced ${synced} offline update${synced !== 1 ? 's' : ''}.`)
       // Refresh active session after sync so variances update (use the ref — the
       // listener is registered once, so `active` in this closure would be stale).
       const cur = activeRef.current
@@ -427,14 +431,24 @@ export default function CountPage() {
     let cancelled = false
     const drain = async () => {
       if (cancelled || offlineSyncing || typeof navigator !== 'undefined' && !navigator.onLine) return
-      const { synced } = await flushCountQueue()
+      const { synced, rejected } = await flushCountQueue()
       if (cancelled) return
-      if (synced > 0) setPendingCount(loadCountQueue().length)
+      if (synced > 0 || rejected.length > 0) setPendingCount(loadCountQueue().length)
+      if (rejected.length > 0) {
+        // A rejected mutation is gone from the queue; the optimistic count on screen
+        // no longer matches the server. Tell the counter and reload the truth.
+        setToast(`${rejected.length} queued count${rejected.length !== 1 ? 's' : ''} rejected — re-enter: ${rejected[0].message}`)
+        const cur = activeRef.current
+        if (cur) {
+          const refreshed = await loadSession(cur.id)
+          if (refreshed && !cancelled) setActive(refreshed)
+        }
+      }
     }
     const timer = setInterval(drain, 5000)
     drain()
     return () => { cancelled = true; clearInterval(timer) }
-  }, [pendingCount, offlineSyncing])
+  }, [pendingCount, offlineSyncing, loadSession])
 
   // No body-scroll lock needed — new session form is its own view on mobile
   // and a small centered modal on desktop (sm+).
@@ -989,9 +1003,18 @@ export default function CountPage() {
     // Sync any offline mutations before finalizing
     if (loadCountQueue().length > 0) {
       setOfflineSyncing(true)
-      await flushCountQueue()
+      const { rejected } = await flushCountQueue()
       setOfflineSyncing(false)
-      setPendingCount(0)
+      setPendingCount(loadCountQueue().length)
+      if (rejected.length > 0) {
+        // Don't finalize over a count the server just refused — the screen shows a
+        // number the session doesn't hold. Surface it and let them re-enter first.
+        setFinalizing(false)
+        setToast(`Can't approve yet — ${rejected.length} queued count${rejected.length !== 1 ? 's were' : ' was'} rejected: ${rejected[0].message}`)
+        const refreshed = await loadSession(active.id)
+        if (refreshed) setActive(refreshed)
+        return
+      }
     }
     // Mark as UPDATING immediately so the list reflects processing state
     await fetch(`/api/count/sessions/${active.id}`, {
