@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  // API routes are excluded from middleware, so this has to guard itself — it
+  // returns full recipe costs, which are MANAGER-grade numbers on every other surface.
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const factor = parseFloat(searchParams.get('factor') ?? '1')
 
