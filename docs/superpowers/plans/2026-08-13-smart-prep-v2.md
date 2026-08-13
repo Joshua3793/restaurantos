@@ -47,7 +47,7 @@
   - `draftQty(t): number` — planned qty for a draft row (`todayLog.requiredQty ?? suggestedDraftQty`)
   - `type PlanFields = { onHand: number; parLevel: number; minThreshold: number; targetToday: number | null; manualPriorityOverride: string | null; unit: string }`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // src/lib/__tests__/prep-plan.test.ts
@@ -145,9 +145,9 @@ describe('draftQty', () => {
 })
 ```
 
-- [ ] **Step 2: Run to verify failure** — `npm test -- prep-plan` → FAIL (module not found).
+- [x] **Step 2: Run to verify failure** — `npm test -- prep-plan` → FAIL (module not found).
 
-- [ ] **Step 3: Implement `src/lib/prep-plan.ts`**
+- [x] **Step 3: Implement `src/lib/prep-plan.ts`**
 
 ```ts
 // Smart Prep v2 — pure planner math. Priority is ALWAYS computed from stock
@@ -251,9 +251,9 @@ export function draftQty(t: PlanFields & { todayLog?: { requiredQty?: number | s
 }
 ```
 
-- [ ] **Step 4: Run tests** — `npm test -- prep-plan` → all PASS. Run the full suite `npm test` → green.
+- [x] **Step 4: Run tests** — `npm test -- prep-plan` → all PASS. Run the full suite `npm test` → green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/prep-plan.ts src/lib/__tests__/prep-plan.test.ts
@@ -269,7 +269,7 @@ git commit -m "feat(prep): pure planner math lib — computed priority, steps, c
 - Consumes: `applyStatusToItem` from Task 1.
 - Produces: after any Done/Partial/reopen, the local item carries recomputed `onHand`/`priority`/`suggestedQty` — every pill and bucket re-sorts instantly.
 
-- [ ] **Step 1: Replace the optimistic item patch in `handleStatusChange`.** Current code (page.tsx ~748):
+- [x] **Step 1: Replace the optimistic item patch in `handleStatusChange`.** Current code (page.tsx ~748):
 
 ```ts
     setItems(prev => prev.map(i => {
@@ -303,11 +303,11 @@ becomes (import `applyStatusToItem` from `@/lib/prep-plan`; keep the existing `n
     }))
 ```
 
-- [ ] **Step 2: Type-check** — `npm run build` in the build worktree → green.
+- [x] **Step 2: Type-check** — `npm run build` in the build worktree → green.
 
-- [ ] **Step 3: Browser-verify the bug is dead.** `preview_start` the dev server; on `/prep`: add a Critical item to the list, post-less flow (still old To Do at this point), mark it Done with a yield ≥ par. Confirm it reappears under Smart Prep with a **green/Later** pill and "at par" — no Critical pill, without waiting for a poll.
+- [x] **Step 3: Browser-verify the bug is dead.** `preview_start` the dev server; on `/prep`: add a Critical item to the list, post-less flow (still old To Do at this point), mark it Done with a yield ≥ par. Confirm it reappears under Smart Prep with a **green/Later** pill and "at par" — no Critical pill, without waiting for a poll.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/app/prep/page.tsx
@@ -328,7 +328,7 @@ git commit -m "fix(prep): recompute priority/onHand/suggestion optimistically on
 **Interfaces:**
 - Produces: `PrepLog.listOrder: Int?`, `PrepLog.postedAt: DateTime?`; `PrepPost { id, revenueCenterId, listDate, postedAt, postedByName, itemCount, activeMinutes, dirty }` unique on `(revenueCenterId, listDate)`; TS `PrepLogData.listOrder/postedAt`, `interface PrepPostInfo { id; postedAt: string; postedByName: string; itemCount: number; activeMinutes: number; dirty: boolean }`.
 
-- [ ] **Step 1: Edit `PrepLog`** — add after `completedAt`:
+- [x] **Step 1: Edit `PrepLog`** — add after `completedAt`:
 
 ```prisma
   // ── Smart Prep v2 planner ──
@@ -336,7 +336,7 @@ git commit -m "fix(prep): recompute priority/onHand/suggestion optimistically on
   postedAt   DateTime?  // set when the chef posts the list; membership in the kitchen's To Do
 ```
 
-- [ ] **Step 2: Add `PrepPost`** (below `PrepSettings`) and the back-relation on `RevenueCenter`:
+- [x] **Step 2: Add `PrepPost`** (below `PrepSettings`) and the back-relation on `RevenueCenter`:
 
 ```prisma
 // One row per RC per day: the chef's posted prep list (provenance for the To Do
@@ -360,7 +360,7 @@ model PrepPost {
 
 In `RevenueCenter`, add alongside the other relation lists: `prepPosts PrepPost[] @relation("PrepPostRC")`.
 
-- [ ] **Step 3: Generate + apply the migration** (shadow DB is broken — use the recorded workaround):
+- [x] **Step 3: Generate + apply the migration** (shadow DB is broken — use the recorded workaround):
 
 ```bash
 mkdir -p prisma/migrations/20260813000000_smart_prep_plan
@@ -373,7 +373,7 @@ npx prisma migrate resolve --applied 20260813000000_smart_prep_plan
 npx prisma generate
 ```
 
-- [ ] **Step 4: Extend the TS types** in `src/components/prep/types.ts` — add to `PrepLogData`:
+- [x] **Step 4: Extend the TS types** in `src/components/prep/types.ts` — add to `PrepLogData`:
 
 ```ts
   listOrder: number | null
@@ -395,7 +395,7 @@ export interface PrepPostInfo {
 
 (The items GET already returns the full `PrepLog` row as `todayLog`, so the new columns flow through with no route change.)
 
-- [ ] **Step 5: Verify + commit** — `npm run build` green.
+- [x] **Step 5: Verify + commit** — `npm run build` green.
 
 ```bash
 git add prisma/schema.prisma prisma/migrations/20260813000000_smart_prep_plan src/components/prep/types.ts
@@ -423,7 +423,7 @@ git commit -m "feat(prep): schema for posted prep lists — PrepLog.listOrder/po
   - `PATCH /api/prep/plan/reorder { revenueCenterId, orders: [{ prepItemId, listOrder }] }` → `{ ok: true }`
   - `prepDayStart(): Date`, `prepDayRange(): { gte; lt }`, `markPlanDirty(rcId: string | null): Promise<void>` from `prep-plan-server.ts`
 
-- [ ] **Step 1: `src/lib/prep-plan-server.ts`**
+- [x] **Step 1: `src/lib/prep-plan-server.ts`**
 
 ```ts
 import { prisma } from '@/lib/prisma'
@@ -454,7 +454,7 @@ export async function markPlanDirty(rcId: string | null): Promise<void> {
 }
 ```
 
-- [ ] **Step 2: `GET /api/prep/plan`** — `src/app/api/prep/plan/route.ts`:
+- [x] **Step 2: `GET /api/prep/plan`** — `src/app/api/prep/plan/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
@@ -483,7 +483,7 @@ export async function GET(req: NextRequest) {
 }
 ```
 
-- [ ] **Step 3: `POST /api/prep/plan/post`** — `src/app/api/prep/plan/post/route.ts`:
+- [x] **Step 3: `POST /api/prep/plan/post`** — `src/app/api/prep/plan/post/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
@@ -569,7 +569,7 @@ export async function POST(req: NextRequest) {
 
 Note: `resolveActive` in `@/lib/prep-runsheet` takes `{ activeMinutesOverride, linkedRecipe }`-shaped input — check its exact signature before wiring and adapt the call (it may want `{ activeMinutesOverride, passiveMinutesOverride, passiveNoteOverride, linkedRecipe }`, which the select above provides).
 
-- [ ] **Step 4: `POST /api/prep/plan/recall`** — `src/app/api/prep/plan/recall/route.ts`:
+- [x] **Step 4: `POST /api/prep/plan/recall`** — `src/app/api/prep/plan/recall/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
@@ -604,7 +604,7 @@ export async function POST(req: NextRequest) {
 }
 ```
 
-- [ ] **Step 5: `PATCH /api/prep/plan/reorder`** — `src/app/api/prep/plan/reorder/route.ts`:
+- [x] **Step 5: `PATCH /api/prep/plan/reorder`** — `src/app/api/prep/plan/reorder/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
@@ -649,7 +649,7 @@ export async function PATCH(req: NextRequest) {
 }
 ```
 
-- [ ] **Step 6: Gate + dirty in `items/[id]` PUT.** In `src/app/api/prep/items/[id]/route.ts` PUT, after the JSON-body guard add:
+- [x] **Step 6: Gate + dirty in `items/[id]` PUT.** In `src/app/api/prep/items/[id]/route.ts` PUT, after the JSON-body guard add:
 
 ```ts
   // Planner fields are the chef's: draft membership + priority override = LEAD+.
@@ -672,14 +672,14 @@ and after the `prisma.prepItem.update(...)` call:
 
 (import `markPlanDirty` from `@/lib/prep-plan-server`).
 
-- [ ] **Step 7: Logs POST seeds + PUT planner fields.** In `src/app/api/prep/logs/route.ts` POST, add optional pass-through when creating the log: `requiredQty: body.requiredQty != null ? parseFloat(String(body.requiredQty)) : undefined`, `note: body.note ?? undefined`, `listOrder: body.listOrder ?? undefined` (read the file first and mirror its existing upsert/create shape). In `src/app/api/prep/logs/[id]/route.ts` PUT:
+- [x] **Step 7: Logs POST seeds + PUT planner fields.** In `src/app/api/prep/logs/route.ts` POST, add optional pass-through when creating the log: `requiredQty: body.requiredQty != null ? parseFloat(String(body.requiredQty)) : undefined`, `note: body.note ?? undefined`, `listOrder: body.listOrder ?? undefined` (read the file first and mirror its existing upsert/create shape). In `src/app/api/prep/logs/[id]/route.ts` PUT:
   - destructure `requiredQty` and `listOrder` from the body;
   - if `requiredQty !== undefined || listOrder !== undefined || note !== undefined` → require LEAD (same inline pattern as Step 6) — **`assignedTo` stays session-only (cooks claim)**;
   - add to the update data: `...(requiredQty !== undefined && { requiredQty: parseFloat(String(requiredQty)) })`, `...(listOrder !== undefined && { listOrder })`;
   - after the update, when any of `requiredQty`/`note`/`listOrder` changed: `await markPlanDirty(existing.revenueCenterId)`.
   - The status→isOnList side-effect block stays exactly as is (cook completions must NOT mark the plan dirty).
 
-- [ ] **Step 8: Verify + commit** — `npm run build` green; `curl` sanity is impractical (auth), rely on Task 7/9 browser verification.
+- [x] **Step 8: Verify + commit** — `npm run build` green; `curl` sanity is impractical (auth), rely on Task 7/9 browser verification.
 
 ```bash
 git add src/lib/prep-plan-server.ts src/app/api/prep/plan src/app/api/prep/items/[id]/route.ts src/app/api/prep/logs
@@ -704,7 +704,7 @@ git commit -m "feat(prep): plan API — post/recall/reorder, dirty tracking, LEA
   - `AssignPill({ cookId, cooks, locked, onAssign(id: string | null) })`
   - `PostDialog({ draft, cooks, reposting, onClose, onConfirm })` where `draft: PrepItemRich[]`
 
-- [ ] **Step 1: `atoms.tsx`** — port `PPBucketHead` / `PPPrioPill` / `PPPrioPicker` / `PPAssign` / `PPPop` from `planner.jsx` to Tailwind tokens:
+- [x] **Step 1: `atoms.tsx`** — port `PPBucketHead` / `PPPrioPill` / `PPPrioPicker` / `PPAssign` / `PPPop` from `planner.jsx` to Tailwind tokens:
 
 ```tsx
 'use client'
@@ -819,7 +819,7 @@ export function AssignPill({ cookId, cooks, locked, onAssign, sm }: {
 }
 ```
 
-- [ ] **Step 2: `PostDialog.tsx`** — port `PPPostDialog` (stats row: items / hands-on / first start; priority pills; per-station rows with assignee chips; unassigned warning; Keep editing / Post N items):
+- [x] **Step 2: `PostDialog.tsx`** — port `PPPostDialog` (stats row: items / hands-on / first start; priority pills; per-station rows with assignee chips; unassigned warning; Keep editing / Post N items):
 
 ```tsx
 'use client'
@@ -910,7 +910,7 @@ export function PostDialog({ draft, cooks, stations, reposting, onClose, onConfi
 
 (Check `fmtClock`/`fmtMins` exports in `@/lib/prep-runsheet` first — the run sheet already imports them; reuse whatever the real names are.)
 
-- [ ] **Step 3: Verify + commit** — `npm run build` green.
+- [x] **Step 3: Verify + commit** — `npm run build` green.
 
 ```bash
 git add src/components/prep/planner
@@ -965,18 +965,18 @@ git commit -m "feat(prep): planner atoms — bucket heads, priority picker, assi
 }
 ```
 
-- [ ] **Step 1: `SuggestionRow.tsx`** — port `PPSuggRow`: grid `[1fr_64px_72px_28px]`, left accent = priority color (muted when on list), name + short-ingredient warning (`AlertTriangle` when `ingredientShortCount`), meta line `{category} · {station} · {whyLabel(item)}`, on-hand/par fill bar (`Math.min(100, onHand/par*100)`, bar `PLAN_PRIO_META[p].barClass`), right-aligned mono suggestion (`suggestedDraftQty` > 0 ? qty : green `at par`), and the add/added button (dark `+` with gold icon → green `Check` when `isOnList`; disabled when `!canPlan`). Row opacity 0.6 + `bg-bg` when already on list. Clicking the name calls `onOpen(item)`.
+- [x] **Step 1: `SuggestionRow.tsx`** — port `PPSuggRow`: grid `[1fr_64px_72px_28px]`, left accent = priority color (muted when on list), name + short-ingredient warning (`AlertTriangle` when `ingredientShortCount`), meta line `{category} · {station} · {whyLabel(item)}`, on-hand/par fill bar (`Math.min(100, onHand/par*100)`, bar `PLAN_PRIO_META[p].barClass`), right-aligned mono suggestion (`suggestedDraftQty` > 0 ? qty : green `at par`), and the add/added button (dark `+` with gold icon → green `Check` when `isOnList`; disabled when `!canPlan`). Row opacity 0.6 + `bg-bg` when already on list. Clicking the name calls `onOpen(item)`.
 
-- [ ] **Step 2: `DraftRow.tsx`** — port `PPDraftRow`: `GripVertical` drag handle (HTML5 `draggable={canPlan}`), name + `station` tag + BLOCKED pill (`item.isBlocked`), qty stepper (`draftQty(item)` ± `prepStep(item.unit)`, min one step; gold text when overridden vs suggestion), `PrioPicker`, `AssignPill` (from `todayLog?.assignedTo`), remove `X`; second line: note input (`defaultValue={item.todayLog?.note ?? ''}`, `onBlur` → `onNote`) + right mono meta `SUGG {q} ↺` reset button when overridden else `SMART QTY`, `· START {fmtClock(startByMinutes)} · {fmtMins(active)}` when available. Drag-over shows a top edge (`shadow-[0_-2px_0_#09090b]`); dropping on a row in a different bucket triggers the bucket-head warning instead of moving (state lives in `PlannerDesktop`).
+- [x] **Step 2: `DraftRow.tsx`** — port `PPDraftRow`: `GripVertical` drag handle (HTML5 `draggable={canPlan}`), name + `station` tag + BLOCKED pill (`item.isBlocked`), qty stepper (`draftQty(item)` ± `prepStep(item.unit)`, min one step; gold text when overridden vs suggestion), `PrioPicker`, `AssignPill` (from `todayLog?.assignedTo`), remove `X`; second line: note input (`defaultValue={item.todayLog?.note ?? ''}`, `onBlur` → `onNote`) + right mono meta `SUGG {q} ↺` reset button when overridden else `SMART QTY`, `· START {fmtClock(startByMinutes)} · {fmtMins(active)}` when available. Drag-over shows a top edge (`shadow-[0_-2px_0_#09090b]`); dropping on a row in a different bucket triggers the bucket-head warning instead of moving (state lives in `PlannerDesktop`).
 
-- [ ] **Step 3: `PlannerDesktop.tsx`** — the split frame (`hidden md:grid grid-cols-[440px_1fr] gap-3.5`, both panes `bg-paper border border-line rounded-[14px] flex flex-col min-h-0` with a fixed height of `calc(100vh-*)` or `h-[820px]`):
+- [x] **Step 3: `PlannerDesktop.tsx`** — the split frame (`hidden md:grid grid-cols-[440px_1fr] gap-3.5`, both panes `bg-paper border border-line rounded-[14px] flex flex-col min-h-0` with a fixed height of `calc(100vh-*)` or `h-[820px]`):
   - **Left pane** header: gold-soft `Sparkles` chip, "Suggestions", mono sub `{items.length} ACTIVE PREP ITEMS · FROM PAR + LAST COUNT`, small search input (`search/onSearch`); station chip row (`all` + stations → `onStation`); bulk row: `Add all criticals · N` (`AlertTriangle`, disabled when 0 or `!canPlan`) + `Accept suggested qty` (`Sparkles`); scrollable body grouped by `effectivePriority` via `BucketHead` + `SuggestionRow`s.
   - **Right pane** header: dark `ChefHat` chip, "Prep list" + status pill (`DRAFT` dark / `POSTED` green-soft / `UNPOSTED CHANGES` dark) driven by `post`/`post.dirty`, mono sub `{draft.length} ITEMS · {fmtMins(mins)} HANDS-ON · {open} UNASSIGNED`; `Assign a station` popover (stations → first cook whose `homeStation` matches; row disabled when no cook or no draft rows for it); `Clear`. Body: empty-state (`Package` icon, "Nothing on today's list yet / ADD FROM SUGGESTIONS ON THE LEFT") or buckets of `DraftRow`s sorted by `todayLog?.listOrder ?? 9999` then name. Drag state (`drag`, `over`, `warn`) lives here; a successful drop rebuilds the bucket's id list and calls `onReorder(list.map((id, i) => ({ prepItemId: id, listOrder: i })))`.
   - **Footer**: `!canPlan` → lock note "Cooks claim, start and finish. Adding, removing and re-prioritising is the chef's."; `post && !post.dirty` → green `Live on To Do` + mono `POSTED {time} BY {name} · {n} ITEMS` + `Recall to draft` (`Undo2`); else → left text ("Cooks see nothing until you post" / "The kitchen is still on the last posted version") + dark CTA `Review & post to To Do` / `Update To Do` (`Zap`, gold icon; disabled when draft empty).
   - Draft membership derives from `allItems.filter(i => i.isOnList)` — search/station filters only shape the left pane.
   - `PostDialog` renders here (state `dlg`), `onConfirm` → `onPost()`.
 
-- [ ] **Step 4: Page wiring** in `src/app/prep/page.tsx`:
+- [x] **Step 4: Page wiring** in `src/app/prep/page.tsx`:
   - Imports: `useUser` from `@/contexts/UserContext`, `atLeast` from `@/lib/roles`, `applyStatusToItem` (already), `suggestedDraftQty`, `draftQty` from `@/lib/prep-plan`, `PlannerDesktop`, `PrepPostInfo`.
   - State: `const [plan, setPlan] = useState<{ post: PrepPostInfo | null }>({ post: null })`; `loadPlan = useCallback(async () => { if (!activeRcId) { setPlan({ post: null }); return } const r = await fetch(\`/api/prep/plan?rcId=${activeRcId}\`); if (r.ok) setPlan(await r.json()) }, [activeRcId])`; call in the mount effect and inside the 60 s poll.
   - `const { role } = useUser(); const canPlan = role != null && atLeast(role, 'LEAD') && !isReadOnly && !!activeRcId`
@@ -990,9 +990,9 @@ git commit -m "feat(prep): planner atoms — bucket heads, priority picker, assi
   - `handlePost()`: `POST /api/prep/plan/post { revenueCenterId: activeRcId }` → on ok `setPlan({ post: json.post })`, `toast('Posted to To Do')`, `load(true)`; on error surface `setActionError`.
   - `handleRecall()`: `POST /api/prep/plan/recall` → `setPlan({ post: null })`, `load(true)`.
   - Replace the desktop smartprep block (`<PrepSummaryLine>` + `<PrepBoard …>` + toolbar, page.tsx ~1438–1485) with `<PlannerDesktop …>` passing the props above and `tasksSlot={<PrepTaskLibrary asBlock … />}` (rendered above the split, preserving the checklist).
-- [ ] **Step 5: Verify in the browser** — build green first, then on `/prep` → Smart prep (desktop width): suggestions bucketed with live priorities and "why" lines; add → row moves right with seeded qty; qty stepper, note, assignee, override picker persist across reload; post dialog totals correct; post → footer flips to "Live on To Do"; edit a qty → `UNPOSTED CHANGES`; recall works. As STAFF (or with `canPlan` forced false) everything is read-only.
+- [x] **Step 5: Verify in the browser** — build green first, then on `/prep` → Smart prep (desktop width): suggestions bucketed with live priorities and "why" lines; add → row moves right with seeded qty; qty stepper, note, assignee, override picker persist across reload; post dialog totals correct; post → footer flips to "Live on To Do"; edit a qty → `UNPOSTED CHANGES`; recall works. As STAFF (or with `canPlan` forced false) everything is read-only.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/prep/planner src/app/prep/page.tsx
@@ -1009,17 +1009,17 @@ git commit -m "feat(prep): desktop Smart Prep planner — suggestions → draft 
 - Consumes: same props as `PlannerDesktop` (minus `tasksSlot`; plus nothing new).
 - Produces: mobile Smart Prep surface replacing `SmartPrepCard` lists.
 
-- [ ] **Step 1: `PlannerMobile.tsx`** — port `planner-mobile.jsx`:
+- [x] **Step 1: `PlannerMobile.tsx`** — port `planner-mobile.jsx`:
   - Header strip: status pill (`DRAFT`/`POSTED`/`CHANGES`) — the page's existing mobile header stays; this component starts below the tab bar.
   - Summary card (dark `bg-ink text-paper rounded-[13px]`): `{draft.length} on the list · {fmtMins(mins)} hands-on` + `{open} unassigned` (gold when > 0). (No covers forecast.)
   - Segmented tabs `Prep list · {n}` / `Suggestions · {m}` (reuse `Segmented` from `@/components/prep/runsheet/atoms` if its API fits — `{ id, label, badge }` — else a local two-button pill).
   - Suggestions tab: bulk buttons row; `View by Priority | Category` toggle; groups → `SuggestionRow` (the desktop row works at mobile width — reuse it; category view shows per-category header with mini priority-count dots).
   - Prep list tab: buckets of a mobile draft card — same content as `DraftRow` but stacked: title row (name + BLOCKED + remove X), meta line (`station · START hh:mm`), controls row (qty stepper, `PrioPicker`, spacer, `AssignPill`), full-width note input, and **up/down arrow buttons** instead of drag (first/last disabled; `onMove(dir)` swaps within the bucket and emits the same `onReorder` payload).
   - Sticky post bar (`sticky bottom-2 z-30 mt-3`): `!canPlan` → mono lock note `CHEF POSTS THE LIST`; posted+clean → compact "Live on To Do · POSTED {t} · {n} ITEMS" + `Recall`; else full-width dark CTA `Review & post · {n}` / `Update To Do · {n}` opening `PostDialog`.
-- [ ] **Step 2: Page wiring** — replace the mobile smartprep block (the `smartPrepView` urgency/category/station JSX, page.tsx ~1543–1799) with `<PlannerMobile …/>`, keeping `<PrepTaskLibrary …/>` above it. Delete the now-unused `SmartPrepCard` component, the `smartPrepView`/`priorityMenuFor`/`lookingGoodOpen` state, `spCategoryGroups`/`spStationGroups`, and the mobile smartprep toolbar (search/filter collapse stays — pass `search` through to the planner; remove the category filter UI if now unused or keep `filterCategory` wired into `filteredSmart` and expose only search + station in the planner).
-- [ ] **Step 3: Verify in the browser** at mobile width (390px): tabs switch, add/remove, arrows reorder within bucket, sticky bar posts, cook view locked.
+- [x] **Step 2: Page wiring** — replace the mobile smartprep block (the `smartPrepView` urgency/category/station JSX, page.tsx ~1543–1799) with `<PlannerMobile …/>`, keeping `<PrepTaskLibrary …/>` above it. Delete the now-unused `SmartPrepCard` component, the `smartPrepView`/`priorityMenuFor`/`lookingGoodOpen` state, `spCategoryGroups`/`spStationGroups`, and the mobile smartprep toolbar (search/filter collapse stays — pass `search` through to the planner; remove the category filter UI if now unused or keep `filterCategory` wired into `filteredSmart` and expose only search + station in the planner).
+- [x] **Step 3: Verify in the browser** at mobile width (390px): tabs switch, add/remove, arrows reorder within bucket, sticky bar posts, cook view locked.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/components/prep/planner/PlannerMobile.tsx src/app/prep/page.tsx
@@ -1041,7 +1041,7 @@ git commit -m "feat(prep): mobile Smart Prep planner — tabs, arrow reorder, st
 - Consumes: `plan.post` (Task 6), `PrepPostInfo`.
 - Produces: `PostedBand({ post, dirty })`; To Do membership = `todayLog.postedAt != null || done/partial today`.
 
-- [ ] **Step 1: `PostedBand.tsx`**
+- [x] **Step 1: `PostedBand.tsx`**
 
 ```tsx
 'use client'
@@ -1063,7 +1063,7 @@ export function PostedBand({ post }: { post: PrepPostInfo }) {
 }
 ```
 
-- [ ] **Step 2: Switch To Do membership** in page.tsx:
+- [x] **Step 2: Switch To Do membership** in page.tsx:
 
 ```ts
   // The kitchen works off the POSTED list — a draft add reaches To Do only when
@@ -1078,9 +1078,9 @@ export function PostedBand({ post }: { post: PrepPostInfo }) {
 
 `priorityAlerts` keeps its `isOnList` predicate → change to `i.todayLog?.postedAt != null` (an alert about a non-posted item is noise).
 
-- [ ] **Step 3: Render the band + empty state.** In both `viewMode === 'today'` blocks (desktop ~1390 and mobile ~1487): when `activeRcId && plan.post` render `<PostedBand post={plan.post} />` above the run sheet. When `!loading && todayItems.length === 0`: if `plan.post == null && activeRcId` render the design's locked empty state (dashed border panel, `Lock` icon, "Nothing posted yet", mono "THE KITCHEN'S TO DO STAYS EMPTY UNTIL THE CHEF POSTS THE LIST", plus — when `canPlan` — a button jumping to the Smart prep tab); else keep the existing empty-state.
-- [ ] **Step 4: Verify in the browser** — recall → To Do shows "Nothing posted yet"; post 3 items → they appear with the band; complete one → stays in Done section; draft-edit a qty → band shows "CHEF HAS UNPOSTED CHANGES"; re-post → pill clears and membership updates (a removed item leaves the kitchen list only on re-post).
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Render the band + empty state.** In both `viewMode === 'today'` blocks (desktop ~1390 and mobile ~1487): when `activeRcId && plan.post` render `<PostedBand post={plan.post} />` above the run sheet. When `!loading && todayItems.length === 0`: if `plan.post == null && activeRcId` render the design's locked empty state (dashed border panel, `Lock` icon, "Nothing posted yet", mono "THE KITCHEN'S TO DO STAYS EMPTY UNTIL THE CHEF POSTS THE LIST", plus — when `canPlan` — a button jumping to the Smart prep tab); else keep the existing empty-state.
+- [x] **Step 4: Verify in the browser** — recall → To Do shows "Nothing posted yet"; post 3 items → they appear with the band; complete one → stays in Done section; draft-edit a qty → band shows "CHEF HAS UNPOSTED CHANGES"; re-post → pill clears and membership updates (a removed item leaves the kitchen list only on re-post).
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/prep/runsheet/PostedBand.tsx src/app/prep/page.tsx src/components/prep/runsheet/RunSheetMobile.tsx
@@ -1098,12 +1098,12 @@ git commit -m "feat(prep): To Do runs off the posted list — provenance band, d
 - Modify: `CLAUDE.md` (prep section — planner + post flow, `/api/prep/plan/*`)
 - Modify: `docs/superpowers/plans/2026-08-13-smart-prep-v2.md` (check boxes)
 
-- [ ] **Step 1:** `grep -rn "PrepBoard\b\|PrepSummaryLine\|SmartPrepCard" src/` — delete only files with zero remaining imports; `PrepBoardDrawer` stays (both drawers still mount).
-- [ ] **Step 2:** `npm test` → green (all suites, not just prep-plan).
-- [ ] **Step 3:** `npm run build` in the detached build worktree → green; check `/api/prep/plan*` routes all show `ƒ (Dynamic)`.
-- [ ] **Step 4:** Full browser pass (desktop + 390px mobile): the Task 2 bug scenario, the Task 6/7/8 flows, History tab untouched, offline banner still renders, item drawer opens from both tabs.
-- [ ] **Step 5:** Update `CLAUDE.md`: in the prep bullets describe Smart Prep planner (draft → post → To Do), `PrepPost`/`postedAt` model, LEAD gate, and add `/api/prep/plan` to the page→API map row for `/prep`.
-- [ ] **Step 6: Commit**
+- [x] **Step 1:** `grep -rn "PrepBoard\b\|PrepSummaryLine\|SmartPrepCard" src/` — delete only files with zero remaining imports; `PrepBoardDrawer` stays (both drawers still mount).
+- [x] **Step 2:** `npm test` → green (all suites, not just prep-plan).
+- [x] **Step 3:** `npm run build` in the detached build worktree → green; check `/api/prep/plan*` routes all show `ƒ (Dynamic)`.
+- [x] **Step 4:** Full browser pass (desktop + 390px mobile): the Task 2 bug scenario, the Task 6/7/8 flows, History tab untouched, offline banner still renders, item drawer opens from both tabs.
+- [x] **Step 5:** Update `CLAUDE.md`: in the prep bullets describe Smart Prep planner (draft → post → To Do), `PrepPost`/`postedAt` model, LEAD gate, and add `/api/prep/plan` to the page→API map row for `/prep`.
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
