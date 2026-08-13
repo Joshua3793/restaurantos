@@ -41,7 +41,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | `/invoices` | `/api/invoices/sessions` (multi-step upload → OCR → review → approve) |
 | `/recipes` (PREP) | `/api/recipes?type=PREP` |
 | `/menu` (MENU) | `/api/recipes?type=MENU` |
-| `/prep` | `/api/prep/{items,logs,settings,tasks,sync-from-recipes}` |
+| `/prep` | `/api/prep/{items,logs,settings,tasks,cooks,sync-from-recipes}` + `/api/prep/plan{,/post,/recall,/reorder}` (Smart Prep v2 posting) |
 | `/preshift` | briefing view over `/api/prep/items` |
 | `/count` | `/api/count/sessions` |
 | `/sales` | `/api/sales`, `/api/toast/*` |
@@ -102,7 +102,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 
 `src/components/recipes/shared.tsx` — single large file containing `RecipeCard`, `RecipePanel`, `CategoryManager`, `IngredientRow`, and related types. Both the Recipe Book page and Menu page import from here.
 
-`src/components/prep/` — redesigned as a task board: `board/` (`PrepBoard`, `PrepBlock`, `PrepRow`, `PrepLater`, `prep-board-utils.ts`), plus `PrepDrawer`, `PrepDetailPanel`, `PrepItemForm`, `PrepSettingsModal`, and checklist tasks (`PrepTaskList`, `PrepTaskLibrary` — backed by `PrepTask`/`PrepTaskLog`, deliberately OFF the cost spine; completing a task deletes its log).
+`src/components/prep/` — two surfaces: **Smart Prep planner** (`planner/` — `PlannerDesktop` split view, `PlannerMobile` tabs, `SuggestionRow`/`DraftRow`/`PostDialog`/`atoms`) where a LEAD+ chef builds a draft (qty/note/assignee/priority-override/order on today's `PrepLog`) and **posts** it, and the **To Do run sheet** (`runsheet/` — `RunSheet`, `RunSheetMobile`, `PostedBand`) that shows ONLY posted items (`PrepLog.postedAt`; `PrepPost` is the per-RC-per-day provenance header with a `dirty` flag for unposted draft changes). Priority is always **computed** from stock via `src/lib/prep-plan.ts` (`effectivePriority`/`applyStatusToItem`) — never trust a stored pill; completing a prep clears the manual override server-side AND recomputes client-side. Plus `PrepDrawer`, `PrepDetailPanel`, `PrepItemForm`, `PrepSettingsModal`, `board/PrepBoardDrawer` (item drawer), and checklist tasks (`PrepTaskList`, `PrepTaskLibrary` — backed by `PrepTask`/`PrepTaskLog`, deliberately OFF the cost spine; completing a task deletes its log).
 
 ### Important patterns
 

@@ -92,7 +92,7 @@ export function applyStatusToItem<T extends PlanFields & {
 }
 
 /** Planned qty for a draft row: chef-set requiredQty wins, else rounded suggestion. */
-export function draftQty(t: PlanFields & { todayLog?: { requiredQty?: number | string | null } | null }): number {
+export function draftQty(t: PlanFields & { todayLog?: { requiredQty?: number | string | null; status?: string; actualPrepQty?: number | null } | null }): number {
   const rq = t.todayLog?.requiredQty
   if (rq != null && Number(rq) > 0) return Number(rq)
   return suggestedDraftQty(t)
