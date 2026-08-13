@@ -30,6 +30,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
+import { applyStatusToItem } from '@/lib/prep-plan'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
@@ -748,10 +749,15 @@ export default function PrepPage() {
     setItems(prev => prev.map(i => {
       if (i.id !== itemId) return i
       const existingLog = i.todayLog
+      // Recompute onHand/priority/suggestedQty BEFORE swapping the log in:
+      // applyStatusToItem reads the OLD todayLog to know what a re-log or a
+      // reopen must un-credit. Without this, a completed item dropped back to
+      // Smart Prep still wearing its pre-completion Critical pill until the
+      // next (often discarded) background poll.
+      const recomputed = applyStatusToItem(i, newStatus, actualQty)
       return {
-        ...i,
+        ...recomputed,
         isOnList: nextOnList,
-        ...(completingNow && { manualPriorityOverride: null }),
         todayLog: existingLog
           ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}) }
           : {
@@ -770,6 +776,8 @@ export default function PrepPage() {
               updatedAt: now,
               startedAt: null,
               completedAt: null,
+              listOrder: null,
+              postedAt: null,
             },
       }
     }))
@@ -875,6 +883,8 @@ export default function PrepPage() {
               updatedAt: now,
               startedAt: null,
               completedAt: null,
+              listOrder: null,
+              postedAt: null,
             },
       }
     }))
