@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { validatePrepQty } from '@/lib/prep-utils'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
+import { markPlanDirty } from '@/lib/prep-plan-server'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -21,7 +22,18 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const { status, actualPrepQty, assignedTo, dueTime, note, blockedReason } = body
+  const { status, actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder } = body
+
+  // Planner draft fields (planned qty, chef note, bucket order) are the chef's:
+  // LEAD+. `assignedTo` deliberately stays session-only — cooks claim their own.
+  const editsPlan = requiredQty !== undefined || listOrder !== undefined || note !== undefined
+  if (editsPlan) {
+    try { await requireSession('LEAD') }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
 
   const existing = await prisma.prepLog.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -75,9 +87,14 @@ export async function PUT(
       ...(dueTime       !== undefined && { dueTime }),
       ...(note          !== undefined && { note }),
       ...(blockedReason !== undefined && { blockedReason }),
+      ...(requiredQty   !== undefined && { requiredQty: requiredQty === null ? null : parseFloat(String(requiredQty)) }),
+      ...(listOrder     !== undefined && { listOrder }),
       ...stamp,
     },
   })
+
+  // Draft edits after posting → the kitchen is on a stale list; flag the post.
+  if (editsPlan) await markPlanDirty(existing.revenueCenterId)
 
   // Completing (or reverting) a prep changes theoretical stock — buildPrepMap counts
   // DONE/PARTIAL logs — so drop the cache when a completion is involved either way.

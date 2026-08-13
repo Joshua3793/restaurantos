@@ -6,6 +6,7 @@ import { computePriority, computeSuggestedQty, numOrNull } from '@/lib/prep-util
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
+import { markPlanDirty } from '@/lib/prep-plan-server'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -156,6 +157,16 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
+  // Planner fields are the chef's: draft membership + priority override = LEAD+.
+  // Cooks still start/finish/claim (those flow through the prep-logs routes).
+  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined) {
+    try { await requireSession('LEAD') }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
+
   // Mirrors the RC guard that POST /api/prep/items already performs. Without it a
   // scoped user could edit an item belonging to an RC they cannot write — and, by
   // sending revenueCenterId, move an item INTO or OUT OF one. Both the current
@@ -225,6 +236,12 @@ export async function PUT(
       ...(body.isOnList               !== undefined && { isOnList: body.isOnList }),
     },
   })
+
+  // A draft-membership or priority change after posting leaves the kitchen on a
+  // stale list — flag today's post so both surfaces show "unposted changes".
+  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined) {
+    await markPlanDirty(item.revenueCenterId)
+  }
 
   return NextResponse.json(item)
 }
