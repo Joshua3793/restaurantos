@@ -1,4 +1,4 @@
-export type SessionStatus = 'UPLOADING' | 'PROCESSING' | 'REVIEW' | 'APPROVING' | 'APPROVED' | 'REJECTED' | 'ERROR'
+export type SessionStatus = 'UPLOADING' | 'GROUPING' | 'PROCESSING' | 'REVIEW' | 'APPROVING' | 'APPROVED' | 'REJECTED' | 'ERROR'
 export type MatchConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE'
 export type LineItemAction = 'PENDING' | 'UPDATE_PRICE' | 'ADD_SUPPLIER' | 'CREATE_NEW' | 'SKIP'
 
