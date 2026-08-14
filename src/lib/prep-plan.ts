@@ -196,13 +196,17 @@ export function planDayContext(
 ): PlanDayContext | null {
   if (!services.length) return null
   const starts = services.map(s => s.timeMinutes).sort((a, b) => a - b)
-  const doorsOpen = starts.find(s => s >= nowMin) ?? starts[0]
+  // After the day's last doors-open, planning is for TOMORROW — roll the anchor
+  // forward instead of deadlining everything against a service already started
+  // (which painted every card "WON'T FIT" during evening planning).
+  const doorsOpen = starts.find(s => s >= nowMin) ?? starts[0] + 1440
   const ends = services.map(s => {
     if (s.endMinutes == null) return s.timeMinutes + 120
     // an end before its start crosses midnight
     return s.endMinutes < s.timeMinutes ? s.endMinutes + 1440 : s.endMinutes
   })
-  const close = Math.max(DEFAULT_CLOSE, ...ends)
+  let close = Math.max(DEFAULT_CLOSE, ...ends)
+  if (close <= nowMin) close += 1440
   return { doorsOpen, close, shiftStart: nowMin }
 }
 
@@ -211,11 +215,14 @@ const MID_OFFSET = 120
 /** The step's deadline, minute-of-day (≥1440 ⇒ tomorrow). `svcStart` is the
  *  item's own target-service start when it has one. */
 export function urgencyDeadline(u: PrepUrgency, ctx: PlanDayContext, svcStart?: number | null): number {
-  const doors = svcStart ?? ctx.doorsOpen
+  // An item's own service start also rolls to tomorrow once it has passed —
+  // otherwise evening planning deadlines against a service already underway.
+  const rawDoors = svcStart ?? ctx.doorsOpen
+  const doors = rawDoors >= ctx.shiftStart ? rawDoors : rawDoors + 1440
   if (u === 'PASS') return doors
   if (u === 'MID') return doors + MID_OFFSET
   if (u === 'CLOSE') return ctx.close
-  return ctx.doorsOpen + 1440
+  return ctx.doorsOpen >= 1440 ? ctx.doorsOpen : ctx.doorsOpen + 1440
 }
 
 export function fmtDeadline(m: number, fmtClock: (min: number) => string): string {

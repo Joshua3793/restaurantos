@@ -160,6 +160,16 @@ describe('deadlines + schedule', () => {
     expect(ctx.close).toBe(1320) // never earlier than 22:00
     expect(planDayContext([], 420)).toBeNull()
   })
+  it('evening planning rolls the anchors to tomorrow instead of flagging everything late', () => {
+    const night = planDayContext(svcs, 1350)! // 22:30 — all services started, kitchen closed
+    expect(night.doorsOpen).toBe(690 + 1440)  // TMRW 11:30
+    expect(night.close).toBe(1320 + 1440)
+    expect(urgencyDeadline('PASS', night)).toBe(690 + 1440)
+    // an item's OWN service start rolls too once it has passed…
+    expect(urgencyDeadline('PASS', night, 540)).toBe(540 + 1440)
+    // …and TMRW doesn't double-roll past tomorrow's doors
+    expect(urgencyDeadline('TMRW', night)).toBe(690 + 1440)
+  })
   it('each step carries its deadline', () => {
     expect(urgencyDeadline('PASS', ctx)).toBe(690)
     expect(urgencyDeadline('MID', ctx)).toBe(810)

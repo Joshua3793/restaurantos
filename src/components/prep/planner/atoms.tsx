@@ -146,18 +146,21 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
     const nv = Math.max(step, Math.round(v * 100) / 100)
     onQty(item, batch ? batchesToQty(item, nv) : +nv.toFixed(2))
   }
+  // sm (mobile) is deliberately narrower — on a 375px screen the batch stepper +
+  // urgency dial + assign pill must share one row (wrapping is the fallback).
   const h = sm ? 'h-8' : 'h-7'
-  const bw = sm ? 'w-7' : 'w-[26px]'
+  const bw = sm ? 'w-6' : 'w-[26px]'
+  const midW = batch ? (sm ? 'min-w-[68px]' : 'min-w-[84px]') : (sm ? 'min-w-[44px]' : 'min-w-[52px]')
   return (
     <div className="inline-flex items-stretch bg-bg-2 border border-line rounded-lg shrink-0 overflow-hidden">
       <button type="button" disabled={locked} onClick={() => set(val - step)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
         <Minus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
       </button>
-      <span className={`${batch ? 'min-w-[84px]' : 'min-w-[52px]'} flex flex-col items-center justify-center leading-[1.05]`}>
-        <span className={`font-mono ${batch ? 'text-[11.5px]' : 'text-[12px]'} font-bold ${overridden ? 'text-gold-2' : 'text-ink'}`}>
+      <span className={`${midW} flex flex-col items-center justify-center leading-[1.05] px-0.5`}>
+        <span className={`font-mono ${batch ? (sm ? 'text-[10.5px]' : 'text-[11.5px]') : 'text-[12px]'} font-bold whitespace-nowrap ${overridden ? 'text-gold-2' : 'text-ink'}`}>
           {batch ? `${fmtBatch(val)} batch` : fmtUom(qty, item.unit)}
         </span>
-        {batch && <span className="font-mono text-[8.5px] text-ink-4">{fmtUom(qty, item.unit)}</span>}
+        {batch && <span className="font-mono text-[8.5px] text-ink-4 whitespace-nowrap">{fmtUom(qty, item.unit)}</span>}
       </span>
       <button type="button" disabled={locked} onClick={() => set(val + step)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
         <Plus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
@@ -168,7 +171,7 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
           disabled={locked}
           onClick={() => onToggleBatch(item, !batch)}
           title={batch ? `1 batch = ${fmtUom(yieldPerBatch, item.unit)} · switch to ${item.unit}` : `Count in batches of ${fmtUom(yieldPerBatch, item.unit)}`}
-          className={`border-l border-line px-[7px] font-mono text-[8.5px] font-bold tracking-[0.04em] ${batch ? 'bg-ink text-gold' : 'bg-transparent text-ink-3'} ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          className={`border-l border-line ${sm ? 'px-1' : 'px-[7px]'} font-mono text-[8.5px] font-bold tracking-[0.04em] ${batch ? 'bg-ink text-gold' : 'bg-transparent text-ink-3'} ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
           {batch ? '×' : item.unit.toUpperCase()}
         </button>

@@ -58,9 +58,11 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
           <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
         </button>
       </div>
-      <div className="flex items-center gap-[7px] mt-2">
+      {/* flex-wrap: on narrow screens (≤375px) the batch stepper + dial can fill
+          the row — the assign pill then wraps below instead of clipping off-screen */}
+      <div className="flex flex-wrap items-center gap-x-[7px] gap-y-1.5 mt-2">
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={handlers.onQty} onToggleBatch={onToggleBatch} suggested={suggestedDraftQty(item)} sm />
-        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="w-[104px]" />
+        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="w-[96px]" />
         <span className="flex-1" />
         <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} locked={locked} onAssign={id => handlers.onAssign(item, id)} />
       </div>
