@@ -103,7 +103,10 @@ export async function GET(req: NextRequest) {
     type: 'recipe' as const,
     id: recipe.id,
     name: recipe.name,
-    unit: recipe.yieldUnit,
+    // The price basis, not the recipe's yieldUnit: pricePerBaseUnit is denominated
+    // in the synced item's canonical baseUnit (g/ml), so a kg-yield prep priced
+    // per-g must report `g` here or the client costs the line 1000× too low.
+    unit: recipe.inventoryItem?.baseUnit ?? recipe.yieldUnit,
     pricePerBaseUnit: recipe.inventoryItem ? pricePerBaseUnit(asChainItem(recipe.inventoryItem)) : 0,
     category: 'PREPD',
     _score: q ? fuzzyScore(q, recipe.name) : 100,
