@@ -4,6 +4,7 @@
 // tokens replace the prototype's hex palette; mono via `font-mono`.
 import { AlertTriangle } from 'lucide-react'
 import { fmtMins, fmtClock } from '@/lib/prep-runsheet'
+import { effectiveUrgency, whyLabel } from '@/lib/prep-plan'
 
 // ─── StationTag ──────────────────────────────────────────────────────────
 // Small neutral "STATION" chip (PTTag).
@@ -111,17 +112,6 @@ export function Segmented<T extends string>({
   )
 }
 
-// ─── StockOutBadge ───────────────────────────────────────────────────────
-// The small "STOCK OUT" pill shown inline next to a critical-priority row's
-// name (DRow: `t.prio === 'critical'`).
-export function StockOutBadge() {
-  return (
-    <span className="font-mono text-[8.5px] font-bold tracking-[0.04em] bg-red-soft text-red-text px-[6px] py-[2px] rounded-full whitespace-nowrap">
-      STOCK OUT
-    </span>
-  )
-}
-
 // ─── BlockedBadge ────────────────────────────────────────────────────────
 // Advisory low-stock pill (DRow: `t.blocked`). It flags the risk (e.g. "LOW
 // STOCK: VINEGAR APPLE CIDER") but is NOT a blocker — these items can still be
@@ -132,6 +122,22 @@ export function BlockedBadge({ reason }: { reason: string }) {
     <span className="inline-flex items-center gap-1 font-mono text-[8.5px] font-bold tracking-[0.04em] bg-gold-soft text-gold-2 px-[7px] py-[2px] rounded-full whitespace-nowrap">
       <AlertTriangle size={9} strokeWidth={2.4} />
       {reason.toUpperCase()}
+    </span>
+  )
+}
+
+// ─── ReasonBadge ─────────────────────────────────────────────────────────
+// Smart Prep v2: the posted row's stock evidence, tinted by its urgency step
+// (replaces the old binary STOCK OUT pill — the reason says WHY, not just that).
+export function ReasonBadge({ item }: { item: import('@/components/prep/types').PrepItemRich }) {
+  const u = effectiveUrgency(item)
+  const cls =
+    u === 'PASS' ? 'bg-red-soft text-red-text'
+    : u === 'MID' ? 'bg-gold-soft text-gold-2'
+    : 'bg-bg-2 text-ink-3'
+  return (
+    <span className={`font-mono text-[8.5px] font-bold tracking-[0.04em] px-[7px] py-[2px] rounded-full whitespace-nowrap ${cls}`}>
+      {whyLabel(item).toUpperCase()}
     </span>
   )
 }

@@ -1,33 +1,36 @@
 'use client'
 // Smart Prep v2 — mobile planner (design planner-mobile.jsx): the same two
-// panes as tabs, arrow-nudge reordering instead of drag, sticky post bar.
+// panes as tabs, ONE urgency step per item, arrow-nudge reordering, group-by
+// pills, sticky post bar.
 import { useMemo, useState } from 'react'
-import { Sparkles, Zap, Undo2, Lock, AlertTriangle, Package, Check, ChevronDown, Minus, Plus, X } from 'lucide-react'
+import { Sparkles, Zap, Undo2, Lock, AlertTriangle, Package, Check, ChevronDown, X } from 'lucide-react'
 import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
-import type { PrepPriority } from '@/lib/prep-utils'
-import { PLAN_PRIORITY_ORDER, PLAN_PRIO_META, effectivePriority, suggestedDraftQty, draftQty, prepStep } from '@/lib/prep-plan'
+import type { RcService } from '@/lib/service-hours'
+import {
+  PLAN_URG_META, effectiveUrgency, planDayContext, planSchedule, planGroups,
+  suggestedDraftQty, fmtDeadline, draftListOrder as draftOrd,
+  type PlanSlot, type PlanDayContext,
+} from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
-import { BucketHead, PrioPicker, AssignPill } from './atoms'
+import { GroupHead, UrgPicker, AssignPill, QtyStepper, Reason } from './atoms'
 import { SuggestionRow } from './SuggestionRow'
 import { PostDialog } from './PostDialog'
 import { Segmented } from '@/components/prep/runsheet/atoms'
+import { isBatchMode } from './PlannerDesktop'
 import type { PlannerHandlers } from './PlannerDesktop'
-import { sortDraft } from './PlannerDesktop'
 
-const fmtQ = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
 
-function MobileDraftCard({ item, cooks, locked, first, last, onMove, handlers }: {
-  item: PrepItemRich; cooks: Cook[]; locked: boolean; first: boolean; last: boolean
+function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, last, onMove, onToggleBatch, handlers }: {
+  item: PrepItemRich; cooks: Cook[]; locked: boolean
+  ctx: PlanDayContext | null; slot: PlanSlot | null; batchMode: boolean
+  first: boolean; last: boolean
   onMove: (dir: -1 | 1) => void
+  onToggleBatch: (item: PrepItemRich, next: boolean) => void
   handlers: PlannerHandlers
 }) {
-  const p = effectivePriority(item)
-  const sugg = suggestedDraftQty(item)
-  const qty = draftQty(item)
-  const step = prepStep(item.unit)
-  const overridden = sugg > 0 && Math.abs(qty - sugg) > 0.01
+  const m = PLAN_URG_META[effectiveUrgency(item)]
   const arrow = (dir: -1 | 1, disabled: boolean) => (
     <button type="button" onClick={() => onMove(dir)} disabled={locked || disabled}
       className={`w-[26px] h-5 rounded-md bg-bg border border-line grid place-items-center ${disabled ? 'opacity-30' : ''}`}>
@@ -35,8 +38,7 @@ function MobileDraftCard({ item, cooks, locked, first, last, onMove, handlers }:
     </button>
   )
   return (
-    <div className="bg-paper border border-line rounded-[11px] px-2.5 py-[9px] border-l-[3px]"
-      style={{ borderLeftColor: p === '911' ? '#dc2626' : p === 'NEEDED_TODAY' ? '#d97706' : '#16a34a' }}>
+    <div className="bg-paper border border-line rounded-[11px] px-2.5 py-[9px] border-l-[3px]" style={{ borderLeftColor: m.hex }}>
       <div className="flex items-start gap-2">
         <div className="flex flex-col gap-[3px] shrink-0 pt-px">{arrow(-1, first)}{arrow(1, last)}</div>
         <button type="button" onClick={() => handlers.onOpen(item)} className="flex-1 min-w-0 text-left">
@@ -44,8 +46,11 @@ function MobileDraftCard({ item, cooks, locked, first, last, onMove, handlers }:
             <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink truncate">{item.name}</span>
             {item.isBlocked && <span className="font-mono text-[9px] font-bold uppercase bg-gold-soft text-gold-2 px-1.5 py-0.5 rounded-full shrink-0">BLOCKED</span>}
           </span>
-          <span className="block font-mono text-[9px] text-ink-4 mt-0.5 truncate">
-            {item.station ?? item.category}{item.startByMinutes != null ? ` · START ${fmtClock(item.startByMinutes)}` : ''}{item.service ? ` · ${item.service.name}` : ''}
+          <span className={`block font-mono text-[9px] mt-0.5 truncate ${slot && !slot.fits ? 'text-red-text font-bold' : 'text-ink-4'}`}>
+            {item.station ?? item.category}
+            {slot
+              ? ` · ${fmtClock(slot.start)}–${fmtClock(slot.end % 1440)} · by ${fmtDeadline(slot.deadline, fmtClock)}${slot.fits ? '' : ' · WON’T FIT'}`
+              : item.startByMinutes != null ? ` · START ${fmtClock(item.startByMinutes)}` : ''}
           </span>
         </button>
         <button type="button" disabled={locked} onClick={() => handlers.onRemove(item)}
@@ -54,53 +59,61 @@ function MobileDraftCard({ item, cooks, locked, first, last, onMove, handlers }:
         </button>
       </div>
       <div className="flex items-center gap-[7px] mt-2">
-        <div className="inline-flex items-center bg-bg-2 border border-line rounded-[9px] shrink-0">
-          <button type="button" disabled={locked} onClick={() => handlers.onQty(item, Math.max(step, +(qty - step).toFixed(2)))} className="w-[30px] h-8 grid place-items-center">
-            <Minus size={13} className="text-ink-2" />
-          </button>
-          <span className={`min-w-[52px] text-center font-mono text-[12.5px] font-bold ${overridden ? 'text-gold-2' : 'text-ink'}`}>{fmtQ(qty, item.unit)}</span>
-          <button type="button" disabled={locked} onClick={() => handlers.onQty(item, +(qty + step).toFixed(2))} className="w-[30px] h-8 grid place-items-center">
-            <Plus size={13} className="text-ink-2" />
-          </button>
-        </div>
-        <PrioPicker item={item} locked={locked} onChange={prio => handlers.onPriorityChange(item.id, prio)} />
+        <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={handlers.onQty} onToggleBatch={onToggleBatch} suggested={suggestedDraftQty(item)} sm />
+        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="w-[104px]" />
         <span className="flex-1" />
         <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} locked={locked} onAssign={id => handlers.onAssign(item, id)} />
       </div>
+      <div className="mt-[7px]"><Reason item={item} sm /></div>
       <input
         key={item.todayLog?.id ?? item.id}
         defaultValue={item.todayLog?.note ?? ''}
         disabled={locked}
         onBlur={e => { if ((item.todayLog?.note ?? '') !== e.target.value) handlers.onNote(item, e.target.value) }}
         placeholder="+ note for the cook"
-        className="w-full mt-[7px] text-[12px] text-ink-2 bg-transparent border-0 border-t border-line pt-[7px] outline-none placeholder:text-ink-4"
+        className="w-full mt-1.5 text-[12px] text-ink-2 bg-transparent border-0 border-t border-line pt-[7px] outline-none placeholder:text-ink-4"
       />
     </div>
   )
 }
 
-export function PlannerMobile({ items, allItems, cooks, stations, canPlan, post, handlers }: {
+export function PlannerMobile({ items, allItems, cooks, stations, services, nowMin, canPlan, post, handlers }: {
   items: PrepItemRich[]
   allItems: PrepItemRich[]
   cooks: Cook[]
   stations: string[]
+  services: RcService[]
+  nowMin: number
   canPlan: boolean
   post: PrepPostInfo | null
   handlers: PlannerHandlers
 }) {
   const locked = !canPlan
   const [tab, setTab] = useState<'draft' | 'sugg'>('draft')
-  const [sgroup, setSgroup] = useState<'priority' | 'category'>('priority')
+  const [groupBy, setGroupBy] = useState<'urgency' | 'station' | 'category'>('urgency')
   const [dlg, setDlg] = useState(false)
+  const [batchToggles, setBatchToggles] = useState<Map<string, boolean>>(new Map())
+  const onToggleBatch = (item: PrepItemRich, next: boolean) =>
+    setBatchToggles(prev => new Map(prev).set(item.id, next))
 
-  const draft = useMemo(() => sortDraft(allItems), [allItems])
+  const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
+  const draft = useMemo(() => allItems.filter(i => i.isOnList), [allItems])
+  const sched = useMemo<Map<string, PlanSlot>>(
+    () => (ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map()),
+    [draft, cooks, ctx],
+  )
+  const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits).length
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
   const openCount = draft.filter(t => !t.todayLog?.assignedTo).length
   const notInDraft = items.filter(t => !t.isOnList).length
   const clean = post != null && !post.dirty
+  const groupOpts = { stations, crew: cooks, ord: draftOrd }
 
   const nudge = (item: PrepItemRich, dir: -1 | 1) => {
-    const bucket = draft.filter(x => effectivePriority(x) === effectivePriority(item)).map(x => x.id)
+    const bucket = draft
+      .filter(x => effectiveUrgency(x) === effectiveUrgency(item))
+      .sort((a, b) => draftOrd(a) - draftOrd(b))
+      .map(x => x.id)
     const i = bucket.indexOf(item.id), j = i + dir
     if (i < 0 || j < 0 || j >= bucket.length) return
     ;[bucket[i], bucket[j]] = [bucket[j], bucket[i]]
@@ -109,6 +122,18 @@ export function PlannerMobile({ items, allItems, cooks, stations, canPlan, post,
 
   const bulkBtn = (disabled: boolean) =>
     `inline-flex items-center gap-1.5 whitespace-nowrap rounded-[9px] px-[11px] py-[7px] text-[12px] font-semibold border ${disabled ? 'bg-bg-2 text-ink-4 border-line' : 'bg-paper text-ink-2 border-line-2 active:bg-bg-2'}`
+
+  const groupPills = (opts: Array<['urgency' | 'station' | 'category', string]>) => (
+    <div className="flex items-center gap-1.5 mt-[11px]">
+      <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-4">Group by</span>
+      {opts.map(([k, l]) => (
+        <button key={k} type="button" onClick={() => setGroupBy(k)}
+          className={`font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] rounded-full px-[11px] py-[5px] border ${groupBy === k ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-3 border-line-2'}`}>
+          {l}
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <div className="relative">
@@ -126,7 +151,9 @@ export function PlannerMobile({ items, allItems, cooks, stations, canPlan, post,
         <span className="w-px self-stretch bg-[#27272a]" />
         <div className="flex-1 flex flex-col gap-[3px] min-w-0">
           <span className="font-mono text-[9.5px] text-ink-4">{draft.length} on the list · {fmtMins(mins)} hands-on</span>
-          <span className={`font-mono text-[9.5px] ${openCount ? 'text-gold' : 'text-ink-4'}`}>{openCount ? `${openCount} unassigned` : 'everything assigned'}</span>
+          <span className={`font-mono text-[9.5px] ${openCount || wont ? 'text-gold' : 'text-ink-4'}`}>
+            {openCount ? `${openCount} unassigned` : 'everything assigned'}{wont ? ` · ${wont} won’t fit` : ''}
+          </span>
         </div>
       </div>
 
@@ -140,87 +167,48 @@ export function PlannerMobile({ items, allItems, cooks, stations, canPlan, post,
           <>
             <div className="flex gap-[7px] mt-3">
               <button type="button" onClick={handlers.onAddAllCritical} disabled={locked} className={bulkBtn(locked)}>
-                <AlertTriangle size={13} /> Add all criticals
+                <AlertTriangle size={13} /> Add all critical
               </button>
               <button type="button" onClick={handlers.onAcceptSuggested} disabled={locked} className={bulkBtn(locked)}>
                 <Sparkles size={13} /> Accept suggested
               </button>
             </div>
-            <div className="flex items-center gap-1.5 mt-[11px]">
-              <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-4">View by</span>
-              {(['priority', 'category'] as const).map(k => (
-                <button key={k} type="button" onClick={() => setSgroup(k)}
-                  className={`font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] rounded-full px-[11px] py-[5px] border ${sgroup === k ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-3 border-line-2'}`}>
-                  {k}
-                </button>
-              ))}
-            </div>
-            {sgroup === 'priority'
-              ? PLAN_PRIORITY_ORDER.map(p => {
-                  const grp = items.filter(t => effectivePriority(t) === p)
-                  if (!grp.length) return null
-                  return (
-                    <div key={p}>
-                      <BucketHead p={p} count={grp.length} />
-                      <div className="flex flex-col gap-1.5">
-                        {grp.map(t => <SuggestionRow key={t.id} item={t} locked={locked} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
-                      </div>
-                    </div>
-                  )
-                })
-              : [...new Set(items.map(t => t.category))].sort().map(cat => {
-                  const grp = items.filter(t => t.category === cat)
-                    .sort((a, b) => PLAN_PRIORITY_ORDER.indexOf(effectivePriority(a)) - PLAN_PRIORITY_ORDER.indexOf(effectivePriority(b)))
-                  if (!grp.length) return null
-                  return (
-                    <div key={cat}>
-                      <div className="flex items-center gap-2 mt-3.5 mb-1.5 mx-0.5">
-                        <span className="font-mono text-[10.5px] font-bold tracking-[0.05em] text-ink">{cat}</span>
-                        <span className="font-mono text-[9.5px] text-ink-4">· {grp.length}</span>
-                        <span className="flex gap-1 ml-auto">
-                          {PLAN_PRIORITY_ORDER.map(p => {
-                            const n = grp.filter(t => effectivePriority(t) === p).length
-                            if (!n) return null
-                            return (
-                              <span key={p} className={`inline-flex items-center gap-1 font-mono text-[9px] font-bold ${PLAN_PRIO_META[p].textClass}`}>
-                                <span className={`w-[5px] h-[5px] rounded-full ${PLAN_PRIO_META[p].dotClass}`} />{n}
-                              </span>
-                            )
-                          })}
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        {grp.map(t => <SuggestionRow key={t.id} item={t} locked={locked} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
-                      </div>
-                    </div>
-                  )
-                })}
+            {groupPills([['urgency', 'Step'], ['station', 'Station'], ['category', 'Category']])}
+            {planGroups(items, groupBy, groupOpts).map(g => (
+              <div key={g.key}>
+                <GroupHead g={g} count={g.rows.length} />
+                <div className="flex flex-col gap-1.5">
+                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
+                </div>
+              </div>
+            ))}
           </>
         ) : (
           <>
-            {!draft.length && (
+            {!draft.length ? (
               <div className="flex flex-col items-center gap-[7px] py-14 text-ink-4">
                 <Package size={24} className="text-line-2" />
                 <span className="text-[13px] text-ink-3">Nothing on today&apos;s list</span>
                 <span className="font-mono text-[10px]">ADD FROM SUGGESTIONS</span>
               </div>
-            )}
-            {PLAN_PRIORITY_ORDER.map(p => {
-              const grp = draft.filter(t => effectivePriority(t) === p)
-              if (!grp.length) return null
-              return (
-                <div key={p}>
-                  <BucketHead p={p} count={grp.length} mins={grp.reduce((a, t) => a + activeOf(t), 0)} />
-                  <div className="flex flex-col gap-[7px]">
-                    {grp.map((t, i) => (
-                      <MobileDraftCard key={t.id} item={t} cooks={cooks} locked={locked}
-                        first={i === 0} last={i === grp.length - 1}
-                        onMove={dir => nudge(t, dir)} handlers={handlers} />
-                    ))}
+            ) : (
+              <>
+                {groupPills([['urgency', 'Step'], ['station', 'Station']])}
+                {planGroups(draft, groupBy === 'category' ? 'urgency' : groupBy, groupOpts).map(g => (
+                  <div key={g.key}>
+                    <GroupHead g={g} count={g.rows.length} mins={g.rows.reduce((a, t) => a + activeOf(t), 0)} />
+                    <div className="flex flex-col gap-[7px]">
+                      {g.rows.map((t, i) => (
+                        <MobileDraftCard key={t.id} item={t} cooks={cooks} locked={locked}
+                          ctx={ctx} slot={sched.get(t.id) ?? null} batchMode={isBatchMode(t, batchToggles)}
+                          first={i === 0} last={i === g.rows.length - 1}
+                          onMove={dir => nudge(t, dir)} onToggleBatch={onToggleBatch} handlers={handlers} />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                ))}
+              </>
+            )}
           </>
         )}
       </div>
@@ -255,7 +243,7 @@ export function PlannerMobile({ items, allItems, cooks, stations, canPlan, post,
       </div>
 
       {dlg && (
-        <PostDialog draft={draft} cooks={cooks} stations={stations} reposting={!!post}
+        <PostDialog draft={draft} cooks={cooks} stations={stations} ctx={ctx} reposting={!!post}
           onClose={() => setDlg(false)} onConfirm={() => { handlers.onPost(); setDlg(false) }} />
       )}
     </div>

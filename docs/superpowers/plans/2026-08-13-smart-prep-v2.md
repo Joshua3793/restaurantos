@@ -1112,6 +1112,29 @@ git commit -m "feat(prep): Smart Prep v2 — cleanup, docs"
 
 ---
 
+---
+
+# Revision 2 — design v4 refetch (2026-08-13, same day)
+
+The design pivoted after Tasks 1–9 shipped. Deltas (from re-fetched `plan-data.js` / `planner.jsx` / `planner-mobile.jsx` / `prep-todo/{shared,desktop}.jsx`):
+
+**One 4-step urgency dial** replaces the 3-level priority in the planner. `PP_URG`: `pass` "Critical-Start Service" (red · out/under target · ready at doors), `mid` "Mid-service" (gold · under half par, "dies mid-service" · doors+2h), `close` "Before close" (blue · below par · by close), `tmrw` "Tomorrow" (green · at par, building ahead). Chef overrides the STEP, never the stock; `ppWhy` becomes read-only evidence (incl. "won't last service", "at par · Xd shelf life", "chef moved it to …"). Each step carries a deadline.
+
+**Mapping decision (blast-radius control):** app-wide `priority` stays 3-level and is now DERIVED from urgency — `PASS→'911'`, `MID|CLOSE→'NEEDED_TODAY'`, `TMRW→'LATER'` — which produces byte-identical outcomes to the old `computePriority` rule for every legacy consumer (pass, preshift, alerts, badges, drawers). `manualPriorityOverride` now stores urgency tokens (`PASS|MID|CLOSE|TMRW`); legacy tokens are normalized at read (`'911'→PASS`, `'NEEDED_TODAY'→CLOSE`, `'LATER'→TMRW`). **No schema change.**
+
+**Batches:** items whose linked recipe has a usable base yield (same dimension as the item unit) count in half-batches by default — dual display (`×1.5 batch` over the UOM qty), suggestion rounds UP to the next half batch, UOM↔batch toggle on the stepper (display state only, not persisted). Run-sheet rows show the batch label next to the planned qty.
+
+**Schedule + capacity:** pure `planSchedule` sequences each station's draft through the cooks on that station (crew cursors from now), giving each item a slot (start–end) vs its step deadline (`fits`/`over`); `stationLoad` renders a per-station load strip vs minutes-before-doors; "N WON'T FIT" surfaces in the list header, rows, mobile summary, and post dialog (red warning). Doors = item's target service start ?? RC's next service start; close = last service end ?? 22:00.
+
+**Group-by toggle** (STEP | STATION desktop; + CATEGORY for mobile suggestions) via one `planGroups` helper.
+
+### Revision tasks
+- [x] **R1** `prep-utils.ts`: `PrepUrgency`, `URGENCY_ORDER`, `autoUrgency`, `normalizeUrgency`, `urgencyToPriority`; `computePriority` reimplemented on top (identical outputs, normalizes urgency override tokens). `prep-plan.ts`: `PLAN_URG_META`, `effectiveUrgency`, new `whyLabel(t, shelfLifeDays)`, batch math (`batchYield`/`batchCount`/`batchesToQty`/`suggestedBatches`/`fmtBatch`), `planDayContext(services, nowMin)`, `urgencyDeadline`, `fmtDeadline`, `planSchedule`, `stationLoad`, `planGroups`. Tests updated + new coverage.
+- [x] **R2** Planner atoms: `UrgPicker` (4 rows with deadline + stock meaning + SMART tag + back-to-smart) replaces `PrioPicker`; `Reason` (read-only evidence, gold when overridden); `QtyStepper` with batch toggle; `GroupHead` generic (urgency/station/category).
+- [x] **R3** `SuggestionRow` (reason line, batch suggestion dual display), `DraftRow` (QtyStepper, UrgPicker, reason + slot line `hh:mm–hh:mm · BY deadline · Xm PAST`), `PlannerDesktop` (group-by pills, load strip, WON'T FIT counts), `PlannerMobile` (same + group pills incl. category), `PostDialog` (urgency pills, won't-fit red warning, schedule-based first start).
+- [x] **R4** Run sheet: `RunRow`/`RunRowMobile` planned-qty (`draftQty`) + batch label + reason pill (replaces STOCK OUT when evidence exists); RunSheet 'priority' grouping gets stepped titles.
+- [x] **R5** Page wiring: pass `services` into planners; `handlePriorityChange` recomputes via normalized override. Build + tests + browser verify + push to PR #91.
+
 ## Out of scope (explicitly)
 
 - **Covers forecast band** (`PT_FORECAST`) — no forecast model exists; service-status band remains.

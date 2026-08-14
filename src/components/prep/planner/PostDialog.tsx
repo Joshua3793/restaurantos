@@ -1,25 +1,32 @@
 'use client'
 // Smart Prep v2 — post confirmation dialog (design PPPostDialog). Shows what
-// goes live on the kitchen's To Do before the chef commits.
+// goes live on the kitchen's To Do — including what won't fit — before the
+// chef commits.
 import { Zap, Check, AlertTriangle } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
-import type { PrepPriority } from '@/lib/prep-utils'
-import { PLAN_PRIO_META, PLAN_PRIORITY_ORDER, effectivePriority } from '@/lib/prep-plan'
+import type { PrepUrgency } from '@/lib/prep-utils'
+import {
+  PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, planSchedule,
+  draftListOrder as draftOrd,
+  type PlanDayContext, type PlanSlot,
+} from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
 
-export function PostDialog({ draft, cooks, stations, reposting, onClose, onConfirm }: {
+export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, onConfirm }: {
   draft: PrepItemRich[]
   cooks: Cook[]
   stations: string[]
+  ctx: PlanDayContext | null
   reposting: boolean
   onClose: () => void
   onConfirm: () => void
 }) {
-  const byPrio = PLAN_PRIORITY_ORDER
-    .map(p => [p, draft.filter(t => effectivePriority(t) === p).length] as [PrepPriority, number])
+  const sched = ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map<string, PlanSlot>()
+  const byUrg = PLAN_URG_ORDER
+    .map(u => [u, draft.filter(t => effectiveUrgency(t) === u).length] as [PrepUrgency, number])
     .filter(([, n]) => n > 0)
   const stationKeys = [...stations, 'Unassigned']
   const byStation = stationKeys
@@ -27,7 +34,9 @@ export function PostDialog({ draft, cooks, stations, reposting, onClose, onConfi
     .filter(([, rows]) => rows.length > 0)
   const open = draft.filter(t => !t.todayLog?.assignedTo).length
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
-  const first = draft.filter(t => t.startByMinutes != null).sort((a, b) => a.startByMinutes! - b.startByMinutes!)[0]
+  const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits)
+  const firstStart = [...sched.values()].map(s => s.start).sort((a, b) => a - b)[0]
+    ?? draft.filter(t => t.startByMinutes != null).map(t => t.startByMinutes!).sort((a, b) => a - b)[0]
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-3">
@@ -44,7 +53,7 @@ export function PostDialog({ draft, cooks, stations, reposting, onClose, onConfi
         {/* body */}
         <div className="flex-1 overflow-y-auto px-5 pt-4 pb-1">
           <div className="flex gap-2">
-            {([['Items', String(draft.length)], ['Hands-on', fmtMins(mins)], ['First start', first?.startByMinutes != null ? fmtClock(first.startByMinutes) : '—']] as const).map(([l, v]) => (
+            {([['Items', String(draft.length)], ['Hands-on', fmtMins(mins)], ['First start', firstStart != null ? fmtClock(firstStart) : '—']] as const).map(([l, v]) => (
               <div key={l} className="flex-1 bg-bg border border-line rounded-[11px] px-3 py-2.5">
                 <div className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-3 mb-1">{l}</div>
                 <div className="text-[20px] font-semibold tracking-[-0.03em] font-mono text-ink">{v}</div>
@@ -52,9 +61,9 @@ export function PostDialog({ draft, cooks, stations, reposting, onClose, onConfi
             ))}
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">
-            {byPrio.map(([p, n]) => (
-              <span key={p} className={`inline-flex items-center gap-1.5 ${PLAN_PRIO_META[p].softClass} ${PLAN_PRIO_META[p].textClass} rounded-full px-2.5 py-1 font-mono text-[10px] font-bold`}>
-                <span className={`w-[5px] h-[5px] rounded-full ${PLAN_PRIO_META[p].dotClass}`} />{n} {PLAN_PRIO_META[p].label.toUpperCase()}
+            {byUrg.map(([u, n]) => (
+              <span key={u} className={`inline-flex items-center gap-1.5 ${PLAN_URG_META[u].softClass} ${PLAN_URG_META[u].textClass} rounded-full px-2.5 py-1 font-mono text-[10px] font-bold`}>
+                <span className={`w-[5px] h-[5px] rounded-full ${PLAN_URG_META[u].dotClass}`} />{n} {PLAN_URG_META[u].label.toUpperCase()}
               </span>
             ))}
           </div>
@@ -77,6 +86,14 @@ export function PostDialog({ draft, cooks, stations, reposting, onClose, onConfi
               </div>
             ))}
           </div>
+          {wont.length > 0 && (
+            <div className="flex items-center gap-2 bg-red-soft border border-red-soft rounded-[10px] px-3 py-2 mt-3">
+              <AlertTriangle size={14} className="text-red shrink-0" />
+              <span className="text-[12px] text-red-text font-medium">
+                <b>{wont.length}</b> item{wont.length > 1 ? 's don’t' : ' doesn’t'} fit before {wont.length > 1 ? 'their steps' : 'its step'} — move {wont.length > 1 ? 'them' : 'it'} later or add hands.
+              </span>
+            </div>
+          )}
           {open > 0 && (
             <div className="flex items-center gap-2 bg-gold-soft border border-gold-soft rounded-[10px] px-3 py-2 mt-3">
               <AlertTriangle size={14} className="text-gold-2 shrink-0" />

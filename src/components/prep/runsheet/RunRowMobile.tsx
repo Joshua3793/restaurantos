@@ -4,6 +4,7 @@
 // ladder: 44px start-by column | task (name+qty, single meta line) | assignee
 // chip (kitchen mode only) | Start/Lock action button.
 import { Zap } from 'lucide-react'
+import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
@@ -51,7 +52,7 @@ export function RunRowMobile({
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
   const overdue = state === 'overdue'
   const late = sb != null ? nowMin - sb : 0
-  const qty = item.suggestedQty ?? item.targetToday ?? item.parLevel
+  const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const active = item.activeMinutes ?? 0
   const passive = item.passiveMinutes ?? 0
 
@@ -98,7 +99,7 @@ export function RunRowMobile({
       {/* task */}
       <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
         <div className="text-[13.5px] font-semibold tracking-[-0.01em] whitespace-nowrap overflow-hidden text-ellipsis">
-          {item.name} <span className="font-mono text-[10.5px] font-normal text-ink-3">{fmtQty(qty, item.unit)}</span>
+          {item.name} <span className="font-mono text-[10.5px] font-normal text-ink-3">{(() => { const b = batchLabel(item, qty); return b ? `${b} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit) })()}</span>
         </div>
         <div
           className={`font-mono text-[9.5px] whitespace-nowrap overflow-hidden text-ellipsis ${

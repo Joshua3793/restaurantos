@@ -4,6 +4,7 @@
 // queue: start-by countdown, name, make/hands-on/ready-for line, then either
 // a gold Start-now button or a BLOCKED notice, plus a Recipe/scale-batch link.
 import { AlertTriangle, Zap, BookOpen } from 'lucide-react'
+import { draftQty } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { fmtClock, fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
 
@@ -30,7 +31,7 @@ export function NextUpHero({
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
   const overdue = state === 'overdue'
   const late = sb != null ? nowMin - sb : 0
-  const qty = item.suggestedQty ?? item.targetToday ?? item.parLevel
+  const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const active = item.activeMinutes ?? 0
   const passive = item.passiveMinutes ?? 0
 

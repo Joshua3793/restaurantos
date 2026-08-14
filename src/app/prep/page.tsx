@@ -735,12 +735,10 @@ export default function PrepPage() {
       return {
         ...item,
         manualPriorityOverride: override,
-        // On reset-to-auto (no override) recompute the effective priority from stock
-        // client-side so the row re-sorts instantly — this used to trigger a full ~5s
-        // /api/prep/items reload just to learn the auto priority.
-        priority: override
-          ? (priority as PrepItemRich['priority'])
-          : computePriority(item.onHand, item.parLevel, item.minThreshold, item.targetToday, null),
+        // Recompute the collapsed 3-level priority from the (urgency) override —
+        // computePriority normalizes both vocabularies — so every legacy pill and
+        // sort re-derives instantly without a ~5s /api/prep/items reload.
+        priority: computePriority(item.onHand, item.parLevel, item.minThreshold, item.targetToday, override),
       }
     }))
     markSaving(itemId, true)
@@ -1419,6 +1417,8 @@ export default function PrepPage() {
               allItems={items}
               stations={stations}
               cooks={cooks}
+              services={rcServices}
+              nowMin={nowMin}
               canPlan={canPlan}
               post={plan.post}
               search={search}
@@ -1532,6 +1532,8 @@ export default function PrepPage() {
                 allItems={items}
                 cooks={cooks}
                 stations={stations}
+                services={rcServices}
+                nowMin={nowMin}
                 canPlan={canPlan}
                 post={plan.post}
                 handlers={plannerHandlers}

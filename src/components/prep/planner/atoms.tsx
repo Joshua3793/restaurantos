@@ -1,14 +1,20 @@
 'use client'
-// Smart Prep v2 planner — shared atoms. Ported from the design's planner.jsx
-// (PPBucketHead / PPPrioPill / PPPrioPicker / PPAssign / PPPop) with flat
+// Smart Prep v2 planner — shared atoms. ONE urgency step per item (the dial),
+// read-only stock evidence (Reason), a batch-aware qty stepper, and the
+// generic group heading. Ported from the design's planner.jsx with flat
 // Tailwind tokens and Lucide icons.
 import { useState } from 'react'
-import { Pencil, ChevronDown, Undo2 } from 'lucide-react'
-import type { PrepPriority } from '@/lib/prep-utils'
-import { PLAN_PRIO_META, PLAN_PRIORITY_ORDER, effectivePriority, autoPriority } from '@/lib/prep-plan'
+import { Pencil, ChevronDown, Undo2, Minus, Plus } from 'lucide-react'
+import type { PrepUrgency } from '@/lib/prep-utils'
+import {
+  PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, autoUrgencyOf, whyLabel,
+  batchYield, batchCount, batchesToQty, fmtBatch, draftQty, prepStep,
+  urgencyDeadline, fmtDeadline,
+  type PlanDayContext, type PlanGroup,
+} from '@/lib/prep-plan'
+import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
-import { fmtMins } from '@/lib/prep-runsheet'
 
 export function Popover({ children, onClose, w = 'w-48', align = 'right' }: {
   children: React.ReactNode; onClose: () => void; w?: string; align?: 'left' | 'right'
@@ -28,68 +34,144 @@ export const popItemCls = (active: boolean) =>
 
 export const popHeadCls = 'font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-4 px-2.5 pt-1.5 pb-2'
 
-export function BucketHead({ p, count, mins, warn }: {
-  p: PrepPriority; count: number; mins?: number | null; warn?: boolean
+// ─── group heading (urgency / station / category via planGroups) ───────────
+export function GroupHead({ g, count, mins, warn }: {
+  g: Pick<PlanGroup<never>, 'label' | 'sub' | 'urg'>
+  count: number
+  mins?: number | null
+  warn?: boolean
 }) {
-  const m = PLAN_PRIO_META[p]
+  const m = g.urg ? PLAN_URG_META[g.urg] : null
   return (
     <div className="flex items-center gap-2 mt-3.5 mb-1.5 mx-0.5">
-      <span className={`w-[7px] h-[7px] rounded-full ${m.dotClass}`} />
-      <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.05em] text-ink">{m.label}</span>
+      {m && <span className={`w-[7px] h-[7px] rounded-full ${m.dotClass}`} />}
+      <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.05em] text-ink">{g.label}</span>
       <span className="font-mono text-[9.5px] text-ink-4">· {count}{mins != null ? ` · ${fmtMins(mins)}` : ''}</span>
       {warn
-        ? <span className="ml-auto font-mono text-[9px] font-bold uppercase bg-red-soft text-red-text px-2 py-0.5 rounded-full whitespace-nowrap">Change the priority to move it</span>
-        : <span className="ml-auto font-mono text-[9px] text-ink-4 truncate">{m.sub}</span>}
+        ? <span className="ml-auto font-mono text-[9px] font-bold uppercase bg-red-soft text-red-text px-2 py-0.5 rounded-full whitespace-nowrap">Change the step to move it</span>
+        : <span className="ml-auto font-mono text-[9px] text-ink-4 truncate">{g.sub ?? ''}</span>}
     </div>
   )
 }
 
-export function PrioPill({ p, override, sm }: { p: PrepPriority; override?: boolean; sm?: boolean }) {
-  const m = PLAN_PRIO_META[p]
+// ─── read-only stock evidence — what used to be a second pill ──────────────
+export function Reason({ item, sm }: { item: PrepItemRich; sm?: boolean }) {
+  const overridden = !!item.manualPriorityOverride
+  const m = PLAN_URG_META[effectiveUrgency(item)]
   return (
-    <span className={`inline-flex items-center gap-1.5 ${m.softClass} ${m.textClass} rounded-full font-mono font-bold ${sm ? 'text-[9px] px-2 py-0.5' : 'text-[9.5px] px-2.5 py-1'} whitespace-nowrap`}>
-      <span className={`w-[5px] h-[5px] rounded-full ${m.dotClass}`} />{m.label.toUpperCase()}
-      {override && <Pencil size={9} />}
+    <span className={`inline-flex items-center gap-[5px] min-w-0 font-mono ${sm ? 'text-[9px]' : 'text-[9.5px]'} ${overridden ? 'text-gold-2' : 'text-ink-3'} whitespace-nowrap overflow-hidden text-ellipsis`}>
+      <span className={`w-[5px] h-[5px] rounded-full shrink-0 ${overridden ? 'bg-gold' : m.dotClass}`} />
+      {whyLabel(item)}
     </span>
   )
 }
 
-// ─── priority override control ─────────────────────────────────────────────
-export function PrioPicker({ item, locked, onChange }: {
-  item: PrepItemRich; locked: boolean; onChange: (prio: string) => void
+// ─── THE dial: one step, carrying deadline + stock meaning ─────────────────
+export function UrgPicker({ item, locked, ctx, onChange, w = 'w-[126px]' }: {
+  item: PrepItemRich
+  locked: boolean
+  /** day anchors for the per-step deadline captions; null hides the times */
+  ctx: PlanDayContext | null
+  onChange: (step: string) => void
+  w?: string
 }) {
   const [open, setOpen] = useState(false)
-  const p = effectivePriority(item)
-  const auto = autoPriority(item)
-  const m = PLAN_PRIO_META[p]
+  const u = effectiveUrgency(item)
+  const auto = autoUrgencyOf(item)
+  const m = PLAN_URG_META[u]
   return (
     <div className="relative shrink-0">
       <button
         type="button"
         onClick={() => !locked && setOpen(v => !v)}
-        title={locked ? 'Chef only' : 'Set priority'}
-        className={`inline-flex items-center gap-1.5 w-[92px] ${m.softClass} ${m.textClass} border ${item.manualPriorityOverride ? 'border-current' : 'border-transparent'} rounded-lg px-2 py-1.5 font-mono text-[9.5px] font-bold ${locked ? 'cursor-default' : 'cursor-pointer'}`}
+        title={locked ? 'Chef only' : 'When is it needed?'}
+        className={`inline-flex items-center gap-1.5 ${w} ${m.softClass} ${m.textClass} border ${item.manualPriorityOverride ? 'border-current' : 'border-transparent'} rounded-lg px-2 py-1.5 font-mono text-[9.5px] font-bold ${locked ? 'cursor-default' : 'cursor-pointer'}`}
       >
         <span className={`w-1.5 h-1.5 rounded-full ${m.dotClass} shrink-0`} />
-        <span className="flex-1 text-left">{m.label.toUpperCase()}</span>
-        {item.manualPriorityOverride ? <Pencil size={10} /> : !locked && <ChevronDown size={10} />}
+        <span className="flex-1 text-left truncate">{m.short}</span>
+        {item.manualPriorityOverride ? <Pencil size={10} className="shrink-0" /> : !locked && <ChevronDown size={10} className="shrink-0" />}
       </button>
       {open && (
-        <Popover onClose={() => setOpen(false)} w="w-52">
-          <div className={popHeadCls}>Override priority</div>
-          {PLAN_PRIORITY_ORDER.map(k => (
-            <button key={k} type="button" onClick={() => { onChange(k === auto ? '' : k); setOpen(false) }} className={popItemCls(p === k)}>
-              <span className={`w-[7px] h-[7px] rounded-full ${PLAN_PRIO_META[k].dotClass}`} />
-              {PLAN_PRIO_META[k].label}
-              {k === auto && <span className="ml-auto font-mono text-[9px] font-semibold text-ink-4 uppercase">Smart</span>}
-            </button>
-          ))}
+        <Popover onClose={() => setOpen(false)} w="w-[274px]">
+          <div className={popHeadCls}>Needed</div>
+          {PLAN_URG_ORDER.map(k => {
+            const km = PLAN_URG_META[k]
+            const dl = ctx ? urgencyDeadline(k, ctx, item.service?.timeMinutes ?? null) : null
+            return (
+              <button key={k} type="button" onClick={() => { onChange(k === auto ? '' : k); setOpen(false) }} className={`${popItemCls(u === k)} !items-start`}>
+                <span className={`w-[7px] h-[7px] rounded-full mt-[5px] shrink-0 ${km.dotClass}`} />
+                <span className="flex-1 min-w-0">
+                  <span className="flex items-baseline gap-1.5">
+                    {km.label}
+                    {dl != null && <span className="font-mono text-[9.5px] font-bold text-ink-3">{fmtDeadline(dl, fmtClock)}</span>}
+                    {k === auto && <span className="ml-auto font-mono text-[9px] font-semibold text-ink-4 uppercase">Smart</span>}
+                  </span>
+                  <span className="block text-[10.5px] text-ink-4 font-medium mt-0.5 leading-[1.35]">{km.stock}</span>
+                </span>
+              </button>
+            )
+          })}
           {item.manualPriorityOverride && (
             <button type="button" onClick={() => { onChange(''); setOpen(false) }} className={`${popItemCls(false)} border-t border-line rounded-none mt-1 pt-2.5 !text-gold-2`}>
-              <Undo2 size={13} /> Back to smart ({PLAN_PRIO_META[auto].label})
+              <Undo2 size={13} /> Back to smart ({PLAN_URG_META[auto].label})
             </button>
           )}
         </Popover>
+      )}
+    </div>
+  )
+}
+
+// ─── quantity: UOM or batches of the recipe's own yield ────────────────────
+const fmtUom = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
+
+export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, suggested, sm }: {
+  item: PrepItemRich
+  locked: boolean
+  /** display/entry in batches when true and the item has a usable base yield */
+  batchMode: boolean
+  onQty: (item: PrepItemRich, qty: number) => void
+  onToggleBatch: (item: PrepItemRich, next: boolean) => void
+  /** suggested qty in the item's UOM (for the overridden tint) */
+  suggested: number
+  sm?: boolean
+}) {
+  const yieldPerBatch = batchYield(item)
+  const batch = batchMode && yieldPerBatch != null
+  const qty = draftQty(item)
+  const step = batch ? 0.5 : prepStep(item.unit)
+  const val = batch ? (batchCount(item, qty) ?? qty) : qty
+  const overridden = suggested > 0 && Math.abs(qty - suggested) > 0.01
+  const set = (v: number) => {
+    const nv = Math.max(step, Math.round(v * 100) / 100)
+    onQty(item, batch ? batchesToQty(item, nv) : +nv.toFixed(2))
+  }
+  const h = sm ? 'h-8' : 'h-7'
+  const bw = sm ? 'w-7' : 'w-[26px]'
+  return (
+    <div className="inline-flex items-stretch bg-bg-2 border border-line rounded-lg shrink-0 overflow-hidden">
+      <button type="button" disabled={locked} onClick={() => set(val - step)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
+        <Minus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
+      </button>
+      <span className={`${batch ? 'min-w-[84px]' : 'min-w-[52px]'} flex flex-col items-center justify-center leading-[1.05]`}>
+        <span className={`font-mono ${batch ? 'text-[11.5px]' : 'text-[12px]'} font-bold ${overridden ? 'text-gold-2' : 'text-ink'}`}>
+          {batch ? `${fmtBatch(val)} batch` : fmtUom(qty, item.unit)}
+        </span>
+        {batch && <span className="font-mono text-[8.5px] text-ink-4">{fmtUom(qty, item.unit)}</span>}
+      </span>
+      <button type="button" disabled={locked} onClick={() => set(val + step)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
+        <Plus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
+      </button>
+      {yieldPerBatch != null && (
+        <button
+          type="button"
+          disabled={locked}
+          onClick={() => onToggleBatch(item, !batch)}
+          title={batch ? `1 batch = ${fmtUom(yieldPerBatch, item.unit)} · switch to ${item.unit}` : `Count in batches of ${fmtUom(yieldPerBatch, item.unit)}`}
+          className={`border-l border-line px-[7px] font-mono text-[8.5px] font-bold tracking-[0.04em] ${batch ? 'bg-ink text-gold' : 'bg-transparent text-ink-3'} ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+        >
+          {batch ? '×' : item.unit.toUpperCase()}
+        </button>
       )}
     </div>
   )
