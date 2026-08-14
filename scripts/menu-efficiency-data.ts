@@ -17,7 +17,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { prisma } from '../src/lib/prisma'
-import { fetchRecipeWithCost } from '../src/lib/recipeCosts'
+import { fetchRecipeWithCost, dishServingCost } from '../src/lib/recipeCosts'
 
 const days = Number(process.argv[2] ?? 42)
 const since = new Date(Date.now() - days * 86_400_000)
@@ -129,9 +129,19 @@ async function main() {
   const costs = new Map<string, { costPerPortion: number | null; foodCostPct: number | null }>()
   for (const r of menuRecipes) {
     const c = await fetchRecipeWithCost(r.id)
+    // Menu dishes rarely set portionSize, so costPerPortion is usually null;
+    // dishServingCost is the canonical fallback (totalCost / baseYieldQty).
+    const served = c
+      ? dishServingCost({
+          costPerPortion: c.costPerPortion,
+          totalCost: c.totalCost,
+          baseYieldQty: Number(c.baseYieldQty),
+          menuPrice: c.menuPrice == null ? null : Number(c.menuPrice),
+        })
+      : { cost: null, foodCostPct: null }
     costs.set(r.id, {
-      costPerPortion: c?.costPerPortion ?? null,
-      foodCostPct: c?.foodCostPct ?? null,
+      costPerPortion: served.cost,
+      foodCostPct: served.foodCostPct,
     })
   }
 
