@@ -94,6 +94,9 @@ export function PlannerDesktop({
 }) {
   const locked = !canPlan
   const [groupBy, setGroupBy] = useState<PlanGroupBy>('urgency')
+  // The suggestions pane groups independently of the prep list — the chef can
+  // read the pool by urgency step, by station, or by category (matches mobile).
+  const [suggBy, setSuggBy] = useState<'urgency' | 'station' | 'category'>('urgency')
   const [dlg, setDlg] = useState(false)
   const [drag, setDrag] = useState<string | null>(null)
   const [over, setOver] = useState<string | null>(null)
@@ -175,6 +178,14 @@ export function PlannerDesktop({
                 {s === 'all' ? 'ALL' : s}
               </button>
             ))}
+            <div className="flex items-center gap-0.5 bg-bg border border-line rounded-full p-0.5 ml-auto shrink-0">
+              {([['urgency', 'STEP'], ['station', 'STN'], ['category', 'CATEGORY']] as const).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setSuggBy(k)} title={k === 'station' ? 'Group by station' : undefined}
+                  className={`font-mono text-[9px] font-bold uppercase tracking-[0.05em] rounded-full px-2 py-0.5 ${suggBy === k ? 'bg-ink text-paper' : 'text-ink-3'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="shrink-0 flex gap-1.5 px-3 py-2.5 bg-bg border-b border-line">
             <button type="button" onClick={handlers.onAddAllCritical} disabled={locked || !urgent} className={btnCls(locked || !urgent)}>
@@ -185,7 +196,7 @@ export function PlannerDesktop({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-3 pb-3.5 pt-0.5 min-h-0">
-            {planGroups(pool, groupBy === 'station' ? 'station' : 'urgency', groupOpts).map(g => (
+            {planGroups(pool, suggBy, groupOpts).map(g => (
               <div key={g.key}>
                 <GroupHead g={g} count={g.rows.length} />
                 <div className="flex flex-col gap-1.5">
