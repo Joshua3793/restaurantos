@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
 import { computeScale } from '@/lib/prep-utils'
+import { portionsPerBatch } from '@/lib/recipe-portions'
 import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
 import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
@@ -201,11 +202,11 @@ export async function buildConsumptionMap(
   const map = new Map<string, number>()
   for (const li of lineItems) {
     const recipe = li.recipe
-    const portionsPerBatch =
-      recipe.portionSize && Number(recipe.portionSize) > 0
-        ? Number(recipe.baseYieldQty) / Number(recipe.portionSize)
-        : 1
-    const batches = li.qtySold / portionsPerBatch
+    const perBatch = portionsPerBatch(
+      Number(recipe.baseYieldQty), recipe.yieldUnit,
+      recipe.portionSize !== null ? Number(recipe.portionSize) : null, recipe.portionUnit,
+    ) ?? 1
+    const batches = li.qtySold / perBatch
     // Gate a period sale by where its range ENDS, not where it starts. A sale spanning
     // (date..endDate) represents consumption across the whole period, so it should apply
     // to any item counted on/before the period end — gating on the start date would drop

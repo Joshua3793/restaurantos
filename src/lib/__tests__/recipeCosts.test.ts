@@ -47,7 +47,9 @@ function ing(overrides: Record<string, unknown>) {
 function recipe(ingredients: ReturnType<typeof ing>[], overrides: Record<string, unknown> = {}) {
   return {
     baseYieldQty: 1000,
+    yieldUnit: 'g',
     portionSize: null,
+    portionUnit: null,
     menuPrice: null,
     ingredients,
     ...overrides,
@@ -133,6 +135,23 @@ describe('computeRecipeCost — portions and food cost %', () => {
     expect(r.totalCost).toBeCloseTo(2)
     expect(r.costPerPortion).toBeCloseTo(0.5) // 4 portions
     expect(r.foodCostPct).toBeCloseTo(5) // 0.5 / 10
+  })
+
+  it('converts the portion unit into the yield unit (40 g of a 3 kg batch = 75 portions)', () => {
+    const r = computeRecipeCost(recipe(
+      [ing({ qtyBase: 1000, unit: 'ml', inventoryItemId: 'x', inventoryItem: oilItem })],
+      { baseYieldQty: 3, yieldUnit: 'kg', portionSize: 40, portionUnit: 'g' },
+    ))
+    expect(r.totalCost).toBeCloseTo(2)
+    expect(r.costPerPortion).toBeCloseTo(2 / 75) // NOT 2 / 0.075
+  })
+
+  it('defaults a missing portionUnit to the yield unit', () => {
+    const r = computeRecipeCost(recipe(
+      [ing({ qtyBase: 1000, unit: 'ml', inventoryItemId: 'x', inventoryItem: oilItem })],
+      { baseYieldQty: 1000, yieldUnit: 'g', portionSize: 250, portionUnit: null },
+    ))
+    expect(r.costPerPortion).toBeCloseTo(0.5) // 4 portions
   })
 
   it('returns nulls when portion/menu data is missing or zero', () => {

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit } from '@/lib/utils'
 import { UOM_GROUPS, getUnitGroup, convertQty, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
 import { computeBakersPercents } from '@/lib/bakers-percent'
+import { portionsPerBatch } from '@/lib/recipe-portions'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
@@ -298,7 +299,7 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
                     <span className="text-ink-4">·</span>
                     <span>
                       <span className="text-ink-2 font-medium">
-                        {Math.round(recipe.baseYieldQty / recipe.portionSize)}
+                        {Math.round(portionsPerBatch(recipe.baseYieldQty, recipe.yieldUnit, recipe.portionSize, recipe.portionUnit) ?? 0)}
                       </span> × {formatQtyUnit(recipe.portionSize, recipe.portionUnit)} portions
                     </span>
                   </>
@@ -1594,18 +1595,20 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                 {recipe.portionSize && recipe.portionSize > 0 && (() => {
                   const portionUnit = recipe.portionUnit ?? recipe.yieldUnit
                   const portionQty = Number(recipe.portionSize)
-                  const portionCost = recipe.costPerPortion !== null ? recipe.costPerPortion * sf : baseCostPerUnit * portionQty * sf
-                  const portionsPerBatch = recipe.baseYieldQty > 0 && portionQty > 0 ? Math.floor(recipe.baseYieldQty / portionQty) : null
+                  // baseCostPerUnit is $/yieldUnit — convert the portion into yield units before multiplying
+                  const portionQtyInYield = convertQty(portionQty, portionUnit, recipe.yieldUnit)
+                  const portionCost = recipe.costPerPortion !== null ? recipe.costPerPortion * sf : baseCostPerUnit * portionQtyInYield * sf
+                  const perBatch = portionsPerBatch(recipe.baseYieldQty, recipe.yieldUnit, portionQty, portionUnit)
                   return (
                     <>
                       <div className="border-t border-line pt-2 mt-1 flex justify-between text-sm items-center">
                         <span className="text-ink-3">Cost per {portionQty}{portionUnit} portion</span>
                         <span className="font-semibold text-blue-text">{formatCurrency(portionCost)}</span>
                       </div>
-                      {portionsPerBatch !== null && (
+                      {perBatch !== null && (
                         <div className="flex justify-between text-xs text-ink-4">
                           <span>Portions per batch</span>
-                          <span>{portionsPerBatch} × {portionQty}{portionUnit}</span>
+                          <span>{Math.floor(perBatch)} × {portionQty}{portionUnit}</span>
                         </div>
                       )}
                     </>

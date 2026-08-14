@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { portionsPerBatch } from '@/lib/recipe-portions'
 import { convertQty } from '@/lib/uom'
 import { lineCountedBase, countDimsOf } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -49,7 +50,9 @@ export async function GET(req: NextRequest) {
       recipe: {
         select: {
           baseYieldQty: true,
+          yieldUnit: true,
           portionSize: true,
+          portionUnit: true,
           ingredients: {
             select: {
               qtyBase: true, unit: true, inventoryItemId: true, linkedRecipeId: true,
@@ -86,11 +89,11 @@ export async function GET(req: NextRequest) {
   for (const sli of sales) {
     const recipe = sli.recipe
     // batches sold = portions sold ÷ portions per batch (same math as count-expected)
-    const portionsPerBatch =
-      recipe.portionSize && Number(recipe.portionSize) > 0
-        ? Number(recipe.baseYieldQty) / Number(recipe.portionSize)
-        : 1
-    const batches = sli.qtySold / portionsPerBatch
+    const perBatch = portionsPerBatch(
+      Number(recipe.baseYieldQty), recipe.yieldUnit,
+      recipe.portionSize !== null ? Number(recipe.portionSize) : null, recipe.portionUnit,
+    ) ?? 1
+    const batches = sli.qtySold / perBatch
 
     for (const ing of recipe.ingredients) {
       const qty = Number(ing.qtyBase) * batches
