@@ -42,6 +42,12 @@ through the existing, unchanged per-session OCR → match → review → approve
 
 - `InvoiceSession.status` gains the value `'GROUPING'` (plain String column — no
   enum migration).
+- `InvoiceSession.updatedAt DateTime @default(now()) @updatedAt` — the
+  stale-PROCESSING sweeper (sessions list route) switches from `createdAt` to
+  `updatedAt`. Rationale: after grouping, the original staging session is
+  routinely >5 min old when its OCR starts (slow confirm, or resumed later);
+  sweeping on `createdAt` would flip it to ERROR mid-OCR. `updatedAt` is bumped
+  by the split's own status write, so the 5-minute clock starts when OCR does.
 - `InvoiceFile.peekMeta Json?` — caches the quick-peek result per file:
   `{ supplierName: string|null, invoiceDate: string|null, invoiceNumber: string|null, error?: string }`.
   Cached so retries never re-pay Haiku for an already-peeked file.
@@ -100,7 +106,10 @@ Body: `{ groups: [{ fileIds: string[], supplierName?, invoiceNumber?, invoiceDat
 3. Pre-fill each session's `supplierName` / `invoiceNumber` / `invoiceDate` from
    the confirmed card values. Full OCR still refines these later exactly as today
    (the process route prefers OCR-extracted values).
-4. Set all resulting sessions to `status: 'UPLOADING'`.
+4. Set all resulting sessions to `status: 'PROCESSING'` — the client fires
+   `process` for each immediately, the pills read correctly during OCR, and a
+   serverless kill is rescued by the (now `updatedAt`-based) sweeper → ERROR →
+   retry, exactly like today's single-invoice flow.
 5. Return `{ sessionIds: string[] }` in group order.
 
 The client then fires the existing `POST .../process` once per returned id,
