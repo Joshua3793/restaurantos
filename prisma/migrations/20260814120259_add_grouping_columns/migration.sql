@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "InvoiceFile" ADD COLUMN "peekMeta" JSONB;
+
+-- AlterTable
+ALTER TABLE "InvoiceSession" ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
