@@ -26,6 +26,20 @@ export interface PrepLogData {
   updatedAt: string
   startedAt: string | null
   completedAt: string | null
+  /** Chef's order within a priority bucket (Smart Prep v2 draft). */
+  listOrder: number | null
+  /** Set when the chef posts the list — membership in the kitchen's To Do. */
+  postedAt: string | null
+}
+
+/** Header row for a posted prep list (PrepPost) — the To Do provenance band. */
+export interface PrepPostInfo {
+  id: string
+  postedAt: string
+  postedByName: string
+  itemCount: number
+  activeMinutes: number
+  dirty: boolean
 }
 
 export interface PrepItemRich {

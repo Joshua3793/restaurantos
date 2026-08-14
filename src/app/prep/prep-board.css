@@ -266,6 +266,7 @@
 .pb-drawer .ovr-btn.on.crit{background:var(--red-soft);color:var(--red-text);border-color:#fca5a5;}
 .pb-drawer .ovr-btn.on.low{background:var(--gold-soft);color:var(--gold-2);border-color:#fcd34d;}
 .pb-drawer .ovr-btn.on.par{background:var(--green-soft);color:var(--green-text);border-color:#86efac;}
+.pb-drawer .ovr-btn.on.mid{background:#dbeafe;color:#1d4ed8;border-color:#93c5fd;}
 .pb-drawer .steps{display:flex;flex-direction:column;gap:0;}
 .pb-drawer .step{display:flex;gap:11px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:12.5px;color:var(--ink-2);line-height:1.45;}
 .pb-drawer .step:last-child{border-bottom:none;}

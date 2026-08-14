@@ -4,6 +4,7 @@
 // InProgressRail.tsx card, but a taller two-row layout (icon+name+qty row,
 // then elapsed/remaining + Done button row) sized for a narrow viewport.
 import { Flame, RotateCcw } from 'lucide-react'
+import { draftQty } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
 import { IcCheck } from '@/components/prep/icons'
@@ -60,7 +61,7 @@ function RailCardMobile({
   const startedAt = item.todayLog?.startedAt
   const elapsed = startedAt ? minutesBetween(new Date(startedAt).getTime(), nowMs) : 0
   const remaining = (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0) - elapsed
-  const qty = item.suggestedQty ?? item.targetToday ?? item.parLevel
+  const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
 
   return (
     <div className="flex flex-col gap-[9px] bg-gold-soft border border-[#fcd34d] rounded-[13px] px-[13px] py-[11px] min-w-[228px] shrink-0">

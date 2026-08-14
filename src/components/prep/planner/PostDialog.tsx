@@ -1,0 +1,115 @@
+'use client'
+// Smart Prep v2 — post confirmation dialog (design PPPostDialog). Shows what
+// goes live on the kitchen's To Do — including what won't fit — before the
+// chef commits.
+import { Zap, Check, AlertTriangle } from 'lucide-react'
+import type { PrepItemRich } from '@/components/prep/types'
+import type { Cook } from '@/components/prep/runsheet/assignee'
+import type { PrepUrgency } from '@/lib/prep-utils'
+import {
+  PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, planSchedule,
+  draftListOrder as draftOrd,
+  type PlanDayContext, type PlanSlot,
+} from '@/lib/prep-plan'
+import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
+
+const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
+
+export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, onConfirm }: {
+  draft: PrepItemRich[]
+  cooks: Cook[]
+  stations: string[]
+  ctx: PlanDayContext | null
+  reposting: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const sched = ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map<string, PlanSlot>()
+  const byUrg = PLAN_URG_ORDER
+    .map(u => [u, draft.filter(t => effectiveUrgency(t) === u).length] as [PrepUrgency, number])
+    .filter(([, n]) => n > 0)
+  const stationKeys = [...stations, 'Unassigned']
+  const byStation = stationKeys
+    .map(s => [s, draft.filter(t => (t.station || 'Unassigned') === s)] as [string, PrepItemRich[]])
+    .filter(([, rows]) => rows.length > 0)
+  const open = draft.filter(t => !t.todayLog?.assignedTo).length
+  const mins = draft.reduce((a, t) => a + activeOf(t), 0)
+  const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits)
+  const firstStart = [...sched.values()].map(s => s.start).sort((a, b) => a - b)[0]
+    ?? draft.filter(t => t.startByMinutes != null).map(t => t.startByMinutes!).sort((a, b) => a - b)[0]
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3">
+      <div onClick={onClose} className="absolute inset-0 bg-[rgba(9,9,11,0.45)]" />
+      <div className="relative w-full max-w-[456px] max-h-[92vh] flex flex-col bg-paper rounded-2xl shadow-2xl overflow-hidden">
+        {/* header */}
+        <div className="flex items-center gap-2.5 px-5 pt-4 pb-3.5 border-b border-line">
+          <span className="w-[30px] h-[30px] rounded-[9px] bg-ink grid place-items-center shrink-0"><Zap size={15} className="text-gold" /></span>
+          <div>
+            <div className="text-[16.5px] font-semibold tracking-[-0.02em] text-ink">{reposting ? 'Update the To Do list' : 'Post today’s prep list'}</div>
+            <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.05em] text-ink-3">{reposting ? 'Replaces what the kitchen sees now' : 'Goes live on every cook’s To Do'}</div>
+          </div>
+        </div>
+        {/* body */}
+        <div className="flex-1 overflow-y-auto px-5 pt-4 pb-1">
+          <div className="flex gap-2">
+            {([['Items', String(draft.length)], ['Hands-on', fmtMins(mins)], ['First start', firstStart != null ? fmtClock(firstStart) : '—']] as const).map(([l, v]) => (
+              <div key={l} className="flex-1 bg-bg border border-line rounded-[11px] px-3 py-2.5">
+                <div className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-3 mb-1">{l}</div>
+                <div className="text-[20px] font-semibold tracking-[-0.03em] font-mono text-ink">{v}</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {byUrg.map(([u, n]) => (
+              <span key={u} className={`inline-flex items-center gap-1.5 ${PLAN_URG_META[u].softClass} ${PLAN_URG_META[u].textClass} rounded-full px-2.5 py-1 font-mono text-[10px] font-bold`}>
+                <span className={`w-[5px] h-[5px] rounded-full ${PLAN_URG_META[u].dotClass}`} />{n} {PLAN_URG_META[u].label.toUpperCase()}
+              </span>
+            ))}
+          </div>
+          <div className="mt-3.5 border-t border-line pt-3">
+            {byStation.map(([s, rows]) => (
+              <div key={s} className="flex items-center gap-2 py-1.5">
+                <span className="text-[12.5px] font-medium text-ink-2 w-[92px] truncate">{s}</span>
+                <span className="font-mono text-[10.5px] text-ink-3 w-[58px]">{rows.length} item{rows.length !== 1 ? 's' : ''}</span>
+                <span className="font-mono text-[10.5px] text-ink-3 w-[52px]">{fmtMins(rows.reduce((a, r) => a + activeOf(r), 0))}</span>
+                <span className="flex gap-1 ml-auto">
+                  {[...new Set(rows.map(r => r.todayLog?.assignedTo ?? null))].map(id => {
+                    const c = id ? cooks.find(x => x.id === id) : null
+                    return (
+                      <span key={id ?? 'open'} className={`font-mono text-[9px] font-bold rounded-full px-2 py-0.5 ${c ? 'bg-ink text-paper' : 'bg-paper text-ink-4 border border-dashed border-line-2'}`}>
+                        {c ? c.initials : 'OPEN'}
+                      </span>
+                    )
+                  })}
+                </span>
+              </div>
+            ))}
+          </div>
+          {wont.length > 0 && (
+            <div className="flex items-center gap-2 bg-red-soft border border-red-soft rounded-[10px] px-3 py-2 mt-3">
+              <AlertTriangle size={14} className="text-red shrink-0" />
+              <span className="text-[12px] text-red-text font-medium">
+                <b>{wont.length}</b> item{wont.length > 1 ? 's don’t' : ' doesn’t'} fit before {wont.length > 1 ? 'their steps' : 'its step'} — move {wont.length > 1 ? 'them' : 'it'} later or add hands.
+              </span>
+            </div>
+          )}
+          {open > 0 && (
+            <div className="flex items-center gap-2 bg-gold-soft border border-gold-soft rounded-[10px] px-3 py-2 mt-3">
+              <AlertTriangle size={14} className="text-gold-2 shrink-0" />
+              <span className="text-[12px] text-gold-2 font-medium"><b>{open}</b> item{open > 1 ? 's' : ''} unassigned — cooks can claim them from the run sheet.</span>
+            </div>
+          )}
+        </div>
+        {/* footer */}
+        <div className="shrink-0 flex items-center gap-2 px-5 py-4">
+          <span className="flex-1" />
+          <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-[9px] border border-line-2 bg-paper text-ink-2 text-[12.5px] font-semibold">Keep editing</button>
+          <button type="button" onClick={onConfirm} className="inline-flex items-center gap-2 bg-ink text-paper rounded-[10px] px-[18px] py-[11px] text-[13.5px] font-semibold">
+            <Check size={14} className="text-gold" /> {reposting ? 'Update To Do' : `Post ${draft.length} item${draft.length !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -6,6 +6,7 @@
 // "Done" button that opens the log-yield flow.
 import { useRef, useState } from 'react'
 import { Flame, RotateCcw } from 'lucide-react'
+import { draftQty } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
@@ -72,7 +73,7 @@ function RailCard({
   const startedAt = item.todayLog?.startedAt
   const elapsed = startedAt ? minutesBetween(new Date(startedAt).getTime(), nowMs) : 0
   const remaining = (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0) - elapsed
-  const qty = item.suggestedQty ?? item.targetToday ?? item.parLevel
+  const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
 
   return (
     <div className="flex items-center gap-3 bg-gold-soft border border-[#fcd34d] rounded-xl px-[13px] py-2.5 min-w-[300px] shrink-0">

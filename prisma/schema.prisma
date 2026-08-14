@@ -604,6 +604,9 @@ model PrepLog {
   updatedAt         DateTime @updatedAt
   startedAt         DateTime?
   completedAt       DateTime?
+  // ── Smart Prep v2 planner ──
+  listOrder         Int?       // chef's order within a priority bucket (per-day draft)
+  postedAt          DateTime?  // set when the chef posts the list; membership in the kitchen's To Do
   prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
   revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 
@@ -611,6 +614,24 @@ model PrepLog {
   // Theoretical-stock scans (buildPrepMap) filter DONE/PARTIAL logs by revenueCenterId
   // + logDate range; the unique above leads with prepItemId so it can't serve that scan.
   @@index([revenueCenterId, logDate])
+}
+
+// One row per RC per day: the chef's posted prep list (provenance for the To Do
+// band). `dirty` = the draft changed after posting — the kitchen still sees the
+// posted version until the chef re-posts. Membership itself lives on
+// PrepLog.postedAt; this row is the header, not a snapshot (no duplicated state).
+model PrepPost {
+  id              String        @id @default(uuid())
+  revenueCenterId String
+  listDate        DateTime
+  postedAt        DateTime
+  postedByName    String
+  itemCount       Int
+  activeMinutes   Int           @default(0)
+  dirty           Boolean       @default(false)
+  revenueCenter   RevenueCenter @relation("PrepPostRC", fields: [revenueCenterId], references: [id])
+
+  @@unique([revenueCenterId, listDate])
 }
 
 model PrepSettings {
@@ -672,6 +693,7 @@ model RevenueCenter {
   tempUnits         TempUnit[]        @relation("TempUnitRC")
   prepItems         PrepItem[]        @relation("PrepItemRC")
   prepLogs          PrepLog[]         @relation("PrepLogRC")
+  prepPosts         PrepPost[]        @relation("PrepPostRC")
   itemMemberships   ItemRevenueCenter[]
   prepTasks         PrepTask[]        @relation("PrepTaskRC")
   userScopes        UserScope[]

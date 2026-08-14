@@ -50,9 +50,56 @@ export const PREP_STATUS_META: Record<string, { label: string; badgeClass: strin
 export const PREP_CATEGORIES = ['MISC', 'SAUCE', 'DRESSING', 'PROTEIN', 'BAKED', 'GARNISH', 'BASE', 'PICKLED', 'DAIRY']
 export const PREP_STATIONS   = ['Cold', 'Hot', 'Pastry', 'Butchery', 'Garde Manger']
 
+// ─── The ONE urgency scale (Smart Prep v2) ─────────────────────────────────
+// Four steps, each meaning both a deadline and a stock condition. The chef
+// overrides the STEP (stored in PrepItem.manualPriorityOverride), never the
+// stock; the stock reason is read-only evidence. The legacy 3-level priority
+// is DERIVED from this scale (see urgencyToPriority) so every pre-existing
+// consumer keeps its exact behavior.
+
+export type PrepUrgency = 'PASS' | 'MID' | 'CLOSE' | 'TMRW'
+
+export const URGENCY_ORDER: PrepUrgency[] = ['PASS', 'MID', 'CLOSE', 'TMRW']
+
+/** Stock state decides the step. */
+export function autoUrgency(
+  onHand: number,
+  parLevel: number,
+  targetToday: number | null,
+): PrepUrgency {
+  if (parLevel > 0 && onHand <= 0) return 'PASS'
+  if (targetToday !== null && onHand < targetToday) return 'PASS'
+  if (parLevel > 0 && onHand < parLevel * 0.5) return 'MID'
+  if (onHand < parLevel) return 'CLOSE'
+  return 'TMRW'
+}
+
 /**
- * Compute the priority for a prep item.
- * manualOverride wins unconditionally.
+ * Accept both vocabularies in the override column: new urgency tokens
+ * pass through; legacy 3-level tokens map to their closest step. Unknown → null.
+ */
+export function normalizeUrgency(token: string | null | undefined): PrepUrgency | null {
+  if (!token) return null
+  if (token === 'PASS' || token === 'MID' || token === 'CLOSE' || token === 'TMRW') return token
+  if (token === '911') return 'PASS'
+  if (token === 'NEEDED_TODAY') return 'CLOSE'
+  if (token === 'LATER') return 'TMRW'
+  return null
+}
+
+/**
+ * Collapse the 4-step scale to the app-wide 3-level priority. PASS reproduces
+ * the old 911 rule exactly; MID+CLOSE together are the old "below par" band.
+ */
+export function urgencyToPriority(u: PrepUrgency): PrepPriority {
+  if (u === 'PASS') return '911'
+  if (u === 'TMRW') return 'LATER'
+  return 'NEEDED_TODAY'
+}
+
+/**
+ * Compute the priority for a prep item — now a collapse of the urgency scale.
+ * manualOverride wins unconditionally (urgency or legacy token).
  * _minThreshold is deprecated — kept for call-site compat during transition, ignored.
  */
 export function computePriority(
@@ -62,11 +109,9 @@ export function computePriority(
   targetToday: number | null,
   manualOverride: string | null,
 ): PrepPriority {
-  if (manualOverride) return manualOverride as PrepPriority
-  if (onHand <= 0 && parLevel > 0) return '911'
-  if (targetToday !== null && onHand < targetToday) return '911'
-  if (onHand < parLevel) return 'NEEDED_TODAY'
-  return 'LATER'
+  const override = normalizeUrgency(manualOverride)
+  if (override) return urgencyToPriority(override)
+  return urgencyToPriority(autoUrgency(onHand, parLevel, targetToday))
 }
 
 /**

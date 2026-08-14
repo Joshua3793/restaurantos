@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { prepItemId, logDate, status, requiredQty, actualPrepQty, assignedTo, dueTime, note } = body
+  const { prepItemId, logDate, status, requiredQty, actualPrepQty, assignedTo, dueTime, note, listOrder } = body
 
   if (!prepItemId) return NextResponse.json({ error: 'prepItemId is required' }, { status: 400 })
 
@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       assignedTo:   assignedTo   ?? null,
       dueTime:      dueTime      ?? null,
       note:         note         ?? null,
+      listOrder:    listOrder    ?? null,
       ...stamp,
     },
     update: {
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
       ...(assignedTo    !== undefined && { assignedTo }),
       ...(dueTime       !== undefined && { dueTime }),
       ...(note          !== undefined && { note }),
+      ...(listOrder     !== undefined && { listOrder }),
       ...stamp,
     },
   })

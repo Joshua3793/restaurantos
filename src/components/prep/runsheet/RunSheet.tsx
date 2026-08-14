@@ -167,10 +167,12 @@ export function RunSheet({
       })
     }
     if (group === 'priority') {
+      // Stepped labels (Smart Prep v2): 911 = the Critical-Start Service step;
+      // NEEDED_TODAY collapses the Mid-service + Before-close steps; LATER = Tomorrow.
       const defs: [string, string, string, string][] = [
-        ['911', 'bg-red', 'Critical', 'stock out — make first'],
-        ['NEEDED_TODAY', 'bg-gold', 'Needed today', 'below par before service'],
-        ['LATER', 'bg-ink-4', 'Later', 'can slip to the afternoon'],
+        ['911', 'bg-red', 'Critical-Start Service', 'out, or under today’s target'],
+        ['NEEDED_TODAY', 'bg-gold', 'Needed today', 'dies mid-service · before close'],
+        ['LATER', 'bg-ink-4', 'Tomorrow', 'at par — building ahead'],
       ]
       return defs.map(([k, dot, title, sub]) => {
         const grp = todo.filter(i => i.priority === k)

@@ -41,7 +41,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | `/invoices` | `/api/invoices/sessions` (multi-step upload → OCR → review → approve) |
 | `/recipes` (PREP) | `/api/recipes?type=PREP` |
 | `/menu` (MENU) | `/api/recipes?type=MENU` |
-| `/prep` | `/api/prep/{items,logs,settings,tasks,sync-from-recipes}` |
+| `/prep` | `/api/prep/{items,logs,settings,tasks,cooks,sync-from-recipes}` + `/api/prep/plan{,/post,/recall,/reorder}` (Smart Prep v2 posting) |
 | `/preshift` | briefing view over `/api/prep/items` |
 | `/count` | `/api/count/sessions` |
 | `/sales` | `/api/sales`, `/api/toast/*` |
@@ -102,7 +102,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 
 `src/components/recipes/shared.tsx` — single large file containing `RecipeCard`, `RecipePanel`, `CategoryManager`, `IngredientRow`, and related types. Both the Recipe Book page and Menu page import from here.
 
-`src/components/prep/` — redesigned as a task board: `board/` (`PrepBoard`, `PrepBlock`, `PrepRow`, `PrepLater`, `prep-board-utils.ts`), plus `PrepDrawer`, `PrepDetailPanel`, `PrepItemForm`, `PrepSettingsModal`, and checklist tasks (`PrepTaskList`, `PrepTaskLibrary` — backed by `PrepTask`/`PrepTaskLog`, deliberately OFF the cost spine; completing a task deletes its log).
+`src/components/prep/` — two surfaces: **Smart Prep planner** (`planner/` — `PlannerDesktop` split view, `PlannerMobile` tabs, `SuggestionRow`/`DraftRow`/`PostDialog`/`atoms`) where a LEAD+ chef builds a draft (qty/note/assignee/priority-override/order on today's `PrepLog`) and **posts** it, and the **To Do run sheet** (`runsheet/` — `RunSheet`, `RunSheetMobile`, `PostedBand`) that shows ONLY posted items (`PrepLog.postedAt`; `PrepPost` is the per-RC-per-day provenance header with a `dirty` flag for unposted draft changes). The planner runs on **ONE 4-step urgency scale** (`PrepUrgency` in `src/lib/prep-utils.ts`: `PASS` Critical-Start Service · `MID` Mid-service · `CLOSE` Before close · `TMRW` Tomorrow) — each step means both a deadline and a stock condition; the chef overrides the STEP (`manualPriorityOverride` stores urgency tokens; legacy 3-level tokens normalize at read), never the stock, and the stock reason (`whyLabel`) is read-only evidence. The app-wide 3-level `priority` is a **collapse** of this scale (`urgencyToPriority`: PASS→911, MID/CLOSE→NEEDED_TODAY, TMRW→LATER — byte-identical to the old rule) and is always **computed** from stock (`effectivePriority`/`applyStatusToItem` in `src/lib/prep-plan.ts`) — never trust a stored pill; completing a prep clears the override server-side AND recomputes client-side. `prep-plan.ts` also holds the batch math (display in half-batches of the linked recipe's yield; stored qty is ALWAYS UOM) and the station schedule (`planSchedule`/`stationLoad` — crew cursors vs step deadlines; "won't fit" warnings). Plus `PrepDrawer`, `PrepDetailPanel`, `PrepItemForm`, `PrepSettingsModal`, `board/PrepBoardDrawer` (item drawer), and checklist tasks (`PrepTaskList`, `PrepTaskLibrary` — backed by `PrepTask`/`PrepTaskLog`, deliberately OFF the cost spine; completing a task deletes its log).
 
 ### Important patterns
 

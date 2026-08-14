@@ -4,7 +4,7 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import dynamic from 'next/dynamic'
 import {
   ChefHat, Plus, RefreshCw, Search, Settings,
-  SlidersHorizontal, WifiOff, RefreshCcw, History, AlertTriangle, Check, Clock, MoreHorizontal,
+  SlidersHorizontal, WifiOff, RefreshCcw, History, Clock, MoreHorizontal, Lock,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
@@ -14,8 +14,6 @@ import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import './prep-board.css'
-import { PrepBoard } from '@/components/prep/board/PrepBoard'
-import { PrepSummaryLine } from '@/components/prep/board/PrepSummaryLine'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import { RunSheet } from '@/components/prep/runsheet/RunSheet'
 import { RunSheetMobile } from '@/components/prep/runsheet/RunSheetMobile'
@@ -30,211 +28,30 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
+import { applyStatusToItem, defaultDraftQty, effectivePriority } from '@/lib/prep-plan'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
+import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
+import { PlannerMobile } from '@/components/prep/planner/PlannerMobile'
+import type { PlannerHandlers } from '@/components/prep/planner/PlannerDesktop'
+import { PostedBand } from '@/components/prep/runsheet/PostedBand'
+import type { PrepPostInfo } from '@/components/prep/types'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
-const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
 const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
-
-interface SmartPrepCardProps {
-  item: PrepItemRich
-  menuOpen: boolean
-  setMenuFor: (id: string | null) => void
-  onSelect: (item: PrepItemRich) => void
-  onPriorityChange: (id: string, priority: string) => void
-  onToggleOnList: (id: string, next: boolean) => void
-}
-
-const SmartPrepCard = memo(function SmartPrepCard({ item, menuOpen, setMenuFor, onSelect, onPriorityChange, onToggleOnList }: SmartPrepCardProps) {
-    const stockPct = item.parLevel > 0 ? Math.min(100, (item.onHand / item.parLevel) * 100) : 100
-    const parPct = item.parLevel > 0 ? Math.round((item.onHand / item.parLevel) * 100) : 100
-    const isCritical = item.priority === '911'
-    const isNeeded = item.priority === 'NEEDED_TODAY'
-    const barColor = isCritical ? 'bg-red' : isNeeded ? 'bg-gold' : 'bg-green'
-    const suggestColor = isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-green-text'
-    const suggestAccent = isCritical ? 'text-red' : isNeeded ? 'text-gold' : 'text-green'
-    const isAdded = item.isOnList
-    const cardBorder = isCritical ? 'border-[#fca5a5]' : 'border-line'
-    const edgeColor = isCritical ? '#dc2626' : isNeeded ? '#d97706' : '#16a34a'
-    const fmtN = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
-    const makeLabel = item.suggestedQty > 0 ? `make ${fmtN(item.suggestedQty)} ${item.unit}` : 'review stock'
-
-    return (
-      <>
-      {/* Mobile — compact row; tap opens the detail drawer (priority override lives there) */}
-      <button
-        type="button"
-        onClick={() => onSelect(item)}
-        className="md:hidden w-full text-left flex items-center gap-2.5 bg-paper border border-line rounded-xl pl-2.5 pr-2 py-2 active:bg-bg-2 transition-colors"
-        style={{ borderLeftWidth: 4, borderLeftColor: edgeColor }}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-semibold tracking-[-0.01em] text-ink truncate leading-tight">{item.name}</div>
-          <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">
-            {item.category} · <b className="text-ink font-medium">{fmtN(item.onHand)}/{fmtN(item.parLevel)}</b>
-            {item.priority !== 'LATER'
-              ? <span className={suggestColor}> · {makeLabel}{item.estimatedPrepTime ? ` · ~${item.estimatedPrepTime}m` : ''}</span>
-              : <span className="text-green-text"> · on par</span>}
-          </div>
-        </div>
-
-        {/* Priority chip — shows current priority, tap to override (no full-drawer trip) */}
-        {(() => {
-          const eff = item.manualPriorityOverride ?? item.priority
-          const chip = eff === '911'
-            ? { label: 'Critical', cls: 'bg-red-soft text-red-text' }
-            : eff === 'NEEDED_TODAY'
-              ? { label: 'Needed', cls: 'bg-gold-soft text-gold-2' }
-              : { label: 'On par', cls: 'bg-green-soft text-green-text' }
-          const open = menuOpen
-          return (
-            <span className="relative shrink-0">
-              <span
-                role="button"
-                tabIndex={0}
-                title="Change priority"
-                onClick={(e) => { e.stopPropagation(); setMenuFor(open ? null : item.id) }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setMenuFor(open ? null : item.id) } }}
-                className={`inline-flex items-center gap-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-1.5 py-1 rounded-full active:scale-95 ${chip.cls}`}
-              >
-                {item.manualPriorityOverride && <span className="opacity-70">✎</span>}{chip.label}
-              </span>
-              {open && (
-                <>
-                  <span className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setMenuFor(null) }} />
-                  <span className="absolute right-0 top-[calc(100%+4px)] z-50 w-36 bg-paper border border-line rounded-xl shadow-lg overflow-hidden py-1 flex flex-col" role="menu">
-                    {([['911', 'Critical'], ['NEEDED_TODAY', 'Needed today'], ['LATER', 'Later']] as const).map(([p, label]) => (
-                      <span key={p} role="menuitem" tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setMenuFor(null); onPriorityChange(item.id, p) }}
-                        className={`px-3 py-2 text-[12.5px] active:bg-bg-2 ${eff === p ? 'text-ink font-semibold' : 'text-ink-2'}`}>
-                        {eff === p ? '✓ ' : ''}{label}
-                      </span>
-                    ))}
-                    {item.manualPriorityOverride && (
-                      <span role="menuitem" tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setMenuFor(null); onPriorityChange(item.id, '') }}
-                        className="px-3 py-2 text-[12.5px] text-ink-3 border-t border-line active:bg-bg-2">
-                        Reset to auto
-                      </span>
-                    )}
-                  </span>
-                </>
-              )}
-            </span>
-          )
-        })()}
-
-        <span
-          role="button"
-          tabIndex={0}
-          title={isAdded ? "Remove from today's list" : "Add to today's list"}
-          onClick={(e) => { e.stopPropagation(); onToggleOnList(item.id, !isAdded) }}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onToggleOnList(item.id, !isAdded) } }}
-          className={`w-9 h-9 rounded-[10px] grid place-items-center shrink-0 active:scale-95 ${isAdded ? 'bg-green-soft text-green-text' : 'bg-ink text-gold'}`}
-        >
-          {isAdded ? <Check size={16} /> : <Plus size={16} />}
-        </span>
-      </button>
-
-      {/* Desktop — full card (urgency columns) */}
-      <div className={`hidden md:flex bg-paper border ${cardBorder} rounded-[10px] p-3 sm:p-3.5 flex-col gap-2 sm:gap-2.5`}>
-        {/* Top: name + meta + Add button */}
-        <div className="flex items-start justify-between gap-2.5">
-          <button onClick={() => onSelect(item)} className="text-left min-w-0 flex-1 hover:opacity-80 transition-opacity">
-            <div className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink leading-[1.2]">{item.name}</div>
-            <div className="flex items-center gap-1.5 mt-1 flex-wrap whitespace-nowrap">
-              <span className="font-mono text-[10.5px] text-ink-3">{item.category}</span>
-              {item.station && (
-                <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded-[4px] bg-bg-2 text-ink-2 font-medium tracking-[0.02em] uppercase">{item.station}</span>
-              )}
-              {item.manualPriorityOverride && (
-                <span className="font-mono text-[9.5px] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px] font-medium">✎ OVERRIDE</span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => onToggleOnList(item.id, !isAdded)}
-            title={isAdded ? "Remove from today's list" : "Add to today's list"}
-            className={`shrink-0 px-3 py-2 rounded-[8px] text-[12.5px] font-medium tracking-[-0.005em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors group ${
-              isAdded
-                ? 'bg-green-soft text-green-text border border-green-soft hover:border-red hover:bg-red-soft hover:text-red'
-                : 'bg-ink text-paper hover:bg-ink-2'
-            }`}
-          >
-            {isAdded
-              ? <><Check size={13} className="text-green group-hover:text-red" /> On list <span className="opacity-50 ml-0.5">✕</span></>
-              : <><span className="text-gold font-semibold">+</span> Add</>}
-          </button>
-        </div>
-
-        {/* Progress */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex justify-between font-mono text-[11px] text-ink-3 gap-2 flex-wrap">
-            <span className="whitespace-nowrap"><b className="text-ink font-medium">{item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)}</b> / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit} on hand</span>
-            <span className={`whitespace-nowrap ${isCritical ? 'text-red-text' : isNeeded ? 'text-gold-2' : 'text-ink-3'}`}>{parPct}% of par</span>
-          </div>
-          <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden">
-            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.max(stockPct, isCritical && stockPct < 1 ? 1 : 0)}%` }} />
-          </div>
-        </div>
-
-        {/* Suggestion */}
-        {item.priority !== 'LATER' ? (
-          item.manualPriorityOverride ? (
-            <div className="font-mono text-[11.5px] text-ink-3 line-through tracking-[0]">
-              System suggests → {item.suggestedQty > 0 ? `make ${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'review stock'}
-            </div>
-          ) : (
-            <div className={`font-mono text-[11.5px] tracking-[0] flex items-start gap-1.5 ${suggestColor}`}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${suggestAccent} shrink-0 mt-[1px]`}><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
-              <span className="min-w-0">
-                System suggests <b className={`${suggestAccent} font-semibold`}>→ make {item.suggestedQty > 0 ? `${item.suggestedQty % 1 === 0 ? item.suggestedQty.toFixed(0) : item.suggestedQty.toFixed(1)} ${item.unit}` : 'TBD'}</b>
-                {item.estimatedPrepTime ? <> · ~{item.estimatedPrepTime} min</> : null}
-              </span>
-            </div>
-          )
-        ) : (
-          <div className="font-mono text-[11.5px] text-green-text tracking-[0]">At or above par — looking good</div>
-        )}
-
-        {/* Override pills */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-line">
-          <span className="font-mono text-[10px] text-ink-3 tracking-[0.02em] mr-0.5">OVERRIDE</span>
-          {(['911', 'NEEDED_TODAY', 'LATER'] as const).map(p => {
-            const labels: Record<string, string> = { '911': 'Critical', 'NEEDED_TODAY': 'Needed today', 'LATER': 'Later' }
-            const isActive = (item.manualPriorityOverride ?? item.priority) === p
-            const activeCls = p === '911'
-              ? 'bg-red-soft text-red-text border-red-soft'
-              : p === 'NEEDED_TODAY'
-                ? 'bg-gold-soft text-gold-2 border-gold-soft'
-                : 'bg-bg-2 text-ink-2 border-bg-2'
-            return (
-              <button
-                key={p}
-                onClick={() => onPriorityChange(item.id, isActive && item.manualPriorityOverride ? '' : p)}
-                className={`font-mono text-[10px] px-2 py-1 rounded-full border font-medium tracking-[0] transition-colors ${
-                  isActive ? activeCls : 'bg-paper text-ink-2 border-line hover:border-ink-3'
-                }`}
-              >
-                {labels[p]}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      </>
-    )
-})
 
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc, activeRcId, activeKind, activeLocationId, isReadOnly } = useRc()
+  const { role } = useUser()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
   const [cooks,        setCooks]        = useState<Cook[]>([])
+  // Today's posted-list header for the active RC (null = nothing posted yet).
+  const [plan,         setPlan]         = useState<{ post: PrepPostInfo | null }>({ post: null })
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
-  const [selected,     setSelected]     = useState<PrepItemRich | null>(null)
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
   const markSaving = (id: string, on: boolean) =>
     setSavingIds(prev => {
@@ -276,11 +93,8 @@ export default function PrepPage() {
 
   // View state
   const [viewMode,          setViewMode]          = useState<'today' | 'smartprep' | 'history'>('today')
-  const [smartPrepView,     setSmartPrepView]     = useState<'urgency' | 'category' | 'station'>('urgency')
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
-  const [priorityMenuFor, setPriorityMenuFor] = useState<string | null>(null)
-  const [lookingGoodOpen,   setLookingGoodOpen]   = useState(false)
 
   // Filters (used in Smart Prep and Today)
   const [search,         setSearch]         = useState('')
@@ -472,6 +286,27 @@ export default function PrepPage() {
     } catch { /* silent degradation — run sheet still renders without cooks */ }
   }, [])
 
+  // Today's PrepPost header for the active RC — drives the planner footer, the
+  // To Do provenance band, and the "unposted changes" pill.
+  const loadPlan = useCallback(async () => {
+    if (!activeRcId) { setPlan({ post: null }); return }
+    try {
+      const res = await fetch(`/api/prep/plan?rcId=${encodeURIComponent(activeRcId)}`, { cache: 'no-store' })
+      if (res.ok) setPlan(await res.json())
+    } catch { /* keep the last known post */ }
+  }, [activeRcId])
+
+  useEffect(() => { loadPlan() }, [loadPlan])
+
+  // Chef gate: LEAD+ builds and posts the list; cooks get a read-only planner.
+  const canPlan = role != null && atLeast(role, 'LEAD') && !isReadOnly && !!activeRcId
+
+  // Optimistic mirror of the server-side dirty flag: any draft edit after a
+  // post means the kitchen is on a stale list until the chef re-posts.
+  const markPlanDirtyLocal = useCallback(() => {
+    setPlan(p => (p.post && !p.post.dirty ? { post: { ...p.post, dirty: true } } : p))
+  }, [])
+
   useEffect(() => {
     setIsOffline(!navigator.onLine)
     setPendingCount(loadQueue().length)
@@ -485,10 +320,9 @@ export default function PrepPage() {
   // ~5s /api/prep/items request on every mount.
   useEffect(() => { load() }, [load])
 
-  useEffect(() => {
-    setDrawerOpen(selected !== null)
-    return () => setDrawerOpen(false)
-  }, [selected, setDrawerOpen])
+  // The fused item drawer handles its own overlay; keep the app chrome's drawer
+  // flag off for this page (the old detail panel that used it is gone).
+  useEffect(() => () => setDrawerOpen(false), [setDrawerOpen])
 
   // Online/offline events — auto-sync queue on reconnect
   useEffect(() => {
@@ -540,85 +374,49 @@ export default function PrepPage() {
   // Auto-refresh every 60 seconds (paused while offline)
   useEffect(() => {
     if (isOffline) return
-    const id = setInterval(() => load(true), 60_000)
+    const id = setInterval(() => { load(true); loadPlan() }, 60_000)
     return () => clearInterval(id)
-  }, [load, isOffline])
+  }, [load, loadPlan, isOffline])
 
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
-  // Today tab: on-list items (still to do) PLUS anything completed today. Completing
-  // an item clears `isOnList` (so Smart Prep frees up + it's re-addable next session),
-  // but it stays visible in the "Done today" section for the rest of the shift.
+  // Today tab: the kitchen works off the POSTED list — a draft add reaches To Do
+  // only when the chef posts (Smart Prep v2). Work already in flight survives a
+  // recall: anything started or completed today stays visible (the cook keeps
+  // their timer and Done button even while the chef redrafts).
   const todayItems = useMemo(() =>
     items.filter(i =>
-      i.isOnList || i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
+      i.todayLog?.postedAt != null ||
+      i.todayLog?.status === 'IN_PROGRESS' ||
+      i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
     ),
   [items])
 
-  // Priority-change alerts: on-list items that have escalated to Critical but not started
+  // Priority-change alerts: posted items that have escalated to Critical but not started
   const priorityAlerts = useMemo(() =>
     items.filter(i =>
-      i.isOnList &&
+      i.todayLog?.postedAt != null &&
       i.priority === '911' &&
-      (!i.todayLog || i.todayLog.status === 'NOT_STARTED')
+      i.todayLog.status === 'NOT_STARTED'
     ),
   [items])
 
-  // Smart-prep filter (all active items respecting search + category/station).
-  // Defined here (above the buckets/groups below) because every Smart Prep derivation
-  // feeds off it — that's how the mobile search bar actually filters the list.
-  const filteredSmart = useMemo(() => {
+  // Planner pool — search + category shape the SUGGESTIONS pane; the station
+  // chips inside the planner do their own narrowing, and the draft pane always
+  // derives from the unfiltered list (a search must never hide draft rows).
+  const plannerPool = useMemo(() => {
     return items.filter(item => {
       if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false
       if (filterCategory !== 'ALL' && item.category !== filterCategory) return false
-      if (filterStation === 'UNASSIGNED') {
-        if (item.station && item.station.trim() !== '') return false
-      } else if (filterStation !== 'ALL') {
-        if (item.station !== filterStation) return false
-      }
       return true
     })
-  }, [items, search, filterCategory, filterStation])
+  }, [items, search, filterCategory])
 
-  // Smart Prep urgency buckets — driven by filteredSmart so search/category/station apply
-  const spCritical    = useMemo(() => filteredSmart.filter(i => i.priority === '911'),          [filteredSmart])
-  const spNeeded      = useMemo(() => filteredSmart.filter(i => i.priority === 'NEEDED_TODAY'), [filteredSmart])
-  const spLookingGood = useMemo(() => filteredSmart.filter(i => i.priority === 'LATER'),        [filteredSmart])
-
-  // Smart Prep — by-category groups (sorted by urgency within each group)
-  const PRIORITY_RANK: Record<string, number> = { '911': 0, 'NEEDED_TODAY': 1, 'LATER': 2 }
-  const spCategoryGroups = useMemo(() => {
-    const sorted = [...filteredSmart].sort((a, b) => {
-      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-      return pd !== 0 ? pd : a.name.localeCompare(b.name)
-    })
-    const map = new Map<string, PrepItemRich[]>()
-    for (const cat of [...new Set(sorted.map(i => i.category))].sort()) map.set(cat, [])
-    for (const item of sorted) map.get(item.category)!.push(item)
-    return Array.from(map.entries()).filter(([, rows]) => rows.length > 0)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredSmart])
-
-  // Smart Prep — by-station groups
-  const spStationGroups = useMemo(() => {
-    const sorted = [...filteredSmart].sort((a, b) => {
-      const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-      return pd !== 0 ? pd : a.name.localeCompare(b.name)
-    })
-    const groups: [string, PrepItemRich[]][] = []
-    for (const station of stations) {
-      const rows = sorted.filter(i => i.station === station)
-      if (rows.length > 0) groups.push([station, rows])
-    }
-    const unassigned = sorted.filter(i => !i.station || i.station.trim() === '')
-    if (unassigned.length > 0) groups.push(['Unassigned', unassigned])
-    const other = sorted.filter(i => i.station && i.station.trim() !== '' && !stations.includes(i.station))
-    if (other.length > 0) groups.push(['Other', other])
-    return groups.length > 0 ? groups : null
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredSmart, stations])
+  // Tab badges — computed priorities so a completion updates them instantly.
+  const spCritical = useMemo(() => items.filter(i => effectivePriority(i) === '911'), [items])
+  const spNeeded   = useMemo(() => items.filter(i => effectivePriority(i) === 'NEEDED_TODAY'), [items])
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
@@ -712,12 +510,6 @@ export default function PrepPage() {
   }, [svcStatus])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
-  // Keep detail panel in sync with live data
-  const selectedLive = useMemo(
-    () => selected ? (items.find(i => i.id === selected.id) ?? selected) : null,
-    [selected, items],
-  )
-
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleRefresh = async () => {
@@ -748,10 +540,15 @@ export default function PrepPage() {
     setItems(prev => prev.map(i => {
       if (i.id !== itemId) return i
       const existingLog = i.todayLog
+      // Recompute onHand/priority/suggestedQty BEFORE swapping the log in:
+      // applyStatusToItem reads the OLD todayLog to know what a re-log or a
+      // reopen must un-credit. Without this, a completed item dropped back to
+      // Smart Prep still wearing its pre-completion Critical pill until the
+      // next (often discarded) background poll.
+      const recomputed = applyStatusToItem(i, newStatus, actualQty)
       return {
-        ...i,
+        ...recomputed,
         isOnList: nextOnList,
-        ...(completingNow && { manualPriorityOverride: null }),
         todayLog: existingLog
           ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}) }
           : {
@@ -770,6 +567,8 @@ export default function PrepPage() {
               updatedAt: now,
               startedAt: null,
               completedAt: null,
+              listOrder: null,
+              postedAt: null,
             },
       }
     }))
@@ -875,6 +674,8 @@ export default function PrepPage() {
               updatedAt: now,
               startedAt: null,
               completedAt: null,
+              listOrder: null,
+              postedAt: null,
             },
       }
     }))
@@ -927,12 +728,10 @@ export default function PrepPage() {
       return {
         ...item,
         manualPriorityOverride: override,
-        // On reset-to-auto (no override) recompute the effective priority from stock
-        // client-side so the row re-sorts instantly — this used to trigger a full ~5s
-        // /api/prep/items reload just to learn the auto priority.
-        priority: override
-          ? (priority as PrepItemRich['priority'])
-          : computePriority(item.onHand, item.parLevel, item.minThreshold, item.targetToday, null),
+        // Recompute the collapsed 3-level priority from the (urgency) override —
+        // computePriority normalizes both vocabularies — so every legacy pill and
+        // sort re-derives instantly without a ~5s /api/prep/items reload.
+        priority: computePriority(item.onHand, item.parLevel, item.minThreshold, item.targetToday, override),
       }
     }))
     markSaving(itemId, true)
@@ -963,7 +762,6 @@ export default function PrepPage() {
     try {
       setItems(prev => prev.filter(i => i.id !== itemId))
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
-      if (selected?.id === itemId) setSelected(null)
       // No reload — the optimistic filter already removed the row; a full ~5s
       // /api/prep/items refetch here just re-rendered the list a few seconds later.
     } catch {
@@ -1004,39 +802,213 @@ export default function PrepPage() {
     }
   }
 
-  // Bulk add all items of a given priority to the list
-  async function handleAddAll(priority: '911' | 'NEEDED_TODAY') {
-    const targets = items.filter(i => i.priority === priority && !i.isOnList)
-    if (targets.length === 0) return
-    // Optimistic: flip all at once
+  // ── Smart Prep v2 planner handlers ────────────────────────────────────────
+
+  // Seed for an optimistic todayLog created by a draft edit (no log yet).
+  const seedLog = (item: PrepItemRich, patch: Partial<PrepLogData>): PrepLogData => {
+    const now = new Date().toISOString()
+    return {
+      id: `_opt_${item.id}`,
+      prepItemId: item.id,
+      logDate: now.split('T')[0],
+      status: 'NOT_STARTED',
+      requiredQty: null,
+      actualPrepQty: null,
+      assignedTo: null,
+      dueTime: null,
+      note: null,
+      blockedReason: null,
+      inventoryAdjusted: false,
+      createdAt: now,
+      updatedAt: now,
+      startedAt: null,
+      completedAt: null,
+      listOrder: null,
+      postedAt: null,
+      ...patch,
+    }
+  }
+
+  // Persist a draft-field edit (planned qty / note / assignee / order) onto
+  // today's log — ensure-log + PUT, op-chained per item like handleClaim.
+  function handleDraftEdit(item: PrepItemRich, patch: { requiredQty?: number; note?: string; assignedTo?: string | null; listOrder?: number }) {
+    if (!item.revenueCenterId && !activeRcId) {
+      setActionError('Select a revenue center (not "All") to edit the prep list.')
+      return
+    }
     mutationSeq.current++
-    setItems(prev => prev.map(i =>
-      targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i
-    ))
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i
+      return {
+        ...i,
+        todayLog: i.todayLog ? { ...i.todayLog, ...patch } : seedLog(i, patch as Partial<PrepLogData>),
+      }
+    }))
+    markPlanDirtyLocal()
+    markSaving(item.id, true)
+
+    if (!navigator.onLine) { markSaving(item.id, false); return } // planner edits are online-only
+
+    const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        const logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          // POST is an upsert on (prepItem, day) and takes the draft fields directly.
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId, ...patch }),
+          }).then(r => r.json())
+          setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
+        } else {
+          await fetch(`/api/prep/logs/${logId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+          })
+        }
+      } catch {
+        setActionError('Update failed — try again.')
+        load()
+      }
+    })
+    opChains.current.set(item.id, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(item.id) === runOp) {
+        opChains.current.delete(item.id)
+        markSaving(item.id, false)
+      }
+    })
+    return runOp
+  }
+
+  // Add to the draft, seeding the planned qty with the (batch-aware) suggestion.
+  function handleAddToDraft(item: PrepItemRich) {
+    handleToggleOnList(item.id, true)
+    const hasQty = item.todayLog?.requiredQty != null && Number(item.todayLog.requiredQty) > 0
+    const sugg = defaultDraftQty(item)
+    if (!hasQty && sugg > 0) handleDraftEdit(item, { requiredQty: sugg })
+  }
+
+  function handleAddAllCritical() {
+    items.filter(i => effectivePriority(i) === '911' && !i.isOnList).forEach(handleAddToDraft)
+  }
+
+  function handleAcceptSuggested() {
+    for (const i of items) {
+      if (!i.isOnList) continue
+      const sugg = defaultDraftQty(i)
+      if (sugg > 0 && Math.abs(Number(i.todayLog?.requiredQty ?? 0) - sugg) > 0.01) {
+        handleDraftEdit(i, { requiredQty: sugg })
+      }
+    }
+  }
+
+  async function handleClearDraft() {
+    const targets = items.filter(i => i.isOnList)
+    if (targets.length === 0) return
+    mutationSeq.current++
+    setItems(prev => prev.map(i => (i.isOnList ? { ...i, isOnList: false } : i)))
+    markPlanDirtyLocal()
     await Promise.all(targets.map(i =>
       fetch(`/api/prep/items/${i.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isOnList: true }),
+        body: JSON.stringify({ isOnList: false }),
       })
     ))
   }
 
-  // Add an explicit set of items to today's list (used by the board's per-block
-  // "Add all" — adds every not-on-list row in the block regardless of priority,
-  // and only what's actually visible after filters).
-  async function handleAddIds(ids: string[]) {
-    const targets = items.filter(i => ids.includes(i.id) && !i.isOnList)
-    if (targets.length === 0) return
+  function handleAssignStation(station: string, cookId: string) {
+    items.filter(i => i.isOnList && i.station === station).forEach(i => handleDraftEdit(i, { assignedTo: cookId }))
+  }
+
+  async function handleReorder(orders: Array<{ prepItemId: string; listOrder: number }>) {
+    if (!activeRcId) return
     mutationSeq.current++
-    setItems(prev => prev.map(i => targets.some(t => t.id === i.id) ? { ...i, isOnList: true } : i))
-    await Promise.all(targets.map(i =>
-      fetch(`/api/prep/items/${i.id}`, {
-        method: 'PUT',
+    const orderMap = new Map(orders.map(o => [o.prepItemId, o.listOrder]))
+    setItems(prev => prev.map(i => {
+      const lo = orderMap.get(i.id)
+      if (lo === undefined) return i
+      return { ...i, todayLog: i.todayLog ? { ...i.todayLog, listOrder: lo } : seedLog(i, { listOrder: lo }) }
+    }))
+    markPlanDirtyLocal()
+    try {
+      await fetch('/api/prep/plan/reorder', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isOnList: true }),
+        body: JSON.stringify({ revenueCenterId: activeRcId, orders }),
       })
-    ))
+    } catch {
+      setActionError('Reorder failed — try again.')
+      load()
+    }
+  }
+
+  // Post the draft: the kitchen's To Do switches to exactly what's on the list.
+  async function handlePost() {
+    if (!activeRcId) { setActionError('Select a revenue center (not "All") to post the list.'); return }
+    try {
+      const res = await fetch('/api/prep/plan/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revenueCenterId: activeRcId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Post failed — try again.')
+      setPlan({ post: data.post })
+      // Stamp postedAt locally so the To Do fills without waiting for a reload.
+      mutationSeq.current++
+      const stamp: string = data.post.postedAt
+      setItems(prev => prev.map(i => {
+        if (i.isOnList) return { ...i, todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp } : seedLog(i, { postedAt: stamp }) }
+        if (i.todayLog?.postedAt) return { ...i, todayLog: { ...i.todayLog, postedAt: null } }
+        return i
+      }))
+      toast('Posted to To Do')
+      load(true)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Post failed — try again.')
+    }
+  }
+
+  async function handleRecall() {
+    if (!activeRcId) return
+    try {
+      const res = await fetch('/api/prep/plan/recall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revenueCenterId: activeRcId }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Recall failed — try again.')
+      setPlan({ post: null })
+      mutationSeq.current++
+      setItems(prev => prev.map(i => (i.todayLog?.postedAt ? { ...i, todayLog: { ...i.todayLog, postedAt: null } } : i)))
+      toast('Recalled to draft')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Recall failed — try again.')
+    }
+  }
+
+  // One bundle for both planner renderers (desktop split view + mobile tabs).
+  const plannerHandlers: PlannerHandlers = {
+    // Arrow wrapper — `openDrawer` is a const declared later in this component;
+    // naming it directly here would hit the temporal dead zone during render.
+    onOpen: (item) => openDrawer(item),
+    onAdd: handleAddToDraft,
+    onRemove: (item) => handleToggleOnList(item.id, false),
+    onQty: (item, qty) => handleDraftEdit(item, { requiredQty: qty }),
+    onNote: (item, note) => handleDraftEdit(item, { note }),
+    onAssign: (item, cookId) => handleDraftEdit(item, { assignedTo: cookId }),
+    onAssignStation: handleAssignStation,
+    onPriorityChange: handlePriorityChange,
+    onReorder: handleReorder,
+    onAcceptSuggested: handleAcceptSuggested,
+    onAddAllCritical: handleAddAllCritical,
+    onClearDraft: handleClearDraft,
+    onPost: handlePost,
+    onRecall: handleRecall,
   }
 
   // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
@@ -1144,17 +1116,7 @@ export default function PrepPage() {
   // ── Render helpers ────────────────────────────────────────────────────────
 
   const selCls = 'border border-line rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gold'
-  const activeFilterCount = [filterCategory !== 'ALL', filterStation !== 'ALL'].filter(Boolean).length
-
-  const STATION_EMOJI: Record<string, string> = {
-    'Cold': '❄',
-    'Hot': '🔥',
-    'Pastry': '🥐',
-    'Butchery': '🔪',
-    'Garde Manger': '🥗',
-  }
-
-  // ── Smart Prep item card (shared across urgency/category/station views) ──
+  const activeFilterCount = [filterCategory !== 'ALL'].filter(Boolean).length
 
   // ── Page JSX ──────────────────────────────────────────────────────────────
 
@@ -1235,18 +1197,10 @@ export default function PrepPage() {
 
         {/* Shift info on Today is rendered once by <PrepShiftBand> in the shared content block (all breakpoints). */}
 
-        {/* Smart Prep toolbar — view switcher + collapsible search/filter (mobile only) */}
+        {/* Smart Prep toolbar — collapsible search/filter (mobile only) */}
         {viewMode === 'smartprep' && (
           <div className="mt-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0 flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5">
-                {(['urgency', 'category', 'station'] as const).map(v => (
-                  <button key={v} onClick={() => setSmartPrepView(v)}
-                    className={`flex-1 py-1.5 font-mono text-[11px] uppercase tracking-[0.03em] rounded-[7px] transition-colors ${smartPrepView === v ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
-                    {v}
-                  </button>
-                ))}
-              </div>
+            <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => setShowMobileSearch(v => { if (v) setSearch(''); return !v })}
                 title="Search"
@@ -1280,11 +1234,6 @@ export default function PrepPage() {
                 <select className={selCls + ' w-full'} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
                   <option value="ALL">All Categories</option>
                   {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <select className={selCls + ' w-full'} value={filterStation} onChange={e => setFilterStation(e.target.value)}>
-                  <option value="ALL">All Stations</option>
-                  <option value="UNASSIGNED">Unassigned</option>
-                  {stations.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
             )}
@@ -1412,7 +1361,22 @@ export default function PrepPage() {
           )}
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
+          ) : !plan.post && todayItems.length === 0 && activeRcId ? (
+            /* Nothing posted yet — the kitchen's To Do stays empty until the chef posts. */
+            <div className="h-[420px] rounded-[14px] border-2 border-dashed border-line-2 bg-paper/50 flex flex-col items-center justify-center gap-2.5">
+              <Lock size={26} className="text-ink-4" />
+              <div className="text-[15px] font-semibold text-ink-2">Nothing posted yet</div>
+              <div className="font-mono text-[11px] text-ink-4 tracking-[0.04em]">THE KITCHEN&apos;S TO DO STAYS EMPTY UNTIL THE CHEF POSTS THE LIST</div>
+              {canPlan && (
+                <button onClick={() => setViewMode('smartprep')}
+                  className="mt-2 inline-flex items-center gap-2 bg-ink text-paper rounded-[10px] px-4 py-2.5 text-[13px] font-semibold">
+                  <span className="text-gold font-semibold">→</span> Build the list in Smart prep
+                </button>
+              )}
+            </div>
           ) : (
+            <>
+            {plan.post && activeRcId && <PostedBand post={plan.post} />}
             <RunSheet
               items={todayItems}
               cooks={cooks}
@@ -1427,45 +1391,33 @@ export default function PrepPage() {
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
               onClaim={handleClaim}
             />
+            </>
           )}
         </div>
       )}
 
       {/* ══════════════════════════════════════════════════════
-          DESKTOP BOARD — dense redesign (Smart Prep)
-          Replaces the old desktop renderers below (now md:hidden).
+          DESKTOP PLANNER — Smart Prep v2 (suggestions → draft → post)
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'smartprep' && (
-        <div className="pb hidden md:block" style={{ containerType: 'inline-size' }}>
-          <div className="toolbar">
-            <div className="search">
-              <span className="icn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
-              <input placeholder="Search prep items, recipes, stations…" value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            <select className="ddown" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-              <option value="ALL">All categories</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className="ddown" value={filterStation} onChange={e => setFilterStation(e.target.value)}>
-              <option value="ALL">All stations</option>
-              {stations.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <button className="ddown" onClick={() => setActiveOnly(a => !a)}><span className="cb">{activeOnly ? '✓' : ''}</span> Active only</button>
-            <div className="seg" style={{ marginLeft: 'auto' }}>
-              {(['urgency', 'category', 'station'] as const).map(g => (
-                <div key={g} className={`s${smartPrepView === g ? ' active' : ''}`} onClick={() => setSmartPrepView(g)}>{g[0].toUpperCase() + g.slice(1)}</div>
-              ))}
-            </div>
-          </div>
-          <PrepSummaryLine items={filteredSmart} />
+        <div className="hidden md:block">
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : (
-            <PrepBoard
-              groupBy={smartPrepView}
-              items={filteredSmart}
-              handlers={{ onOpen: openDrawer, onOpenRecipe: openDrawer, onToggleOnList: handleToggleOnList, onPriorityChange: handlePriorityChange, savingIds }}
-              onAddAll={handleAddIds}
+            <PlannerDesktop
+              items={plannerPool}
+              allItems={items}
+              stations={stations}
+              cooks={cooks}
+              services={rcServices}
+              nowMin={nowMin}
+              canPlan={canPlan}
+              post={plan.post}
+              search={search}
+              onSearch={setSearch}
+              station={filterStation === 'ALL' || filterStation === 'UNASSIGNED' ? 'all' : filterStation}
+              onStation={(s) => setFilterStation(s === 'all' ? 'ALL' : s)}
+              handlers={plannerHandlers}
               tasksSlot={
                 <PrepTaskLibrary
                   asBlock
@@ -1509,15 +1461,23 @@ export default function PrepPage() {
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 ? (
-            <div className="bg-white border border-line rounded-xl py-16 text-center">
-              <ChefHat size={32} className="mx-auto text-ink-4 mb-3" />
-              <p className="text-ink-3 text-sm">Nothing on today&apos;s list yet.</p>
-              <p className="text-xs text-ink-4 mt-2">Go to{' '}<button onClick={() => setViewMode('smartprep')} className="text-gold hover:underline">Smart Prep</button>{' '}and add items.</p>
+            /* Nothing posted yet — the kitchen's To Do stays empty until the chef posts. */
+            <div className="bg-paper/60 border-2 border-dashed border-line-2 rounded-xl py-14 text-center">
+              <Lock size={26} className="mx-auto text-ink-4 mb-2.5" />
+              <p className="text-[14px] font-semibold text-ink-2">Nothing posted yet</p>
+              <p className="font-mono text-[10px] text-ink-4 mt-1.5 px-6 tracking-[0.03em]">THE TO DO STAYS EMPTY UNTIL THE CHEF POSTS THE LIST</p>
+              {canPlan && (
+                <button onClick={() => setViewMode('smartprep')}
+                  className="mt-3.5 inline-flex items-center gap-1.5 bg-ink text-paper rounded-[10px] px-3.5 py-2 text-[12.5px] font-semibold">
+                  <span className="text-gold">→</span> Build the list
+                </button>
+              )}
             </div>
           ) : (
             /* Mobile run sheet — the Today surface (hero, in-progress rail, queue).
                Same wired callbacks as the desktop RunSheet (Task 13). */
             <div className="pb-24 sm:pb-0">
+              {plan.post && activeRcId && <PostedBand post={plan.post} />}
               <RunSheetMobile
                 items={todayItems}
                 cooks={cooks}
@@ -1538,7 +1498,7 @@ export default function PrepPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════
-          SMART PREP TAB
+          SMART PREP TAB — mobile planner (Smart Prep v2)
       ══════════════════════════════════════════════════════ */}
       {viewMode === 'smartprep' && (
         <div className="space-y-4 md:hidden">
@@ -1559,240 +1519,17 @@ export default function PrepPage() {
                 onDelete={deleteTask}
                 onReorder={reorderTasks}
               />
-              {/* ── BY URGENCY ── */}
-              {smartPrepView === 'urgency' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
-
-                  {/* Critical column */}
-                  <div className="md:bg-[#fffafa] md:border md:border-[#fca5a5] flex flex-col md:rounded-xl md:min-h-[480px]">
-                    <div className="px-0.5 md:px-4 py-2 md:py-3.5 border-b border-line md:border-[#fca5a5] flex items-center justify-between gap-2.5">
-                      <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-red" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-red-text">CRITICAL</span>
-                        <span className="font-mono text-[11px] text-ink-3 font-normal">· {spCritical.length} item{spCritical.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      {spCritical.some(i => !i.isOnList) && (
-                        <button onClick={() => handleAddAll('911')}
-                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-red bg-red text-paper hover:bg-red-text whitespace-nowrap">
-                          + Add all
-                        </button>
-                      )}
-                    </div>
-                    <p className="font-mono text-[10.5px] text-red-text px-0.5 md:px-4 pt-2 pb-1">Stock depleted — make now</p>
-                    <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-2 overflow-visible md:overflow-auto">
-                      {spCritical.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
-                          <div className="w-9 h-9 rounded-full bg-bg-2 grid place-items-center text-ink-4 mb-2.5">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                          </div>
-                          <p className="text-[13px] text-ink-3 tracking-[-0.005em]">No critical items</p>
-                        </div>
-                      ) : (
-                        spCritical.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Needed Today column */}
-                  <div className="md:bg-paper md:border md:border-line flex flex-col md:rounded-xl md:min-h-[480px]">
-                    <div className="px-0.5 md:px-4 py-2 md:py-3.5 border-b border-line flex items-center justify-between gap-2.5">
-                      <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-gold" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-gold-2">NEEDED TODAY</span>
-                        <span className="font-mono text-[11px] text-ink-3 font-normal">· {spNeeded.length} item{spNeeded.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      {spNeeded.some(i => !i.isOnList) && (
-                        <button onClick={() => handleAddAll('NEEDED_TODAY')}
-                          className="font-mono text-[10.5px] px-2.5 py-1 rounded-full font-medium border border-ink bg-ink text-paper hover:bg-ink-2 whitespace-nowrap">
-                          + Add all
-                        </button>
-                      )}
-                    </div>
-                    <p className="font-mono text-[10.5px] text-ink-3 px-0.5 md:px-4 pt-2 pb-1">Below par — should be prepped today</p>
-                    <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-2 overflow-visible md:overflow-auto">
-                      {spNeeded.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
-                          <div className="w-9 h-9 rounded-full bg-bg-2 grid place-items-center text-ink-4 mb-2.5">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                          </div>
-                          <p className="text-[13px] text-ink-3 tracking-[-0.005em]">All par levels met<br/>
-                            <span className="text-ink-4 text-[12px]">Nothing else needs prepping today.</span>
-                          </p>
-                        </div>
-                      ) : (
-                        spNeeded.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Looking Good column */}
-                  <div className="md:bg-paper md:border md:border-line flex flex-col md:rounded-xl md:min-h-[480px]">
-                    <button
-                      onClick={() => setLookingGoodOpen(v => !v)}
-                      className="px-0.5 md:px-4 py-2 md:py-3.5 border-b border-line flex items-center justify-between gap-2.5 hover:bg-bg-2/40 transition-colors"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1 whitespace-nowrap">
-                        <span className="w-2 h-2 rounded-full bg-green" />
-                        <span className="font-mono text-[11.5px] tracking-[0.02em] font-semibold text-green-text">LOOKING GOOD</span>
-                        <span className="font-mono text-[11px] text-ink-3 font-normal">· {spLookingGood.length} item{spLookingGood.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      <span className="font-mono text-[11px] text-ink-3">{lookingGoodOpen ? '▾' : '→'}</span>
-                    </button>
-                    <p className="font-mono text-[10.5px] text-ink-3 px-0.5 md:px-4 pt-2 pb-1">On par or above — no action needed</p>
-                    {lookingGoodOpen ? (
-                      <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-1.5 overflow-visible md:overflow-auto">
-                        {spLookingGood.length === 0 ? (
-                          <div className="flex-1 flex items-center justify-center text-[13px] text-ink-3">No items</div>
-                        ) : (
-                          spLookingGood.map(item => {
-                            const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
-                            const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
-                            const isAdded = item.isOnList
-                            return (
-                              <div key={item.id}
-                                className="bg-bg border border-line rounded-lg px-3 py-2.5 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors">
-                                <button onClick={() => setSelected(item)} className="flex flex-col gap-0.5 min-w-0 text-left hover:opacity-80 transition-opacity">
-                                  <span className="text-[13px] font-medium text-ink tracking-[-0.01em] truncate">{item.name}</span>
-                                  <span className="font-mono text-[10.5px] text-ink-3 whitespace-nowrap">
-                                    {item.category} · {item.onHand % 1 === 0 ? item.onHand.toFixed(0) : item.onHand.toFixed(1)} / {item.parLevel % 1 === 0 ? item.parLevel.toFixed(0) : item.parLevel.toFixed(1)} {item.unit}
-                                  </span>
-                                </button>
-                                <div className="flex items-center gap-2.5 shrink-0">
-                                  <span className="font-mono text-[11px] text-green-text font-medium">{label}</span>
-                                  <button
-                                    onClick={() => handleToggleOnList(item.id, !isAdded)}
-                                    title={isAdded ? "Remove from today's list" : "Add to today's list"}
-                                    className={`px-2.5 py-1 rounded-[7px] text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap transition-colors group ${
-                                      isAdded
-                                        ? 'bg-bg-2 text-ink-2 border border-line hover:border-red hover:bg-red-soft hover:text-red'
-                                        : 'bg-ink text-paper hover:bg-ink-2'
-                                    }`}
-                                  >
-                                    {isAdded
-                                      ? <><Check size={11} className="text-green group-hover:text-red" /> On list <span className="opacity-50">✕</span></>
-                                      : <><span className="text-gold font-semibold">+</span> Add</>}
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex-1 px-0 md:px-3 pb-2 md:pb-3 pt-2 flex flex-col gap-1.5 overflow-hidden">
-                        {spLookingGood.slice(0, 6).map(item => {
-                          const pct = item.parLevel > 0 ? Math.round(((item.onHand - item.parLevel) / item.parLevel) * 100) : 0
-                          const label = pct === 0 ? 'on par' : (pct > 0 ? `+${pct}%` : `${pct}%`)
-                          const isAdded = item.isOnList
-                          return (
-                            <div key={item.id}
-                              className="bg-bg border border-line rounded-lg px-3 py-2 flex items-center justify-between gap-2.5 hover:border-ink-3 transition-colors">
-                              <button onClick={() => setSelected(item)} className="text-[12.5px] font-medium text-ink tracking-[-0.01em] truncate min-w-0 text-left hover:opacity-80 transition-opacity">{item.name}</button>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="font-mono text-[10.5px] text-green-text font-medium">{label}</span>
-                                <button
-                                  onClick={() => handleToggleOnList(item.id, !isAdded)}
-                                  title={isAdded ? "Remove from today's list" : "Add to today's list"}
-                                  className={`w-6 h-6 grid place-items-center rounded-[6px] text-[12px] font-medium transition-colors group ${
-                                    isAdded
-                                      ? 'bg-bg-2 text-ink-2 border border-line hover:border-red hover:bg-red-soft hover:text-red'
-                                      : 'bg-ink text-paper hover:bg-ink-2'
-                                  }`}
-                                >
-                                  {isAdded
-                                    ? <Check size={12} className="text-green group-hover:text-red" />
-                                    : <span className="text-gold font-semibold leading-none">+</span>}
-                                </button>
-                              </div>
-                            </div>
-                          )
-                        })}
-                        {spLookingGood.length > 6 && (
-                          <button onClick={() => setLookingGoodOpen(true)} className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 hover:text-ink py-2 text-center border-t border-line mt-1 pt-2.5 transition-colors">
-                            + {spLookingGood.length - 6} more · expand all
-                          </button>
-                        )}
-                        {spLookingGood.length === 0 && (
-                          <div className="flex-1 flex items-center justify-center text-[12.5px] text-ink-3">No items</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* ── BY CATEGORY ── */}
-              {smartPrepView === 'category' && (
-                <div className="space-y-3">
-                  {spCategoryGroups.map(([cat, rows]) => {
-                    const criticalCount = rows.filter(i => i.priority === '911').length
-                    const neededCount = rows.filter(i => i.priority === 'NEEDED_TODAY').length
-                    return (
-                      <div key={cat} className="md:overflow-hidden md:bg-paper md:border md:border-line md:rounded-xl">
-                        {/* Group header — branded "grow" style (gold-soft for active categories, neutral otherwise) */}
-                        <div className={`grid grid-cols-[1fr_auto] items-center px-0.5 md:px-[18px] py-2 md:py-2.5 border-b border-line ${criticalCount > 0 || neededCount > 0 ? 'md:bg-gold-soft md:border-[#fcd34d]' : 'md:bg-bg-2 md:border-line'}`}>
-                          <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
-                            <span className={`font-mono text-[11.5px] tracking-[0.02em] font-semibold ${criticalCount > 0 || neededCount > 0 ? 'text-gold-2' : 'text-ink-2'}`}>{cat.toUpperCase()}</span>
-                            <span className={`font-mono text-[11px] font-normal ${criticalCount > 0 || neededCount > 0 ? 'text-gold-2/80' : 'text-ink-3'}`}>· {rows.length} item{rows.length !== 1 ? 's' : ''}</span>
-                          </div>
-                          {(criticalCount > 0 || neededCount > 0) && (
-                            <div className="flex items-center gap-1.5">
-                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-soft text-red-text px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
-                              {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
-                            </div>
-                          )}
-                        </div>
-                        <div className="pt-2 pb-1 flex flex-col gap-2">
-                          {rows.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* ── BY STATION ── */}
-              {smartPrepView === 'station' && (
-                <div className="space-y-3">
-                  {(spStationGroups ?? []).map(([station, rows]) => {
-                    const emoji = STATION_EMOJI[station] ?? '🍽'
-                    const criticalCount = rows.filter(i => i.priority === '911').length
-                    const neededCount = rows.filter(i => i.priority === 'NEEDED_TODAY').length
-                    const hasUrgent = criticalCount > 0 || neededCount > 0
-                    return (
-                      <div key={station} className="md:overflow-hidden md:bg-paper md:border md:border-line md:rounded-xl">
-                        {/* Group header */}
-                        <div className={`grid grid-cols-[1fr_auto] items-center px-0.5 md:px-[18px] py-2 md:py-2.5 border-b border-line ${hasUrgent ? 'md:bg-gold-soft md:border-[#fcd34d]' : 'md:bg-bg-2 md:border-line'}`}>
-                          <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
-                            <span className="text-[13px]">{emoji}</span>
-                            <span className={`font-mono text-[11.5px] tracking-[0.02em] font-semibold ${hasUrgent ? 'text-gold-2' : 'text-ink-2'}`}>{station.toUpperCase()} STATION</span>
-                            <span className={`font-mono text-[11px] font-normal ${hasUrgent ? 'text-gold-2/80' : 'text-ink-3'}`}>· {rows.length} item{rows.length !== 1 ? 's' : ''}</span>
-                          </div>
-                          {hasUrgent && (
-                            <div className="flex items-center gap-1.5">
-                              {criticalCount > 0 && <span className="font-mono text-[10px] bg-red-soft text-red-text px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{criticalCount} critical</span>}
-                              {neededCount > 0 && <span className="font-mono text-[10px] bg-paper text-gold-2 border border-[#fcd34d] px-1.5 py-0.5 rounded-full font-semibold tracking-[0]">{neededCount} needed</span>}
-                            </div>
-                          )}
-                        </div>
-                        <div className="pt-2 pb-1 flex flex-col gap-2">
-                          {rows.map(item => <SmartPrepCard key={item.id} item={item} menuOpen={priorityMenuFor === item.id} setMenuFor={setPriorityMenuFor} onSelect={setSelected} onPriorityChange={handlePriorityChange} onToggleOnList={handleToggleOnList} />)}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {(!spStationGroups || spStationGroups.length === 0) && (
-                    <div className="bg-paper border border-line rounded-xl py-14 text-center">
-                      <p className="text-[13.5px] text-ink-2 font-medium">No stations configured.</p>
-                      <p className="font-mono text-[11px] text-ink-3 mt-1.5 tracking-[0]">
-                        Add stations in{' '}
-                        <button onClick={() => setShowSettings(true)} className="text-gold-2 hover:underline font-medium">Settings</button>.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
+              <PlannerMobile
+                items={plannerPool}
+                allItems={items}
+                cooks={cooks}
+                stations={stations}
+                services={rcServices}
+                nowMin={nowMin}
+                canPlan={canPlan}
+                post={plan.post}
+                handlers={plannerHandlers}
+              />
             </>
           )}
         </div>
@@ -1894,16 +1631,6 @@ export default function PrepPage() {
             )
           })()}
         </div>
-      )}
-
-      {/* Detail panel */}
-      {selectedLive && (
-        <PrepDetailPanel
-          item={selectedLive}
-          onClose={() => setSelected(null)}
-          onRefresh={() => { load(); setSelected(null) }}
-          onEdit={() => { setEditing(selectedLive); setSelected(null) }}
-        />
       )}
 
       {/* Fused item drawer — item context + embedded cook-along (upscale / ingredients / method). */}

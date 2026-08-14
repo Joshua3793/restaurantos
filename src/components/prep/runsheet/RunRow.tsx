@@ -7,9 +7,10 @@ import { Zap } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, NeedChip, RunwayBar, StockOutBadge, BlockedBadge } from './atoms'
+import { StationTag, NeedChip, RunwayBar, ReasonBadge, BlockedBadge } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
 import { fmtClock, fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
+import { draftQty, batchLabel } from '@/lib/prep-plan'
 
 // Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
 // fractional, everything else rounds to a whole number. No existing helper in
@@ -51,7 +52,9 @@ export function RunRow({
   const blocked = item.isBlocked || !!item.blockedReason
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
   const late = sb != null ? nowMin - sb : 0
-  const qty = item.suggestedQty ?? item.targetToday ?? item.parLevel
+  // Planned qty: the chef's posted requiredQty wins, then the live suggestion.
+  const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
+  const batch = batchLabel(item, qty)
 
   return (
     <div
@@ -93,9 +96,9 @@ export function RunRow({
           >
             {item.name}
           </span>
-          <span className="font-mono text-[11px] text-ink-3 whitespace-nowrap">{fmtQty(qty, item.unit)}</span>
+          <span className="font-mono text-[11px] text-ink-3 whitespace-nowrap">{batch ? `${batch} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit)}</span>
           {item.station && <StationTag>{item.station}</StationTag>}
-          {item.priority === '911' && <StockOutBadge />}
+          {item.priority !== 'LATER' && <ReasonBadge item={item} />}
           {blocked && <BlockedBadge reason={item.blockedReason ?? 'stock'} />}
         </div>
         {!dense && (

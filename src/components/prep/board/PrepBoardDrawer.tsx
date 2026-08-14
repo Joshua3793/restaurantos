@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 import type { PrepItemRich, PrepItemDetail, RecipeStepsData } from '@/components/prep/types'
 import { toBoardRow, dotClass, fmtMin, fmtQty } from './prep-board-utils'
+import { effectiveUrgency, autoUrgencyOf } from '@/lib/prep-plan'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
@@ -81,11 +82,19 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
               </div>
 
               <div className="dr-sec">
-                <div className="sl">Priority override</div>
+                <div className="sl">Needed — the step sets the deadline{item.manualPriorityOverride ? ' · chef override' : ''}</div>
                 <div className="ovr-row">
-                  <button className={`ovr-btn crit ${u === 'critical' ? 'on' : ''}`} onClick={() => onPriorityChange(r.id, '911')}>Critical</button>
-                  <button className={`ovr-btn low ${u === 'low' ? 'on' : ''}`} onClick={() => onPriorityChange(r.id, 'NEEDED_TODAY')}>Needed today</button>
-                  <button className={`ovr-btn par ${u === 'par' ? 'on' : ''}`} onClick={() => onPriorityChange(r.id, 'LATER')}>Later</button>
+                  {/* ONE urgency dial (Smart Prep v2). Clicking the active overridden
+                      step clears back to smart; picking the auto step also clears. */}
+                  {([['PASS', 'Critical', 'crit'], ['MID', 'Mid-svc', 'low'], ['CLOSE', 'By close', 'mid'], ['TMRW', 'Tomorrow', 'par']] as const).map(([step, label, cls]) => {
+                    const active = effectiveUrgency(item) === step
+                    return (
+                      <button key={step} className={`ovr-btn ${cls} ${active ? 'on' : ''}`}
+                        onClick={() => onPriorityChange(r.id, (active && item.manualPriorityOverride) || step === autoUrgencyOf(item) ? '' : step)}>
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
