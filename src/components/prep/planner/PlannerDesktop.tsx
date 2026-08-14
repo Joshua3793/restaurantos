@@ -212,7 +212,9 @@ export function PlannerDesktop({
         <div className={`${paneCls} ${clean ? '' : '!border-ink'}`}>
           <div className={`shrink-0 flex flex-wrap items-center gap-2 px-3.5 pt-3 pb-2.5 border-b border-line ${clean ? 'bg-paper' : 'bg-bg'}`}>
             <span className="w-6 h-6 rounded-[7px] bg-ink grid place-items-center shrink-0"><ChefHat size={13} className="text-gold" /></span>
-            <div className="flex-1 min-w-0">
+            {/* min width so the wrapping header sends the controls to the next
+                row instead of stacking this meta line one word per line */}
+            <div className="flex-1 min-w-[180px]">
               <div className="flex items-center gap-2">
                 <span className="text-[13.5px] font-semibold tracking-[-0.015em] text-ink">Prep list</span>
                 <span className={`font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] px-[7px] py-0.5 rounded-full ${clean ? 'bg-green-soft text-green-text' : 'bg-ink text-paper'}`}>
