@@ -21,11 +21,14 @@ export function SuggestionRow({ item, locked, onOpen, onAdd, onRemove }: {
   const m = PLAN_URG_META[effectiveUrgency(item)]
   const sugg = suggestedDraftQty(item)
   const nb = suggestedBatches(item)
-  const fill = Math.min(100, ((item.onHand ?? 0) / (item.parLevel || 1)) * 100)
   const short = (item.ingredientShortCount ?? 0) > 0
   return (
+    // Name-first layout: no par-level bar (urgency already reads from the left
+    // stripe + reason dot), so the name keeps the whole left column and stays
+    // identifiable on narrow panes; category · reason · on-hand/par live in
+    // the subtitle, with the numbers never truncating.
     <div
-      className={`grid grid-cols-[1fr_64px_76px_28px] items-center gap-2 border rounded-[9px] py-2 pr-2 pl-2.5 border-l-[3px] ${item.isOnList ? 'bg-bg border-line opacity-60' : 'bg-paper border-line'}`}
+      className={`grid grid-cols-[minmax(0,1fr)_auto_28px] items-center gap-2 border rounded-[9px] py-2 pr-2 pl-2.5 border-l-[3px] ${item.isOnList ? 'bg-bg border-line opacity-60' : 'bg-paper border-line'}`}
       style={{ borderLeftColor: item.isOnList ? '#d4d4d8' : m.hex }}
     >
       <button type="button" onClick={() => onOpen(item)} className="min-w-0 text-left">
@@ -38,21 +41,14 @@ export function SuggestionRow({ item, locked, onOpen, onAdd, onRemove }: {
           )}
         </span>
         <span className="flex items-center gap-[7px] mt-0.5 min-w-0">
-          {/* min-w-0+truncate, not shrink-0 — a long category otherwise paints
-              over the neighbouring progress column when the pane is narrow */}
           <span className="font-mono text-[9px] text-ink-4 min-w-0 truncate">{item.category}{item.station ? ` · ${item.station}` : ''}</span>
           <Reason item={item} sm />
+          <span className="font-mono text-[9px] text-ink-3 whitespace-nowrap shrink-0">
+            {fmtQ(item.onHand ?? 0, item.unit).split(' ')[0]}/{fmtQ(item.parLevel ?? 0, item.unit)}
+          </span>
         </span>
       </button>
-      <div className="min-w-0">
-        <div className="flex h-1 rounded-full overflow-hidden bg-bg-2 mb-[3px]">
-          <span className={m.barClass} style={{ width: `${fill}%` }} />
-        </div>
-        <span className="font-mono text-[9px] text-ink-3 whitespace-nowrap">
-          {fmtQ(item.onHand ?? 0, item.unit).split(' ')[0]}/{fmtQ(item.parLevel ?? 0, item.unit)}
-        </span>
-      </div>
-      <span className="text-right leading-[1.15]">
+      <span className="text-right leading-[1.15] whitespace-nowrap">
         <span className={`block font-mono text-[11.5px] font-bold ${sugg > 0 ? 'text-ink' : 'text-green'}`}>
           {sugg <= 0 ? 'at par' : nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)}
         </span>
