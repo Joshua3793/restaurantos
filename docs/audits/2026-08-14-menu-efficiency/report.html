@@ -1,0 +1,400 @@
+<title>Fergie's Prep Diet</title>
+<style>
+  :root {
+    --bg: #FAF8F3;
+    --card: #FFFFFF;
+    --card-soft: #F4F0E7;
+    --ink: #211D15;
+    --ink-2: #4A443A;
+    --muted: #746C5E;
+    --line: #E4DECF;
+    --line-strong: #CFC7B2;
+    --accent: #9A7410;
+    --accent-ink: #7A5C0A;
+    --accent-soft: #F3EBD4;
+    --cut: #A63E33;
+    --cut-soft: #F6E4E1;
+    --cons: #8A5A16;
+    --cons-soft: #F5E9D8;
+    --buy: #3F639C;
+    --buy-soft: #E4EAF4;
+    --verify: #6D6113;
+    --verify-soft: #EFEBD2;
+    --keep: #3A6E4F;
+    --keep-soft: #E1EEE6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171410;
+      --card: #1E1A14;
+      --card-soft: #241F17;
+      --ink: #EDE7D9;
+      --ink-2: #C9C1AF;
+      --muted: #97907F;
+      --line: #322C21;
+      --line-strong: #4A4231;
+      --accent: #D9AE3B;
+      --accent-ink: #E4BE58;
+      --accent-soft: #2C2514;
+      --cut: #D97D6F;
+      --cut-soft: #33201C;
+      --cons: #D19A4C;
+      --cons-soft: #2F2517;
+      --buy: #89A9DA;
+      --buy-soft: #1E2635;
+      --verify: #C4B44E;
+      --verify-soft: #2A2714;
+      --keep: #85BB9C;
+      --keep-soft: #1B2A21;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171410;
+    --card: #1E1A14;
+    --card-soft: #241F17;
+    --ink: #EDE7D9;
+    --ink-2: #C9C1AF;
+    --muted: #97907F;
+    --line: #322C21;
+    --line-strong: #4A4231;
+    --accent: #D9AE3B;
+    --accent-ink: #E4BE58;
+    --accent-soft: #2C2514;
+    --cut: #D97D6F;
+    --cut-soft: #33201C;
+    --cons: #D19A4C;
+    --cons-soft: #2F2517;
+    --buy: #89A9DA;
+    --buy-soft: #1E2635;
+    --verify: #C4B44E;
+    --verify-soft: #2A2714;
+    --keep: #85BB9C;
+    --keep-soft: #1B2A21;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+  main { max-width: 900px; margin: 0 auto; }
+  .prose { max-width: 70ch; }
+
+  .eyebrow {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 48px 0 6px;
+  }
+  h1 {
+    font-family: Iowan Old Style, Palatino Linotype, Palatino, Georgia, serif;
+    font-size: clamp(30px, 5vw, 42px);
+    line-height: 1.12;
+    margin: 0 0 10px;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  .subtitle { color: var(--muted); font-size: 16px; max-width: 62ch; margin: 0 0 28px; }
+
+  h2 {
+    font-family: Iowan Old Style, Palatino Linotype, Palatino, Georgia, serif;
+    font-size: 25px;
+    margin: 56px 0 4px;
+    text-wrap: balance;
+  }
+  h2 .sec {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    display: block;
+    margin-bottom: 4px;
+  }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 10px 0; color: var(--ink-2); }
+  strong { color: var(--ink); }
+  ul { margin: 8px 0; padding-left: 22px; color: var(--ink-2); }
+  li { margin: 5px 0; }
+  li::marker { color: var(--accent); }
+
+  .statband {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin: 28px 0 8px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat .n {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.1;
+  }
+  .stat .l { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+  .note {
+    background: var(--accent-soft);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 22px 0;
+    font-size: 14.5px;
+    color: var(--ink-2);
+  }
+  .note b { color: var(--accent-ink); }
+
+  .tablewrap { overflow-x: auto; margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th {
+    text-align: left;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink-2); }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  td.dish { font-weight: 600; color: var(--ink); white-space: nowrap; }
+  .hot td { background: var(--cut-soft); }
+  .warm td { background: var(--cons-soft); }
+
+  .chip {
+    display: inline-block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip.cut  { color: var(--cut);  background: var(--cut-soft);  border: 1px solid var(--cut); }
+  .chip.cons { color: var(--cons); background: var(--cons-soft); border: 1px solid var(--cons); }
+  .chip.buy  { color: var(--buy);  background: var(--buy-soft);  border: 1px solid var(--buy); }
+  .chip.verify { color: var(--verify); background: var(--verify-soft); border: 1px solid var(--verify); }
+  .chip.keep { color: var(--keep); background: var(--keep-soft); border: 1px solid var(--keep); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .card h3 { margin: 0 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .card p, .card ul { font-size: 14.5px; }
+  .why {
+    font-size: 13px;
+    color: var(--muted);
+    border-top: 1px dashed var(--line-strong);
+    margin-top: 10px;
+    padding-top: 8px;
+  }
+
+  .seq { list-style: none; padding: 0; margin: 16px 0; counter-reset: step; }
+  .seq li {
+    counter-increment: step;
+    display: flex;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    margin: 0;
+  }
+  .seq li:last-child { border-bottom: none; }
+  .seq li::before {
+    content: counter(step);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    min-width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: var(--card);
+  }
+  .seq b { display: block; color: var(--ink); }
+  .seq span { font-size: 14px; color: var(--ink-2); }
+
+  footer { margin-top: 64px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; background: var(--card-soft); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+</style>
+
+<main>
+  <p class="eyebrow">Fergie's Cafe · Kitchen Operations Review · August 2026</p>
+  <h1>Fergie's Prep Diet</h1>
+  <p class="subtitle">Where the summer menu's prep load actually comes from, and a four-tier plan to cut roughly a third of the prep list while protecting the dishes that pay the bills.</p>
+
+  <div class="statband">
+    <div class="stat"><div class="n">58</div><div class="l">house prep recipes on the books</div></div>
+    <div class="stat"><div class="n">14</div><div class="l">composed dishes they support</div></div>
+    <div class="stat"><div class="n">~21</div><div class="l">preps flagged to cut, merge, or buy</div></div>
+    <div class="stat"><div class="n">~38</div><div class="l">target prep count after the diet</div></div>
+  </div>
+
+  <div class="note"><b>What this is based on.</b> The full summer Cafe menu (39 items with complete component descriptions), the complete 58-item house prep list, and the ~380-item inventory audit showing what's purchased versus made in-house — all real data from the system. What was <b>not</b> available: live per-item sales quantities from Toast. Every recommendation that hinges on sales rank is tagged <span class="chip verify">VERIFY</span> with the exact threshold to check against a 4–6 week product mix before acting.</p></div>
+
+  <h2><span class="sec">01</span>The core imbalance</h2>
+  <div class="prose">
+    <p>The kitchen maintains <strong>58 house prep recipes to serve 14 composed dishes</strong> plus sides and kids items — roughly four preps per dish. A brunch menu at this scale runs comfortably on 35–40. The overage isn't spread evenly: it's concentrated in single-dish garnish projects, duplicated sauce bases, and an in-house bake program that competes with suppliers you already use.</p>
+    <p>The table below maps every composed dish to the prep recipes it touches, from the dish descriptions and the prep list. <strong>"Unique" preps exist for that one dish only</strong> — they're the expensive ones, because their entire batch-make labor is carried by a single menu line.</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Dish</th><th>Price</th><th>Preps touched</th><th>Unique to dish</th><th>Unique preps</th></tr></thead>
+      <tbody>
+        <tr class="hot"><td class="dish">Texas Brisket</td><td class="num">$28</td><td class="num">8</td><td class="num">6</td><td>Smoked Brisket · Coffee Rub · Beef Tallow · Tallow Aioli · Pickled Red Onions · Coleslaw Mix</td></tr>
+        <tr class="hot"><td class="dish">French Toast</td><td class="num">$23</td><td class="num">7</td><td class="num">5</td><td>Custard Mix · Crème Pâtissière · Coffee-Orange Maple · Matcha Tuile · White Chocolate Snow</td></tr>
+        <tr class="hot"><td class="dish">Forager Tartine</td><td class="num">$19</td><td class="num">6</td><td class="num">5</td><td>Mushroom Ragout · Nettle/Charred Pesto · Vegan Yolk · Vegan Parm · Pickled Crosnes</td></tr>
+        <tr class="warm"><td class="dish">The Coastal Benedict</td><td class="num">$27</td><td class="num">7</td><td class="num">4</td><td>Cured Salmon · Curing Mix · Caper-Dill Crème Fraîche · Salmon-Skin Chicharron</td></tr>
+        <tr class="warm"><td class="dish">Caesar Salad</td><td class="num">$24</td><td class="num">4</td><td class="num">4</td><td>Caesar Dressing · Croutons · Crispy Capers · Kelp</td></tr>
+        <tr class="warm"><td class="dish">Dubliner Benny</td><td class="num">$26</td><td class="num">7</td><td class="num">3</td><td>Bacon Jam · Pickled Apples · Mustard Caviar</td></tr>
+        <tr><td class="dish">Shakshuka</td><td class="num">$25</td><td class="num">4</td><td class="num">3</td><td>Shakshuka Sauce · Goat Cheese Cream · Mint Zhoug</td></tr>
+        <tr><td class="dish">Pulled Pork Ranchero</td><td class="num">$26</td><td class="num">5</td><td class="num">3</td><td>Adobo Pulled Pork · Corn Salsa · Mexican Hot Sauce</td></tr>
+        <tr><td class="dish">Smash Burger</td><td class="num">$27</td><td class="num">6</td><td class="num">3</td><td>Burger Aioli · BBQ Sauce · House Spice Mix</td></tr>
+        <tr><td class="dish">Cheekye Sandwich</td><td class="num">$25</td><td class="num">4</td><td class="num">2</td><td>House English Muffins · Pesto Rosso Aioli</td></tr>
+        <tr><td class="dish">Elaho</td><td class="num">$26</td><td class="num">5</td><td class="num">2</td><td>Bean Purée* · Blood Pudding (add-on)</td></tr>
+        <tr><td class="dish">Biscuit &amp; Jam</td><td class="num">$7</td><td class="num">3</td><td class="num">1</td><td>Smoked Miso-Honey Butter</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:13px; color:var(--muted); margin-top:6px;">*Bean Purée may be shared with Ranchero's beans — verify in the recipe book. Shaded rows carry the heaviest unique-prep load relative to their role on the menu.</p>
+
+  <h3><span class="chip keep">KEEP</span> The platform assets — protect these</h3>
+  <div class="prose">
+    <p>The benedict platform — <strong>Buttermilk Biscuits + Hollandaise + Hash</strong> — is the best engineering on the menu: three preps carrying three top-priced dishes plus sides. Same for the <strong>Pork, Fennel &amp; Chilli Sausage</strong> (Shakshuka + Elaho), <strong>Smashed Avocado</strong>, <strong>Crispy Onions</strong> and <strong>B&amp;B Pickles</strong> (shared across handhelds). Nothing below touches these. The strategy is not "prep less of everything" — it's <em>route more sales through fewer, shared preps</em>.</p>
+  </div>
+
+  <h2><span class="sec">02</span>Tier 1 — The garnish tax <span class="chip cut">CUT</span></h2>
+  <div class="prose"><p>Fine-dining garnish projects riding on brunch dishes. Each is a real batch-make with its own station time, and each is invisible to why the customer orders the dish. This tier needs no sales data — the dish survives untouched in the customer's mind.</p></div>
+
+  <div class="card">
+    <h3>French Toast garnish program <span class="chip cut">CUT 3 PREPS</span></h3>
+    <p>Matcha Tuile, White Chocolate Snow, and legacy Tonka Snow — plus an infused Coffee-Orange Maple — all decorate one $23 sweet. Keep the compote and crème pâtissière (the flavor core); plate with plain maple or keep the infused syrup only if it's batched monthly.</p>
+    <p class="why">Evidence this dish sells and should stay: you built a ½ portion, a kids' side, and it anchors the Wolf Cub. Simplify the plate, never the dish. A tuile program alone is 30–45 min of pastry hands per batch.</p>
+  </div>
+  <div class="card">
+    <h3>Salmon-skin chicharron (Coastal Benedict) <span class="chip cut">CUT</span></h3>
+    <p>Dehydrate-and-fry project for a crunch garnish. Crispy capers already exist for the Caesar — reuse them here, or crispy onions. The lox, crème fraîche, and hollandaise are why people order it.</p>
+  </div>
+  <div class="card">
+    <h3>Mustard "caviar" (Dubliner Benny) <span class="chip cut">CUT</span></h3>
+    <p>Pearled mustard seeds simmered and rinsed in batches — swap for a smear of grainy mustard folded into the bacon jam or straight on the biscuit. Zero perceived loss on a benny.</p>
+  </div>
+  <div class="card">
+    <h3>Blood Pudding, rice version <span class="chip buy">BUY OR CUT</span></h3>
+    <p>A full house-charcuterie project supporting a <strong>$3 add-on and a $5 side</strong>. Buy a quality black pudding (your meat suppliers carry them) or drop the add-on entirely.</p>
+    <p class="why">This is the single worst labor-to-revenue line on the menu: hours of production capped at $5 of ticket price.</p>
+  </div>
+
+  <h2><span class="sec">03</span>Tier 2 — Duplicated bases <span class="chip cons">CONSOLIDATE</span></h2>
+  <div class="prose"><p>Preps that exist twice under different names, or families that can share one mother base. Pure list-shrink: no dish changes at all.</p></div>
+
+  <div class="card">
+    <h3>Two pulled porks → one <span class="chip cons">MERGE</span></h3>
+    <p><strong>Adobo Pulled Pork</strong> and <strong>Smoked Pulled Pork</strong> both live on the prep list; the menu describes one preparation ("18-hour smoked pork in adobo"). If one is legacy, retire it; if both genuinely run, fold the adobo seasoning into the smoked batch and finish to order.</p>
+  </div>
+  <div class="card">
+    <h3>Two house hot sauces → one <span class="chip cons">MERGE</span></h3>
+    <p><strong>Hot Sauce "Verde Brasa"</strong> and <strong>Hot Sauce (Mexican Style)</strong> — both fermented/cooked projects, both retailing at $1 a ramekin. Keep the one the Ranchero needs.</p>
+  </div>
+  <div class="card">
+    <h3>The aioli family → one mother base <span class="chip cons">MERGE 4 → 1+</span></h3>
+    <p><strong>Burger Aioli, Beef Tallow Aioli, Sun-Dried Tomato Aioli (Pesto Rosso), Mayo</strong> — four emulsions. Make one house aioli base in volume; fold in flavors (tomato/pesto, spice) as 2-minute line derivatives. Beef Tallow Aioli is the worst offender: it requires <em>a second prep</em> (rendering Beef Tallow) as its input — a two-step chain for one sandwich. The brisket won't miss it if the burger aioli steps in.</p>
+  </div>
+  <div class="card">
+    <h3>Butter projects <span class="chip cons">TRIM</span></h3>
+    <p><strong>Smoked Miso-Honey Butter</strong> exists only for the $7 Biscuit &amp; Jam; <strong>Clarified Butter</strong> feeds hollandaise (keep); <strong>Garlic/compound variants</strong> as needed. If the miso butter isn't a signature guests talk about, plain whipped butter and better jam does the job.</p>
+  </div>
+
+  <h2><span class="sec">04</span>Tier 3 — Make vs. buy <span class="chip buy">BUY</span></h2>
+  <div class="prose"><p>You already buy croissants, pain au chocolat, brioche (Snow Cap), the sweet-potato-jalapeño brisket bun (Sysco), burger buns, tortillas, naan, and pita. The line between "bake in-house" and "buy" is already drawn pragmatically — these three items are on the wrong side of it.</p></div>
+
+  <div class="card">
+    <h3>House English Muffins <span class="chip buy">BUY</span></h3>
+    <p>A sourdough whole-wheat english muffin baked in-house for <strong>one sandwich</strong> (the Cheekye). Snow Cap already delivers your GF english muffins. Either buy the regular ones from them too, or move the Cheekye onto the buttermilk biscuit you already bake daily — arguably a better sandwich and one more dish on the biscuit platform.</p>
+  </div>
+  <div class="card">
+    <h3>Hand-cut fries <span class="chip buy">BUY OR CONSOLIDATE</span></h3>
+    <p>Cut–blanch–double-fry is a daily station on its own, serving 3–4 items. Two options: a premium frozen kennebec-style fry (guests genuinely can't tell at brunch volume), or go to <strong>one potato program</strong> — you already make Hash for six dishes; brisket and burger can plate with hash or slaw. The double potato program is a luxury for a kitchen that's drowning.</p>
+  </div>
+  <div class="card">
+    <h3>Sourdough loaf + starter <span class="chip verify">VERIFY</span></h3>
+    <p>Daily starter feeding and baking supports the Forager, Elaho toast, and Side Toast. If the bread is part of Fergie's identity, keep it. If it's merely good bread, Snow Cap delivers daily. Decide on identity, not habit — but decide.</p>
+  </div>
+
+  <h2><span class="sec">05</span>Tier 4 — Menu cuts, pending your sales mix <span class="chip verify">VERIFY</span></h2>
+  <div class="prose"><p>These change what the customer sees, so they wait on a 4–6 week Toast product mix. The rule of thumb: <strong>a composed dish under ~4% of food-item mix that carries 4+ unique preps gets cut or rebuilt from shared components.</strong></p></div>
+
+  <div class="card">
+    <h3>Forager Tartine — $19, 5 unique preps <span class="chip verify">CHECK MIX</span></h3>
+    <p>The lowest-priced composed dish carrying the highest unique-prep density: Mushroom Ragout, nettle pesto, Vegan Yolk, Vegan Parm, pickled crosnes. If it's under ~4% of mix, replace with a vegan dish built from shared parts (mushroom ragout on sourdough with charred pesto — keep two preps, drop three). You keep a vegan option; you lose a program.</p>
+  </div>
+  <div class="card">
+    <h3>Caesar Salad — 4 unique preps <span class="chip verify">CHECK MIX</span></h3>
+    <p>Dressing, croutons, crispy capers, kelp — nothing shared with any other dish. A caesar on a brunch menu is usually a courtesy item. If mix is low, cut it and the whole program goes; if it sells, at minimum buy the croutons.</p>
+  </div>
+  <div class="card">
+    <h3>Texas Brisket vs. Smash Burger — two smoker programs <span class="chip verify">CHECK MIX</span></h3>
+    <p>You run <strong>two long-smoke proteins</strong> (brisket + 18-hr pork) and two beef handhelds. The Ranchero's pork smoke is safe — it's a signature. But if the brisket's mix doesn't justify a 12-hour smoke plus its 6 unique preps, the Smash Burger absorbs its sales at a better margin and the burger's supporting cast is already shared. This is the single biggest potential labor cut on the menu.</p>
+  </div>
+  <div class="card">
+    <h3>Suspected dead preps <span class="chip verify">AUDIT</span></h3>
+    <p>These are on the prep list but appear in <em>no</em> summer menu description: <strong>Scones, Dukkah, Roasted Pepper Relish, Vinegar Reduction, Tonka Snow, House Salad Dressing</strong> (side greens only), <strong>Pickle Jalapeños</strong>. Some may be catering-only — tag them so they're prepped for catering orders, not on the daily cafe cadence. Any with no usage at all: archive.</p>
+  </div>
+
+  <h2><span class="sec">06</span>What the diet buys you</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Move</th><th>Preps freed</th><th>Labor effect</th></tr></thead>
+      <tbody>
+        <tr><td>Tier 1 garnish cuts</td><td class="num">5–6</td><td>Ends the pastry-garnish micro-batches; ~2–4 station-hours/week</td></tr>
+        <tr><td>Tier 2 consolidations</td><td class="num">5–6</td><td>Fewer, bigger batches; shorter prep list to manage and count</td></tr>
+        <tr><td>Tier 3 buy-instead</td><td class="num">2–4</td><td>Kills a daily bake and (optionally) the fry station — the largest daily-cadence win</td></tr>
+        <tr><td>Tier 4 menu cuts (if mix confirms)</td><td class="num">4–9</td><td>Whole programs retired: salmon cure or caesar or brisket chain</td></tr>
+        <tr><td><strong>Total</strong></td><td class="num"><strong>16–25</strong></td><td><strong>58 → high-30s prep list; every remaining prep serves 2+ dishes or a top seller</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose"><p>Just as important: a shorter prep list is a shorter stock count, fewer par levels to maintain, fewer things to run out of mid-service, and a run sheet a smaller crew can actually finish.</p></div>
+
+  <h2><span class="sec">07</span>How to verify with your own data</h2>
+  <ol class="seq">
+    <li><div><b>Pull a fresh product mix</b><span>Toast → 4–6 full weeks (the June 1–10 window used at menu setup is too short and pre-summer). Or in-app: Sales page per-recipe quantities, since menu recipe names match Toast names exactly.</span></div></li>
+    <li><div><b>Score each composed dish</b><span>Mix % × contribution margin (price − plate cost, which the recipe book computes live). Sort. The bottom third that also appears shaded in the Section 01 table is your cut list.</span></div></li>
+    <li><div><b>Check station load in Smart Prep</b><span>The planner already tracks active minutes per prep item — sum by station for a week to confirm where the hours actually go before and after cuts.</span></div></li>
+    <li><div><b>Retire in the system</b><span>Deactivate cut MENU recipes; archive orphaned PREP recipes (each is a linked inventory item — retiring them also shortens counts). Tag catering-only preps out of the daily cadence.</span></div></li>
+  </ol>
+
+  <h2><span class="sec">08</span>Suggested rollout</h2>
+  <ol class="seq">
+    <li><div><b>This week — no menu reprint needed</b><span>Tier 1 garnish cuts + Tier 2 merges + dead-prep audit. The menu text doesn't change; ~10 preps come off the list.</span></div></li>
+    <li><div><b>Next 2 weeks — supplier moves</b><span>Sample bought english muffins / black pudding / fries against your own. Switch what passes. Pull the product mix meanwhile.</span></div></li>
+    <li><div><b>Next menu print — the verified cuts</b><span>Act on Forager / Caesar / Brisket per the mix data. Rebuild, don't just remove: every replacement dish must be composed from preps that already exist.</span></div></li>
+    <li><div><b>Standing rule going forward</b><span>No new dish adds more than one new prep, and every new prep must serve two dishes within a menu cycle. This is the rule that keeps the list at 38 instead of drifting back to 58.</span></div></li>
+  </ol>
+
+  <footer>Sources: summer 2026 Cafe menu seed (39 items, full compositions and prices), prep list from the 2026-08-11 inventory audit (58 PREPD items), inventory price audit (~380 items, purchased-vs-house provenance). Sales quantities were not accessible from this analysis environment — Tier 4 actions are gated on the product-mix check in Section 07.</footer>
+</main>
