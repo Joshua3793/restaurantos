@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { portionsPerBatch } from '@/lib/recipe-portions'
 import { convertQty } from '@/lib/uom'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { getCountedStockMap } from '@/lib/counted-stock'
@@ -146,11 +147,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
   for (const ri of recipeIngredients) {
     const recipe = ri.recipe
-    const portionsPerBatch = recipe.portionSize && Number(recipe.portionSize) > 0
-      ? Number(recipe.baseYieldQty) / Number(recipe.portionSize)
-      : 1
+    const perBatch = portionsPerBatch(
+      Number(recipe.baseYieldQty), recipe.yieldUnit,
+      recipe.portionSize !== null ? Number(recipe.portionSize) : null, recipe.portionUnit,
+    ) ?? 1
     for (const li of recipe.saleLineItems) {
-      const batches  = li.qtySold / portionsPerBatch
+      const batches  = li.qtySold / perBatch
       const consumed = convertQty(Number(ri.qtyBase) * batches, ri.unit, nonNullItem.baseUnit)
       raw.push({
         id: `sale-${li.saleId}-${ri.id}`,

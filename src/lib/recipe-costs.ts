@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { linkedRecipeUnitCost } from '@/lib/recipeCosts'
+import { portionsPerBatch } from '@/lib/recipe-portions'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 /**
@@ -70,9 +71,12 @@ export async function recalculateRecipeCosts(
       }
     }
 
-    const portionSize = Number(recipe.portionSize) || 0
-    const baseYield   = Number(recipe.baseYieldQty) || 1
-    const portions    = portionSize > 0 ? baseYield / portionSize : 1
+    const portions = portionsPerBatch(
+      Number(recipe.baseYieldQty) || 1,
+      recipe.yieldUnit,
+      recipe.portionSize !== null ? Number(recipe.portionSize) : null,
+      recipe.portionUnit,
+    ) ?? 1
     const newCostPerPortion = portions > 0 ? newTotalCost / portions : newTotalCost
     const oldCostPerPortion = portions > 0 ? oldTotalCost / portions : oldTotalCost
     const menuPrice   = Number(recipe.menuPrice) || 0
@@ -111,52 +115,4 @@ export async function recalculateRecipeCosts(
   }
 
   return alerts
-}
-
-/**
- * Compute the theoretical cost of a recipe from current inventory prices.
- * Returns { totalCost, costPerPortion, foodCostPct }
- */
-export async function computeRecipeCost(recipeId: string): Promise<{
-  totalCost: number
-  costPerPortion: number
-  foodCostPct: number | null
-}> {
-  const recipe = await prisma.recipe.findUniqueOrThrow({
-    where: { id: recipeId },
-    include: {
-      ingredients: {
-        include: {
-          inventoryItem: { select: { ...PRICING_SELECT } },
-          linkedRecipe: {
-            select: {
-              yieldUnit: true,
-              inventoryItem: { select: { ...PRICING_SELECT } },
-            },
-          },
-        },
-      },
-    },
-  })
-
-  let totalCost = 0
-  for (const ing of recipe.ingredients) {
-    const qty = Number(ing.qtyBase)
-    if (ing.inventoryItem) {
-      totalCost += qty * pricePerBaseUnit(asChainItem(ing.inventoryItem))
-    } else if (ing.linkedRecipe) {
-      // Sub-recipe cost from the spine (synced InventoryItem) — includes nested PREP.
-      const { costPerUnit } = linkedRecipeUnitCost(ing.linkedRecipe)
-      totalCost += qty * costPerUnit
-    }
-  }
-
-  const portionSize = Number(recipe.portionSize) || 0
-  const baseYield   = Number(recipe.baseYieldQty) || 1
-  const portions    = portionSize > 0 ? baseYield / portionSize : 1
-  const costPerPortion = portions > 0 ? totalCost / portions : totalCost
-  const menuPrice = Number(recipe.menuPrice) || 0
-  const foodCostPct = menuPrice > 0 ? costPerPortion / menuPrice : null
-
-  return { totalCost, costPerPortion, foodCostPct }
 }

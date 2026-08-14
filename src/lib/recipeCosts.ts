@@ -6,6 +6,7 @@
 import { prisma } from './prisma'
 import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isKnownUnit, unitKind } from './uom'
 import { getUnitConv } from './utils'
+import { portionsPerBatch } from './recipe-portions'
 import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
 
 export interface IngredientWithCost {
@@ -71,7 +72,9 @@ type Numeric = number | string | { toNumber(): number; toString(): string }
 export function computeRecipeCost(
   recipe: {
     baseYieldQty: Numeric
+    yieldUnit: string
     portionSize: Numeric | null
+    portionUnit?: string | null
     menuPrice: Numeric | null
     ingredients: Array<{
       id: string
@@ -161,14 +164,15 @@ export function computeRecipeCost(
   const dimensionConflicts = ingredientsWithCost.filter(i => i.dimensionConflict).length
   const totalCost    = ingredientsWithCost.reduce((s, i) => s + i.lineCost, 0)
   const baseYieldQty = Number(recipe.baseYieldQty)
-  const portionSize  = recipe.portionSize !== null ? Number(recipe.portionSize) : null
   const menuPrice    = recipe.menuPrice   !== null ? Number(recipe.menuPrice)   : null
 
-  let costPerPortion: number | null = null
-  if (portionSize !== null && portionSize > 0 && baseYieldQty > 0) {
-    const portions = baseYieldQty / portionSize
-    costPerPortion = portions > 0 ? totalCost / portions : null
-  }
+  const portions = portionsPerBatch(
+    baseYieldQty,
+    recipe.yieldUnit,
+    recipe.portionSize !== null ? Number(recipe.portionSize) : null,
+    recipe.portionUnit ?? null,
+  )
+  const costPerPortion = portions !== null && portions > 0 ? totalCost / portions : null
 
   const foodCostPct =
     costPerPortion !== null && menuPrice !== null && menuPrice > 0
