@@ -1001,8 +1001,10 @@ function InventoryPageInner() {
       </div>
       )}
 
-      {/* Desktop KPI row */}
-      <div className={`${showInactive || stockInHand ? 'hidden' : 'hidden sm:grid'} gap-3`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
+      {/* Desktop KPI row — scrolls sideways when 5 cards can't fit (iPad);
+          fr columns never shrink below the nowrap hero's min-content, so
+          without the scroll the last card gets clipped. */}
+      <div className={`${showInactive || stockInHand ? 'hidden' : 'hidden sm:grid'} gap-3 overflow-x-auto`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr', scrollbarWidth: 'none' }}>
         {/* Hero — Current Stock Value */}
         <div className="bg-ink text-paper rounded-xl border border-ink p-5 flex flex-col justify-between min-h-[128px] relative">
           <div className="absolute right-4 top-[18px] flex gap-[2px] items-end h-[18px]">
@@ -1076,7 +1078,7 @@ function InventoryPageInner() {
 
       {/* Desktop KPI row — Stock in Hand basis. Same numbers the xlsx export writes. */}
       {stockInHand && (
-      <div className={`${showInactive ? 'hidden' : 'hidden sm:grid'} gap-3`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr' }}>
+      <div className={`${showInactive ? 'hidden' : 'hidden sm:grid'} gap-3 overflow-x-auto`} style={{ gridTemplateColumns: '1.35fr 1fr 1fr 1fr 1fr', scrollbarWidth: 'none' }}>
         <div className="bg-ink text-paper rounded-xl border border-ink p-5 flex flex-col justify-between min-h-[128px]">
           <div>
             <div className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">STOCK IN HAND VALUE</div>

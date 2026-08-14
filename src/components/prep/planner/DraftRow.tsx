@@ -55,14 +55,18 @@ export function DraftRow({
       className={`bg-paper border border-line rounded-[10px] pt-2 pb-[7px] px-2.5 border-l-[3px] ${dragging ? 'opacity-35' : ''} ${over ? 'shadow-[0_-2px_0_#09090b]' : ''}`}
       style={{ borderLeftColor: m.hex }}
     >
-      <div className="flex items-center gap-2">
+      {/* flex-wrap + a name min-width: the stepper/dial/assign cluster is
+          ~400px of fixed-width controls, so on a narrow pane (iPad) it wraps
+          under the name instead of clipping at the pane edge — and the name
+          can never be squeezed to zero. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <span
           title={locked ? 'Chef only' : 'Drag to reorder within this step'}
           className={`shrink-0 ${locked ? 'opacity-35' : 'cursor-grab'}`}
         >
           <GripVertical size={13} className="text-ink-4" />
         </span>
-        <button type="button" onClick={() => onOpen(item)} className="flex-1 min-w-0 flex items-center gap-1.5 text-left">
+        <button type="button" onClick={() => onOpen(item)} className="flex-1 min-w-[140px] flex items-center gap-1.5 text-left">
           <span className="text-[13px] font-semibold tracking-[-0.01em] text-ink truncate">{item.name}</span>
           {item.station && <span className="font-mono text-[9px] font-medium uppercase tracking-[0.04em] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
           {item.isBlocked && <span className="font-mono text-[9px] font-bold uppercase bg-gold-soft text-gold-2 px-1.5 py-0.5 rounded-full shrink-0">BLOCKED</span>}
@@ -75,7 +79,7 @@ export function DraftRow({
           <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
         </button>
       </div>
-      <div className="flex items-center gap-[7px] mt-[5px] pl-[18px] font-mono text-[9px] text-ink-4 whitespace-nowrap min-w-0">
+      <div className="flex flex-wrap items-center gap-[7px] mt-[5px] pl-[18px] font-mono text-[9px] text-ink-4 whitespace-nowrap min-w-0">
         <Reason item={item} sm />
         <span>·</span>
         {overridden

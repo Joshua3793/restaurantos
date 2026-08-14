@@ -27,8 +27,10 @@ export function CrewStrip({
   items: PrepItemRich[]
   nowMin: number
 }) {
+  // Cards grow to fill the row but never shrink below a readable width — past
+  // that the strip scrolls horizontally instead of chopping names (iPad).
   return (
-    <div className="grid gap-2.5 mb-[18px]" style={{ gridTemplateColumns: `repeat(${cooks.length || 1},1fr)` }}>
+    <div className="flex gap-2.5 mb-[18px] overflow-x-auto">
       {cooks.map(cook => (
         <CrewCard key={cook.id} cook={cook} items={items} nowMin={nowMin} />
       ))}
@@ -49,12 +51,12 @@ function CrewCard({ cook, items, nowMin }: { cook: Cook; items: PrepItemRich[]; 
   const doingElapsed = doing?.todayLog?.startedAt ? Math.max(0, nowMin - minuteOfDay(doing.todayLog.startedAt)) : 0
 
   return (
-    <div className="flex items-center gap-2.5 bg-paper border border-line rounded-xl px-3 py-2.5">
+    <div className="flex-[1_0_190px] min-w-0 flex items-center gap-2.5 bg-paper border border-line rounded-xl px-3 py-2.5">
       <span className="w-8 h-8 rounded-full bg-ink text-gold grid place-items-center font-mono text-[10px] font-bold shrink-0">
         {cook.initials}
       </span>
       <span className="min-w-0">
-        <span className="block text-[12.5px] font-semibold tracking-[-0.01em] whitespace-nowrap">
+        <span className="block text-[12.5px] font-semibold tracking-[-0.01em] whitespace-nowrap overflow-hidden text-ellipsis">
           {cook.name.split(' ')[0]}{' '}
           {cook.homeStation && (
             <span className="font-mono text-[9px] font-medium text-ink-3">· {cook.homeStation.toUpperCase()}</span>
@@ -68,7 +70,7 @@ function CrewCard({ cook, items, nowMin }: { cook: Cook; items: PrepItemRich[]; 
           {doing ? `● ${doing.name} · ${fmtMins(doingElapsed)}` : 'between tasks'}
         </span>
         <span
-          className={`block font-mono text-[9.5px] mt-px whitespace-nowrap ${lateN ? 'text-red-text' : 'text-ink-4'}`}
+          className={`block font-mono text-[9.5px] mt-px whitespace-nowrap overflow-hidden text-ellipsis ${lateN ? 'text-red-text' : 'text-ink-4'}`}
         >
           {queue.length} queued · {fmtMins(load)} hands-on{lateN ? ` · ${lateN} late` : ''}
         </span>

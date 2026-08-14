@@ -3,7 +3,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, Suspense, useEffect } from 'react'
-import { X, LogOut, ChevronRight, Wifi, WifiOff, Lock } from 'lucide-react'
+import { X, LogOut, ChevronRight, Wifi, WifiOff, Lock, Menu } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
@@ -59,6 +59,19 @@ function NavigationInner() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
+  // Tablet (md..lg) overlay sidebar: summoned by the hamburger in the top bar,
+  // covers content instead of docking. On lg+ the sidebar is permanently docked
+  // and this state is inert.
+  const [navOpen, setNavOpen] = useState(false)
+
+  // Close the overlay after navigating, and on Escape.
+  useEffect(() => { setNavOpen(false) }, [pathname])
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
 
   useEffect(() => {
     const on = () => setIsOffline(false)
@@ -117,9 +130,29 @@ function NavigationInner() {
 
   return (
     <>
-      {/* ── Desktop Sidebar (v2) ─────────────────────────────────── */}
+      {/* ── Tablet hamburger (md..lg) ────────────────────────────── */}
+      {/* Sits over the left edge of the fixed top bar (CostChrome pads its
+          brand right at md..lg to make room). On lg+ the sidebar is docked,
+          so the toggle disappears. */}
+      <button
+        onClick={() => setNavOpen(o => !o)}
+        aria-label={navOpen ? 'Close menu' : 'Open menu'}
+        className="hidden md:grid lg:hidden fixed top-0 left-2 z-[55] h-11 w-10 place-items-center text-line-2 hover:text-white transition-colors"
+      >
+        {navOpen ? <X size={19} /> : <Menu size={19} />}
+      </button>
+
+      {/* Backdrop for the tablet overlay — covers (doesn't reflow) the page. */}
+      {navOpen && (
+        <div
+          onClick={() => setNavOpen(false)}
+          className="hidden md:block lg:hidden fixed inset-0 top-11 z-30 bg-ink/40"
+        />
+      )}
+
+      {/* ── Sidebar — docked on lg+, summoned overlay on md..lg ──── */}
       <aside
-        className={`hidden md:flex flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-line-2 ${
+        className={`${navOpen ? 'hidden md:flex shadow-[12px_0_40px_rgba(0,0,0,0.4)] lg:shadow-none' : 'hidden lg:flex'} flex-col w-[240px] fixed left-0 z-40 px-[14px] py-[18px] gap-[18px] text-line-2 ${
           isAuthRoute(pathname) ? 'top-0 h-screen' : 'top-11 h-[calc(100vh-44px)]'
         }`}
         style={{ background: '#09090b' }}
