@@ -7,6 +7,7 @@ import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv,
 import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
+import { loadBuffer } from '@/lib/invoice-files'
 import type { OcrResult } from '@/lib/invoice-ocr'
 
 function hasAnthropicKey(): boolean {
@@ -126,7 +127,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const sessionMeta: Partial<OcrResult> = {}
     let allOcrItems: OcrResult['lineItems'] = []
 
-    // loadBuffer defined at module scope — see bottom of file
+    // loadBuffer imported from src/lib/invoice-files
 
     const imageFiles  = filesToProcess.filter(f => !f.ocrRawJson && isImage(f.fileType, f.fileName))
     const nonImgFiles = filesToProcess.filter(f => !f.ocrRawJson && !isImage(f.fileType, f.fileName))
@@ -457,16 +458,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-async function loadBuffer(file: { fileUrl: string; fileName: string }): Promise<Buffer> {
-  if (file.fileUrl.startsWith('data:')) {
-    const comma = file.fileUrl.indexOf(',')
-    return Buffer.from(file.fileUrl.slice(comma + 1), 'base64')
-  }
-  const res = await fetch(file.fileUrl)
-  if (!res.ok) throw new Error(`Failed to fetch ${file.fileName}: ${res.status}`)
-  return Buffer.from(await res.arrayBuffer())
-}
 
 function isImage(fileType: string, fileName: string): boolean {
   const ft = fileType.toLowerCase()
