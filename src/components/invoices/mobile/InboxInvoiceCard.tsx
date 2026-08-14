@@ -11,6 +11,7 @@ const TONE: Record<string, { border: string; iconBg: string; icon: string; badge
 export function InboxInvoiceCard({ item, onOpen }: { item: InboxItem; onOpen: (sessionId: string) => void }) {
   const s = item.raw as SessionSummary
   const t = TONE[item.tone] ?? TONE.gold
+  const actionLabel = item.kind === 'invoice' && s.status === 'GROUPING' ? 'Group' : 'Review'
   return (
     <button
       type="button"
@@ -26,7 +27,7 @@ export function InboxInvoiceCard({ item, onOpen }: { item: InboxItem; onOpen: (s
         <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">{item.meta}</div>
         {item.needsAction && (
           <span className="inline-flex items-center gap-1 mt-2 font-mono text-[10.5px] font-semibold text-gold-2 bg-gold-soft px-2 py-1 rounded-full">
-            Review <ChevronRight size={12} />
+            {actionLabel} <ChevronRight size={12} />
           </span>
         )}
       </div>
