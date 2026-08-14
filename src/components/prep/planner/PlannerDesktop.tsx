@@ -152,7 +152,10 @@ export function PlannerDesktop({
   return (
     <div className="space-y-3.5">
       {tasksSlot}
-      <div className="grid grid-cols-[440px_1fr] gap-3.5 items-stretch" style={{ height: 'calc(100vh - 230px)', minHeight: 560 }}>
+      {/* 440px suggestions column only when there's desktop room — on iPad
+          (md..xl) it would starve the prep-list pane, whose header controls
+          get clipped by the pane's overflow-hidden. */}
+      <div className="grid grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[440px_1fr] gap-3.5 items-stretch" style={{ height: 'calc(100vh - 230px)', minHeight: 560 }}>
         {/* ── suggestions ── */}
         <div className={paneCls}>
           <div className="shrink-0 flex items-center gap-2 px-3.5 pt-3 pb-2.5 border-b border-line">
@@ -179,7 +182,7 @@ export function PlannerDesktop({
               ))}
             </div>
           </div>
-          <div className="shrink-0 flex gap-1.5 px-3 py-2.5 bg-bg border-b border-line">
+          <div className="shrink-0 flex flex-wrap gap-1.5 px-3 py-2.5 bg-bg border-b border-line">
             <button type="button" onClick={handlers.onAddAllCritical} disabled={locked || !urgent} className={btnCls(locked || !urgent)}>
               <AlertTriangle size={13} className={locked || !urgent ? 'text-ink-4' : 'text-ink-3'} /> Add all critical{urgent ? ` · ${urgent}` : ''}
             </button>
@@ -207,7 +210,7 @@ export function PlannerDesktop({
 
         {/* ── prep list ── */}
         <div className={`${paneCls} ${clean ? '' : '!border-ink'}`}>
-          <div className={`shrink-0 flex items-center gap-2 px-3.5 pt-3 pb-2.5 border-b border-line ${clean ? 'bg-paper' : 'bg-bg'}`}>
+          <div className={`shrink-0 flex flex-wrap items-center gap-2 px-3.5 pt-3 pb-2.5 border-b border-line ${clean ? 'bg-paper' : 'bg-bg'}`}>
             <span className="w-6 h-6 rounded-[7px] bg-ink grid place-items-center shrink-0"><ChefHat size={13} className="text-gold" /></span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">

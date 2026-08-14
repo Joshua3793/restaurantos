@@ -1459,7 +1459,9 @@ export default function CountPage() {
             </div>
 
             {/* ── KPI context strip (desktop) ── */}
-            <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {/* 4-across only at xl — at lg the docked sidebar leaves ~784px and
+                the 42px hero value overflows a quarter-width card (iPad landscape). */}
+            <div className="hidden md:grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
               {/* Hero: last finalized */}
               <div className="bg-ink text-paper rounded-xl border border-ink p-[18px] flex flex-col justify-between min-h-[120px] relative">
                 <div className="absolute top-[18px] right-4 flex items-end gap-[3px] h-[18px]">

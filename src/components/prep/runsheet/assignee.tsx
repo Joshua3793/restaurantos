@@ -103,7 +103,7 @@ export function ClaimPopover({
           left: pos?.left ?? 0,
           visibility: pos ? 'visible' : 'hidden',
         }}
-        className="z-[61] bg-paper border border-line-2 rounded-[11px] shadow-[0_12px_32px_rgba(0,0,0,0.14)] p-1 w-[172px]"
+        className="z-[61] bg-paper border border-line-2 rounded-[11px] shadow-[0_12px_32px_rgba(0,0,0,0.14)] p-1 w-[172px] max-h-[min(60vh,420px)] overflow-y-auto"
       >
         {cooks.length === 0 && (
           // No crew yet → the picker would otherwise show a lone UNASSIGN row and the

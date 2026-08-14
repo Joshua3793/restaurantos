@@ -38,7 +38,9 @@ export function SuggestionRow({ item, locked, onOpen, onAdd, onRemove }: {
           )}
         </span>
         <span className="flex items-center gap-[7px] mt-0.5 min-w-0">
-          <span className="font-mono text-[9px] text-ink-4 shrink-0">{item.category}{item.station ? ` · ${item.station}` : ''}</span>
+          {/* min-w-0+truncate, not shrink-0 — a long category otherwise paints
+              over the neighbouring progress column when the pane is narrow */}
+          <span className="font-mono text-[9px] text-ink-4 min-w-0 truncate">{item.category}{item.station ? ` · ${item.station}` : ''}</span>
           <Reason item={item} sm />
         </span>
       </button>

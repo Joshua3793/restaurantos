@@ -5,7 +5,9 @@ import { isAuthRoute } from '@/lib/chrome-routes'
 
 /**
  * Client wrapper around the page content. Owns one offset:
- *  - left: push content right by the fixed docked sidebar width (240px) on desktop.
+ *  - left: push content right by the fixed docked sidebar width (240px) on
+ *          desktop (lg+ only — tablets get the full width; the sidebar there
+ *          is a summoned overlay that covers content instead of docking).
  *  - top: on app routes, clear the fixed full-width top bar (CostChrome),
  *         which spans over the sidebar column so the brand stays pinned.
  *
@@ -18,7 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <main
-        className={`${chrome ? 'md:ml-[240px] md:pt-11 pb-20 md:pb-0 mobile-content-top' : ''} min-h-screen bg-bg flex flex-col`}
+        className={`${chrome ? 'lg:ml-[240px] md:pt-11 pb-20 md:pb-0 mobile-content-top' : ''} min-h-screen bg-bg flex flex-col`}
       >
         <CostChromeGate />
         <div
