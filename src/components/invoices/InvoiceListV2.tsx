@@ -18,7 +18,7 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
 }
 
 const STATUS_ORDER: Record<string, number> = {
-  REVIEW: 0, PROCESSING: 1, APPROVING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4, ERROR: 5,
+  REVIEW: 0, GROUPING: 0, PROCESSING: 1, APPROVING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4, ERROR: 5,
 }
 
 interface Props {
@@ -36,6 +36,7 @@ interface Props {
 function StatusBadge({ status }: { status: SessionStatus }) {
   const map: Partial<Record<SessionStatus, { label: string; bg: string; text: string; dot: string; pulse?: boolean }>> = {
     REVIEW:     { label: 'Review',     bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
+    GROUPING:   { label: 'Needs grouping', bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
     APPROVED:   { label: 'Approved',   bg: 'bg-green-soft', text: 'text-green-text', dot: 'bg-green' },
     REJECTED:   { label: 'Rejected',   bg: 'bg-red-soft',   text: 'text-red-text',  dot: 'bg-red' },
     PROCESSING: { label: 'Processing', bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue', pulse: true },

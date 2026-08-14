@@ -41,6 +41,7 @@ interface Props {
 
 const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
   REVIEW:     'Needs review',
+  GROUPING:   'Needs grouping',
   PROCESSING: 'Processing',
   UPLOADING:  'Uploading',
   APPROVING:  'Applying',
@@ -49,6 +50,7 @@ const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
 
 const STATUS_TINT: Partial<Record<SessionStatus, { bg: string; text: string; dot: string }>> = {
   REVIEW:     { bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
+  GROUPING:   { bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
   PROCESSING: { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
   UPLOADING:  { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
   APPROVING:  { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
@@ -109,7 +111,7 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
   const queue = sessions
     .filter(s => !['APPROVED', 'REJECTED'].includes(s.status))
     .sort((a, b) => {
-      const order: Partial<Record<SessionStatus, number>> = { REVIEW: 0, ERROR: 1, APPROVING: 2, PROCESSING: 3, UPLOADING: 4 }
+      const order: Partial<Record<SessionStatus, number>> = { REVIEW: 0, GROUPING: 0, ERROR: 1, APPROVING: 2, PROCESSING: 3, UPLOADING: 4 }
       return (order[a.status] ?? 9) - (order[b.status] ?? 9)
     })
 
@@ -192,7 +194,7 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
             {queue.map((session, idx) => {
               const isActive = session.status === 'PROCESSING' || session.status === 'UPLOADING' || session.status === 'APPROVING'
               const isError  = session.status === 'ERROR'
-              const canOpen  = session.status === 'REVIEW' || session.status === 'ERROR'
+              const canOpen  = session.status === 'REVIEW' || session.status === 'ERROR' || session.status === 'GROUPING'
               const tint = STATUS_TINT[session.status] ?? { bg: 'bg-bg-2', text: 'text-ink-3', dot: 'bg-ink-4' }
               const isLast = idx === queue.length - 1
 
