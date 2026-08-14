@@ -154,4 +154,18 @@ describe('proposeGroups', () => {
     const { groups } = proposeGroups([photo({ supplierName: 'Sysco', invoiceNumber: 'A1' })])
     expect(groups).toHaveLength(1)
   })
+
+  it('continuation survives an intervening PDF: lastPhoto is not reset by non-photos', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: 'A1' }),
+      pdf({ supplierName: 'GFS', invoiceNumber: 'B7' }),
+      photo({ supplierName: null, invoiceNumber: null }),
+    ]
+    const { groups, unassigned } = proposeGroups(files)
+    expect(groups).toHaveLength(2)
+    expect(groups[0].kind).toBe('photos')
+    expect(groups[0].fileIds).toEqual([files[0].id, files[2].id])
+    expect(groups[1].kind).toBe('pdf')
+    expect(unassigned).toEqual([])
+  })
 })
