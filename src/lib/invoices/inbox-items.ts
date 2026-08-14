@@ -34,7 +34,7 @@ export interface InboxItem {
 }
 
 const STATUS_BADGE: Partial<Record<SessionStatus, string>> = {
-  REVIEW: 'REVIEW', PROCESSING: 'OCR…', UPLOADING: 'UPLOAD…', APPROVING: 'APPLYING…', ERROR: 'ERROR',
+  REVIEW: 'REVIEW', GROUPING: 'Needs grouping', PROCESSING: 'OCR…', UPLOADING: 'UPLOAD…', APPROVING: 'APPLYING…', ERROR: 'ERROR',
 }
 
 function fmtMoney(n: number): string {
@@ -72,7 +72,7 @@ function sessionToItem(s: SessionSummary): InboxItem | null {
     title: [s.supplierName ?? 'Unknown supplier', dateStr].filter(Boolean).join(' · '),
     meta: metaBits.join(' · '),
     badge: STATUS_BADGE[s.status],
-    needsAction: s.status === 'REVIEW' || isError,
+    needsAction: s.status === 'REVIEW' || s.status === 'GROUPING' || isError,
     ageMs: Date.now() - new Date(s.createdAt).getTime(),
     raw: s,
   }
