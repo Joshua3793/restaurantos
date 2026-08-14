@@ -28,7 +28,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, suggestedDraftQty, effectivePriority } from '@/lib/prep-plan'
+import { applyStatusToItem, defaultDraftQty, effectivePriority } from '@/lib/prep-plan'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
@@ -39,7 +39,6 @@ import type { PrepPostInfo } from '@/components/prep/types'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
-const PrepDetailPanel   = dynamic(() => import('@/components/prep/PrepDetailPanel').then(m => ({ default: m.PrepDetailPanel })), { ssr: false, loading: () => null })
 const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
@@ -53,7 +52,6 @@ export default function PrepPage() {
   const [plan,         setPlan]         = useState<{ post: PrepPostInfo | null }>({ post: null })
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
-  const [selected,     setSelected]     = useState<PrepItemRich | null>(null)
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
   const markSaving = (id: string, on: boolean) =>
     setSavingIds(prev => {
@@ -322,10 +320,9 @@ export default function PrepPage() {
   // ~5s /api/prep/items request on every mount.
   useEffect(() => { load() }, [load])
 
-  useEffect(() => {
-    setDrawerOpen(selected !== null)
-    return () => setDrawerOpen(false)
-  }, [selected, setDrawerOpen])
+  // The fused item drawer handles its own overlay; keep the app chrome's drawer
+  // flag off for this page (the old detail panel that used it is gone).
+  useEffect(() => () => setDrawerOpen(false), [setDrawerOpen])
 
   // Online/offline events — auto-sync queue on reconnect
   useEffect(() => {
@@ -386,11 +383,13 @@ export default function PrepPage() {
   const categories = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
   // Today tab: the kitchen works off the POSTED list — a draft add reaches To Do
-  // only when the chef posts (Smart Prep v2). Anything completed today stays
-  // visible in the "Done" section for the rest of the shift regardless.
+  // only when the chef posts (Smart Prep v2). Work already in flight survives a
+  // recall: anything started or completed today stays visible (the cook keeps
+  // their timer and Done button even while the chef redrafts).
   const todayItems = useMemo(() =>
     items.filter(i =>
       i.todayLog?.postedAt != null ||
+      i.todayLog?.status === 'IN_PROGRESS' ||
       i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
     ),
   [items])
@@ -510,12 +509,6 @@ export default function PrepPage() {
     return _never
   }, [svcStatus])
   const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
-
-  // Keep detail panel in sync with live data
-  const selectedLive = useMemo(
-    () => selected ? (items.find(i => i.id === selected.id) ?? selected) : null,
-    [selected, items],
-  )
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -769,7 +762,6 @@ export default function PrepPage() {
     try {
       setItems(prev => prev.filter(i => i.id !== itemId))
       await fetch(`/api/prep/items/${itemId}`, { method: 'DELETE' })
-      if (selected?.id === itemId) setSelected(null)
       // No reload — the optimistic filter already removed the row; a full ~5s
       // /api/prep/items refetch here just re-rendered the list a few seconds later.
     } catch {
@@ -891,11 +883,11 @@ export default function PrepPage() {
     return runOp
   }
 
-  // Add to the draft, seeding the planned qty with the rounded suggestion.
+  // Add to the draft, seeding the planned qty with the (batch-aware) suggestion.
   function handleAddToDraft(item: PrepItemRich) {
     handleToggleOnList(item.id, true)
     const hasQty = item.todayLog?.requiredQty != null && Number(item.todayLog.requiredQty) > 0
-    const sugg = suggestedDraftQty(item)
+    const sugg = defaultDraftQty(item)
     if (!hasQty && sugg > 0) handleDraftEdit(item, { requiredQty: sugg })
   }
 
@@ -906,7 +898,7 @@ export default function PrepPage() {
   function handleAcceptSuggested() {
     for (const i of items) {
       if (!i.isOnList) continue
-      const sugg = suggestedDraftQty(i)
+      const sugg = defaultDraftQty(i)
       if (sugg > 0 && Math.abs(Number(i.todayLog?.requiredQty ?? 0) - sugg) > 0.01) {
         handleDraftEdit(i, { requiredQty: sugg })
       }
@@ -1639,16 +1631,6 @@ export default function PrepPage() {
             )
           })()}
         </div>
-      )}
-
-      {/* Detail panel */}
-      {selectedLive && (
-        <PrepDetailPanel
-          item={selectedLive}
-          onClose={() => setSelected(null)}
-          onRefresh={() => { load(); setSelected(null) }}
-          onEdit={() => { setEditing(selectedLive); setSelected(null) }}
-        />
       )}
 
       {/* Fused item drawer — item context + embedded cook-along (upscale / ingredients / method). */}

@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { X } from 'lucide-react'
-import { PREP_STATIONS, PREP_PRIORITY_META, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { PREP_STATIONS, URGENCY_ORDER, normalizeUrgency } from '@/lib/prep-utils'
+import { PLAN_URG_META } from '@/lib/prep-plan'
 import { PREP_YIELD_UNITS } from '@/lib/uom'
 import { startByMinutes, fmtClock, fmtStartBy, fmtMins } from '@/lib/prep-runsheet'
 import type { PrepItemRich } from './types'
@@ -79,7 +80,9 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
         targetToday:           item.targetToday != null ? String(item.targetToday) : '',
         shelfLifeDays:         item.shelfLifeDays != null ? String(item.shelfLifeDays) : '',
         notes:                 item.notes                ?? '',
-        manualPriorityOverride: item.manualPriorityOverride ?? '',
+        // Normalize legacy 3-level tokens to the urgency vocabulary so the
+        // select shows the stored override instead of a blank.
+        manualPriorityOverride: normalizeUrgency(item.manualPriorityOverride) ?? '',
         revenueCenterId:       item.revenueCenterId       ?? '',
         targetServiceId:       item.targetServiceId       ?? '',
         // Bind the RAW override, never the resolved value — see types.ts. A blank
@@ -326,12 +329,12 @@ export function PrepItemForm({ item, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          {field('Manual Priority Override', (
+          {field('Needed — step override', (
             <select className={selCls} value={form.manualPriorityOverride}
               onChange={e => set('manualPriorityOverride', e.target.value)}>
-              <option value="">— Auto (system decides) —</option>
-              {PREP_PRIORITY_ORDER.map(p => (
-                <option key={p} value={p}>{PREP_PRIORITY_META[p].label}</option>
+              <option value="">— Smart (stock decides) —</option>
+              {URGENCY_ORDER.map(u => (
+                <option key={u} value={u}>{PLAN_URG_META[u].label} — {PLAN_URG_META[u].when}</option>
               ))}
             </select>
           ))}

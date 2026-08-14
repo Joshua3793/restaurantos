@@ -169,6 +169,18 @@ export function suggestedBatches(t: BatchFields): number | null {
 
 export const fmtBatch = (n: number) => `×${n % 1 === 0 ? n : n.toFixed(1)}`
 
+/**
+ * The qty a fresh draft row should be seeded with: batch items take the
+ * half-batch-CEILED suggestion (their default display mode), everything else
+ * the UOM-rounded one. Seeding the plain UOM value on a batch item made every
+ * add start "overridden" (×1.24 batch vs SUGG ×1.5).
+ */
+export function defaultDraftQty(t: BatchFields): number {
+  const nb = suggestedBatches(t)
+  if (nb != null) return nb > 0 ? batchesToQty(t, nb) : 0
+  return suggestedDraftQty(t)
+}
+
 /** "×1.5 batch" label for a planned qty, or null when batches don't apply. */
 export function batchLabel(t: BatchFields, qty: number): string | null {
   const n = batchCount(t, qty)
