@@ -10,6 +10,8 @@ import { compressImageFile } from '@/lib/image-compress'
 interface Props {
   onClose: () => void
   onComplete: (newSessionId: string) => void
+  /** Called instead of onComplete when >1 file was uploaded — parent opens the grouping screen. */
+  onGrouping: (sessionId: string) => void
   activeRcId: string | null
 }
 
@@ -19,7 +21,7 @@ const fileIcon = (fileType: string) => {
   return <Image size={16} className="text-blue" />
 }
 
-export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
+export function InvoiceUploadModal({ onClose, onComplete, onGrouping, activeRcId }: Props) {
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -144,11 +146,14 @@ export function InvoiceUploadModal({ onClose, onComplete, activeRcId }: Props) {
         }
       }
 
-      // 3. Fire process as fire-and-forget (drawer will poll for status updates)
-      fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
-
-      // 4. Close modal and open drawer on new session
-      onComplete(sess.id)
+      // 3. One file → process immediately (today's flow). Multiple files →
+      //    hand off to the grouping screen; OCR starts only after confirm.
+      if (compressedFiles.length > 1) {
+        onGrouping(sess.id)
+      } else {
+        fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
+        onComplete(sess.id)
+      }
     } catch (err) {
       setScanError(`Unexpected error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {

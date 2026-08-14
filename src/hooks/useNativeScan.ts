@@ -9,6 +9,8 @@ import { compressImageFile } from '@/lib/image-compress'
 interface Options {
   activeRcId: string | null
   onComplete: () => void
+  /** Called with the session id when >1 page was captured — parent opens the grouping screen. */
+  onGrouping?: (sessionId: string) => void
 }
 
 // Converts a base64 JPEG string (no data-URI prefix) to Uint8Array.
@@ -19,7 +21,7 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes
 }
 
-export function useNativeScan({ activeRcId, onComplete }: Options) {
+export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
 
@@ -116,8 +118,13 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
         uploadOk = true
       }
 
-      // 5. Kick off OCR (fire-and-forget; drawer polls for status)
-      fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
+      // 5. One page → OCR immediately. Multi-page capture → grouping screen
+      //    (the batch may be several invoices photographed in one go).
+      if (pageFiles.length > 1 && onGrouping) {
+        onGrouping(sess.id)
+      } else {
+        fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
+      }
 
       // 6. Notify parent
       onComplete()
@@ -126,7 +133,7 @@ export function useNativeScan({ activeRcId, onComplete }: Options) {
     } finally {
       setIsScanning(false)
     }
-  }, [activeRcId, onComplete, startUpload])
+  }, [activeRcId, onComplete, onGrouping, startUpload])
 
   const clearError = () => setScanError(null)
 
