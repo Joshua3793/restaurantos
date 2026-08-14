@@ -75,7 +75,7 @@ export function LoadStrip({ draft, cooks, ctx }: { draft: PrepItemRich[]; cooks:
 
 export function PlannerDesktop({
   items, allItems, stations, cooks, services, nowMin, canPlan, post,
-  search, onSearch, station, onStation, handlers, tasksSlot,
+  search, onSearch, handlers, tasksSlot,
 }: {
   items: PrepItemRich[]              // filtered (search/category) — shapes the LEFT pane
   allItems: PrepItemRich[]           // unfiltered — the draft pane must not hide rows on search
@@ -87,8 +87,6 @@ export function PlannerDesktop({
   post: PrepPostInfo | null
   search: string
   onSearch: (v: string) => void
-  station: string
-  onStation: (v: string) => void
   handlers: PlannerHandlers
   tasksSlot?: React.ReactNode
 }) {
@@ -107,10 +105,9 @@ export function PlannerDesktop({
     setBatchToggles(prev => new Map(prev).set(item.id, next))
 
   const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
-  const pool = useMemo(
-    () => items.filter(t => station === 'all' || (t.station ?? '') === station),
-    [items, station],
-  )
+  // No station filter chips — the View-by toggle (step/station/category) is
+  // how the pool is sliced now.
+  const pool = items
   const draft = useMemo(() => allItems.filter(i => i.isOnList), [allItems])
   const sched = useMemo<Map<string, PlanSlot>>(
     () => (ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map()),
@@ -171,17 +168,12 @@ export function PlannerDesktop({
               className="w-24 text-[11.5px] text-ink bg-bg border border-line rounded-lg px-2 py-1.5 outline-none placeholder:text-ink-4"
             />
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-line overflow-x-auto">
-            {['all', ...stations].map(s => (
-              <button key={s} type="button" onClick={() => onStation(s)}
-                className={`shrink-0 font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] rounded-full px-2.5 py-1 border ${station === s ? 'bg-ink text-paper border-ink' : 'bg-bg text-ink-3 border-line'}`}>
-                {s === 'all' ? 'ALL' : s}
-              </button>
-            ))}
-            <div className="flex items-center gap-0.5 bg-bg border border-line rounded-full p-0.5 ml-auto shrink-0">
-              {([['urgency', 'STEP'], ['station', 'STN'], ['category', 'CATEGORY']] as const).map(([k, l]) => (
-                <button key={k} type="button" onClick={() => setSuggBy(k)} title={k === 'station' ? 'Group by station' : undefined}
-                  className={`font-mono text-[9px] font-bold uppercase tracking-[0.05em] rounded-full px-2 py-0.5 ${suggBy === k ? 'bg-ink text-paper' : 'text-ink-3'}`}>
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-line">
+            <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-4">View by</span>
+            <div className="flex items-center gap-0.5 bg-bg border border-line rounded-full p-0.5 shrink-0">
+              {([['urgency', 'STEP'], ['station', 'STATION'], ['category', 'CATEGORY']] as const).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setSuggBy(k)}
+                  className={`font-mono text-[9px] font-bold uppercase tracking-[0.05em] rounded-full px-2.5 py-1 ${suggBy === k ? 'bg-ink text-paper' : 'text-ink-3'}`}>
                   {l}
                 </button>
               ))}

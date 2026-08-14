@@ -99,7 +99,6 @@ export default function PrepPage() {
   // Filters (used in Smart Prep and Today)
   const [search,         setSearch]         = useState('')
   const [filterCategory, setFilterCategory] = useState('ALL')
-  const [filterStation,  setFilterStation]  = useState<'ALL' | 'UNASSIGNED' | (string & {})>('ALL')
   const [activeOnly,     setActiveOnly]     = useState(true)
 
   // Settings — station list for Smart Prep grouping and filter dropdown
@@ -262,17 +261,6 @@ export default function PrepPage() {
       }
     } catch { /* silent degradation */ }
   }, [])
-
-  // Reset station filter if the selected station no longer exists in settings
-  useEffect(() => {
-    if (
-      filterStation !== 'ALL' &&
-      filterStation !== 'UNASSIGNED' &&
-      !stations.includes(filterStation as string)
-    ) {
-      setFilterStation('ALL')
-    }
-  }, [stations, filterStation])
 
   // Kitchen crew for the run sheet's claim popover / crew strip. Cooks change
   // rarely, so a one-shot load on mount is enough (no polling).
@@ -1415,8 +1403,6 @@ export default function PrepPage() {
               post={plan.post}
               search={search}
               onSearch={setSearch}
-              station={filterStation === 'ALL' || filterStation === 'UNASSIGNED' ? 'all' : filterStation}
-              onStation={(s) => setFilterStation(s === 'all' ? 'ALL' : s)}
               handlers={plannerHandlers}
               tasksSlot={
                 <PrepTaskLibrary
