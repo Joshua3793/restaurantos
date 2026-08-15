@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const body = await req.json().catch(() => null)
   const groups = body?.groups as SplitGroup[] | undefined
   if (!Array.isArray(groups) || groups.length === 0 ||
-      groups.some(g => !Array.isArray(g.fileIds) || g.fileIds.length === 0)) {
+      groups.some(g => !g || typeof g !== 'object' || !Array.isArray(g.fileIds) || g.fileIds.length === 0)) {
     return NextResponse.json({ error: 'groups must be a non-empty array of non-empty fileId lists' }, { status: 400 })
   }
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     select: { id: true, status: true, revenueCenterId: true, files: { select: { id: true } } },
   })
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
-  if (!['UPLOADING', 'PROCESSING', 'GROUPING'].includes(session.status)) {
+  if (!['GROUPING', 'UPLOADING'].includes(session.status)) {
     return NextResponse.json({ error: `Session is ${session.status} — cannot re-split` }, { status: 409 })
   }
 

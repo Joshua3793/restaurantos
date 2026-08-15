@@ -142,7 +142,7 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
               </div>
               <div>
                 <h2 className="text-base font-bold text-ink">Confirm invoices</h2>
-                <p className="text-xs text-ink-4">Tap a photo to move it if something's misfiled</p>
+                <p className="text-xs text-ink-4">Tap a photo to move it if something&apos;s misfiled</p>
               </div>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg text-ink-4 hover:bg-bg-2" title="Keep for later">

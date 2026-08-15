@@ -24,7 +24,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     where: { id: params.id },
     include: {
       files: {
-        select: { id: true, fileName: true, fileType: true, fileUrl: true, peekMeta: true },
+        select: { id: true, fileName: true, fileType: true, fileUrl: true, peekMeta: true, ocrStatus: true, ocrRawJson: true },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -41,11 +41,22 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (session.files.length === 0) {
     return NextResponse.json({ error: 'No files uploaded' }, { status: 400 })
   }
+  // A session whose OCR is underway must never be re-parked in GROUPING.
+  if (session.files.some(f => f.ocrStatus !== 'PENDING' || f.ocrRawJson != null)) {
+    return NextResponse.json(
+      { error: 'Scanning already started for this session — grouping is no longer available' },
+      { status: 409 },
+    )
+  }
 
   // Peek uncached, non-CSV files in parallel. allSettled: one unreadable
   // photo must never block the batch — it lands in the unassigned bucket.
+  // Cached results carrying an `error` are re-peeked: a transient Haiku
+  // failure must not permanently degrade a batch. Genuinely-unreadable
+  // photos return null fields WITHOUT error and stay cached.
   const needPeek = session.files.filter(
-    f => f.peekMeta == null && fileKind(f.fileType, f.fileName) !== 'csv',
+    f => (f.peekMeta == null || (f.peekMeta as unknown as PeekMeta).error != null)
+      && fileKind(f.fileType, f.fileName) !== 'csv',
   )
   const results = await Promise.allSettled(
     needPeek.map(async f => quickExtractMeta(await loadBuffer(f), f.fileType, f.fileName)),
