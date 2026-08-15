@@ -393,6 +393,10 @@ model InvoiceSession {
   // invoice approved in July still counts toward June. See src/lib/purchase-date.ts.
   purchaseDate    DateTime?
   createdAt       DateTime          @default(now())
+  // Last write to this session. The stale-PROCESSING sweeper keys off this
+  // (NOT createdAt) so a session that sat in GROUPING for an hour isn't
+  // insta-flagged as timed out the moment its OCR starts.
+  updatedAt       DateTime          @default(now()) @updatedAt
   parentSessionId String?
   revenueCenterId String?
   files           InvoiceFile[]
@@ -415,6 +419,9 @@ model InvoiceFile {
   fileUrl    String
   ocrStatus  String         @default("PENDING")
   ocrRawJson String?
+  // Quick-peek metadata cache: { supplierName, invoiceDate, invoiceNumber, error? }.
+  // Written once by /peek (Haiku); cached so retries never re-pay for a peeked file.
+  peekMeta   Json?
   // Degrees (0/90/180/270) to rotate the stored image CLOCKWISE so its text is
   // upright — the orientation Claude's bbox coordinates are expressed in. The
   // viewer rotates the display by this so highlights trace the rows.

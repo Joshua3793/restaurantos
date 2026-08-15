@@ -33,6 +33,11 @@ const InvoiceUploadModal = dynamic(
   { ssr: false, loading: () => null }
 )
 
+const InvoiceGroupingModal = dynamic(
+  () => import('@/components/invoices/InvoiceGroupingModal').then(m => ({ default: m.InvoiceGroupingModal })),
+  { ssr: false }
+)
+
 export default function InvoicesPage() {
   const { activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
@@ -40,6 +45,7 @@ export default function InvoicesPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [signals, setSignals] = useState<Signal[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [groupingSessionId, setGroupingSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
   const [view, setView] = useState<'inbox' | 'history'>('inbox')
@@ -118,6 +124,7 @@ export default function InvoicesPage() {
   const { triggerScan, isScanning, scanError, clearError } = useNativeScan({
     activeRcId,
     onComplete: handleScanComplete,
+    onGrouping: setGroupingSessionId,
   })
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
@@ -130,6 +137,13 @@ export default function InvoicesPage() {
   const sessionsRef = useRef(sessions)
   fetchRef.current    = fetchSessions
   sessionsRef.current = sessions
+
+  // GROUPING sessions resume the confirm-grouping screen; everything else opens the drawer.
+  const handleOpenSession = useCallback((id: string) => {
+    const s = sessionsRef.current.find(x => x.id === id)
+    if (s?.status === 'GROUPING') setGroupingSessionId(id)
+    else setSelectedSessionId(id)
+  }, [])
 
   // Depend on the transient FLAG (not the sessions array) so the timer is only
   // rescheduled when the cadence should actually change — the fast poll engages
@@ -230,7 +244,7 @@ export default function InvoicesPage() {
         <MobileInbox
           sessions={sessions}
           signals={signals}
-          onSelectSession={setSelectedSessionId}
+          onSelectSession={handleOpenSession}
           onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
           onSignalAct={handleSignalAct}
@@ -280,14 +294,14 @@ export default function InvoicesPage() {
       {view === 'inbox' ? (
         <InboxViewV2
           sessions={sessions}
-          onSelectSession={setSelectedSessionId}
+          onSelectSession={handleOpenSession}
           onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
         />
       ) : (
         <InvoiceListV2
           sessions={sessions}
-          onSelect={setSelectedSessionId}
+          onSelect={handleOpenSession}
           onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
           onDelete={handleDelete}
@@ -327,6 +341,18 @@ export default function InvoicesPage() {
             fetchSessions()
             setShowUpload(false)
           }}
+          onGrouping={(id) => {
+            setShowUpload(false)
+            setGroupingSessionId(id)
+            fetchSessions()
+          }}
+        />
+      )}
+      {groupingSessionId && (
+        <InvoiceGroupingModal
+          sessionId={groupingSessionId}
+          onClose={() => { setGroupingSessionId(null); fetchSessions() }}
+          onDone={() => { setGroupingSessionId(null); fetchSessions() }}
         />
       )}
     </div>
