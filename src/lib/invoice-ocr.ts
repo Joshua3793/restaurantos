@@ -1092,16 +1092,51 @@ export async function extractInvoiceFromText(
 }
 
 // ── Quick metadata peek ────────────────────────────────────────────────────────
-// Reads only supplier name, date, and invoice number from the first page.
-// Uses Haiku 4.5 (fast, cheap, no extended thinking) so the session list becomes
-// identifiable within ~2 seconds while the full OCR is still running.
+// Reads supplier name, date, invoice number, page type, and per-field
+// confidence. v2 (bulk-grouping): Sonnet instead of Haiku — on real dot-matrix
+// invoice headers Haiku hallucinated digits and decade-off dates — plus a
+// magnified top-of-page crop so the header strip survives the API's ~1568px
+// downscale. Design: docs/superpowers/specs/2026-08-15-bulk-grouping-v2-design.md
 
-const QUICK_MODEL = 'claude-haiku-4-5-20251001'
+// Version stamp stored in InvoiceFile.peekMeta.v — bump when the peek pipeline
+// changes materially so cached pre-upgrade reads get re-peeked once.
+export const PEEK_VERSION = 2
+
+const QUICK_MODEL = OCR_MODEL   // Sonnet; no extended thinking, ~300 output tokens
 
 export interface QuickMeta {
   supplierName:  string | null
   invoiceDate:   string | null
   invoiceNumber: string | null
+  pageType: 'first_page' | 'continuation' | 'unknown'
+  supplierConfidence: 'high' | 'low'
+  numberConfidence: 'high' | 'low'
+}
+
+// Top 40% of the upright page, resized to the API's effective ceiling on its
+// own — the header strip (where supplier / invoice # / date live) gets ~2.5×
+// the pixels it would get inside the downscaled full page. Returns null on any
+// failure: the crop is an enhancement, never a reason to fail the peek.
+async function headerCropForClaude(base64Data: string): Promise<{ data: string; mediaType: 'image/jpeg' } | null> {
+  try {
+    const sharp = (await import('sharp')).default
+    const upright = await sharp(Buffer.from(base64Data, 'base64')).rotate().toBuffer()
+    const meta = await sharp(upright).metadata()
+    if (!meta.width || !meta.height) return null
+    let out = await sharp(upright)
+      .extract({ left: 0, top: 0, width: meta.width, height: Math.max(1, Math.round(meta.height * 0.4)) })
+      .resize(1568, 1568, { fit: 'inside', withoutEnlargement: true })
+      .normalize()
+      .sharpen({ sigma: 1.2, m2: 0.5 })
+      .jpeg({ quality: 92 })
+      .toBuffer()
+    if (out.length > API_IMAGE_LIMIT) {
+      out = await sharp(out).jpeg({ quality: 80 }).toBuffer()
+    }
+    return { data: out.toString('base64'), mediaType: 'image/jpeg' }
+  } catch {
+    return null
+  }
 }
 
 export async function quickExtractMeta(
@@ -1113,32 +1148,50 @@ export async function quickExtractMeta(
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const client = new Anthropic({ apiKey })
-  const question =
-    'Look at this invoice. Return ONLY valid JSON (no markdown, no explanation):\n' +
-    '{"supplierName":"string or null","invoiceDate":"YYYY-MM-DD or null","invoiceNumber":"string or null"}'
+  const isImage = fileType.toLowerCase().startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(fileName)
+
+  const question = (twoImages: boolean) =>
+    'You are identifying a supplier invoice page so it can be grouped with its sibling pages.\n' +
+    (twoImages ? 'You see TWO images of the SAME page: the full page, then a magnified crop of its top portion.\n' : '') +
+    'Return ONLY valid JSON (no markdown, no explanation):\n' +
+    '{"supplierName":"string or null","invoiceDate":"YYYY-MM-DD or null","invoiceNumber":"string or null",' +
+    '"pageType":"first_page" or "continuation" or "unknown",' +
+    '"supplierConfidence":"high" or "low","numberConfidence":"high" or "low"}\n' +
+    'Rules:\n' +
+    '- pageType "first_page": the page shows an invoice header block (supplier name/logo, invoice number and date fields, bill-to/ship-to). ' +
+    '"continuation": line-item rows or totals with NO header block. "unknown" only if genuinely unclear.\n' +
+    '- invoiceNumber: transcribe EXACTLY and ONLY the characters you can clearly read. If ANY character is uncertain ' +
+    '(blur, dot-matrix print, glare, small size), give your best reading but set numberConfidence to "low". Never invent digits.\n' +
+    '- supplierConfidence "low" if the name is cut off, partially visible, or inferred rather than read.\n' +
+    '- invoiceDate: only if clearly legible, else null.'
 
   const ft = fileType.toLowerCase()
   let content: Anthropic.MessageParam['content']
 
-  if (ft.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(fileName)) {
-    const compressed = await compressImageForClaude(buf.toString('base64'), false)
+  if (isImage) {
+    const base64 = buf.toString('base64')
+    const [compressed, crop] = await Promise.all([
+      compressImageForClaude(base64, false),
+      headerCropForClaude(base64),
+    ])
     content = [
       { type: 'image', source: { type: 'base64', media_type: compressed.mediaType, data: compressed.data } },
-      { type: 'text', text: question },
+      ...(crop ? [{ type: 'image', source: { type: 'base64', media_type: crop.mediaType, data: crop.data } } as Anthropic.ImageBlockParam] : []),
+      { type: 'text', text: question(crop != null) },
     ]
   } else if (ft === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     content = [
       { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } } as any,
-      { type: 'text', text: question },
+      { type: 'text', text: question(false) },
     ]
   } else {
-    content = [{ type: 'text', text: `${buf.toString('utf-8').slice(0, 1500)}\n\n${question}` }]
+    content = [{ type: 'text', text: `${buf.toString('utf-8').slice(0, 1500)}\n\n${question(false)}` }]
   }
 
   const message = await client.messages.create({
     model:      QUICK_MODEL,
-    max_tokens: 256,
+    max_tokens: 320,
     messages:   [{ role: 'user', content }],
   })
 
@@ -1156,9 +1209,17 @@ export async function quickExtractMeta(
       supplierName:  typeof j.supplierName  === 'string' ? j.supplierName  : null,
       invoiceDate:   typeof j.invoiceDate   === 'string' ? j.invoiceDate   : null,
       invoiceNumber: typeof j.invoiceNumber === 'string' ? j.invoiceNumber : null,
+      pageType: j.pageType === 'first_page' || j.pageType === 'continuation' ? j.pageType : 'unknown',
+      // Conservative: only an explicit "high" earns trust — anything else
+      // (missing field, typo) keeps the number out of the grouping key.
+      supplierConfidence: j.supplierConfidence === 'high' ? 'high' : 'low',
+      numberConfidence:   j.numberConfidence   === 'high' ? 'high' : 'low',
     }
   } catch {
-    return { supplierName: null, invoiceDate: null, invoiceNumber: null }
+    return {
+      supplierName: null, invoiceDate: null, invoiceNumber: null,
+      pageType: 'unknown', supplierConfidence: 'low', numberConfidence: 'low',
+    }
   }
 }
 

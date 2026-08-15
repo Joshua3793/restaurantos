@@ -27,15 +27,15 @@ function FileThumb({ file, onClick }: { file: PeekFile; onClick: () => void }) {
     <button
       onClick={onClick}
       className="relative shrink-0 rounded-lg border border-line overflow-hidden hover:border-gold focus:border-gold transition-colors"
-      title={`${file.fileName} — tap to move`}
+      title={`${file.fileName} — tap to view & assign`}
     >
       {isPdf || isCsv ? (
-        <span className="h-20 w-16 grid place-items-center bg-bg-2">
+        <span className="h-28 w-20 grid place-items-center bg-bg-2">
           {isPdf ? <FileText size={20} className="text-red" /> : <FileSpreadsheet size={20} className="text-green" />}
         </span>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={file.fileUrl} alt={file.fileName} className="h-20 w-16 object-cover" />
+        <img src={file.fileUrl} alt={file.fileName} className="h-28 w-20 object-cover" />
       )}
     </button>
   )
@@ -226,12 +226,34 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
         </div>
       </div>
 
-      {/* Move picker */}
+      {/* Photo viewer + assign — you SEE the photo you're assigning, full size */}
       {movingId && (
-        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setMovingId(null)} />
-          <div className="relative bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-xl p-4 space-y-1.5 max-h-[70dvh] overflow-y-auto">
-            <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide px-1 pb-1">Move photo to…</p>
+        <div className="fixed inset-0 z-[60] flex flex-col">
+          <div className="fixed inset-0 bg-black/85" onClick={() => setMovingId(null)} />
+          {/* Image area: click anywhere outside the sheet closes */}
+          <div
+            className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 gap-2"
+            onClick={() => setMovingId(null)}
+          >
+            {(() => {
+              const f = fileById.get(movingId)
+              return f ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={f.fileUrl}
+                    alt={f.fileName}
+                    className="max-h-full max-w-full min-h-0 object-contain rounded-lg shadow-2xl"
+                    onClick={e => e.stopPropagation()}
+                  />
+                  <span className="text-[11px] font-mono text-paper/70 shrink-0">{f.fileName}</span>
+                </>
+              ) : null
+            })()}
+          </div>
+          {/* Assign sheet */}
+          <div className="relative bg-white w-full sm:max-w-md sm:mx-auto rounded-t-2xl shadow-xl p-4 space-y-1.5 max-h-[40dvh] overflow-y-auto shrink-0">
+            <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide px-1 pb-1">Assign this photo to…</p>
             {groups.map((g, i) => (
               g.kind === 'photos' && i !== movingFromLabel ? (
                 <button
@@ -253,7 +275,7 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
               onClick={() => setMovingId(null)}
               className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-bg-2 text-sm text-ink-4"
             >
-              Cancel
+              Close
             </button>
           </div>
         </div>

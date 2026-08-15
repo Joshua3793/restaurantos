@@ -17,6 +17,9 @@ function photo(meta: Partial<PeekMeta> | null, error?: string): GroupingFile {
         supplierName: meta?.supplierName ?? null,
         invoiceDate: meta?.invoiceDate ?? null,
         invoiceNumber: meta?.invoiceNumber ?? null,
+        ...(meta?.pageType ? { pageType: meta.pageType } : {}),
+        ...(meta?.numberConfidence ? { numberConfidence: meta.numberConfidence } : {}),
+        ...(meta?.supplierConfidence ? { supplierConfidence: meta.supplierConfidence } : {}),
         ...(error ? { error } : {}),
       }
   return { id: `f${n}`, fileName: `p${n}.jpg`, fileType: 'image/jpeg', peekMeta }
@@ -153,6 +156,90 @@ describe('proposeGroups', () => {
   it('single photo → single group', () => {
     const { groups } = proposeGroups([photo({ supplierName: 'Sysco', invoiceNumber: 'A1' })])
     expect(groups).toHaveLength(1)
+  })
+
+  // ── v2: structure-first grouping (pageType + confidence) ──────────────────
+  // Design: docs/superpowers/specs/2026-08-15-bulk-grouping-v2-design.md
+
+  it('v2: continuation always joins the preceding group, even with a different readable number', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: '4442768', pageType: 'first_page', numberConfidence: 'high' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4427608', pageType: 'continuation', numberConfidence: 'high' }),
+    ]
+    const { groups } = proposeGroups(files)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].fileIds).toHaveLength(2)
+  })
+
+  it('v2: first_page always starts a new group, even with same supplier and no number', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: null, pageType: 'first_page' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: null, pageType: 'first_page' }),
+    ]
+    expect(proposeGroups(files).groups).toHaveLength(2)
+  })
+
+  it('v2: low-confidence numbers are ignored — identical misreads never merge non-adjacent pages', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: '4442768', pageType: 'first_page', numberConfidence: 'low' }),
+      photo({ supplierName: 'GFS', invoiceNumber: 'B1', pageType: 'first_page', numberConfidence: 'high' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4442768', pageType: 'first_page', numberConfidence: 'low' }),
+    ]
+    expect(proposeGroups(files).groups).toHaveLength(3)
+  })
+
+  it('v2: high-confidence number still merges a retaken first page (non-adjacent)', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: '4442768', pageType: 'first_page', numberConfidence: 'high' }),
+      photo({ supplierName: 'GFS', invoiceNumber: 'B1', pageType: 'first_page', numberConfidence: 'high' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4442768', pageType: 'first_page', numberConfidence: 'high' }),
+    ]
+    const { groups } = proposeGroups(files)
+    expect(groups).toHaveLength(2)
+    expect(groups[0].fileIds).toEqual([files[0].id, files[2].id])
+  })
+
+  it('v2: continuation after a supplier switch starts its own group', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', pageType: 'first_page' }),
+      photo({ supplierName: 'GFS', pageType: 'continuation' }),
+    ]
+    expect(proposeGroups(files).groups).toHaveLength(2)
+  })
+
+  it('v2: continuation joins and backfills a group whose supplier was unreadable', () => {
+    const files = [
+      photo({ supplierName: null, invoiceNumber: null, pageType: 'first_page' }),
+      photo({ supplierName: 'Sysco', pageType: 'continuation' }),
+    ]
+    const { groups } = proposeGroups(files)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].supplierName).toBe('Sysco')
+  })
+
+  it('v2: the real-world batch shape — garbage numbers, clean structure', () => {
+    // 3 invoices, 7 pages, every number differently misread at low confidence
+    // (supplier names pre-canonicalized by the peek route).
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: '44423033', pageType: 'first_page', numberConfidence: 'low' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4429033', pageType: 'continuation', numberConfidence: 'low' }),
+      photo({ supplierName: null, invoiceNumber: '4429033', pageType: 'continuation', numberConfidence: 'low' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4422036', pageType: 'first_page', numberConfidence: 'low' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4442768', pageType: 'continuation', numberConfidence: 'low' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4427608', pageType: 'first_page', numberConfidence: 'low' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: '4427688', pageType: 'continuation', numberConfidence: 'low' }),
+    ]
+    const { groups, unassigned } = proposeGroups(files)
+    expect(groups.map(g => g.fileIds.length)).toEqual([3, 2, 2])
+    expect(unassigned).toEqual([])
+  })
+
+  it('v2: absent pageType and confidence behave exactly like v1 (unknown + trusted number)', () => {
+    const files = [
+      photo({ supplierName: 'Sysco', invoiceNumber: 'A1' }),
+      photo({ supplierName: 'Sysco', invoiceNumber: 'A1' }),
+    ]
+    expect(proposeGroups(files).groups).toHaveLength(1)
   })
 
   it('continuation survives an intervening PDF: lastPhoto is not reset by non-photos', () => {
