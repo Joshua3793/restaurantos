@@ -78,7 +78,11 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
   // CSVs deliberately do NOT reset it: photos remain "adjacent" across them.
   let lastPhoto: PhotoGroupRec | null = null
 
-  const newPhotoGroup = (f: GroupingFile, meta: PeekMeta | null, nSup: string | null, nNum: string | null) => {
+  // Both helpers RETURN the group record and the caller assigns `lastPhoto`
+  // directly — TypeScript does not track assignments made inside closures, so
+  // an assignment in here would leave `lastPhoto` narrowed to its `null`
+  // initializer at every read site.
+  const newPhotoGroup = (f: GroupingFile, meta: PeekMeta | null, nSup: string | null, nNum: string | null): PhotoGroupRec => {
     const idx = groups.push({
       fileIds: [f.id],
       kind: 'photos',
@@ -88,7 +92,7 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
     }) - 1
     const rec: PhotoGroupRec = { idx, nSup, nNum }
     photoGroups.push(rec)
-    lastPhoto = rec
+    return rec
   }
 
   for (const f of files) {
@@ -122,12 +126,12 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
       : null
     const pageType: PeekPageType = meta?.pageType ?? 'unknown'
 
-    const joinGroup = (rec: PhotoGroupRec) => {
+    const joinGroup = (rec: PhotoGroupRec): PhotoGroupRec => {
       const g = groups[rec.idx]
       g.fileIds.push(f.id)
       if (g.supplierName == null && meta?.supplierName) { g.supplierName = meta.supplierName; rec.nSup = nSup }
       if (g.invoiceDate == null && meta?.invoiceDate) g.invoiceDate = meta.invoiceDate
-      lastPhoto = rec
+      return rec
     }
 
     if (pageType === 'continuation') {
@@ -135,11 +139,11 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
       // the preceding photo group when the supplier is compatible — matching,
       // or unreadable on either side (backfill the group's supplier then).
       if (lastPhoto && (nSup === null || lastPhoto.nSup === null || nSup === lastPhoto.nSup)) {
-        joinGroup(lastPhoto)
+        lastPhoto = joinGroup(lastPhoto)
         continue
       }
       // Continuation with nothing compatible before it → its own group.
-      newPhotoGroup(f, meta, nSup, nNum)
+      lastPhoto = newPhotoGroup(f, meta, nSup, nNum)
       continue
     }
 
@@ -150,8 +154,7 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
       const hit = nNum !== null
         ? photoGroups.find(p => p.nNum === nNum && (p.nSup === nSup || p.nSup === null || nSup === null))
         : undefined
-      if (hit) joinGroup(hit)
-      else newPhotoGroup(f, meta, nSup, nNum)
+      lastPhoto = hit ? joinGroup(hit) : newPhotoGroup(f, meta, nSup, nNum)
       continue
     }
 
@@ -161,8 +164,7 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
       const hit = photoGroups.find(p =>
         p.nNum === nNum && (p.nSup === nSup || p.nSup === null || nSup === null)
       )
-      if (hit) joinGroup(hit)
-      else newPhotoGroup(f, meta, nSup, nNum)
+      lastPhoto = hit ? joinGroup(hit) : newPhotoGroup(f, meta, nSup, nNum)
       continue
     }
 
@@ -176,14 +178,14 @@ export function proposeGroups(files: GroupingFile[]): GroupingProposal {
     if (nSup !== null) {
       // Supplier read but number wasn't, and it doesn't continue the previous
       // invoice → treat as a new invoice from that supplier.
-      newPhotoGroup(f, meta, nSup, null)
+      lastPhoto = newPhotoGroup(f, meta, nSup, null)
       continue
     }
 
     if (!errored) {
       // Metadata genuinely all-null (peek succeeded, invoice just unreadable)
       // and nothing precedes it → its own "unknown invoice" card.
-      newPhotoGroup(f, null, null, null)
+      lastPhoto = newPhotoGroup(f, null, null, null)
       continue
     }
 
