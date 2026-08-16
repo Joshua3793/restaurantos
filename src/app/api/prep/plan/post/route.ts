@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive } from '@/lib/prep-runsheet'
-import { prepDayStart, prepDayRange } from '@/lib/prep-plan-server'
+import { prepDayStart, ensureLiveLogs, postedOpenWhere } from '@/lib/prep-plan-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +28,6 @@ export async function POST(req: NextRequest) {
   }
 
   const listDate = prepDayStart()
-  const day = prepDayRange()
 
   // The draft = active on-list items visible to this RC (its own + Shared).
   const draft = await prisma.prepItem.findMany({
@@ -40,7 +39,6 @@ export async function POST(req: NextRequest) {
       id: true, estimatedPrepTime: true,
       activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
       linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true } },
-      logs: { where: { logDate: day }, take: 1, select: { id: true } },
     },
   })
   if (draft.length === 0) return NextResponse.json({ error: 'Nothing on the list to post' }, { status: 400 })
@@ -49,21 +47,23 @@ export async function POST(req: NextRequest) {
   const activeMinutes = draft.reduce((a, d) => a + (resolveActive(d) ?? d.estimatedPrepTime ?? 0), 0)
   const now = new Date()
   const postedByName = user.name ?? user.email ?? 'Chef'
-  const missing = draft.filter(d => d.logs.length === 0)
 
-  const [, , , post] = await prisma.$transaction([
-    // Items posted earlier but since removed from the draft leave the kitchen's list.
+  // Stamp each item's LIVE log — a job carried over from an earlier list keeps its
+  // row (and with it the cook's timer, claim and planned qty). Creating a fresh
+  // row per calendar day would leave the carried one open behind it, and that row
+  // would put the item back on the To Do as soon as the new one was completed.
+  const liveLogs = await ensureLiveLogs(draftIds, revenueCenterId)
+
+  const [, , post] = await prisma.$transaction([
+    // Items posted earlier but since removed from the draft leave the kitchen's
+    // list — including ones carried from an earlier day, which is why this is not
+    // scoped to `day`. Scoped to this RC: posting must not empty another's list.
     prisma.prepLog.updateMany({
-      where: { logDate: day, postedAt: { not: null }, prepItemId: { notIn: draftIds } },
+      where: { revenueCenterId, prepItemId: { notIn: draftIds }, ...postedOpenWhere },
       data: { postedAt: null },
     }),
-    // Ensure every draft item has today's log (unique prepItemId+logDate absorbs races).
-    prisma.prepLog.createMany({
-      data: missing.map(d => ({ prepItemId: d.id, revenueCenterId, logDate: listDate, status: 'NOT_STARTED' })),
-      skipDuplicates: true,
-    }),
     prisma.prepLog.updateMany({
-      where: { prepItemId: { in: draftIds }, logDate: day },
+      where: { id: { in: [...liveLogs.values()] } },
       data: { postedAt: now },
     }),
     prisma.prepPost.upsert({

@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { prepDayFrom } from '@/lib/prep-day'
 
 export const dynamic = 'force-dynamic'
-
-function dayStart(dateStr: string | null): Date {
-  const d = dateStr ? new Date(dateStr) : new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
 
 // Activate: put the task on the list. Membership persists across days until the
 // task is checked off or removed, so at most one log per task — reuse it if present.
@@ -21,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
     if (existing) return NextResponse.json(existing, { status: 200 })
     const body = await req.json().catch(() => ({}))
-    const logDate = dayStart(body.date ?? null)
+    const logDate = prepDayFrom(body.date ?? null)
     const log = await prisma.prepTaskLog.create({
       data: { prepTaskId: params.id, logDate },
       select: { id: true, prepTaskId: true, logDate: true },

@@ -2,7 +2,7 @@
 import { useEffect } from 'react'
 import type { PrepItemRich, PrepItemDetail, RecipeStepsData } from '@/components/prep/types'
 import { toBoardRow, dotClass, fmtMin, fmtQty } from './prep-board-utils'
-import { effectiveUrgency, autoUrgencyOf } from '@/lib/prep-plan'
+import { effectiveUrgency, autoUrgencyOf, whyLabel } from '@/lib/prep-plan'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
@@ -37,6 +37,8 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
 
   const open = !!item
   const r = item ? toBoardRow(item) : null
+  // Urgency step behind the "why it's on the list" tint (null while closed).
+  const urgency = item ? effectiveUrgency(item) : null
   const u = r?.urgency ?? 'par'
   const uLabel = u === 'critical' ? 'CRITICAL' : u === 'low' ? 'NEEDED TODAY' : 'ON PAR'
   const barColor = u === 'critical' ? 'var(--red)' : u === 'low' ? 'var(--gold)' : 'var(--green)'
@@ -79,6 +81,30 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                 </div>
                 <div className="dr-barlbl"><span><b>{fmtQty(r.onHand)}</b> / {fmtQty(r.par)} {r.unit} on hand</span><span>{r.pct}% of par</span></div>
                 <div className="dr-bar"><div className="fill" style={{ width: `${Math.max(2, Math.min(100, r.pct))}%`, background: barColor }} /></div>
+
+                {/* Why it's on the list. The run-sheet rows used to carry this
+                    sentence (and the "LOW STOCK: …" pill) beside the item name,
+                    where it truncated the name on iPad and narrow desktop — it
+                    reads here instead, with room to wrap. */}
+                <div
+                  className={`rounded-[10px] border px-3.5 py-3 ${
+                    urgency === 'PASS'
+                      ? 'bg-red-soft border-red-soft text-red-text'
+                      : urgency === 'MID'
+                        ? 'bg-gold-soft border-gold text-gold-2'
+                        : 'bg-paper border-line text-ink-2'
+                  }`}
+                >
+                  <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] opacity-70">
+                    Why it&apos;s on the list
+                  </div>
+                  <div className="text-[12.5px] font-medium mt-1 leading-snug first-letter:uppercase">
+                    {whyLabel(item)}
+                  </div>
+                  {item.blockedReason && (
+                    <div className="font-mono text-[11px] mt-1.5 leading-snug">⚠ {item.blockedReason}</div>
+                  )}
+                </div>
               </div>
 
               <div className="dr-sec">

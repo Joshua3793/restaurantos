@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { validatePrepQty } from '@/lib/prep-utils'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
-import { markPlanDirty } from '@/lib/prep-plan-server'
+import { markPlanDirty, prepDayStart, postedOpenWhere } from '@/lib/prep-plan-server'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -71,12 +71,30 @@ export async function PUT(
   // an existing start); an explicit completedAt:null in the same request clears
   // completedAt (the "reopen" case). DONE stamps completedAt.
   const now = new Date()
-  const stamp: { startedAt?: Date; completedAt?: Date | null } = {}
+  const stamp: { startedAt?: Date; completedAt?: Date | null; logDate?: Date } = {}
   if (status === 'IN_PROGRESS') {
     stamp.startedAt = existing.startedAt ?? now
     if (body.completedAt === null) stamp.completedAt = null
   }
   if (status === 'DONE') stamp.completedAt = now
+
+  // A job carried over from an earlier list is finished TODAY — re-date it, or the
+  // production lands on the day it was posted for. That is not cosmetic: the
+  // theoretical-stock engine windows prep against `logDate` (prepEventCounts in
+  // count-expected.ts), so a stale date can push the yield behind a count cutoff
+  // and the stock never gets credited. Skipped when the item already has a row
+  // for today (the unique prepItemId+logDate would collide) — rare, and the
+  // completedAt stamp still records the moment.
+  if (status !== undefined && COMPLETION_STATUSES.has(status)) {
+    const today = prepDayStart()
+    if (existing.logDate.getTime() < today.getTime()) {
+      const clash = await prisma.prepLog.findUnique({
+        where: { prepItemId_logDate: { prepItemId: existing.prepItemId, logDate: today } },
+        select: { id: true },
+      })
+      if (!clash) stamp.logDate = today
+    }
+  }
 
   const log = await prisma.prepLog.update({
     where: { id: params.id },
@@ -92,6 +110,22 @@ export async function PUT(
       ...stamp,
     },
   })
+
+  // Finishing the job clears any OLDER row still holding this item on the
+  // kitchen's list. Those rows are what carry an unfinished job forward; left
+  // posted, the oldest one would hand the item straight back tomorrow as if it
+  // had never been made. (Their status stays as it was — the history is that the
+  // job wasn't done that day.)
+  if (status !== undefined && COMPLETION_STATUSES.has(status)) {
+    await prisma.prepLog.updateMany({
+      where: {
+        prepItemId: existing.prepItemId,
+        logDate: { lt: stamp.logDate ?? existing.logDate },
+        ...postedOpenWhere,
+      },
+      data: { postedAt: null },
+    })
+  }
 
   // Draft edits after posting → the kitchen is on a stale list; flag the post.
   if (editsPlan) await markPlanDirty(existing.revenueCenterId)

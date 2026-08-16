@@ -4,6 +4,7 @@ import {
   suggestedDraftQty, whyLabel, applyStatusToItem, draftQty,
   batchYield, batchCount, batchesToQty, suggestedBatches, fmtBatch, batchLabel,
   planDayContext, urgencyDeadline, fmtDeadline, planSchedule, stationLoad, planGroups,
+  isLiveLog, pickLiveLogs, type LiveLogRow,
 } from '../prep-plan'
 import { autoUrgency, normalizeUrgency, urgencyToPriority, type PrepPriority } from '../prep-utils'
 import { fmtClock } from '../prep-runsheet'
@@ -216,5 +217,72 @@ describe('planGroups', () => {
   it('groups by station (known order first) and category', () => {
     expect(planGroups(rows, 'station', { stations: ['Larder', 'Sauces'] }).map(g => g.key)).toEqual(['Larder', 'Sauces'])
     expect(planGroups(rows, 'category').map(g => g.key)).toEqual(['GARNISH', 'SAUCE'])
+  })
+})
+
+describe('the live prep log — work carries over, it never drops at midnight', () => {
+  // Today = 2026-08-15 (the restaurant day marker is UTC midnight).
+  const today = Date.parse('2026-08-15T00:00:00.000Z')
+  const row = (over: Partial<LiveLogRow> & { id: string }): LiveLogRow => ({
+    prepItemId: 'i1', logDate: '2026-08-15T00:00:00.000Z', status: 'NOT_STARTED',
+    postedAt: '2026-08-14T23:47:00.000Z', ...over,
+  })
+
+  it('keeps an unfinished job posted for an earlier day', () => {
+    // The chef posts after the shift, for the next day — it must still be there.
+    expect(isLiveLog(row({ id: 'a', logDate: '2026-08-14T00:00:00.000Z' }), today)).toBe(true)
+    expect(isLiveLog(row({ id: 'b', logDate: '2026-07-02T00:00:00.000Z', status: 'IN_PROGRESS' }), today)).toBe(true)
+  })
+
+  it('drops an earlier job that was finished or skipped', () => {
+    for (const status of ['DONE', 'PARTIAL', 'SKIPPED']) {
+      expect(isLiveLog(row({ id: 'c', logDate: '2026-08-14T00:00:00.000Z', status }), today)).toBe(false)
+    }
+  })
+
+  it('does not carry an earlier row that was never posted', () => {
+    // Abandoned timers and stale draft rows are "open" too — without this the To
+    // Do inherits every one of them.
+    expect(isLiveLog(row({ id: 'd', logDate: '2026-06-04T00:00:00.000Z', status: 'IN_PROGRESS', postedAt: null }), today)).toBe(false)
+    expect(isLiveLog(row({ id: 'e', logDate: '2026-07-31T00:00:00.000Z', postedAt: null }), today)).toBe(false)
+    // …but today's row is live whether or not it has been posted.
+    expect(isLiveLog(row({ id: 'f', postedAt: null }), today)).toBe(true)
+  })
+
+  it("keeps today's log whatever its status — the Done section reads it", () => {
+    expect(isLiveLog(row({ id: 'd', status: 'DONE' }), today)).toBe(true)
+    expect(isLiveLog(row({ id: 'e', status: 'PARTIAL' }), today)).toBe(true)
+  })
+
+  it('picks exactly one log per item, newest first', () => {
+    const picked = pickLiveLogs([
+      row({ id: 'old', logDate: '2026-08-13T00:00:00.000Z' }),
+      row({ id: 'new', logDate: '2026-08-14T00:00:00.000Z' }),
+      row({ id: 'done-old', logDate: '2026-08-12T00:00:00.000Z', status: 'DONE' }),
+      row({ id: 'other', prepItemId: 'i2' }),
+    ], today)
+    expect(picked.size).toBe(2)
+    expect(picked.get('i1')?.id).toBe('new')
+    expect(picked.get('i2')?.id).toBe('other')
+  })
+
+  it('a job made today does not come back tomorrow under an older open row', () => {
+    // The item was posted last night, made this morning. Its Aug-14 row is still
+    // open + posted underneath the completed Aug-15 one; only the newest counts.
+    const logs = [
+      row({ id: 'carried', logDate: '2026-08-14T00:00:00.000Z', status: 'NOT_STARTED' }),
+      row({ id: 'made', logDate: '2026-08-15T00:00:00.000Z', status: 'DONE' }),
+    ]
+    expect(pickLiveLogs(logs, today).get('i1')?.id).toBe('made') // today: in the Done section
+    const tomorrow = Date.parse('2026-08-16T00:00:00.000Z')
+    expect(pickLiveLogs(logs, tomorrow).size).toBe(0)           // tomorrow: gone, it was made
+  })
+
+  it("prefers today's row over a carried one", () => {
+    const picked = pickLiveLogs([
+      row({ id: 'carried', logDate: '2026-08-14T00:00:00.000Z', status: 'IN_PROGRESS' }),
+      row({ id: 'today', status: 'NOT_STARTED' }),
+    ], today)
+    expect(picked.get('i1')?.id).toBe('today')
   })
 })

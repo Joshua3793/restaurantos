@@ -81,7 +81,9 @@ function RailCard({
         <Flame size={16} className="text-gold" />
       </span>
       <span onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
-        <span className="block text-[13.5px] font-semibold tracking-[-0.01em] whitespace-nowrap overflow-hidden text-ellipsis">
+        {/* wraps rather than truncating — a card is 300px wide and plenty of prep
+            names are longer than that at 13.5px */}
+        <span className="block text-[13.5px] font-semibold tracking-[-0.01em] break-words">
           {item.name} <span className="font-mono text-[10.5px] font-normal text-gold-2">{fmtQty(qty, item.unit)}</span>
         </span>
         <span className="flex items-center gap-1.5 font-mono text-[10px] text-gold-2 mt-[3px] whitespace-nowrap">

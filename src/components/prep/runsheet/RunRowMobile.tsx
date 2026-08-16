@@ -8,7 +8,8 @@ import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
-import { fmtClock, fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
+import { UrgencyDot } from './atoms'
+import { fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
 
 // Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
 // fractional, everything else rounds to a whole number. Same rule as
@@ -48,7 +49,6 @@ export function RunRowMobile({
   onStart: (item: PrepItemRich) => void
 }) {
   const sb = item.startByMinutes
-  const blocked = item.isBlocked || !!item.blockedReason
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
   const overdue = state === 'overdue'
   const late = sb != null ? nowMin - sb : 0
@@ -56,15 +56,17 @@ export function RunRowMobile({
   const active = item.activeMinutes ?? 0
   const passive = item.passiveMinutes ?? 0
 
-  const metaText = blocked
-    ? (item.blockedReason ?? 'low stock')
-    : [
-        `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}`,
-        kitchen && item.station ? item.station : null,
-        item.service ? `for ${item.service.name}` : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')
+  // Timings/station/service only. The low-stock sentence used to REPLACE this
+  // line whenever the item was blocked; it now lives in the item drawer (the
+  // urgency dot beside the name carries it as a tooltip), so the row keeps its
+  // one useful meta line and the name keeps its width.
+  const metaText = [
+    `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}`,
+    kitchen && item.station ? item.station : null,
+    item.service ? `for ${item.service.name}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div
@@ -96,24 +98,32 @@ export function RunRowMobile({
         )}
       </div>
 
-      {/* task */}
+      {/* task — the name wraps rather than truncating; it is the one thing a cook
+          must always be able to read. */}
       <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
-        <div className="text-[13.5px] font-semibold tracking-[-0.01em] whitespace-nowrap overflow-hidden text-ellipsis">
-          {item.name} <span className="font-mono text-[10.5px] font-normal text-ink-3">{(() => { const b = batchLabel(item, qty); return b ? `${b} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit) })()}</span>
+        <div className="flex items-center gap-1.5">
+          <UrgencyDot item={item} />
+          <div className="text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0">
+            {item.name} <span className="font-mono text-[10.5px] font-normal text-ink-3 whitespace-nowrap">{(() => { const b = batchLabel(item, qty); return b ? `${b} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit) })()}</span>
+          </div>
         </div>
-        <div
-          className={`font-mono text-[9.5px] whitespace-nowrap overflow-hidden text-ellipsis ${
-            blocked ? 'text-gold-2' : 'text-ink-3'
-          } ${dense ? 'mt-px' : 'mt-[3px]'}`}
-        >
-          {metaText}
+        {/* Claim chip rides the meta line rather than holding its own column — on a
+            phone that column cost the name ~80px of width, i.e. two extra wrapped
+            lines on any real prep name. stopPropagation so tapping it claims the
+            item instead of opening the recipe. */}
+        <div className={`flex items-center gap-2 flex-wrap font-mono text-[9.5px] text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
+          <span>{metaText}</span>
+          {kitchen && (
+            <span onClick={e => e.stopPropagation()}>
+              <AssigneeChip cook={item.assignedCook} size="sm" onClick={() => onClaim(item)} />
+            </span>
+          )}
         </div>
       </div>
 
-      {kitchen && <AssigneeChip cook={item.assignedCook} size="sm" onClick={() => onClaim(item)} />}
-
-      {/* Stock-out / blocked items are NOT gated — the meta line already flags the risk,
-          but the cook can still start (uncounted stock, or prepping toward a restock). */}
+      {/* Stock-out / blocked items are NOT gated — the urgency dot flags the risk and the
+          drawer spells it out, but the cook can still start (uncounted stock, or prepping
+          toward a restock). */}
       <button
         onClick={() => onStart(item)}
         className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"

@@ -346,7 +346,7 @@ export function RunSheetMobile({
                     <span className="w-[22px] h-[22px] rounded-[7px] bg-green grid place-items-center shrink-0">
                       <IcCheck size={13} className="text-white" strokeWidth={3} />
                     </span>
-                    <span className="flex-1 min-w-0 text-[13px] font-medium text-ink-3 line-through whitespace-nowrap overflow-hidden text-ellipsis">
+                    <span className="flex-1 min-w-0 text-[13px] font-medium text-ink-3 line-through break-words">
                       {i.name}
                     </span>
                     <span className="font-mono text-[10.5px] font-semibold text-green-text">{fmtQty(qty, i.unit)}</span>
