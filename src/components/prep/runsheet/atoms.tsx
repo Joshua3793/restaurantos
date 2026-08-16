@@ -129,6 +129,13 @@ export function BlockedBadge({ reason }: { reason: string }) {
 // ─── ReasonBadge ─────────────────────────────────────────────────────────
 // Smart Prep v2: the posted row's stock evidence, tinted by its urgency step
 // (replaces the old binary STOCK OUT pill — the reason says WHY, not just that).
+//
+// NOT used on the run-sheet rows any more. The reason is a full sentence
+// ("3 kg of 8 kg par — won't last service") and, pinned nowrap beside the item
+// name, it ate the row and ellipsised the ONE thing a cook must always read —
+// the name — on iPad and narrow desktop. The rows carry `UrgencyDot` instead
+// and the sentence lives in the item drawer. Kept exported for surfaces with
+// room for it (and its own tests).
 export function ReasonBadge({ item }: { item: import('@/components/prep/types').PrepItemRich }) {
   const u = effectiveUrgency(item)
   const cls =
@@ -139,5 +146,24 @@ export function ReasonBadge({ item }: { item: import('@/components/prep/types').
     <span className={`font-mono text-[8.5px] font-bold tracking-[0.04em] px-[7px] py-[2px] rounded-full whitespace-nowrap ${cls}`}>
       {whyLabel(item).toUpperCase()}
     </span>
+  )
+}
+
+// ─── UrgencyDot ──────────────────────────────────────────────────────────
+// The zero-width stand-in for ReasonBadge on a run-sheet row: same urgency
+// tint, ~6px wide, with the full reason (plus any low-stock note) as the
+// native tooltip. The sentence itself is in the drawer.
+export function UrgencyDot({ item }: { item: import('@/components/prep/types').PrepItemRich }) {
+  const u = effectiveUrgency(item)
+  // TMRW ('at par — building ahead') is the quiet default: no dot, no noise.
+  if (u === 'TMRW') return null
+  const cls = u === 'PASS' ? 'bg-red' : u === 'MID' ? 'bg-gold' : 'bg-blue'
+  const title = item.blockedReason ? `${whyLabel(item)} · ${item.blockedReason}` : whyLabel(item)
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      className={`w-[6px] h-[6px] rounded-full shrink-0 ${cls}`}
+    />
   )
 }

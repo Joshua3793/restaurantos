@@ -57,7 +57,7 @@ export function NextUpHero({
           {sb != null ? fmtStartBy(sb) : '—'}
         </span>
         <span className="min-w-0 pb-px">
-          <span className="block text-[17px] font-semibold tracking-[-0.02em] whitespace-nowrap overflow-hidden text-ellipsis">
+          <span className="block text-[17px] font-semibold tracking-[-0.02em] break-words">
             {item.name}
           </span>
         </span>

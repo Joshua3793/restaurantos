@@ -7,6 +7,9 @@ import { resolvePrepUnit } from '@/lib/prep-sync'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
+import { prepDayRange } from '@/lib/prep-day'
+import { NEWEST_LOG } from '@/lib/prep-plan-server'
+import { isLiveLog } from '@/lib/prep-plan'
 
 // GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
 // read is ever refactored away, a prerendered route would serve GET only and
@@ -48,9 +51,9 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const activeOnly = searchParams.get('active') !== 'false'
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today.getTime() + 86_400_000)
+  // Restaurant-local day (see src/lib/prep-day.ts) — NOT server wall-clock, which
+  // on Vercel is UTC and would swap in tomorrow's log at 5pm Pacific, mid-service.
+  const { gte: today } = prepDayRange()
 
   // Scope to the active RC (or a location's child RCs) when passed — matching the
   // /prep page and the RC-scoped Pass cards — else fall back to all the user's RCs.
@@ -86,10 +89,11 @@ export async function GET(req: NextRequest) {
         // sheet for as long as any PrepItem still pointed at it.
         select: { id: true, name: true, timeMinutes: true, endMinutes: true, isActive: true },
       },
-      logs: {
-        where: { logDate: { gte: today, lt: tomorrow } },
-        take: 1,
-      },
+      // The item's NEWEST log — `isLiveLog` below decides whether it still counts
+      // as the item's live job. Not "today's log": the kitchen posts the next
+      // day's list at the end of a shift and unfinished jobs carry forward until
+      // they are done or taken off.
+      logs: NEWEST_LOG,
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -193,7 +197,11 @@ export async function GET(req: NextRequest) {
     // item keeps counting back from the time it was scheduled against; it just stops
     // naming the retired service. Note this reads `svc`, NOT `service`.
     const startByMin = startByMinutes(svc?.timeMinutes ?? null, activeMinutes, passiveMinutes)
-    const cook = item.logs[0]?.assignedTo ? cookById.get(item.logs[0].assignedTo) : null
+    // The item's live job: its newest log, kept only while `isLiveLog` holds —
+    // today's row, or an unfinished one the kitchen was posted earlier. Once the
+    // newest row is a completed one from an earlier day, the item has no live job.
+    const liveLog = item.logs[0] && isLiveLog(item.logs[0], today.getTime()) ? item.logs[0] : null
+    const cook = liveLog?.assignedTo ? cookById.get(liveLog.assignedTo) : null
     const assignedCook = cook
       ? { id: cook.id, initials: cook.initials, name: cook.name, homeStation: cook.homeStation }
       : null
@@ -267,7 +275,7 @@ export async function GET(req: NextRequest) {
       service,
       startByMinutes: startByMin,
       assignedCook,
-      todayLog: item.logs[0] ?? null,
+      todayLog: liveLog,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     }

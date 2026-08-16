@@ -29,6 +29,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
 import { applyStatusToItem, defaultDraftQty, effectivePriority } from '@/lib/prep-plan'
+import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
@@ -134,9 +135,10 @@ export default function PrepPage() {
   const [taskTodayIds, setTaskTodayIds] = useState<Set<string>>(new Set())
   const [inventoryForTasks, setInventoryForTasks] = useState<LinkedItemSummary[]>([])
 
-  const todayDateStr = useMemo(() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString()
-  }, [])
+  // The restaurant's prep day as a bare 'YYYY-MM-DD' (src/lib/prep-day.ts). Sent
+  // to the task routes instead of a browser-local midnight ISO, so a tablet on
+  // the wrong timezone still writes the day the kitchen is actually working.
+  const todayDateStr = useMemo(() => prepDayKey(), [])
 
   const loadTasks = useCallback(async () => {
     if (!activeRcId && !activeLocationId) { setTaskLibrary([]); setTaskTodayIds(new Set()); return }
@@ -542,7 +544,7 @@ export default function PrepPage() {
           : {
               id: `_opt_${itemId}`,
               prepItemId: itemId,
-              logDate: now.split('T')[0],
+              logDate: todayDateStr,
               status: newStatus as PrepLogData['status'],
               requiredQty: null,
               actualPrepQty: actualQty ?? null,
@@ -649,7 +651,7 @@ export default function PrepPage() {
           : {
               id: `_opt_${item.id}`,
               prepItemId: item.id,
-              logDate: now.split('T')[0],
+              logDate: todayDateStr,
               status: 'NOT_STARTED',
               requiredQty: null,
               actualPrepQty: null,
@@ -798,7 +800,7 @@ export default function PrepPage() {
     return {
       id: `_opt_${item.id}`,
       prepItemId: item.id,
-      logDate: now.split('T')[0],
+      logDate: todayDateStr,
       status: 'NOT_STARTED',
       requiredQty: null,
       actualPrepQty: null,
@@ -1349,8 +1351,11 @@ export default function PrepPage() {
           )}
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
-          ) : !plan.post && todayItems.length === 0 && activeRcId ? (
-            /* Nothing posted yet — the kitchen's To Do stays empty until the chef posts. */
+          ) : todayItems.length === 0 && activeRcId ? (
+            /* Nothing live to work on — the To Do stays empty until the chef posts.
+               The old test also required `!plan.post`, but a post now stays live
+               across days, so an old header would have suppressed this prompt
+               forever once everything on it was done. */
             <div className="h-[420px] rounded-[14px] border-2 border-dashed border-line-2 bg-paper/50 flex flex-col items-center justify-center gap-2.5">
               <Lock size={26} className="text-ink-4" />
               <div className="text-[15px] font-semibold text-ink-2">Nothing posted yet</div>

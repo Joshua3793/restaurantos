@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
-import { prepDayStart, prepDayRange } from '@/lib/prep-plan-server'
+import { livePost, postedOpenWhere } from '@/lib/prep-plan-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,13 +23,16 @@ export async function POST(req: NextRequest) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
-  const listDate = prepDayStart()
+  // Un-post everything this RC still has on the kitchen's list, whatever day it
+  // was posted for — carried jobs are exactly what the kitchen is looking at.
+  // Scoped to this RC: a recall must not empty another revenue center's To Do.
+  const post = await livePost(revenueCenterId)
   await prisma.$transaction([
     prisma.prepLog.updateMany({
-      where: { logDate: prepDayRange(), postedAt: { not: null } },
+      where: { revenueCenterId, ...postedOpenWhere },
       data: { postedAt: null },
     }),
-    prisma.prepPost.deleteMany({ where: { revenueCenterId, listDate } }),
+    prisma.prepPost.deleteMany({ where: post ? { id: post.id } : { id: '' } }),
   ])
   return NextResponse.json({ ok: true })
 }

@@ -4,6 +4,9 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { computeSuggestedQty } from '@/lib/prep-utils'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { convertQty } from '@/lib/uom'
+import { prepDayRange } from '@/lib/prep-day'
+import { NEWEST_LOG } from '@/lib/prep-plan-server'
+import { isLiveLog } from '@/lib/prep-plan'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -19,9 +22,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const dateStr = body.date as string | undefined
 
-  const today = dateStr ? new Date(dateStr) : new Date()
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today.getTime() + 86_400_000)
+  // Restaurant-local day (src/lib/prep-day.ts), not server wall-clock.
+  const { gte: today } = prepDayRange(dateStr)
 
   const items = await prisma.prepItem.findMany({
     where: { isActive: true },
@@ -30,10 +32,10 @@ export async function POST(req: NextRequest) {
       linkedRecipe: {
         include: { inventoryItem: { select: { id: true, baseUnit: true } } },
       },
-      logs: {
-        where: { logDate: { gte: today, lt: tomorrow } },
-        take: 1,
-      },
+      // Newest log only; `isLiveLog` below decides whether the item already has a
+      // live job — including one carried over from an earlier day — in which case
+      // it is skipped rather than given a second, duplicate row.
+      logs: NEWEST_LOG,
     },
   })
 
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
   let skipped = 0
 
   for (const item of items) {
-    if (item.logs.length > 0) { skipped++; continue }
+    if (item.logs[0] && isLiveLog(item.logs[0], today.getTime())) { skipped++; continue }
 
     const invId = item.linkedInventoryItem?.id ?? item.linkedRecipe?.inventoryItem?.id
     const rc = item.revenueCenterId ?? null

@@ -11,6 +11,7 @@ import {
 } from '@/components/prep/icons'
 import { PrepItemRich, PrepItemDetail, PrepStatus, RecipeStepsData } from '@/components/prep/types'
 import { PREP_STATE_META, formatShortAge, PrepCountdown } from '@/lib/prep-utils'
+import { whyLabel, effectiveUrgency } from '@/lib/prep-plan'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 
 interface PrepDrawerProps {
@@ -161,6 +162,9 @@ export default function PrepDrawer({
 
   const status: PrepStatus = item?.todayLog?.status ?? 'NOT_STARTED'
   const stateKey = PREP_STATE_META[status].key as StateKey
+  // Urgency step for the "why it's on the list" tint. Hooks/derivations run on
+  // every render, so it has to tolerate the closed (item === null) state.
+  const urgency = item ? effectiveUrgency(item) : null
 
   const shortCount = detail?.ingredientShortCount ?? item?.ingredientShortCount ?? 0
   const totalCount =
@@ -295,6 +299,31 @@ export default function PrepDrawer({
               {/* Stock context */}
               <div className="mb-[22px]">
                 <SecLabel>Stock context</SecLabel>
+                {/* Why it's on the list — the run-sheet rows used to carry this
+                    sentence beside the item name, where it truncated the name on
+                    iPad/narrow desktop. It reads here instead, with room to wrap. */}
+                <div
+                  className={`rounded-[11px] border px-3.5 py-3 mb-2.5 ${
+                    urgency === 'PASS'
+                      ? 'bg-red-soft border-red-soft text-red-text'
+                      : urgency === 'MID'
+                        ? 'bg-gold-soft border-[#fcd34d] text-gold-2'
+                        : 'bg-paper border-line text-ink-2'
+                  }`}
+                >
+                  <div className="font-mono text-[9.5px] uppercase tracking-[0.04em] opacity-70">
+                    Why it&apos;s on the list
+                  </div>
+                  <div className="text-[13px] font-medium mt-1 leading-snug first-letter:uppercase">
+                    {whyLabel(item)}
+                  </div>
+                  {item.blockedReason && (
+                    <div className="flex items-start gap-1.5 font-mono text-[11px] mt-2 leading-snug">
+                      <span className="shrink-0 mt-px"><IcAlert size={12} /></span>
+                      <span>{item.blockedReason}</span>
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-3 gap-2.5">
                   <Tile
                     label="On hand"

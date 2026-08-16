@@ -70,7 +70,7 @@ function RailCardMobile({
           <Flame size={15} className="text-gold" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[13.5px] font-semibold tracking-[-0.01em] whitespace-nowrap overflow-hidden text-ellipsis">
+          <span className="block text-[13.5px] font-semibold tracking-[-0.01em] break-words">
             {item.name}
           </span>
           <span className="block font-mono text-[9.5px] text-gold-2 mt-0.5">{fmtQty(qty, item.unit)}</span>

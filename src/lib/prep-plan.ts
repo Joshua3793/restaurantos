@@ -376,3 +376,66 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
     }))
     .filter(g => g.rows.length)
 }
+
+// ── The live prep log ──────────────────────────────────────────────────────
+// The To Do is a STANDING list, not a daily one. The kitchen posts the next
+// day's list at the end of a shift, and unfinished jobs carry forward until
+// they are done or taken off — nothing drops off because a date changed.
+//
+// So an item's LIVE log is: today's log if it has one, otherwise the newest
+// earlier log still open. Exactly ONE live log per item is an invariant — a
+// second open row would resurface the item on the To Do after the first was
+// completed — so every path that needs "the item's log" resolves it this way
+// instead of creating a fresh row per calendar day (see ensureLiveLogs in
+// src/lib/prep-plan-server.ts).
+
+/** Statuses that leave a prep still to do. */
+export const OPEN_PREP_STATUSES = ['NOT_STARTED', 'IN_PROGRESS'] as const
+
+export const isOpenPrepStatus = (status: string): boolean =>
+  (OPEN_PREP_STATUSES as readonly string[]).includes(status)
+
+export interface LiveLogRow {
+  id: string
+  prepItemId: string
+  logDate: Date | string
+  status: string
+  postedAt: Date | string | null
+}
+
+/**
+ * True when `log` is today's log, or an earlier one that was posted to the
+ * kitchen and is still open.
+ *
+ * An earlier log must be POSTED to carry. Without that test the To Do also
+ * inherits every stale artifact the tables hold — abandoned IN_PROGRESS timers
+ * from months back, and unposted draft rows — because those are "open" too. The
+ * cost is that a draft edit made last night and never posted starts from the
+ * suggested qty again; the item itself still sits on the draft (`isOnList`).
+ */
+export function isLiveLog(log: LiveLogRow, dayStartMs: number): boolean {
+  const d = new Date(log.logDate).getTime()
+  if (d >= dayStartMs && d < dayStartMs + 86_400_000) return true
+  return isOpenPrepStatus(log.status) && log.postedAt != null
+}
+
+/**
+ * The live log per item, from that item's rows — ONLY the newest row can be
+ * live, and it is live only if `isLiveLog` says so.
+ *
+ * Testing the newest row rather than "the newest row that happens to be open"
+ * is what stops a completed job coming back: an item made this morning still
+ * has last night's open posted row underneath it, and picking the newest OPEN
+ * row would put the item back on tomorrow's list as if it were never made.
+ */
+export function pickLiveLogs<T extends LiveLogRow>(logs: T[], dayStartMs: number): Map<string, T> {
+  const newest = new Map<string, T>()
+  for (const log of logs) {
+    const held = newest.get(log.prepItemId)
+    if (!held || new Date(log.logDate).getTime() > new Date(held.logDate).getTime()) newest.set(log.prepItemId, log)
+  }
+  for (const [prepItemId, log] of newest) {
+    if (!isLiveLog(log, dayStartMs)) newest.delete(prepItemId)
+  }
+  return newest
+}

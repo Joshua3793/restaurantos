@@ -7,9 +7,9 @@ import { Zap } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, NeedChip, RunwayBar, ReasonBadge, BlockedBadge } from './atoms'
+import { StationTag, NeedChip, RunwayBar, UrgencyDot } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
-import { fmtClock, fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 
 // Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
@@ -49,21 +49,24 @@ export function RunRow({
   const claimAnchor = useRef<HTMLDivElement>(null)
 
   const sb = item.startByMinutes
-  const blocked = item.isBlocked || !!item.blockedReason
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
   const late = sb != null ? nowMin - sb : 0
   // Planned qty: the chef's posted requiredQty wins, then the live suggestion.
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const batch = batchLabel(item, qty)
 
+  // Below lg (iPad portrait, and landscape before the sidebar docks) the row
+  // stacks: start-by + name on the first line, the claim/recipe/Start cluster on
+  // a second. Keeping all four columns on one line at that width squeezed the
+  // name column to ~140px and broke long names over seven lines.
   return (
     <div
-      className={`grid grid-cols-[64px_1fr_auto_auto] items-center gap-4 bg-paper border border-line border-l-[3px] rounded-[11px] relative ${
+      className={`grid grid-cols-[64px_minmax(0,1fr)] lg:grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 bg-paper border border-line border-l-[3px] rounded-[11px] relative ${
         dense ? 'py-2 px-4' : 'py-[13px] px-4'
       } ${ACCENT_CLASS[state]}`}
     >
       {/* start-by time */}
-      <div>
+      <div className="self-start lg:self-center">
         {sb != null ? (
           <>
             <div
@@ -86,50 +89,53 @@ export function RunRow({
         )}
       </div>
 
-      {/* task */}
+      {/* task — the name owns its own line and NEVER truncates (it is the one
+          thing a cook has to be able to read). Everything else wraps beneath it,
+          so a narrow frame (iPad portrait/landscape, split desktop) costs a row
+          of height rather than the end of the name. */}
       <div className="min-w-0">
         <div className="flex items-center gap-2 min-w-0">
+          <UrgencyDot item={item} />
           <span
             onClick={() => onOpenRecipe(item)}
             title="Open recipe"
-            className="text-[14px] font-semibold tracking-[-0.015em] whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer underline decoration-line-2 underline-offset-[3px]"
+            className="text-[14px] font-semibold tracking-[-0.015em] break-words cursor-pointer underline decoration-line-2 underline-offset-[3px]"
           >
             {item.name}
           </span>
-          <span className="font-mono text-[11px] text-ink-3 whitespace-nowrap">{batch ? `${batch} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit)}</span>
-          {item.station && <StationTag>{item.station}</StationTag>}
-          {item.priority !== 'LATER' && <ReasonBadge item={item} />}
-          {blocked && <BlockedBadge reason={item.blockedReason ?? 'stock'} />}
         </div>
-        {!dense && (
-          <div className="flex items-center gap-3.5 mt-1.5">
-            <RunwayBar activeMin={item.activeMinutes} passiveMin={item.passiveMinutes} passiveNote={item.passiveNote} />
-            <NeedChip service={item.service} />
-          </div>
-        )}
+        <div className="flex items-center gap-x-3.5 gap-y-1 flex-wrap mt-1">
+          <span className="font-mono text-[11px] text-ink-3">{batch ? `${batch} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit)}</span>
+          {item.station && <StationTag>{item.station}</StationTag>}
+          {!dense && (
+            <>
+              <RunwayBar activeMin={item.activeMinutes} passiveMin={item.passiveMinutes} passiveNote={item.passiveNote} />
+              <NeedChip service={item.service} />
+            </>
+          )}
+        </div>
       </div>
 
-      {/* assignee + claim popover */}
-      <div ref={claimAnchor} className="relative">
-        <AssigneeChip cook={item.assignedCook} onClick={() => setClaimOpen(o => !o)} />
-        {claimOpen && (
-          <ClaimPopover
-            anchorRef={claimAnchor}
-            cooks={cooks}
-            currentId={item.assignedCook?.id ?? null}
-            onPick={cookId => {
-              onClaim(item, cookId)
-              setClaimOpen(false)
-            }}
-            onClose={() => setClaimOpen(false)}
-          />
-        )}
-      </div>
-
-      {/* action — a stock-out / blocked item is NOT gated: the badge above flags the
-          risk, but the cook can still start it (they may have uncounted stock, or be
-          prepping toward a later restock). Only the label is advisory, never a blocker. */}
-      <div className="flex items-center gap-[7px]">
+      {/* assignee + actions — one cluster so it can drop to its own line under the
+          name on a narrow frame. A stock-out / blocked item is NOT gated: the
+          urgency dot flags the risk and the drawer spells it out, but the cook can
+          still start it (uncounted stock, or prepping toward a later restock). */}
+      <div className="col-start-2 lg:col-start-3 flex items-center gap-[7px] justify-start lg:justify-end">
+        <div ref={claimAnchor} className="relative shrink-0">
+          <AssigneeChip cook={item.assignedCook} onClick={() => setClaimOpen(o => !o)} />
+          {claimOpen && (
+            <ClaimPopover
+              anchorRef={claimAnchor}
+              cooks={cooks}
+              currentId={item.assignedCook?.id ?? null}
+              onPick={cookId => {
+                onClaim(item, cookId)
+                setClaimOpen(false)
+              }}
+              onClose={() => setClaimOpen(false)}
+            />
+          )}
+        </div>
         <button
           onClick={() => onOpenRecipe(item)}
           title="Recipe"
@@ -139,7 +145,7 @@ export function RunRow({
         </button>
         <button
           onClick={() => onStart(item)}
-          className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer"
+          className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0"
         >
           <Zap size={12} className="text-gold" /> Start
         </button>

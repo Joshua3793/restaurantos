@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
-import { prepDayRange, prepDayStart, markPlanDirty } from '@/lib/prep-plan-server'
+import { ensureLiveLogs, markPlanDirty } from '@/lib/prep-plan-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,17 +26,15 @@ export async function PATCH(req: NextRequest) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
-  const day = prepDayRange()
-  await prisma.$transaction([
-    prisma.prepLog.createMany({
-      data: orders.map(o => ({ prepItemId: o.prepItemId, revenueCenterId, logDate: prepDayStart(), status: 'NOT_STARTED' })),
-      skipDuplicates: true,
+  // Order is written on the item's LIVE log, so re-ordering a job carried over
+  // from an earlier list edits that row instead of opening a duplicate.
+  const liveLogs = await ensureLiveLogs(orders.map(o => o.prepItemId), revenueCenterId)
+  await prisma.$transaction(
+    orders.flatMap(o => {
+      const id = liveLogs.get(o.prepItemId)
+      return id ? [prisma.prepLog.update({ where: { id }, data: { listOrder: o.listOrder } })] : []
     }),
-    ...orders.map(o => prisma.prepLog.updateMany({
-      where: { prepItemId: o.prepItemId, logDate: day },
-      data: { listOrder: o.listOrder },
-    })),
-  ])
+  )
   await markPlanDirty(revenueCenterId)
   return NextResponse.json({ ok: true })
 }

@@ -40,6 +40,9 @@ export interface PrepPostInfo {
   itemCount: number
   activeMinutes: number
   dirty: boolean
+  /** The day the list was posted for. Often NOT today: the kitchen posts the next
+   *  day's list at the end of a shift and its jobs carry over until they're done. */
+  listDate?: string
 }
 
 export interface PrepItemRich {
