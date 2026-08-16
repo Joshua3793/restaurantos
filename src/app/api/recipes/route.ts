@@ -55,7 +55,27 @@ export async function GET(req: NextRequest) {
         type ? { type } : {},
         categoryId ? { categoryId } : {},
         isActiveParam !== null ? { isActive: isActiveParam === 'true' } : {},
-        search ? { name: { contains: search, mode: 'insensitive' as const } } : {},
+        // The search box on /recipes and /menu promises "recipes, ingredients,
+        // categories" — match all three, not just the recipe name. An ingredient is
+        // one of three things: a linked inventory item, a linked PREP recipe, or a
+        // custom (uncosted) name typed straight onto the line.
+        search ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' as const } },
+            { category: { name: { contains: search, mode: 'insensitive' as const } } },
+            {
+              ingredients: {
+                some: {
+                  OR: [
+                    { inventoryItem: { itemName: { contains: search, mode: 'insensitive' as const } } },
+                    { linkedRecipe: { name: { contains: search, mode: 'insensitive' as const } } },
+                    { customName: { contains: search, mode: 'insensitive' as const } },
+                  ],
+                },
+              },
+            },
+          ],
+        } : {},
         rcFilter,
       ],
     },
