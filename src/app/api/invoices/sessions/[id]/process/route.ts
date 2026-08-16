@@ -28,7 +28,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     where: { id: params.id },
     include: {
       files: {
-        select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, ocrRawJson: true },
+        select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, ocrRawJson: true, peekMeta: true },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -380,7 +380,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         status:          'REVIEW',
         supplierName:    finalSupplierName,
         invoiceDate:     sessionMeta.invoiceDate   ?? session.invoiceDate,
-        invoiceNumber:   sessionMeta.invoiceNumber ?? session.invoiceNumber,
+        // Sessions from the confirm-grouping flow (their files carry peekMeta;
+        // single-invoice uploads never do) arrive with a HUMAN-CONFIRMED — and
+        // possibly hand-corrected — invoice number on the session row. That
+        // outranks the full OCR's own read of the same header; OCR only fills
+        // the gap when the card had no number.
+        invoiceNumber:   session.files.some(f => f.peekMeta != null)
+          ? session.invoiceNumber ?? sessionMeta.invoiceNumber ?? null
+          : sessionMeta.invoiceNumber ?? session.invoiceNumber,
         poNumber:        sessionMeta.poNumber        ?? null,
         subtotal:        sessionMeta.subtotal        ?? null,
         tax:             taxValue,

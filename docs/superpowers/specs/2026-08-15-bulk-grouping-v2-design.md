@@ -88,6 +88,26 @@ version to stay cached.
 - Reusing cached peekMeta for the process route's session label (existing
   follow-up).
 
+## v2.1 amendment (2026-08-15, user-requested): discard + editable number
+
+- **Discard a photo** (double-shots, blurry retakes): the viewer sheet gains a
+  red "Discard this photo" action. Discarded photos collect in a dimmed strip
+  (tap to restore → lands in *unassigned*, forcing deliberate placement).
+  `split` accepts `discardFileIds: string[]`; validation becomes "every file
+  in exactly one group OR the discard list"; discarded `InvoiceFile` rows are
+  deleted inside the split transaction.
+- **Editable invoice number**: each group card's number is a tap-to-edit chip
+  (commit on Enter/blur; empty ⇒ null). The corrected value flows into the
+  session prefill via the existing split body.
+- **Corrections outrank OCR**: the process route previously let the full OCR
+  overwrite `invoiceNumber`. For sessions from the grouping flow (detected by
+  files carrying `peekMeta` — single-invoice uploads never have it), the
+  session's number — human-confirmed, possibly hand-corrected — now wins;
+  OCR only fills the gap when the card had no number. Supplier and date keep
+  OCR-wins semantics.
+- This supersedes the v2 out-of-scope line "editing card metadata on the
+  confirm screen" for the invoice-number field only.
+
 ## Testing
 
 - Grouping lib: all 14 v1 tests unchanged + new tests for: continuation joins
