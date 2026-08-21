@@ -138,14 +138,23 @@ export default function TipsPage() {
   }, [payload, openPeriod])
 
   /* ── mutate ────────────────────────────────────────────────────────────── */
+  // NOTE on the `errorMessage`-then-`loadPeriod`-then-`setError` ordering below:
+  // `loadPeriod` itself calls `setError(null)` on a successful reload, so
+  // setting the error BEFORE the reload gets silently wiped the instant the
+  // reload resolves — the manager never sees why a save failed (a 409/400
+  // reads as "the field just reset itself"). Reloading first and setting the
+  // error last fixes both halves of the failure at once: the table still
+  // needs to stop showing the value the server rejected (the reload pulls the
+  // server's actual state) AND the error must survive the reload that follows it.
   const patchPeriod = useCallback(async (body: Record<string, unknown>) => {
     if (!periodId) return
     setBusy(true)
     const res = await fetch(`/api/tips/periods/${periodId}`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not save')
+    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not save')
     await loadPeriod(periodId)
+    if (errorMessage) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -154,9 +163,11 @@ export default function TipsPage() {
     const res = await fetch('/api/tips/settings', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
+    let errorMessage: string | null = null
     if (res.ok) setSettings(await res.json())
-    else setError((await res.json()).error ?? 'Could not save settings')
+    else errorMessage = (await res.json()).error ?? 'Could not save settings'
     if (periodId) await loadPeriod(periodId)
+    if (errorMessage) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -166,8 +177,9 @@ export default function TipsPage() {
     const res = await fetch(`/api/tips/periods/${periodId}/adjustments`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not save that edit')
+    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not save that edit')
     await loadPeriod(periodId)
+    if (errorMessage) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -180,6 +192,7 @@ export default function TipsPage() {
         await patchPeriod({ ignoredClockIds: [...payload.period.ignoredClockIds, action.arg] })
         return
       }
+      let errorMessage: string | null = null
       if (action.kind === 'onPool') {
         await fetch(`/api/tips/roster/${action.arg}`, {
           method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onTipPool: true }),
@@ -201,10 +214,13 @@ export default function TipsPage() {
               clockId: punch.clockId, position: punch.position,
             }),
           })
-          if (!res.ok) setError((await res.json()).error ?? 'Could not add that person')
+          if (!res.ok) errorMessage = (await res.json()).error ?? 'Could not add that person'
         }
       }
+      // See the comment above patchPeriod: setError must come AFTER loadPeriod,
+      // or the reload's own setError(null) wipes it out.
       await loadPeriod(periodId)
+      if (errorMessage) setError(errorMessage)
     } finally { setBusy(false) }
   }, [periodId, payload, patchPeriod, loadPeriod])
 
@@ -215,8 +231,9 @@ export default function TipsPage() {
     const res = await fetch(`/api/tips/periods/${periodId}/pay`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reopen }),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not update the period')
+    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not update the period')
     await loadPeriod(periodId)
+    if (errorMessage) setError(errorMessage)
     setBusy(false)
   }, [periodId, payload, loadPeriod])
 
@@ -505,14 +522,26 @@ export default function TipsPage() {
             }}
             onDeleteRole={id => {
               void fetch(`/api/tips/roles/${id}`, { method: 'DELETE' })
-                .then(async r => { if (!r.ok) setError((await r.json()).error ?? 'Could not delete that role') })
-                .then(() => { if (periodId) void loadPeriod(periodId) })
+                .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not delete that role')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this.
+                .then(async errorMessage => {
+                  if (periodId) await loadPeriod(periodId)
+                  if (errorMessage) setError(errorMessage)
+                })
             }}
             onSaveRoster={(cookId, patch) => {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-              }).then(async r => { if (!r.ok) setError((await r.json()).error ?? 'Could not save that change') })
-                .then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not save that change')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this.
+                // Reloading first also means the picker/field reflects the
+                // server's actual (unchanged) value instead of the rejected one.
+                .then(async errorMessage => {
+                  if (periodId) await loadPeriod(periodId)
+                  if (errorMessage) setError(errorMessage)
+                })
             }}
             onAddEmployee={() => setError('Add new kitchen staff in Setup → Kitchen crew, then give them a clock ID here.')}
           />
