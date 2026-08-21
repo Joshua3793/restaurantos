@@ -60,20 +60,45 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         data.clockId = code
       }
     }
+    // The app login this roster row belongs to. Deliberately explicit: nothing
+    // in this route ever infers a link from a name or an email.
+    if (body.userId !== undefined) {
+      if (body.userId === null || body.userId === '') data.userId = null
+      else {
+        const id = String(body.userId)
+        const account = await prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } })
+        if (!account || !account.isActive)
+          return NextResponse.json({ error: 'userId is not an active user' }, { status: 400 })
+        const clash = await prisma.cook.findUnique({ where: { userId: id }, select: { id: true, name: true } })
+        if (clash && clash.id !== params.id)
+          return NextResponse.json({ error: `That login is already linked to ${clash.name}` }, { status: 409 })
+        data.userId = id
+      }
+    }
 
     let cook
     try {
       cook = await prisma.cook.update({ where: { id: params.id }, data })
     } catch (e) {
-      // Losing side of a concurrent update to the same clockId: the pre-check
-      // above raced another request past it. Map the unique violation to the
-      // same readable 409 rather than letting it fall through as a 500.
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002' && typeof data.clockId === 'string') {
-        const holder = await prisma.cook.findUnique({ where: { clockId: data.clockId as string } })
-        return NextResponse.json(
-          { error: `Clock #${data.clockId} already belongs to ${holder?.name ?? 'another cook'}` },
-          { status: 409 },
-        )
+      // Losing side of a concurrent update to the same clockId/userId: the
+      // pre-check above raced another request past it. Map the unique
+      // violation to the same readable 409 rather than letting it fall
+      // through as a 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        if (typeof data.clockId === 'string') {
+          const holder = await prisma.cook.findUnique({ where: { clockId: data.clockId as string } })
+          return NextResponse.json(
+            { error: `Clock #${data.clockId} already belongs to ${holder?.name ?? 'another cook'}` },
+            { status: 409 },
+          )
+        }
+        if (typeof data.userId === 'string') {
+          const holder = await prisma.cook.findUnique({ where: { userId: data.userId as string }, select: { name: true } })
+          return NextResponse.json(
+            { error: `That login is already linked to ${holder?.name ?? 'another cook'}` },
+            { status: 409 },
+          )
+        }
       }
       throw e
     }

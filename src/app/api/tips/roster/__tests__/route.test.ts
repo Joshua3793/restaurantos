@@ -5,6 +5,8 @@ import type { NextRequest } from 'next/server'
 const cookFindUnique = vi.fn(async () => null as { id: string; name: string; clockId: string | null } | null)
 const cookCreate = vi.fn(async () => ({ id: 'c1' }))
 const cookCount = vi.fn(async () => 0)
+const cookUpdate = vi.fn(async () => ({ id: 'c1', name: 'Sam' }))
+const userFindUnique = vi.fn(async () => null as { id: string; isActive: boolean } | null)
 const tipRoleFindMany = vi.fn(async () => [{ id: 'r1', name: 'Line Cook', sortOrder: 0 }])
 const requireSession = vi.fn(async () => ({ id: 'u1', role: 'MANAGER', isActive: true }))
 const loadSettings = vi.fn(async () => ({ posMap: {}, defaultDailyHourCap: null }))
@@ -30,6 +32,10 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: (...a: unknown[]) => cookFindUnique(...(a as [])),
       create: (...a: unknown[]) => cookCreate(...(a as [])),
       count: (...a: unknown[]) => cookCount(...(a as [])),
+      update: (...a: unknown[]) => cookUpdate(...(a as [])),
+    },
+    user: {
+      findUnique: (...a: unknown[]) => userFindUnique(...(a as [])),
     },
     tipRole: {
       findMany: (...a: unknown[]) => tipRoleFindMany(...(a as [])),
@@ -96,5 +102,73 @@ describe('POST /api/tips/roster', () => {
     const res = await POST(req(base))
     expect(res.status).toBe(401)
     expect(cookCreate).not.toHaveBeenCalled()
+  })
+})
+
+const { PATCH } = await import('@/app/api/tips/roster/[id]/route')
+
+const patchReq = (body: Record<string, unknown>) => ({ json: async () => body }) as unknown as NextRequest
+const ctx = { params: { id: 'c1' } }
+
+describe('PATCH /api/tips/roster/[id] — app login link', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireSession.mockResolvedValue({ id: 'u9', role: 'MANAGER', isActive: true })
+    cookFindUnique.mockResolvedValue({ id: 'c1', name: 'Sam', clockId: '4521' })
+    cookUpdate.mockResolvedValue({ id: 'c1', name: 'Sam' })
+    userFindUnique.mockResolvedValue(null)
+  })
+
+  it('links an active user', async () => {
+    userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+    const res = await PATCH(patchReq({ userId: 'u1' }), ctx)
+    expect(res.status).toBe(200)
+    expect(cookUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: 'u1' } }))
+  })
+
+  it('clears the link when userId is null', async () => {
+    const res = await PATCH(patchReq({ userId: null }), ctx)
+    expect(res.status).toBe(200)
+    expect(cookUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: null } }))
+  })
+
+  it('rejects an unknown user with 400', async () => {
+    userFindUnique.mockResolvedValue(null)
+    const res = await PATCH(patchReq({ userId: 'nope' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a deactivated user with 400', async () => {
+    userFindUnique.mockResolvedValue({ id: 'u1', isActive: false })
+    const res = await PATCH(patchReq({ userId: 'u1' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 409 naming the cook who already holds that login', async () => {
+    userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+    // Second cook.findUnique call — the { where: { userId } } clash pre-check.
+    cookFindUnique
+      .mockResolvedValueOnce({ id: 'c1', name: 'Sam', clockId: '4521' })
+      .mockResolvedValueOnce({ id: 'c2', name: 'Maria Sandoval', clockId: null })
+    const res = await PATCH(patchReq({ userId: 'u1' }), ctx)
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain('Maria Sandoval')
+  })
+
+  it('maps a P2002 race on userId to the same readable 409', async () => {
+    userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+    cookFindUnique
+      .mockResolvedValueOnce({ id: 'c1', name: 'Sam', clockId: '4521' })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'c2', name: 'Maria Sandoval', clockId: null })
+    cookUpdate.mockRejectedValue(new MockPrismaClientKnownRequestError('unique', 'P2002'))
+    const res = await PATCH(patchReq({ userId: 'u1' }), ctx)
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain('Maria Sandoval')
+  })
+
+  it('leaves the link untouched when userId is absent from the body', async () => {
+    await PATCH(patchReq({ lastName: 'Lee' }), ctx)
+    expect(cookUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { lastName: 'Lee' } }))
   })
 })
