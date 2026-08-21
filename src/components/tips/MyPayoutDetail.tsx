@@ -50,8 +50,9 @@ export function MyPayoutDetail({ payout }: { payout: MyPayout }) {
         </div>
         <div className="text-[12px] text-ink-3 mt-1.5">
           {payout.startDate} – {payout.endDate}
-          {payout.paidAt ? ` · paid ${dateLabel(payout.paidAt)}` : ''}
-          {payout.paidByName ? ` by ${payout.paidByName}` : ''}
+          {payout.paidAt
+            ? ` · paid ${dateLabel(payout.paidAt)}${payout.paidByName ? ` by ${payout.paidByName}` : ''}`
+            : payout.paidByName ? ` · paid by ${payout.paidByName}` : ''}
         </div>
       </div>
 
