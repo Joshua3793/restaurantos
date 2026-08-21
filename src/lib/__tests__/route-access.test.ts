@@ -80,10 +80,18 @@ describe('canAccess', () => {
   })
 
   it('keeps STAFF out of every gate above STAFF in the table', () => {
-    // '/tips/me' is deliberately STAFF-level (opened in Task 7) — everything
-    // else in the table is still above STAFF, which is what this test guards.
+    // Hand-maintained, on purpose: every entry in ROUTE_CLEARANCE is above
+    // STAFF except this explicit exception list. Expectations here must NOT
+    // be read back out of ROUTE_CLEARANCE itself — if someone adds a route or
+    // downgrades an existing one (e.g. '/pass') to STAFF without updating
+    // this list, the test must fail rather than agreeing with the table.
+    const STAFF_LEVEL_ROUTES = new Set(['/tips/me'])
     for (const [prefix, role] of ROUTE_CLEARANCE) {
-      expect(canAccess('STAFF', prefix)).toBe(role === 'STAFF')
+      if (STAFF_LEVEL_ROUTES.has(prefix)) {
+        expect(role).toBe('STAFF')
+      } else {
+        expect(canAccess('STAFF', prefix)).toBe(false)
+      }
     }
   })
 
