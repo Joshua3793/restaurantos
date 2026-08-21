@@ -64,13 +64,24 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true, name: true, lastName: true, clockId: true, wage: true,
-        dailyHourCap: true, tipRoleId: true, onTipPool: true,
+        dailyHourCap: true, tipRoleId: true, onTipPool: true, userId: true,
       },
     })
     const roles = await prisma.tipRole.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     })
+
+    // Active logins for the roster's link picker. MANAGER-gated by this route,
+    // so no separate ADMIN users endpoint is needed. Sorted by name; the picker
+    // NEVER pre-selects a suggestion.
+    const appUsers = await prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+      select: { id: true, name: true, email: true },
+    })
+    const userLinks: Record<string, string> = {}
+    for (const c of cooks) if (c.userId) userLinks[c.id] = c.userId
 
     const poolDepartments = settingsDto.poolDepartments
     // Single copy of the punches→hours fold; build.ts (Task 9) calls the same
@@ -152,6 +163,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       },
       roles: roles.map(toRoleDto),
       roster,
+      userLinks,
+      appUsers,
       punches,
       punchTotal: Math.round(punches.reduce((a, p) => a + p.hours, 0) * 100) / 100,
       rewardTiers: settingsDto.rewardTiers,

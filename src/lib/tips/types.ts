@@ -179,6 +179,13 @@ export interface TipPeriodSummary {
   paidByName: string | null
 }
 
+/** An app login a roster row can be linked to. */
+export interface AppUserOption {
+  id: string
+  name: string | null
+  email: string
+}
+
 /** Everything /tips needs, in one round trip. */
 export interface TipPeriodPayload {
   period: TipPeriodSummary & {
@@ -232,6 +239,15 @@ export interface TipPeriodPayload {
   roles: TipRoleDef[]
   /** Every cook, with this period's hours and boosts already resolved. */
   roster: TipPerson[]
+  /**
+   * cookId → linked app login. Kept OFF TipPerson on purpose: TipPerson becomes
+   * SplitPerson, which is frozen into TipPeriod.snapshot at pay time and is the
+   * input to the staff projection. Account ids have no business in a payout
+   * record, and keeping them out is one less thing the whitelist must exclude.
+   */
+  userLinks: Record<string, string>
+  /** Active app logins, for the roster's link picker. */
+  appUsers: AppUserOption[]
   punches: PunchRow[]
   punchTotal: number
   rewardTiers: number[]

@@ -22,7 +22,7 @@ export interface TipSettingsDto {
 
 export interface LookupOption { id: string; name: string; locationId?: string }
 
-const GRID = 'minmax(180px,1.4fr) 68px 78px 74px 100px 50px 74px 48px 26px'
+const GRID = 'minmax(180px,1.4fr) 68px 78px 74px 100px 120px 50px 74px 48px 26px'
 
 /**
  * THE SETTINGS TAB IS NEVER READ-ONLY, not even while the open period is PAID.
@@ -79,6 +79,7 @@ export function SettingsTab({
             <span>Employee</span><span>Code</span><span>Wage</span>
             <span title="Contracted shift length — hours above it are not paid tips">Cap</span>
             <span>Role</span>
+            <span title="The app login that sees this person's payouts at /tips/me">App login</span>
             <span className="text-right">Hours</span><span className="text-right">Tips</span>
             <span className="text-center">On pool</span><span />
           </div>
@@ -119,6 +120,17 @@ export function SettingsTab({
                   /><em className="not-italic">h</em>
                 </span>
                 <RoleSelect value={p.roleId} roles={payload.roles} onChange={id => onSaveRoster(p.cookId, { tipRoleId: id })} className="w-full" />
+                <select
+                  value={payload.userLinks[p.cookId] ?? ''}
+                  onChange={e => onSaveRoster(p.cookId, { userId: e.target.value || null })}
+                  title="Set deliberately — never guessed from a name or an email"
+                  className="w-full text-[11.5px] bg-transparent border border-transparent rounded-md px-1.5 py-[5px] outline-none text-ink-2 hover:border-line focus:border-gold focus:bg-paper"
+                >
+                  <option value="">— none —</option>
+                  {payload.appUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                  ))}
+                </select>
                 <span className="font-mono text-[12.5px] text-right text-ink-3">{t ? `${t.hoursTotal.toFixed(1)} h` : '—'}</span>
                 <span className={`font-mono text-[12.5px] text-right ${t ? 'text-gold-2 font-semibold' : 'text-ink-4'}`}>{t ? money(t.tip) : '—'}</span>
                 <span className="flex justify-center">

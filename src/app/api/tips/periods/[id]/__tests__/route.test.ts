@@ -21,8 +21,10 @@ const tipPeriodUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }
 const cookFindMany = vi.fn(async () => [] as Array<{
   id: string; name: string; lastName: string | null; clockId: string | null
   wage: number | null; dailyHourCap: number | null; tipRoleId: string | null; onTipPool: boolean
+  userId: string | null
 }>)
 const tipRoleFindMany = vi.fn(async () => [] as Array<{ id: string; name: string; multiplier: number; sortOrder: number }>)
+const userFindMany = vi.fn(async () => [] as Array<{ id: string; name: string | null; email: string }>)
 const requireSession = vi.fn(async () => ({ id: 'u1', role: 'MANAGER', isActive: true }))
 const isRcInScope = vi.fn(async () => true)
 const loadSettings = vi.fn(async () => ({
@@ -49,6 +51,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     cook: { findMany: (...a: unknown[]) => cookFindMany(...(a as [])) },
     tipRole: { findMany: (...a: unknown[]) => tipRoleFindMany(...(a as [])) },
+    user: { findMany: (...a: unknown[]) => userFindMany(...(a as [])) },
   },
 }))
 vi.mock('@/lib/auth', () => ({
@@ -77,6 +80,7 @@ beforeEach(() => {
   tipPeriodUpdate.mockClear()
   cookFindMany.mockClear(); cookFindMany.mockResolvedValue([])
   tipRoleFindMany.mockClear(); tipRoleFindMany.mockResolvedValue([])
+  userFindMany.mockClear(); userFindMany.mockResolvedValue([])
   requireSession.mockClear(); requireSession.mockResolvedValue({ id: 'u1', role: 'MANAGER', isActive: true })
   isRcInScope.mockClear(); isRcInScope.mockResolvedValue(true)
   loadSettings.mockClear()
