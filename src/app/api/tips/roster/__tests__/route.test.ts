@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
 
 // Same vi.mock-of-Prisma pattern as src/app/api/sales/__tests__/put-tips.test.ts.
-const cookFindUnique = vi.fn(async () => null as { id: string; name: string; clockId: string | null } | null)
+const cookFindUnique = vi.fn(
+  async (_args?: { where: { id?: string; userId?: string; clockId?: string } }) =>
+    null as { id: string; name: string; clockId: string | null } | null,
+)
 const cookCreate = vi.fn(async () => ({ id: 'c1' }))
 const cookCount = vi.fn(async () => 0)
 const cookUpdate = vi.fn(async () => ({ id: 'c1', name: 'Sam' }))
@@ -19,7 +22,7 @@ class MockAuthError extends Error {
 }
 
 class MockPrismaClientKnownRequestError extends Error {
-  constructor(message: string, public readonly code: string) {
+  constructor(message: string, public readonly code: string, public readonly meta?: { target?: unknown }) {
     super(message)
     this.name = 'PrismaClientKnownRequestError'
     Object.setPrototypeOf(this, MockPrismaClientKnownRequestError.prototype)
@@ -29,7 +32,7 @@ class MockPrismaClientKnownRequestError extends Error {
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     cook: {
-      findUnique: (...a: unknown[]) => cookFindUnique(...(a as [])),
+      findUnique: (...a: unknown[]) => cookFindUnique(...(a as [{ where: { id?: string; userId?: string; clockId?: string } }])),
       create: (...a: unknown[]) => cookCreate(...(a as [])),
       count: (...a: unknown[]) => cookCount(...(a as [])),
       update: (...a: unknown[]) => cookUpdate(...(a as [])),
@@ -170,5 +173,74 @@ describe('PATCH /api/tips/roster/[id] — app login link', () => {
   it('leaves the link untouched when userId is absent from the body', async () => {
     await PATCH(patchReq({ lastName: 'Lee' }), ctx)
     expect(cookUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { lastName: 'Lee' } }))
+  })
+
+  // Deliberately named (rather than relying on the blanket cookFindUnique
+  // mock returning the same cook for every call, which would make this pass
+  // by coincidence): the clash pre-check must exclude the cook's own row.
+  it('does not 409 when the same login is re-linked to the same cook (self-link no-op)', async () => {
+    userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+    cookFindUnique.mockImplementation(async (args?: { where: { id?: string; userId?: string; clockId?: string } }) => {
+      if (args?.where.id) return { id: 'c1', name: 'Sam', clockId: '4521' }
+      if (args?.where.userId) return { id: 'c1', name: 'Sam', clockId: '4521' } // this cook already holds this login
+      return null
+    })
+    const res = await PATCH(patchReq({ userId: 'u1' }), ctx)
+    expect(res.status).toBe(200)
+    expect(cookUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: 'u1' } }))
+  })
+
+  describe('P2002 discrimination on a combined clockId+userId PATCH', () => {
+    // Calls happen in a fixed order: (1) existing-row lookup, (2) clockId
+    // clash pre-check, (3) userId clash pre-check, (4) — only if the catch
+    // branch queries again — the post-P2002 holder lookup.
+    it('routes a P2002 on userId to the login message, not the clock message', async () => {
+      userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+      cookFindUnique
+        .mockResolvedValueOnce({ id: 'c1', name: 'Sam', clockId: '4521' }) // existing
+        .mockResolvedValueOnce(null) // clockId pre-check: no collision
+        .mockResolvedValueOnce(null) // userId pre-check: no collision yet (race)
+        .mockResolvedValueOnce({ id: 'c2', name: 'Maria Sandoval', clockId: null }) // post-P2002 userId lookup
+      cookUpdate.mockRejectedValueOnce(
+        new MockPrismaClientKnownRequestError('Unique constraint failed', 'P2002', { target: ['userId'] }),
+      )
+      const res = await PATCH(patchReq({ clockId: '9999', userId: 'u1' }), ctx)
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.error).toContain('Maria Sandoval')
+      expect(json.error).not.toMatch(/Clock #/)
+    })
+
+    it('routes a P2002 on clockId to the clock message, not the login message', async () => {
+      userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+      cookFindUnique
+        .mockResolvedValueOnce({ id: 'c1', name: 'Sam', clockId: '4521' }) // existing
+        .mockResolvedValueOnce(null) // clockId pre-check: no collision yet (race)
+        .mockResolvedValueOnce(null) // userId pre-check: no collision
+        .mockResolvedValueOnce({ id: 'c2', name: 'Alex Kim', clockId: '9999' }) // post-P2002 clockId lookup
+      cookUpdate.mockRejectedValueOnce(
+        new MockPrismaClientKnownRequestError('Unique constraint failed', 'P2002', { target: ['clockId'] }),
+      )
+      const res = await PATCH(patchReq({ clockId: '9999', userId: 'u1' }), ctx)
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.error).toContain('Alex Kim')
+      expect(json.error).toMatch(/^Clock #9999/)
+    })
+
+    it('re-throws (surfacing as a 500) a P2002 that implicates neither field, rather than guessing a 409', async () => {
+      userFindUnique.mockResolvedValue({ id: 'u1', isActive: true })
+      cookFindUnique
+        .mockResolvedValueOnce({ id: 'c1', name: 'Sam', clockId: '4521' }) // existing
+        .mockResolvedValueOnce(null) // clockId pre-check
+        .mockResolvedValueOnce(null) // userId pre-check
+      cookUpdate.mockRejectedValueOnce(
+        new MockPrismaClientKnownRequestError('Unique constraint failed', 'P2002', { target: ['someOtherColumn'] }),
+      )
+      const res = await PATCH(patchReq({ clockId: '9999', userId: 'u1' }), ctx)
+      // Falls through to the route's outer catch-all, same as any other
+      // unmapped error — not a fabricated 409.
+      expect(res.status).toBe(500)
+    })
   })
 })
