@@ -13,7 +13,7 @@
  */
 import { cappedAway, effectiveHours } from './engine'
 import { payoutsInOrder, readSnapshot } from './snapshot'
-import type { SplitPerson } from './types'
+import type { TipPerson } from './types'
 
 /** Most recent periods served to a staff user — a year of fortnights. */
 export const MY_PAYOUT_LIMIT = 26
@@ -36,7 +36,13 @@ export interface MyPayout {
   periodId: string
   startDate: string
   endDate: string
-  paidAt: string
+  /**
+   * null when the stored record has no timestamp (a v1 record that skipped
+   * readSnapshot's legacy backfill). Never a stringified `undefined` — a
+   * downstream screen formats this as a date, and a fabricated string would
+   * render as a plausible-looking "Invalid Date" instead of visibly absent.
+   */
+  paidAt: string | null
   paidByName: string | null
   /** BEING_CORRECTED when the period was reopened after this payout. */
   status: 'PAID' | 'BEING_CORRECTED'
@@ -91,14 +97,38 @@ export function projectMyPayout({
   const cap = rawCap > 0 ? rawCap : null
 
   const labels = Array.isArray(record.dayLabels) ? record.dayLabels : []
+
+  // effectiveHours/cappedAway (engine.ts) index person.hours[day] with no
+  // guard of their own — they're shared with the pay engine, where `hours`
+  // is always populated by the split, so it's not their job to defend
+  // against a malformed snapshot. A staff payout is read from stored JSON
+  // that may have lost or never had `hours`, so build them a person whose
+  // `hours` is always an array, field by field rather than spreading `me`.
+  const safeMe: TipPerson = {
+    cookId: me.cookId,
+    name: me.name,
+    lastName: me.lastName,
+    clockId: me.clockId,
+    wage: me.wage,
+    roleId: me.roleId,
+    onPool: me.onPool,
+    dailyHourCap: me.dailyHourCap,
+    hours: Array.isArray(me.hours) ? me.hours : [],
+    boosts: Array.isArray(me.boosts) ? me.boosts : [],
+    edited: Array.isArray(me.edited) ? me.edited : [],
+  }
+
   const days: MyPayoutDay[] = labels.map((label, d) => {
     const rawHours = num(me.hours?.[d])
-    const hours = effectiveHours(me as SplitPerson, d)
+    // num() guards this the same as every other figure below: a non-numeric
+    // stored value must not disagree in kind with rawHours (e.g. a numeric
+    // string surviving as a string here while rawHours reads as a number).
+    const hours = num(effectiveHours(safeMe, d))
     return {
       label: String(label),
       hours,
       rawHours,
-      capped: cappedAway(me as SplitPerson, d) > 0,
+      capped: cappedAway(safeMe, d) > 0,
       boost: num(me.boosts?.[d], 1),
       edited: me.edited?.[d] === true,
       amount: num(me.daily?.[d]),
@@ -112,7 +142,7 @@ export function projectMyPayout({
     periodId,
     startDate,
     endDate,
-    paidAt: String(record.paidAt),
+    paidAt: typeof record.paidAt === 'string' ? record.paidAt : null,
     paidByName: record.paidByName ?? null,
     status: snap.current ? 'PAID' : 'BEING_CORRECTED',
     roleName: String(me.roleName ?? ''),

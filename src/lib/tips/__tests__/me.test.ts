@@ -71,6 +71,7 @@ describe('projectMyPayout — disclosure boundary', () => {
 
   it('emits exactly the permitted day keys and nothing else', () => {
     const out = call(snap()) as MyPayout
+    expect(out.days).toHaveLength(3)
     for (const day of out.days) {
       expect(Object.keys(day).sort()).toEqual(ALLOWED_DAY)
     }
@@ -79,7 +80,10 @@ describe('projectMyPayout — disclosure boundary', () => {
   it('leaks no house figure anywhere in the serialized output', () => {
     const json = JSON.stringify(call(snap()))
     // Pool/sales values present in the fixture that must never survive.
-    for (const forbidden of ['poolTotal', 'crewByDay', 'weightedByDay', 'poolRatePct', 'distributedTotal', 'weighted', 'wage', 'clockId']) {
+    for (const forbidden of [
+      'poolTotal', 'crewByDay', 'weightedByDay', 'poolRatePct', 'distributedTotal', 'weighted', 'wage', 'clockId',
+      'pools', 'basis', 'sales', 'tips', 'poolBasis', 'people',
+    ]) {
       expect(json).not.toContain(forbidden)
     }
   })
@@ -169,5 +173,46 @@ describe('projectMyPayout — per-person figures', () => {
     const out = call(snap()) as MyPayout
     expect(out.tip).toBe(140.5)
     expect(out.envelopeCents).toBe(14100)
+  })
+})
+
+describe('projectMyPayout — malformed hours in the stored snapshot', () => {
+  it('does not throw when hours is entirely absent, and still returns day rows', () => {
+    const noHours = person() as unknown as Record<string, unknown>
+    delete noHours.hours
+    const s = snap({
+      current: record({ split: { ...record().split, people: [noHours as unknown as SplitPerson] } }),
+    })
+    expect(() => call(s)).not.toThrow()
+    const out = call(s) as MyPayout
+    expect(out).not.toBeNull()
+    expect(out.days).toHaveLength(3)
+    expect(out.days[0].hours).toBe(0)
+    expect(out.days[0].rawHours).toBe(0)
+    expect(out.days[0].capped).toBe(false)
+  })
+
+  it('coerces a non-numeric hours entry to a finite number that agrees with rawHours', () => {
+    const s = snap({
+      current: record({
+        split: {
+          ...record().split,
+          // No cap, so effectiveHours would otherwise hand the raw string back verbatim.
+          people: [person({ dailyHourCap: null, hours: ['9.5', 9, 0] as unknown as number[] })],
+        },
+      }),
+    })
+    const out = call(s) as MyPayout
+    expect(out.days[0].hours).toBe(9.5)
+    expect(Number.isFinite(out.days[0].hours)).toBe(true)
+    expect(out.days[0].rawHours).toBe(9.5)
+  })
+})
+
+describe('projectMyPayout — paidAt', () => {
+  it('reports paidAt as null, never the literal string "undefined", when the stored record has none', () => {
+    const s = snap({ current: record({ paidAt: undefined }) })
+    const out = call(s) as MyPayout
+    expect(out.paidAt).toBeNull()
   })
 })
