@@ -21,6 +21,13 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/tips')).toBe('MANAGER')
   })
 
+  it('opens /tips/me to STAFF while /tips stays MANAGER', () => {
+    expect(requiredClearance('/tips/me')).toBe('STAFF')
+    expect(requiredClearance('/tips')).toBe('MANAGER')
+    expect(canAccess('STAFF', '/tips/me')).toBe(true)
+    expect(canAccess('STAFF', '/tips')).toBe(false)
+  })
+
   it('gates setup at ADMIN and end-of-day at LEAD', () => {
     expect(requiredClearance('/setup')).toBe('ADMIN')
     expect(requiredClearance('/settings')).toBe('ADMIN')
@@ -72,9 +79,11 @@ describe('canAccess', () => {
     }
   })
 
-  it('keeps STAFF out of every gate in the table', () => {
-    for (const [prefix] of ROUTE_CLEARANCE) {
-      expect(canAccess('STAFF', prefix)).toBe(false)
+  it('keeps STAFF out of every gate above STAFF in the table', () => {
+    // '/tips/me' is deliberately STAFF-level (opened in Task 7) — everything
+    // else in the table is still above STAFF, which is what this test guards.
+    for (const [prefix, role] of ROUTE_CLEARANCE) {
+      expect(canAccess('STAFF', prefix)).toBe(role === 'STAFF')
     }
   })
 

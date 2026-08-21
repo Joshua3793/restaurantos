@@ -14,6 +14,13 @@ export type NavItem = {
   icon: React.ComponentType<{ size?: number | string; color?: string }>
   exact?: boolean
   badgeKey?: 'invoicesReview' | 'priceAlerts'
+  /**
+   * Where this item points for a user who cannot open `href`. A DESTINATION,
+   * not a clearance — what anyone may open is still derived solely from an href
+   * via requiredClearance(), so the menu still cannot advertise a page
+   * middleware would bounce.
+   */
+  staffHref?: string
 }
 
 export type NavGroup = {
@@ -42,7 +49,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'TEAM',
     items: [
-      { href: '/tips', label: 'Tip payouts', icon: Banknote },
+      { href: '/tips', label: 'Tip payouts', icon: Banknote, staffHref: '/tips/me' },
     ],
   },
   {
