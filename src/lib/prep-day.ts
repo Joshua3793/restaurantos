@@ -29,6 +29,23 @@ export function prepDayKey(d: Date = new Date()): string {
   }).format(d)
 }
 
+/**
+ * 'YYYY-MM-DD' to SHOW for a stored date that may be either kind of value.
+ *
+ * Business-date columns in this app are day markers written at UTC midnight
+ * (`PrepLog.logDate`, `SalesEntry.date`, `WastageLog.date`, `CountSession.sessionDate`,
+ * a parsed `invoiceDate`), while a few carry real instants (`StockTransfer.createdAt`,
+ * a quick count's `sessionDate`). Formatting a marker through a Pacific clock walks
+ * it back a day — a prep logged on the 17th rendered as "Aug 16", and a count session
+ * dated the 1st as "Jul 31".
+ *
+ * Exact UTC midnight is the marker's signature, so it identifies itself: read a
+ * marker in UTC, and an instant through the restaurant's clock.
+ */
+export function displayDayKey(d: Date): string {
+  return d.getTime() % DAY_MS === 0 ? d.toISOString().slice(0, 10) : prepDayKey(d)
+}
+
 /** The stored marker (UTC midnight) for the restaurant's day containing `d`. */
 export function prepDayStart(d: Date = new Date()): Date {
   return new Date(`${prepDayKey(d)}T00:00:00.000Z`)

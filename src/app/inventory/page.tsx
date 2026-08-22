@@ -264,8 +264,8 @@ function InventoryPageInner() {
   const [showMobileSortSheet,   setShowMobileSortSheet]   = useState(false)
   const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false)
   const [priceHistory, setPriceHistory] = useState<Array<{
-    invoiceDate: string; invoiceNumber: string; supplierName: string;
-    qtyPurchased: number; unitPrice: number; lineTotal: number
+    invoiceDate: string | null; dayKey: string | null; invoiceNumber: string; supplierName: string;
+    qtyPurchased: number | null; unitPrice: number; lineTotal: number | null
   }>>([])
   type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
   interface StockMovement { id: string; date: string; type: MovementType; qty: number; unit: string; description: string }

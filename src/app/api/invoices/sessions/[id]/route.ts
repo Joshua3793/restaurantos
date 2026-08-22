@@ -4,6 +4,7 @@ import { learnAlias } from '@/lib/supplier-matcher'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, withPpb } from '@/lib/item-model'
 import { offerPricePerBase } from '@/lib/supplier-offers'
+import { resolvePurchaseDate } from '@/lib/purchase-date'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -161,12 +162,35 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json(updated)
   }
 
+  // Correcting the invoice date must also re-resolve `purchaseDate`.
+  //
+  // `purchaseDate` is the canonical received date — every spend, COGS, supplier and
+  // theoretical-stock reader windows on it — but it was only ever computed at
+  // approval time. Fixing a misread OCR date here therefore updated the string the
+  // UI shows while leaving the column every report actually reads pointing at the
+  // wrong day. (Live data has an invoice OCR'd as 6 Oct, two months in the future.)
+  //
+  // Only for a session that already HAS a resolved date: an unapproved one gets its
+  // purchaseDate from the approve route, and writing one early would mark it as
+  // received before anyone approved it.
+  let purchaseDate: Date | undefined
+  if (body.invoiceDate !== undefined) {
+    const existing = await prisma.invoiceSession.findUnique({
+      where:  { id: params.id },
+      select: { purchaseDate: true, approvedAt: true, createdAt: true },
+    })
+    if (existing?.purchaseDate) {
+      purchaseDate = resolvePurchaseDate(body.invoiceDate, existing.approvedAt, existing.createdAt)
+    }
+  }
+
   // Update session header
   const session = await prisma.invoiceSession.update({
     where: { id: params.id },
     data: {
       supplierName:    body.supplierName,
       invoiceDate:     body.invoiceDate,
+      purchaseDate,
       invoiceNumber:   body.invoiceNumber,
       subtotal:        body.subtotal !== undefined ? body.subtotal : undefined,
       tax:             body.tax !== undefined ? body.tax : undefined,

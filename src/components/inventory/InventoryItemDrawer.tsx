@@ -23,17 +23,38 @@ import { lookupDensity } from '@/lib/density'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Format a 'YYYY-MM-DD' business day for display, with no timezone in the path.
+ *  Falls back to an ISO instant for a response predating the dayKey field. */
+function formatDay(dayKey: string | null | undefined, isoFallback?: string | null): string {
+  const key = dayKey ?? (isoFallback ? isoFallback.slice(0, 10) : null)
+  if (!key) return ''
+  return new Date(`${key}T00:00:00Z`).toLocaleDateString('en-CA', {
+    month: 'short', day: 'numeric', timeZone: 'UTC',
+  })
+}
+
 type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
 
 interface StockMovement {
-  id: string; date: string; type: MovementType
+  id: string; date: string
+  /** 'YYYY-MM-DD' — already resolved to the restaurant's calendar day. Render this,
+   *  never `date`: business dates are UTC-midnight markers and a local-timezone
+   *  format walks them back a day. */
+  dayKey?: string
+  type: MovementType
   qty: number; unit: string; description: string
 }
 
+interface StockReconciliation {
+  opening: number; additions: number; consumptions: number
+  adjustment: number; theoretical: number; unit: string; movementCount: number
+}
+
 interface StockMovementsResponse {
-  lastCount: { qty: number; unit: string; date: string | null }
+  lastCount: { qty: number; unit: string; date: string | null; dayKey?: string | null }
   theoretical: { qty: number; unit: string }
   movements: StockMovement[]
+  reconciliation?: StockReconciliation
 }
 
 interface InventoryItem {
@@ -236,8 +257,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [storageAreas, setStorageAreas] = useState<{ id: string; name: string }[]>([])
   const [priceHistory, setPriceHistory] = useState<Array<{
-    invoiceDate: string; invoiceNumber: string; supplierName: string;
-    qtyPurchased: number; unitPrice: number; lineTotal: number
+    invoiceDate: string | null; dayKey: string | null; invoiceNumber: string; supplierName: string;
+    qtyPurchased: number | null; unitPrice: number; lineTotal: number | null
   }>>([])
   const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
 
@@ -769,7 +790,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       </div>
                       <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
                         {stockMovements?.lastCount.date
-                          ? new Date(stockMovements.lastCount.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+                          ? formatDay(stockMovements.lastCount.dayKey, stockMovements.lastCount.date)
                           : 'Never counted'}
                       </div>
                     </div>
@@ -783,6 +804,40 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">Estimated current</div>
                     </div>
                   </div>
+
+                  {/* Reconciliation strip — the drawer's whole promise on one line:
+                      last count + additions − consumptions = theoretical. Sent as
+                      server-side totals because the list below shows only the most
+                      recent dozen movements, so adding up what's on screen would
+                      never reach the figure printed above it. */}
+                  {stockMovements?.reconciliation && (() => {
+                    const r = stockMovements.reconciliation!
+                    const n = (v: number) => Math.abs(v).toFixed(2)
+                    return (
+                      <div className="bg-paper border border-line rounded-[10px] px-3 py-2">
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-1 font-mono text-[11.5px] tabular-nums">
+                          <span className="text-ink-3">{n(r.opening)}</span>
+                          <span className="text-green">+{n(r.additions)}</span>
+                          <span className="text-red">−{n(r.consumptions)}</span>
+                          {r.adjustment !== 0 && (
+                            <span className="text-gold">{r.adjustment > 0 ? '+' : '−'}{n(r.adjustment)}</span>
+                          )}
+                          <span className="text-ink-4">=</span>
+                          <span className="font-semibold text-ink">{n(r.theoretical)} {r.unit}</span>
+                        </div>
+                        <div className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.04em] mt-1">
+                          Last count · added · used{r.adjustment !== 0 ? ' · unexplained' : ''} · on hand
+                        </div>
+                        {r.adjustment !== 0 && (
+                          <div className="text-[11px] text-gold-2 mt-1.5 leading-snug">
+                            {r.adjustment > 0
+                              ? `${n(r.adjustment)} ${r.unit} more was used than this item was ever counted or recorded receiving — stock ran to zero, so production or deliveries are going unlogged.`
+                              : `${n(r.adjustment)} ${r.unit} of the opening balance is not backed by a physical count.`}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {/* Movement Log */}
                   {stockMovements && stockMovements.movements.length > 0 && (
@@ -812,12 +867,17 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                                 {isTransfer ? '' : isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
                               </span>
                               <span className="text-ink-4 w-14 text-right">
-                                {new Date(m.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                                {formatDay(m.dayKey, m.date)}
                               </span>
                             </div>
                           </div>
                         )
                       })}
+                      {stockMovements.movements.length > 12 && (
+                        <div className="font-mono text-[10.5px] text-ink-4 text-center pt-1">
+                          + {stockMovements.movements.length - 12} earlier movement{stockMovements.movements.length - 12 === 1 ? '' : 's'} since the last count
+                        </div>
+                      )}
                     </div>
                   )}
                   {stockMovements && stockMovements.movements.length === 0 && (
@@ -838,13 +898,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                           <div className="min-w-0">
                             <div className="font-medium text-ink truncate">{h.supplierName}</div>
                             <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
-                              {new Date(h.invoiceDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {formatDay(h.dayKey, h.invoiceDate) || 'Undated'}
                               {h.invoiceNumber ? ` · #${h.invoiceNumber}` : ''}
                             </div>
                           </div>
                           <div className="text-right shrink-0 ml-3 font-mono tabular-nums">
                             <div className="font-semibold text-ink">{formatCurrency(h.unitPrice)}</div>
-                            <div className="text-ink-4 text-[10.5px]">{formatCurrency(h.lineTotal)} total</div>
+                            <div className="text-ink-4 text-[10.5px]">
+                              {h.lineTotal != null ? `${formatCurrency(h.lineTotal)} total` : '—'}
+                            </div>
                           </div>
                         </div>
                       ))}
