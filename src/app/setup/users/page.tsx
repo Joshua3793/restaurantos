@@ -8,6 +8,8 @@ import PeopleHubList from '@/components/people/hub/PeopleHubList'
 import PersonDetail from '@/components/people/hub/PersonDetail'
 import { reorderPatches } from '@/components/people/hub/hub-utils'
 import AccessAuditPanel from '@/components/people/AccessAuditPanel'
+import AddPersonModal from '@/components/people/hub/AddPersonModal'
+import InviteModal from '@/components/people/InviteModal'
 
 export interface TipRoleOption {
   id: string
@@ -34,6 +36,8 @@ export default function PeopleHubPage() {
   // unmounting — a delete clears the selection, and a warning rendered inside
   // the pane would be destroyed before it ever painted.
   const [notice, setNotice] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [bulkInviting, setBulkInviting] = useState(false)
 
   const load = useCallback(async (): Promise<PeopleHubPayload | null> => {
     setError('')
@@ -123,12 +127,20 @@ export default function PeopleHubPage() {
             {people.length} {people.length === 1 ? 'person' : 'people'} · {loginCount} with a login · {rosterCount} on the roster
           </p>
         </div>
-        <button
-          onClick={() => { /* wired in Task 10 */ }}
-          className="flex items-center gap-2 bg-ink text-white px-4 py-2.5 rounded-[10px] text-[13px] font-medium hover:bg-ink-2"
-        >
-          <UserPlus size={14} className="text-gold" /> Add person
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setBulkInviting(true)}
+            className="text-[12px] text-ink-3 underline hover:no-underline"
+          >
+            Invite several people
+          </button>
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-2 bg-ink text-white px-4 py-2.5 rounded-[10px] text-[13px] font-medium hover:bg-ink-2"
+          >
+            <UserPlus size={14} className="text-gold" /> Add person
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -201,6 +213,24 @@ export default function PeopleHubPage() {
       </div>
 
       <AccessAuditPanel refreshKey={refreshKey} />
+
+      {adding && data && (
+        <AddPersonModal
+          payload={data}
+          actorRole={user?.role ?? 'STAFF'}
+          onClose={() => setAdding(false)}
+          onCreated={refresh}
+        />
+      )}
+
+      {bulkInviting && data && (
+        <InviteModal
+          locations={data.locations}
+          actorRole={user?.role ?? 'STAFF'}
+          onClose={() => setBulkInviting(false)}
+          onInvited={refresh}
+        />
+      )}
     </div>
   )
 }
