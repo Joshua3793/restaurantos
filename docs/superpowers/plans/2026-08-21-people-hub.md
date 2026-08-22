@@ -10,6 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-people-hub-design.md`
 
+**Branch base:** `main`, **after** PR #101 (`feat/staff-tip-payouts`) and PR #102
+(`fix/prep-cooks-payroll-leak`) have both merged. PR #101 is a hard prerequisite —
+`Cook.userId` and `PATCH /api/tips/roster/[id] { userId }` do not exist on main
+without it, and the entire Identity tab rests on them. PR #102 supersedes Task 5.
+
 ## Global Constraints
 
 - **Never sync `User.name` ↔ `Cook.name`.** `Cook.name` is the short first name that renders on run-sheet chips and seeds `initials`.
@@ -1529,147 +1534,22 @@ git commit -m "feat(people): POST /api/settings/people — create login, roster,
 
 ---
 
-### Task 5: Close the wage leak on `GET /api/prep/cooks`
+### Task 5: Close the wage leak on `GET /api/prep/cooks` — ~~SUPERSEDED, DO NOT IMPLEMENT~~
 
-`GET /api/prep/cooks` returns whole `Cook` rows — `wage` and `clockId` included — to **any authenticated session**, STAFF included.
+**Status: already shipped elsewhere. Skip this task entirely.**
 
-**Files:**
-- Modify: `src/app/api/prep/cooks/route.ts:27-32`
-- Create: `src/app/api/prep/cooks/__tests__/route.test.ts`
+PR #102 (`fix/prep-cooks-payroll-leak`, branched off main) implements exactly
+this fix: the same six-column select on `GET /api/prep/cooks`, the same route
+test file, plus the `/api/prep/items/route.ts:101` hardening this plan listed as
+optional. Re-implementing it here would only create a merge conflict.
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: `GET /api/prep/cooks` returning rows of exactly `{ id, name, initials, homeStation, isActive, sortOrder }`. No later task depends on this shape changing.
+The task numbering is left intact so `scripts/task-brief PLAN_FILE N` keeps
+matching. Execution order is **1, 2, 3, 4, 6, 7, 8, 9, 10, 11** — ten tasks.
 
-- [ ] **Step 1: Write the failing test**
-
-Create `src/app/api/prep/cooks/__tests__/route.test.ts`:
-
-```ts
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { NextRequest } from 'next/server'
-
-const cookFindMany = vi.fn(async () => [] as unknown[])
-const requireSession = vi.fn(async () => ({ id: 'u1', role: 'STAFF', isActive: true }))
-
-class MockAuthError extends Error {
-  constructor(public readonly status: 401 | 403, message: string) {
-    super(message)
-    this.name = 'AuthError'
-  }
-}
-
-vi.mock('@/lib/prisma', () => ({
-  prisma: { cook: { findMany: (...a: unknown[]) => cookFindMany(...(a as [])) } },
-}))
-vi.mock('@/lib/auth', () => ({
-  requireSession: (...a: unknown[]) => requireSession(...(a as [])),
-  AuthError: MockAuthError,
-}))
-
-const { GET } = await import('@/app/api/prep/cooks/route')
-
-const req = (search = '') =>
-  ({ nextUrl: new URL(`https://app.test/api/prep/cooks${search}`) }) as unknown as NextRequest
-
-beforeEach(() => {
-  vi.clearAllMocks()
-  requireSession.mockResolvedValue({ id: 'u1', role: 'STAFF', isActive: true })
-  cookFindMany.mockResolvedValue([])
-})
-
-describe('GET /api/prep/cooks', () => {
-  it('selects only the non-sensitive prep columns — wage and clockId are pay data', async () => {
-    await GET(req())
-    const args = cookFindMany.mock.calls[0][0] as { select: Record<string, boolean> }
-    expect(args.select).toEqual({
-      id: true, name: true, initials: true, homeStation: true, isActive: true, sortOrder: true,
-    })
-  })
-
-  it('never returns wage or clockId to a STAFF caller', async () => {
-    // A select cannot be trusted from the mock alone — assert on the response too.
-    cookFindMany.mockResolvedValueOnce([
-      { id: 'c1', name: 'Mia', initials: 'MC', homeStation: 'Hot', isActive: true, sortOrder: 0 },
-    ])
-    const body = await (await GET(req())).json()
-    expect(body[0]).not.toHaveProperty('wage')
-    expect(body[0]).not.toHaveProperty('clockId')
-    expect(body[0]).not.toHaveProperty('dailyHourCap')
-  })
-
-  it('still returns the four fields the run sheet renders', async () => {
-    cookFindMany.mockResolvedValueOnce([
-      { id: 'c1', name: 'Mia', initials: 'MC', homeStation: 'Hot', isActive: true, sortOrder: 0 },
-    ])
-    const body = await (await GET(req())).json()
-    expect(body[0]).toMatchObject({ id: 'c1', name: 'Mia', initials: 'MC', homeStation: 'Hot' })
-  })
-
-  it('filters to active cooks by default', async () => {
-    await GET(req())
-    const args = cookFindMany.mock.calls[0][0] as { where: unknown }
-    expect(args.where).toEqual({ isActive: true })
-  })
-
-  it('includes inactive cooks when asked', async () => {
-    await GET(req('?includeInactive=true'))
-    const args = cookFindMany.mock.calls[0][0] as { where: unknown }
-    expect(args.where).toEqual({})
-  })
-})
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-```bash
-npx vitest run src/app/api/prep/cooks/__tests__/route.test.ts
-```
-
-Expected: FAIL — the first test fails because `findMany` is called with no `select` key (`args.select` is `undefined`).
-
-- [ ] **Step 3: Narrow the select**
-
-In `src/app/api/prep/cooks/route.ts`, replace the `findMany` call inside `GET` with:
-
-```ts
-    const cooks = await prisma.cook.findMany({
-      where: includeInactive ? {} : { isActive: true },
-      // Explicit select, NOT the whole row. `wage`, `clockId` and
-      // `dailyHourCap` are pay data and this route is only requireSession() —
-      // any STAFF session reaches it. Pay lives on exactly two responses, both
-      // privileged: the MANAGER tips payload and ADMIN /api/settings/people.
-      // Verified consumers: src/app/prep/page.tsx:271, the Cook type at
-      // src/components/prep/runsheet/assignee.tsx:10, and the projection at
-      // src/app/api/prep/items/route.ts:206 — all read only these fields.
-      select: {
-        id: true, name: true, initials: true, homeStation: true,
-        isActive: true, sortOrder: true,
-      },
-      orderBy: includeInactive
-        ? [{ isActive: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }]
-        : [{ sortOrder: 'asc' }, { name: 'asc' }],
-    })
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-```bash
-npx vitest run src/app/api/prep/cooks/__tests__/route.test.ts
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Verify the prep surfaces still work in the browser**
-
-Start the dev server with `mcp__Claude_Browser__preview_start` (never `npm run dev` via Bash), open `/prep`, and confirm: the run sheet renders, assignee chips still show initials, and the claim popover lists cooks. Check `read_console_messages` for errors.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/app/api/prep/cooks
-git commit -m "fix(prep): stop leaking cook wage and clockId to every authenticated session"
-```
+Consequence for the rest of the plan: nothing. No later task reads
+`/api/prep/cooks`'s response shape — the hub reads cook data from
+`GET /api/settings/people` (Task 3), and Task 11's browser check of `/prep`
+still applies, it just verifies unchanged code rather than a change made here.
 
 ---
 
@@ -3742,7 +3622,7 @@ git commit -m "refactor(setup): retire /setup/kitchen-crew in favour of the Peop
 
 ## Self-review notes
 
-**Spec coverage** — every spec section maps to a task: model → 1; endpoints → 3, 4; edit-route reuse → 7, 8, 9; list pane incl. the roster-only bucket and reorder → 6; four tabs → 7, 8, 9; create → 4, 10; locked self/OWNER states → 7, 8; permissions → 3, 4 (`requireSession('ADMIN')`), unchanged elsewhere; wage leak → 5; retirement → 11; failure modes → 4 (partial create), 7/9 (409s inline), kit's `useSave` (audit `warning`); testing → 1, 2, 3, 4, 5, 6.
+**Spec coverage** — every spec section maps to a task: model → 1; endpoints → 3, 4; edit-route reuse → 7, 8, 9; list pane incl. the roster-only bucket and reorder → 6; four tabs → 7, 8, 9; create → 4, 10; locked self/OWNER states → 7, 8; permissions → 3, 4 (`requireSession('ADMIN')`), unchanged elsewhere; wage leak → superseded by PR #102 (Task 5 skipped); retirement → 11; failure modes → 4 (partial create), 7/9 (409s inline), kit's `useSave` (audit `warning`); testing → 1, 2, 3, 4, 6.
 
 **Known deviations from the spec, deliberate:**
 - The spec says "one new write endpoint". Task 7's *"Put them on the kitchen roster"* button calls `POST /api/prep/cooks` then `PATCH /api/tips/roster/[id]` from the client rather than adding a second orchestrator. Both are existing routes; a `Cook` created this way gets `dailyHourCap: null`, which the Tips tab shows as "uncapped" and the admin can set. If that proves confusing in review, promote it to `POST /api/settings/people` with an existing-user id.
