@@ -6,6 +6,7 @@ import { displayName } from '@/lib/people'
 import type { PeopleHubPayload } from '@/app/setup/users/page'
 import { initialsFor } from './hub-utils'
 import IdentityTab from './IdentityTab'
+import AccessTab from './AccessTab'
 import { EmptyTab } from './kit'
 
 export type TabId = 'identity' | 'access' | 'prep' | 'tips'
@@ -95,7 +96,13 @@ export default function PersonDetail({ person, payload, actorRole, isMe, onChang
           />
         )}
         {tab === 'access' && (
-          <EmptyTab title="Access" body="Access tab — Task 8." />
+          <AccessTab
+            person={person}
+            payload={payload}
+            actorRole={actorRole}
+            isMe={isMe}
+            onChanged={onChanged}
+          />
         )}
         {tab === 'prep' && (
           <EmptyTab title="Prep" body="Prep tab — Task 9." />
