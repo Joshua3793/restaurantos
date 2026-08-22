@@ -109,10 +109,10 @@ export function ClaimPopover({
           // No crew yet → the picker would otherwise show a lone UNASSIGN row and the
           // pill looks broken ("nothing happens"). Point the user at where to add cooks.
           <a
-            href="/setup/kitchen-crew"
+            href="/setup/users"
             className="block rounded-[8px] px-[10px] py-2 text-[12px] text-ink-3 leading-snug hover:bg-bg-2"
           >
-            No kitchen crew yet — <span className="text-gold-2 font-medium">add cooks in Setup&nbsp;→&nbsp;Kitchen&nbsp;crew</span>
+            No kitchen crew yet — <span className="text-gold-2 font-medium">add cooks in Setup&nbsp;→&nbsp;People</span>
           </a>
         )}
         {cooks.map(c => (

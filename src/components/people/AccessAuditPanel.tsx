@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { ROLE_LABELS } from '@/lib/roles'
-import { initials, relativeTime } from './people-utils'
+import { deriveInitials } from '@/lib/people'
+import { relativeTime } from './people-utils'
 
 interface AuditEvent {
   id: string
@@ -95,7 +96,7 @@ export default function AccessAuditPanel({ refreshKey }: { refreshKey: number })
       {events.map(e => (
         <div key={e.id} className="flex items-start gap-3 px-5 py-3 border-t border-bg-2">
           <span className="shrink-0 w-7 h-7 rounded-full bg-bg-2 grid place-items-center text-[10.5px] font-semibold text-ink-2 mt-0.5">
-            {initials(e.actorName ?? e.actorEmail)}
+            {deriveInitials(e.actorName ?? e.actorEmail) || '?'}
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-[12.5px] leading-relaxed text-ink-2">

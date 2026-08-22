@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import {
-  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, ChefHat, Banknote,
+  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, Banknote,
 } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -16,11 +16,10 @@ interface Card {
 const cards: Card[] = [
   { href: '/setup/suppliers',       label: 'Suppliers',        icon: Truck,    description: 'Vendor directory, price history, contact info.',                  built: true },
   { href: '/setup/revenue-centers', label: 'Revenue centers',  icon: Building2,description: 'Profit centers, service hours, food-cost targets.',               built: true },
-  { href: '/setup/kitchen-crew',    label: 'Kitchen crew',     icon: ChefHat,  description: 'Cooks & stations for the prep run sheet.',                        built: true },
   { href: '/tips',                  label: 'Tip payouts',      icon: Banknote, description: 'Pool rate, role multipliers, and which sales fund the pool.',    built: true },
   { href: '/setup/storage-areas',   label: 'Storage areas',    icon: MapPin,   description: 'Walk-ins, dry storage, bar. Drives count routing.',               built: true },
   { href: '/setup/categories',      label: 'Categories',       icon: Tag,      description: 'Inventory and recipe categories, accent colors.',                 built: true },
-  { href: '/setup/users',           label: 'Users & roles',    icon: Users,    description: 'Invite teammates; ADMIN / MANAGER / STAFF.',                      built: true },
+  { href: '/setup/users',           label: 'People',           icon: Users,    description: 'Logins, clearance & assignments, kitchen roster, tip payout setup.',  built: true },
   { href: '/setup/uom',             label: 'UOM & conversions',icon: Ruler,    description: 'Unit-of-measure groups, custom conversions, inspector.',          built: true },
   { href: '/setup/general',         label: 'General',          icon: Bell,     description: 'Email digest schedule, notifications, brand.',                    built: true },
   { href: '/setup/toast',           label: 'Toast integration',icon: Link2,    description: 'Connect Toast sales; map menu items to recipes.',                 built: true },

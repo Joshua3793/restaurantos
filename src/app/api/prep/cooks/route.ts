@@ -11,9 +11,10 @@ function normalizeInitials(value: unknown): string | null {
 
 // Every consumer of this endpoint — the prep run sheet's claim popover/crew
 // strip (src/app/prep/page.tsx, components/prep/runsheet/assignee.tsx's Cook
-// type) and the ADMIN-gated Kitchen Crew roster page (src/app/setup/kitchen-crew/page.tsx)
-// — renders only roster identity: name, initials, home station, active flag,
-// sort order. NONE of them use the tip-payroll columns (lastName, clockId,
+// type) — renders only roster identity: name, initials, home station, active
+// flag, sort order. (The People hub at /setup/users does NOT read this route;
+// it reads the ADMIN-gated /api/settings/people, which selects the pay columns
+// deliberately.) NONE of them use the tip-payroll columns (lastName, clockId,
 // wage, dailyHourCap, tipRoleId, onTipPool, posPosition) that also live on
 // Cook (see prisma/schema.prisma) — those are for src/lib/tips/* and
 // /api/tips/roster only. This endpoint has no minRole (STAFF need it to
@@ -31,9 +32,14 @@ const COOK_ROSTER_SELECT = {
 
 // ── GET /api/prep/cooks ─────────────────────────────────────────────────────
 // Default: active cooks only, ordered by sortOrder, name — this is what
-// /api/prep/items and every other consumer relies on. Pass
-// ?includeInactive=true (used by the Kitchen Crew admin page) to also see
-// deactivated cooks, so they can be reactivated — sorted active-first.
+// /api/prep/items and every other consumer relies on.
+//
+// ?includeInactive=true also returns deactivated cooks, sorted active-first.
+// It currently has NO caller in the app: the retired kitchen-crew page used it,
+// and the People hub that replaced that page reads /api/settings/people
+// instead. Kept (and covered by this route's tests) as the supported way to
+// list deactivated cooks for reactivation — do not assume it is dead and widen
+// the default.
 export async function GET(req: NextRequest) {
   try {
     await requireSession()
