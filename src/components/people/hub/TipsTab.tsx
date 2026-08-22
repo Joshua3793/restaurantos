@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import type { Person } from '@/lib/people'
 import { personWarnings } from '@/lib/people'
 import type { PeopleHubPayload } from '@/app/setup/users/page'
@@ -11,9 +12,36 @@ interface Props {
   onChanged: (nextKey?: string) => void
 }
 
+/**
+ * Clock ID / daily-hour-cap / wage are uncontrolled (`defaultValue` +
+ * `onBlur`) so typing feels normal — no re-render fights the caret on every
+ * keystroke. `defaultValue` only seeds the DOM at mount, though, so once the
+ * SAME field has been saved once, the input never notices the server
+ * normalised the value (trimmed `clockId`, rounded `dailyHourCap`) unless it
+ * remounts.
+ *
+ * `rev` forces that remount. It bumps exactly once, right after THIS field's
+ * own save round-trip resolves successfully — never mid-keystroke, because
+ * the input is `disabled` for the whole round-trip and so cannot be focused
+ * when the bump lands. Folding `rev` into the `key` (alongside the current
+ * prop value) covers both directions: the prop-value half catches the case
+ * where the parent's refetch lands the real, different value a tick after
+ * the bump; the `rev` half catches the case the prop-value half alone would
+ * miss — normalisation collapsing back to the SAME stored value (`" 123 "` ->
+ * `"123"` when the field already held `"123"`), where the prop never changes
+ * at all and only forcing a remount corrects the stale padded text on screen.
+ */
+function useResyncRev() {
+  const [rev, setRev] = useState(0)
+  return [rev, () => setRev(r => r + 1)] as const
+}
+
 export default function TipsTab({ person, payload, onChanged }: Props) {
   const { busy, error, warning, save } = useSave(onChanged)
   const roster = person.roster
+  const [clockIdRev, bumpClockIdRev] = useResyncRev()
+  const [capRev, bumpCapRev] = useResyncRev()
+  const [wageRev, bumpWageRev] = useResyncRev()
 
   if (!roster) {
     return (
@@ -61,10 +89,15 @@ export default function TipsTab({ person, payload, onChanged }: Props) {
         hint="The POS employee number. Hours match on this and nothing else — never on a name."
       >
         <input
+          key={`${clockIdRev}:${roster.clockId ?? ''}`}
           defaultValue={roster.clockId ?? ''}
           disabled={busy}
           placeholder="—"
-          onBlur={e => e.target.value !== (roster.clockId ?? '') && patch({ clockId: e.target.value })}
+          onBlur={async e => {
+            const next = e.target.value
+            if (next === (roster.clockId ?? '')) return
+            if (await patch({ clockId: next })) bumpClockIdRev()
+          }}
           className={inputClass}
         />
       </Field>
@@ -89,13 +122,19 @@ export default function TipsTab({ person, payload, onChanged }: Props) {
           hint="Contracted shift length. Hours above this on any single day are not paid tips. Blank = uncapped."
         >
           <input
-            type="number" step="0.25" min="0" max="24"
+            key={`${capRev}:${roster.dailyHourCap ?? ''}`}
+            // Server rejects `v <= 0` — a cap of exactly 0 is never valid,
+            // blank (uncapped) is a separate null case handled below. min is
+            // the smallest step-aligned value above 0, so the control never
+            // invites a value the route always 400s on.
+            type="number" step="0.25" min="0.25" max="24"
             defaultValue={roster.dailyHourCap ?? ''}
             disabled={busy}
             placeholder="uncapped"
-            onBlur={e => {
+            onBlur={async e => {
               const next = e.target.value === '' ? null : e.target.value
-              if (String(next ?? '') !== String(roster.dailyHourCap ?? '')) patch({ dailyHourCap: next })
+              if (String(next ?? '') === String(roster.dailyHourCap ?? '')) return
+              if (await patch({ dailyHourCap: next })) bumpCapRev()
             }}
             className={inputClass}
           />
@@ -103,13 +142,15 @@ export default function TipsTab({ person, payload, onChanged }: Props) {
 
         <Field label="Wage" hint="Reference only — never affects the split.">
           <input
+            key={`${wageRev}:${roster.wage ?? ''}`}
             type="number" step="0.25" min="0"
             defaultValue={roster.wage ?? ''}
             disabled={busy}
             placeholder="—"
-            onBlur={e => {
+            onBlur={async e => {
               const next = e.target.value === '' ? null : e.target.value
-              if (String(next ?? '') !== String(roster.wage ?? '')) patch({ wage: next })
+              if (String(next ?? '') === String(roster.wage ?? '')) return
+              if (await patch({ wage: next })) bumpWageRev()
             }}
             className={inputClass}
           />
