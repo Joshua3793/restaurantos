@@ -18,7 +18,7 @@ type CookRow = Record<string, unknown>
 
 // A "full" Cook row as Prisma would return it with no `select` — includes
 // every tip-payroll column alongside the roster-identity fields every real
-// consumer (run sheet claim popover, Kitchen Crew admin page) renders.
+// consumer (run sheet claim popover, People hub) renders.
 const FULL_COOK: CookRow = {
   id: 'c1',
   name: 'Sam Lee',
@@ -135,8 +135,8 @@ describe('GET /api/prep/cooks', () => {
     expect(args.select?.clockId).toBeUndefined()
   })
 
-  it('still returns the identity + roster-management fields the ADMIN-gated Kitchen Crew page needs with ?includeInactive=true', async () => {
-    // The Kitchen Crew page (src/app/setup/kitchen-crew/page.tsx) is behind
+  it('still returns the identity + roster-management fields the ADMIN-gated People hub needs with ?includeInactive=true', async () => {
+    // The People hub (src/app/setup/users/page.tsx) is behind
     // /setup (ADMIN per route-access.ts), but that gate is enforced by
     // middleware on the PAGE route, not by this API route — so this endpoint
     // must be safe to call at any role. It still needs isActive + sortOrder

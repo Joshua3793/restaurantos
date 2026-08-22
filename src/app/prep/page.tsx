@@ -623,7 +623,7 @@ export default function PrepPage() {
     // popover (only an UNASSIGN row) and the mobile tap (cookId resolves to null)
     // would silently do nothing. Tell the user where to add cooks instead of no-op.
     if (cooks.length === 0) {
-      setActionError('No kitchen crew yet — add cooks in Setup → Kitchen crew to assign prep.')
+      setActionError('No kitchen crew yet — add cooks in Setup → People to assign prep.')
       return
     }
     // Assigning writes a PrepLog (a stock-scoped row) — needs a concrete RC.

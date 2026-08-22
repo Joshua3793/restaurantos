@@ -590,7 +590,7 @@ export default function TipsPage() {
                   if (errorMessage && reloaded) setError(errorMessage)
                 })
             }}
-            onAddEmployee={() => setError('Add new kitchen staff in Setup → Kitchen crew, then give them a clock ID here.')}
+            onAddEmployee={() => setError('Add new kitchen staff in Setup → People, then give them a clock ID here.')}
           />
         )}
       </div>

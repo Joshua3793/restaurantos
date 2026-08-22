@@ -23,8 +23,8 @@ export interface HubGroup {
 
 /**
  * Filter, then search. The `roster` view sorts by Cook.sortOrder because that
- * IS the prep run-sheet order — this is where the reorder affordance from
- * /setup/kitchen-crew lives.
+ * IS the prep run-sheet order — this is where the reorder affordance
+ * (formerly /setup/kitchen-crew, now the People hub at /setup/users) lives.
  */
 export function applyFilter(people: Person[], filter: HubFilter, query: string): Person[] {
   let out = people.filter(p => {
