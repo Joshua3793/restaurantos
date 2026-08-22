@@ -135,12 +135,15 @@ describe('GET /api/prep/cooks', () => {
     expect(args.select?.clockId).toBeUndefined()
   })
 
-  it('still returns the identity + roster-management fields the ADMIN-gated People hub needs with ?includeInactive=true', async () => {
-    // The People hub (src/app/setup/users/page.tsx) is behind
-    // /setup (ADMIN per route-access.ts), but that gate is enforced by
-    // middleware on the PAGE route, not by this API route — so this endpoint
-    // must be safe to call at any role. It still needs isActive + sortOrder
-    // to render the reactivate toggle and manual ordering.
+  it('still returns the identity + roster-management fields a deactivated-cook listing needs with ?includeInactive=true', async () => {
+    // ?includeInactive=true has NO caller in the app: the retired
+    // kitchen-crew page used it, and the People hub that replaced that page
+    // (src/app/setup/users/page.tsx) reads /api/settings/people instead. It is
+    // kept as the supported way to list deactivated cooks for reactivation, so
+    // it still has to return isActive + sortOrder for a reactivate toggle and
+    // manual ordering. Nothing gates it: this route is callable at any role
+    // (requireSession() with no minimum), so the flag must stay safe there too
+    // — which is what the payroll-field assertions below pin down.
     requireSession.mockResolvedValue({ id: 'admin1', role: 'ADMIN', isActive: true })
     const res = await GET(req('includeInactive=true'))
     expect(res.status).toBe(200)

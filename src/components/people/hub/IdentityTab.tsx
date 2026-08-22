@@ -302,21 +302,33 @@ export default function IdentityTab({ person, payload, isMe, onChanged, onCleare
         )}
       </div>
 
-      {/* Pending invite. `isPending` is `!isActive && name === null`
-          (GET /api/settings/people): the Prisma row is created inactive at
-          invite time and flipped active by /auth/callback on accept, so this is
-          an invite that has never been accepted — not a deactivation. Without
-          this action the ONLY way to re-send a bounced or expired invite was
-          "Invite several people", re-typing their clearance and every
-          assignment. POST /api/settings/users/[id]/resend refuses an account
-          that already accepted (400 — they should use "Forgot password"). */}
-      {person.login?.isPending && (
+      {/* Re-send a bounced or expired invite. Without this action the ONLY way
+          to re-send one was "Invite several people", re-typing their clearance
+          and every assignment.
+
+          GATED ON `!isActive`, NOT ON `login.isPending`. `isPending` is derived
+          as `!isActive && name === null` (GET /api/settings/people), and the
+          Add-person modal ALWAYS sends a name — so a person invited from this
+          hub comes back `isPending: false` while their invite is still sitting
+          unaccepted, and this button would be invisible to exactly the people
+          who need it. Only the bulk-invite path (emails, no names) ever sets
+          `isPending`. AddPersonModal's duplicate guard hit this same trap and
+          keys on `isActive` for the same reason.
+
+          Widening it is safe. `!isActive` is ambiguous client-side (never
+          accepted vs. deactivated), but POST /api/settings/users/[id]/resend
+          hard-refuses an account that has already accepted (400 — they should
+          use "Forgot password"), so a deactivated colleague can never be
+          re-invited from here. Since both cases render this block, the copy
+          names both and points the deactivated one at "Reactivate login". */}
+      {person.login && !person.login.isActive && (
         <div className="border border-line rounded-[10px] px-4 py-3.5 space-y-2.5">
           <SectionLabel>Invite</SectionLabel>
           <p className="text-[12.5px] text-ink-3 leading-relaxed">
-            Invited, but they have not set a password yet. Re-send if the email bounced or the link
-            expired — it replaces the pending invite with a fresh one and keeps their clearance and
-            assignments exactly as they are.
+            This login is not active. If their invite is still pending, re-send it — the email may
+            have bounced or the link expired, and a fresh invite replaces the pending one while
+            keeping their clearance, assignments and kitchen roster link exactly as they are. If
+            they were deactivated instead, re-sending is refused: use “Reactivate login” below.
           </p>
           <button
             onClick={resendInvite}

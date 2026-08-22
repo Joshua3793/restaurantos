@@ -30,8 +30,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     )
   }
 
-  // A re-invite mints a new auth UUID, so move the Prisma row and its
-  // assignments onto it inside one transaction.
+  // A re-invite mints a new auth UUID, so move the Prisma row, its assignments
+  // and its kitchen roster link onto it inside one transaction.
   if (existing) await supabaseAdmin.auth.admin.deleteUser(existing.id)
 
   const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(target.email, {
@@ -72,6 +72,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Surface that explicitly rather than letting it fall through as a bare 500.
   try {
     await prisma.$transaction(async (tx) => {
+      // Read the roster link BEFORE the delete. Cook.userId is onDelete:
+      // SetNull (prisma/schema.prisma), so deleting the old row silently
+      // unlinks any Cook that pointed at it — losing a payroll link the UI
+      // copy promises is preserved, and one that is only ever set by explicit
+      // admin action. Read inside the transaction so a concurrent link change
+      // cannot land between the read and the delete.
+      //
+      // Reachable via the hub's Add-person modal: it creates a Cook AND an
+      // invite and links them (POST /api/settings/people step 3), leaving a
+      // linked, never-accepted login — which is exactly the case the widened
+      // Resend gate in IdentityTab now exposes.
+      const linked = await tx.cook.findUnique({
+        where: { userId: target.id }, select: { id: true },
+      })
       await tx.user.deleteMany({ where: { email: target.email } })
       await tx.user.create({
         data: {
@@ -80,6 +94,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
       })
       await tx.userScope.createMany({ data: scopes.map(s => ({ ...s, userId: newId })) })
+      // By id, not by userId: the delete above already nulled it. After the
+      // create, so the FK to User has a row to point at.
+      if (linked) await tx.cook.update({ where: { id: linked.id }, data: { userId: newId } })
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error'

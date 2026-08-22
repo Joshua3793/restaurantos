@@ -123,8 +123,10 @@ export default function AddPersonModal({ payload, actorRole, onClose, onCreated 
   //
   // WHAT IT MUST NOT BLOCK: a NEVER-ACCEPTED invite. `inviteOne` deletes the
   // stale auth user and sends a fresh one — the one case that genuinely is
-  // idempotent, and the hub's only re-invite path, since the Identity tab has
-  // no resend action at all. Matching on "has a login" blocked it too.
+  // idempotent. The Identity tab now has a resend action of its own (it is
+  // gated on the same `isActive`, for the same reason), but this path still
+  // has to stay open: it is the only re-invite that can also change the
+  // clearance and assignments. Matching on "has a login" blocked it too.
   //
   // WHY NOT `login.isPending`: it is derived as `!isActive && name === null`
   // (GET /api/settings/people), and THIS modal always sends a name, so every
