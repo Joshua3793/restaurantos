@@ -146,6 +146,10 @@ describe('GET /api/tips/periods/[id]', () => {
     cookFindMany.mockResolvedValueOnce([{
       id: 'c1', name: 'Ana', lastName: 'B', clockId: '9',
       wage: null, dailyHourCap: null, tipRoleId: null, onTipPool: true,
+      // Unlinked roster row — the common case. Present because the mock's
+      // declared return type gained userId with Cook.userId; omitting it is a
+      // type error, not a shortcut.
+      userId: null,
     }])
 
     const res = await GET({} as NextRequest, { params: { id: 'p1' } })
