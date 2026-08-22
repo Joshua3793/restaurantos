@@ -26,6 +26,10 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/variance', 'MANAGER'],
   ['/signals', 'MANAGER'],
   ['/tips', 'MANAGER'],
+  // A staff member's OWN payouts. Narrower prefix, so longest-wins overrides
+  // the MANAGER entry above for this path only — /tips itself is untouched and
+  // the manager console stays gated in middleware, not in component code.
+  ['/tips/me', 'STAFF'],
   // A Lead runs the operational close (checklist, temps, sign-off) and WRITES
   // the handover note (PATCH /api/eod/close), but does not read the handover
   // money recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.

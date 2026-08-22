@@ -25,12 +25,16 @@ export default function TipsPage() {
   const [revenueCenters, setRevenueCenters] = useState<LookupOption[]>([])
 
   /* ── load ──────────────────────────────────────────────────────────────── */
-  const loadPeriod = useCallback(async (id: string) => {
+  // Returns whether the reload actually succeeded. Callers that reload after
+  // a save use this to decide whose error message should survive — see the
+  // NOTE above patchPeriod.
+  const loadPeriod = useCallback(async (id: string): Promise<boolean> => {
     const res = await fetch(`/api/tips/periods/${id}`, { cache: 'no-store' })
-    if (!res.ok) { setError((await res.json()).error ?? 'Could not load the period'); return }
+    if (!res.ok) { setError((await res.json()).error ?? 'Could not load the period'); return false }
     setPayload(await res.json())
     setPeriodId(id)
     setError(null)
+    return true
   }, [])
 
   /**
@@ -138,14 +142,31 @@ export default function TipsPage() {
   }, [payload, openPeriod])
 
   /* ── mutate ────────────────────────────────────────────────────────────── */
+  // NOTE on the `errorMessage`-then-`loadPeriod`-then-`setError` ordering below:
+  // `loadPeriod` itself calls `setError(null)` on a successful reload, so
+  // setting the error BEFORE the reload gets silently wiped the instant the
+  // reload resolves — the manager never sees why a save failed (a 409/400
+  // reads as "the field just reset itself"). Reloading first and setting the
+  // error last fixes both halves of the failure at once: the table still
+  // needs to stop showing the value the server rejected (the reload pulls the
+  // server's actual state) AND the error must survive the reload that follows it.
+  //
+  // But the reload can itself fail (GET 500), in which case `loadPeriod` has
+  // already set its OWN error ("Could not load the period") and left `payload`
+  // at its stale pre-save value — the view is now not just wrong but unknown
+  // to be wrong. Unconditionally applying the save's `errorMessage` afterward
+  // would stomp that "your view is stale" error with the comparatively minor
+  // save failure. So the save error is only applied when the reload itself
+  // succeeded; `loadPeriod`'s return value tells us which happened.
   const patchPeriod = useCallback(async (body: Record<string, unknown>) => {
     if (!periodId) return
     setBusy(true)
     const res = await fetch(`/api/tips/periods/${periodId}`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not save')
-    await loadPeriod(periodId)
+    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not save')
+    const reloaded = await loadPeriod(periodId)
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -154,9 +175,11 @@ export default function TipsPage() {
     const res = await fetch('/api/tips/settings', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
+    let errorMessage: string | null = null
     if (res.ok) setSettings(await res.json())
-    else setError((await res.json()).error ?? 'Could not save settings')
-    if (periodId) await loadPeriod(periodId)
+    else errorMessage = (await res.json()).error ?? 'Could not save settings'
+    const reloaded = periodId ? await loadPeriod(periodId) : true
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -166,8 +189,9 @@ export default function TipsPage() {
     const res = await fetch(`/api/tips/periods/${periodId}/adjustments`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not save that edit')
-    await loadPeriod(periodId)
+    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not save that edit')
+    const reloaded = await loadPeriod(periodId)
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -180,16 +204,19 @@ export default function TipsPage() {
         await patchPeriod({ ignoredClockIds: [...payload.period.ignoredClockIds, action.arg] })
         return
       }
+      let errorMessage: string | null = null
       if (action.kind === 'onPool') {
-        await fetch(`/api/tips/roster/${action.arg}`, {
+        const res = await fetch(`/api/tips/roster/${action.arg}`, {
           method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onTipPool: true }),
         })
+        if (!res.ok) errorMessage = (await res.json()).error ?? 'Could not add that person to the pool'
       }
       if (action.kind === 'setCode') {
         const [cookId, code] = action.arg.split(':')
-        await fetch(`/api/tips/roster/${cookId}`, {
+        const res = await fetch(`/api/tips/roster/${cookId}`, {
           method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clockId: code }),
         })
+        if (!res.ok) errorMessage = (await res.json()).error ?? 'Could not set that clock ID'
       }
       if (action.kind === 'addPerson') {
         const punch = payload.punches.find(p => p.clockId === action.arg)
@@ -201,10 +228,14 @@ export default function TipsPage() {
               clockId: punch.clockId, position: punch.position,
             }),
           })
-          if (!res.ok) setError((await res.json()).error ?? 'Could not add that person')
+          if (!res.ok) errorMessage = (await res.json()).error ?? 'Could not add that person'
         }
       }
-      await loadPeriod(periodId)
+      // See the comment above patchPeriod: setError must come AFTER loadPeriod,
+      // or the reload's own setError(null) wipes it out — and only when the
+      // reload itself succeeded, or a load failure gets stomped by this error.
+      const reloaded = await loadPeriod(periodId)
+      if (errorMessage && reloaded) setError(errorMessage)
     } finally { setBusy(false) }
   }, [periodId, payload, patchPeriod, loadPeriod])
 
@@ -215,8 +246,9 @@ export default function TipsPage() {
     const res = await fetch(`/api/tips/periods/${periodId}/pay`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reopen }),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not update the period')
-    await loadPeriod(periodId)
+    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not update the period')
+    const reloaded = await loadPeriod(periodId)
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, payload, loadPeriod])
 
@@ -425,19 +457,35 @@ export default function TipsPage() {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ dailyHourCap: cap }),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not save that cap')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this —
+                // and only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onRoleChange={(cookId, roleId) => {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tipRoleId: roleId }),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not change that role')))
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onHoursChange={(cookId, dayIndex, hours) => void putAdjustment({ cookId, dayIndex, hours })}
             onBoostChange={(cookId, dayIndex, boost) => void putAdjustment({ cookId, dayIndex, boost })}
             onClearAdjustments={cookId => {
               if (!periodId) return
               void fetch(`/api/tips/periods/${periodId}/adjustments?cookId=${cookId}`, { method: 'DELETE' })
-                .then(() => loadPeriod(periodId))
+                .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not clear those adjustments')))
+                .then(async errorMessage => {
+                  const reloaded = await loadPeriod(periodId)
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onFix={applyFix}
             onGoto={t => setTab(t as TipTabId)}
@@ -495,24 +543,52 @@ export default function TipsPage() {
             onSaveRole={(id, patch) => {
               void fetch(`/api/tips/roles/${id}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not save that role')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this —
+                // and only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onAddRole={() => {
               void fetch('/api/tips/roles', {
                 method: 'POST', headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ name: 'New role', multiplier: 1 }),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not add a role')))
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onDeleteRole={id => {
               void fetch(`/api/tips/roles/${id}`, { method: 'DELETE' })
-                .then(async r => { if (!r.ok) setError((await r.json()).error ?? 'Could not delete that role') })
-                .then(() => { if (periodId) void loadPeriod(periodId) })
+                .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not delete that role')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this —
+                // and only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onSaveRoster={(cookId, patch) => {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-              }).then(async r => { if (!r.ok) setError((await r.json()).error ?? 'Could not save that change') })
-                .then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not save that change')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this.
+                // Reloading first also means the picker/field reflects the
+                // server's actual (unchanged) value instead of the rejected one.
+                // And only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onAddEmployee={() => setError('Add new kitchen staff in Setup → Kitchen crew, then give them a clock ID here.')}
           />

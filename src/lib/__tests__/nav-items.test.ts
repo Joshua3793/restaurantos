@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { navGroups, setupItems, allNavItems, navLabelFor } from '../nav-items'
-import { requiredClearance } from '../route-access'
+import { requiredClearance, canAccess } from '../route-access'
 
 // The clearance each nav destination is expected to need. This is written out
 // by hand ON PURPOSE: if someone changes ROUTE_CLEARANCE without thinking about
@@ -44,6 +44,18 @@ describe('nav tables', () => {
   it('has no duplicate hrefs', () => {
     const hrefs = allNavItems.map(i => i.href)
     expect(new Set(hrefs).size).toBe(hrefs.length)
+  })
+
+  it('gives every staffHref a destination STAFF can actually open', () => {
+    const withStaff = allNavItems.filter(i => i.staffHref)
+    // The tips item is the reason this field exists — if it disappears, this
+    // test should fail rather than silently passing on an empty list.
+    expect(withStaff.length).toBeGreaterThan(0)
+    for (const item of withStaff) {
+      expect(canAccess('STAFF', item.staffHref!)).toBe(true)
+      // A staffHref is only meaningful when the primary href is gated.
+      expect(canAccess('STAFF', item.href)).toBe(false)
+    }
   })
 })
 

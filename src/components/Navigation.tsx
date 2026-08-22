@@ -114,6 +114,14 @@ function NavigationInner() {
   // sidebar on every page load.
   const isLocked = (href: string) => role != null && !canAccess(role, href)
 
+  // Gated on `role != null` for the same reason isLocked is: while /api/me is
+  // in flight, canAccess() denies everything, and resolving on that would point
+  // every manager at the staff page for a frame.
+  const destOf = (item: NavItem) =>
+    item.staffHref && role != null && !canAccess(role, item.href) && canAccess(role, item.staffHref)
+      ? item.staffHref
+      : item.href
+
   const getBadge = (key?: NavItem['badgeKey']) =>
     key ? inboxCounts[key] : 0
 
@@ -171,8 +179,9 @@ function NavigationInner() {
                 {group.items.map(item => {
                   const active = isActive(item)
                   const badge  = getBadge(item.badgeKey)
-                  const locked = isLocked(item.href)
-                  const { href, label, icon: Icon } = item
+                  const href = destOf(item)
+                  const locked = isLocked(href)
+                  const { label, icon: Icon } = item
                   return (
                     <Link
                       key={`${href}-${label}`}
@@ -212,8 +221,9 @@ function NavigationInner() {
             </p>
             {setupItems.map(item => {
               const active = isActive(item)
-              const locked = isLocked(item.href)
-              const { href, label, icon: Icon } = item
+              const href = destOf(item)
+              const locked = isLocked(href)
+              const { label, icon: Icon } = item
               return (
                 <Link
                   key={href}
@@ -310,8 +320,9 @@ function NavigationInner() {
                     {group.items.map((item, i) => {
                       const active = isActive(item)
                       const badge  = getBadge(item.badgeKey)
-                      const locked = isLocked(item.href)
-                      const { href, label, icon: Icon } = item
+                      const href = destOf(item)
+                      const locked = isLocked(href)
+                      const { label, icon: Icon } = item
                       return (
                         <Link
                           key={`drawer-${href}-${label}`}

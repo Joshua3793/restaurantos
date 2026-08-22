@@ -21,6 +21,13 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/tips')).toBe('MANAGER')
   })
 
+  it('opens /tips/me to STAFF while /tips stays MANAGER', () => {
+    expect(requiredClearance('/tips/me')).toBe('STAFF')
+    expect(requiredClearance('/tips')).toBe('MANAGER')
+    expect(canAccess('STAFF', '/tips/me')).toBe(true)
+    expect(canAccess('STAFF', '/tips')).toBe(false)
+  })
+
   it('gates setup at ADMIN and end-of-day at LEAD', () => {
     expect(requiredClearance('/setup')).toBe('ADMIN')
     expect(requiredClearance('/settings')).toBe('ADMIN')
@@ -72,9 +79,19 @@ describe('canAccess', () => {
     }
   })
 
-  it('keeps STAFF out of every gate in the table', () => {
-    for (const [prefix] of ROUTE_CLEARANCE) {
-      expect(canAccess('STAFF', prefix)).toBe(false)
+  it('keeps STAFF out of every gate above STAFF in the table', () => {
+    // Hand-maintained, on purpose: every entry in ROUTE_CLEARANCE is above
+    // STAFF except this explicit exception list. Expectations here must NOT
+    // be read back out of ROUTE_CLEARANCE itself — if someone adds a route or
+    // downgrades an existing one (e.g. '/pass') to STAFF without updating
+    // this list, the test must fail rather than agreeing with the table.
+    const STAFF_LEVEL_ROUTES = new Set(['/tips/me'])
+    for (const [prefix, role] of ROUTE_CLEARANCE) {
+      if (STAFF_LEVEL_ROUTES.has(prefix)) {
+        expect(role).toBe('STAFF')
+      } else {
+        expect(canAccess('STAFF', prefix)).toBe(false)
+      }
     }
   })
 

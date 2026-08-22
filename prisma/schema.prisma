@@ -40,6 +40,7 @@ model User {
   updatedAt         DateTime           @updatedAt
   chatConversations ChatConversation[]
   scopes            UserScope[]
+  cook              Cook?
   auditEventsActed    AccessAuditEvent[] @relation("AuditActor")
   auditEventsReceived AccessAuditEvent[] @relation("AuditTarget")
 }
@@ -745,6 +746,18 @@ model Cook {
   tipRoleId   String?
   onTipPool   Boolean @default(true)
   posPosition String?         // last Position seen on the clock file
+  // The app login this roster row belongs to. Nullable because most cooks have
+  // no account, and that is normal rather than broken. Unique so one login maps
+  // to exactly one roster row — enforced in the DB so a race cannot produce a
+  // double-link that shows somebody another person's pay. SetNull, never
+  // Cascade: hard-deleting a user must not delete a roster row or erase tip
+  // history (same call as ChatConversation.userId).
+  //
+  // ALWAYS set deliberately by a manager. Never matched from name or email —
+  // this domain already fixed that rule for hours (see clockId above), and
+  // money is where a wrong guess is worst.
+  userId      String? @unique
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
   tipRole     TipRole?           @relation(fields: [tipRoleId], references: [id], onDelete: SetNull)
   tipAdjustments TipDayAdjustment[]
 }

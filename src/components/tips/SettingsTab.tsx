@@ -22,7 +22,29 @@ export interface TipSettingsDto {
 
 export interface LookupOption { id: string; name: string; locationId?: string }
 
-const GRID = 'minmax(180px,1.4fr) 68px 78px 74px 100px 50px 74px 48px 26px'
+// A previous attempt tried to make this table + the 330px rail fit
+// side-by-side inside max-w-7xl minus md:px-8 (1216px) — but AppShell also
+// docks a 240px sidebar, so the real ceiling next to it is far smaller
+// (~971px at a 1280px viewport). No column trim closes that gap: this
+// table's min-content floor (884px, see below) plus the rail (330px) plus
+// the grid's own gap (20px) is 1234px of content width, which needs a
+// ~1538px+ viewport (see the 2xl breakpoint on the outer grid, below). So
+// two structural fixes replace column-chasing:
+//   1. the outer grid is 1 column (rail stacks under the table) until
+//      2xl (1536px), the first standard breakpoint past that ~1500px
+//      threshold — see the outer <div> below for the arithmetic.
+//   2. this table has its own overflow-x-auto wrapper, so even if a
+//      viewport is narrower than its min-content, it scrolls in place
+//      instead of pushing the rail off-screen (AppShell is
+//      overflow-x-clip — nothing else scrolls it back into view).
+// Because (2) is a real safety net now, these widths just need to be
+// legible, not pixel-exact — Code and Wage were previously trimmed to
+// 44px/68px chasing the wrong ceiling; widened back to comfortably fit a
+// clock ID and a "$12.50/h" wage.
+// 180(Employee,floor) + 60(Code) + 84(Wage) + 64(Cap) + 100(Role) + 90(App login)
+// + 50(Hours) + 74(Tips) + 48(On pool) + 26(menu) = 776
+// + 9 gaps × 8px (gap-2) = 72 + px-[18px] × 2 = 36 → roster min-content 884
+const GRID = 'minmax(180px,1.4fr) 60px 84px 64px 100px 90px 50px 74px 48px 26px'
 
 /**
  * THE SETTINGS TAB IS NEVER READ-ONLY, not even while the open period is PAID.
@@ -62,7 +84,18 @@ export function SettingsTab({
   const poolRc = revenueCenters.find(rc => rc.id === payload.period.revenueCenterId)
 
   return (
-    <div className="grid grid-cols-[1fr_330px] gap-5 items-start">
+    // Single column (rail stacks under the table) until 2xl. Two columns
+    // need roughly: rail 330px + gap 20px + table min-content 884px ≈
+    // 1234px of content width. AppShell subtracts a 240px sidebar and
+    // md:px-8 padding (32px × 2 = 64px) from the viewport, so the content
+    // width available is viewport − 304px. Solving viewport − 304 ≥ 1234
+    // gives viewport ≥ 1538px — 2xl (1536px) is the first standard
+    // Tailwind breakpoint at or past that, with the table's own
+    // overflow-x-auto (below) absorbing the ~2px it can still miss by
+    // right at the 1536px edge before wider monitors clear it outright.
+    // Below 2xl the table has the full row to itself and easily fits its
+    // 884px min-content (971–1136px available at 1280–1440px viewports).
+    <div className="grid grid-cols-1 2xl:grid-cols-[1fr_330px] gap-5 items-start">
       {/* ── roster ─────────────────────────────────────────────────────────── */}
       <div>
         <div className="grid grid-cols-[1fr_auto] gap-2.5 items-center mb-3.5">
@@ -74,11 +107,19 @@ export function SettingsTab({
           </button>
         </div>
 
+        {/*
+          overflow-x-auto is the safety net: AppShell is overflow-x-clip, so
+          if any viewport ever gives this table less than its ~884px
+          min-content (see GRID above), it scrolls horizontally inside this
+          box instead of silently clipping into the rail or off-screen.
+        */}
+        <div className="overflow-x-auto">
         <div className="bg-paper border border-line rounded-xl overflow-hidden">
           <div className="grid items-center gap-2 px-[18px] py-[11px] bg-bg-2 border-b border-line font-mono text-[10.5px] text-ink-3 uppercase tracking-[0.02em]" style={{ gridTemplateColumns: GRID }}>
             <span>Employee</span><span>Code</span><span>Wage</span>
             <span title="Contracted shift length — hours above it are not paid tips">Cap</span>
             <span>Role</span>
+            <span title="The app login that sees this person's payouts at /tips/me">App login</span>
             <span className="text-right">Hours</span><span className="text-right">Tips</span>
             <span className="text-center">On pool</span><span />
           </div>
@@ -106,7 +147,7 @@ export function SettingsTab({
                   $<input
                     type="number" step="0.25" min="0" defaultValue={p.wage ?? ''}
                     onBlur={e => onSaveRoster(p.cookId, { wage: e.target.value === '' ? null : e.target.value })}
-                    className="w-[42px] font-mono text-[12px] text-right bg-transparent border border-transparent rounded-md px-1 py-[5px] outline-none text-ink hover:border-line focus:border-gold focus:bg-paper [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-[54px] font-mono text-[12px] text-right bg-transparent border border-transparent rounded-md px-1 py-[5px] outline-none text-ink hover:border-line focus:border-gold focus:bg-paper [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                   /><em className="not-italic">/h</em>
                 </span>
                 {/* Contracted shift length — this person's alone. Blank means uncapped. */}
@@ -119,6 +160,17 @@ export function SettingsTab({
                   /><em className="not-italic">h</em>
                 </span>
                 <RoleSelect value={p.roleId} roles={payload.roles} onChange={id => onSaveRoster(p.cookId, { tipRoleId: id })} className="w-full" />
+                <select
+                  value={payload.userLinks[p.cookId] ?? ''}
+                  onChange={e => onSaveRoster(p.cookId, { userId: e.target.value || null })}
+                  title="Set deliberately — never guessed from a name or an email"
+                  className="w-full text-[11.5px] bg-transparent border border-transparent rounded-md px-1.5 py-[5px] outline-none text-ink-2 hover:border-line focus:border-gold focus:bg-paper"
+                >
+                  <option value="">— none —</option>
+                  {payload.appUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                  ))}
+                </select>
                 <span className="font-mono text-[12.5px] text-right text-ink-3">{t ? `${t.hoursTotal.toFixed(1)} h` : '—'}</span>
                 <span className={`font-mono text-[12.5px] text-right ${t ? 'text-gold-2 font-semibold' : 'text-ink-4'}`}>{t ? money(t.tip) : '—'}</span>
                 <span className="flex justify-center">
@@ -134,6 +186,7 @@ export function SettingsTab({
               </div>
             )
           })}
+        </div>
         </div>
         <div className="mt-[18px] font-mono text-[10.5px] text-ink-3 flex justify-between">
           <span>Codes match the POS employee number · wage is reference only, it never affects the split</span>
