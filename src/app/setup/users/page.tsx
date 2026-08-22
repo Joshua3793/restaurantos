@@ -5,6 +5,7 @@ import { useUser } from '@/contexts/UserContext'
 import type { Person } from '@/lib/people'
 import type { LocationNode } from '@/components/people/people-utils'
 import PeopleHubList from '@/components/people/hub/PeopleHubList'
+import PersonDetail from '@/components/people/hub/PersonDetail'
 import { reorderPatches } from '@/components/people/hub/hub-utils'
 import AccessAuditPanel from '@/components/people/AccessAuditPanel'
 
@@ -144,8 +145,14 @@ export default function PeopleHubPage() {
               >
                 <ArrowLeft size={14} /> All people
               </button>
-              {/* PersonDetail mounts here in Task 7 */}
-              <div className="p-6 text-[12.5px] text-ink-4">Detail pane — Task 7.</div>
+              <PersonDetail
+                person={selected}
+                payload={data!}
+                actorRole={user?.role ?? 'STAFF'}
+                isMe={!!user?.id && selected.login?.id === user.id}
+                onChanged={refresh}
+                onCleared={() => setSelectedKey(null)}
+              />
             </div>
           ) : (
             <div className="hidden md:grid h-full place-items-center px-8 text-center">
