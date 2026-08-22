@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PREP_STATIONS } from '@/lib/prep-utils'
 import { mergePeople, type PersonLogin, type PersonRoster } from '@/lib/people'
-import { Role } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { Role } from '@prisma/client'
 import { assignableLevels } from '@/lib/roles'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { inviteOne, type InviteResult } from '@/lib/user-invite'
@@ -131,7 +132,11 @@ export async function GET() {
   })
 }
 
-/** First two letters of the name, matching the ADMIN cook form's normalisation. */
+/**
+ * The initial of each of the first two words ("Sam Lee" → "SL"), falling back to
+ * the first two letters when there is only one word. Matches the ADMIN cook
+ * form's normalisation, and `initialsFor` in POST /api/tips/roster.
+ */
 function deriveInitials(name: string): string {
   const parts = name.trim().split(/\s+/)
   const raw = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.trim().slice(0, 2)
@@ -210,13 +215,23 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 1. roster row ────────────────────────────────────────────────────────
+  //
+  // Cook.name is the SHORT FIRST NAME — it renders on prep run-sheet chips and
+  // seeds `initials`; the surname lives in Cook.lastName, which the tip payout
+  // CSV exports as its own column. User.name keeps the FULL name; the two are
+  // separate fields on purpose and are never synced. Split exactly as
+  // POST /api/tips/roster builds a roster row.
+  const [firstName, ...restOfName] = name.split(/\s+/)
+  const lastName = restOfName.join(' ') || null
+
   let cookId: string | null = null
   if (body.roster) {
     try {
       const settings = await loadSettings()
       const created = await prisma.cook.create({
         data: {
-          name,
+          name: firstName,
+          lastName,
           initials: (body.roster.initials?.trim().toUpperCase().slice(0, 3)) || deriveInitials(name),
           homeStation: body.roster.homeStation?.trim() || null,
           clockId: clockId || null,
@@ -230,6 +245,19 @@ export async function POST(req: NextRequest) {
       })
       cookId = created.id
     } catch (e) {
+      // Losing side of a concurrent create for the same clockId: the pre-check
+      // above raced another request past it. Map the unique violation to the
+      // same readable 409 that POST /api/tips/roster returns, rather than
+      // letting it fall through as a generic 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const holder = clockId
+          ? await prisma.cook.findUnique({ where: { clockId }, select: { id: true, name: true } })
+          : null
+        return NextResponse.json(
+          { error: `Clock #${clockId} already belongs to ${holder?.name ?? 'another cook'}` },
+          { status: 409 },
+        )
+      }
       console.error('[settings/people POST] roster create failed', e)
       return NextResponse.json(
         { error: 'Could not create the roster row. Nothing was created.' }, { status: 500 },

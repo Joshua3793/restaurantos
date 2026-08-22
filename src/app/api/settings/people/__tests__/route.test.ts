@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Prisma } from '@prisma/client'
 
 const userFindMany = vi.fn(async () => [] as unknown[])
 const cookFindMany = vi.fn(async () => [] as unknown[])
@@ -21,6 +22,9 @@ const inviteOne = vi.fn(async (): Promise<
   { email: string; status: string; userId?: string; error?: string }
 > => ({ email: 'sam@fergies.test', status: 'invited', userId: 'u-new' }))
 const validateAssignmentRows = vi.fn(async () => null as string | null)
+// A vi.fn, not a bare arrow: the validate-BEFORE-dedupe order is a named
+// behaviour, and only a spy records the invocation order that proves it.
+const dedupeAssignmentRows = vi.fn((rows: unknown[]) => rows)
 const loadSettings = vi.fn(async () => ({ defaultDailyHourCap: 8 }))
 
 class MockAuthError extends Error {
@@ -54,7 +58,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 vi.mock('@/lib/tips/settings', () => ({ loadSettings: (...a: unknown[]) => loadSettings(...(a as [])) }))
 vi.mock('@/lib/assignment-input', () => ({
   validateAssignmentRows: (...a: unknown[]) => validateAssignmentRows(...(a as [])),
-  dedupeAssignmentRows: (rows: unknown[]) => rows,
+  dedupeAssignmentRows: (...a: unknown[]) => dedupeAssignmentRows(...(a as [unknown[]])),
 }))
 
 const { GET, POST } = await import('@/app/api/settings/people/route')
@@ -314,5 +318,95 @@ describe('POST /api/settings/people', () => {
     const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
     expect(res.status).toBe(400)
     expect(cookCreate).not.toHaveBeenCalled()
+  })
+
+  // Cook.name is the SHORT FIRST NAME (run-sheet chips, initials seed) and
+  // Cook.lastName is its own column — the tip payout CSV exports the two
+  // separately, so a full name in Cook.name blanks the Surname column.
+  it('splits a two-word name into a first name and a surname', async () => {
+    await POST(postReq({ name: 'Sam Lee', roster: rosterBody.roster }))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: 'Sam', lastName: 'Lee' }) }),
+    )
+  })
+
+  it('leaves lastName null for a one-word name', async () => {
+    await POST(postReq({ name: 'Sam', roster: rosterBody.roster }))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: 'Sam', lastName: null }) }),
+    )
+  })
+
+  it('keeps every remaining word in the surname', async () => {
+    await POST(postReq({ name: 'Ana Maria de Souza', roster: rosterBody.roster }))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: 'Ana', lastName: 'Maria de Souza' }) }),
+    )
+  })
+
+  // User.name is the FULL name and is never synced to Cook.name — only the
+  // Cook write splits.
+  it('still invites with the full name while the roster row stores the first name', async () => {
+    await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(inviteOne).toHaveBeenCalledWith(expect.objectContaining({ name: 'Sam Lee' }))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: 'Sam' }) }),
+    )
+  })
+
+  // Dedupe keeps only the FIRST row per node, so validating afterwards would
+  // never see the second submission of the same node with a different clearance.
+  it('validates the assignment rows BEFORE deduping them', async () => {
+    await POST(postReq(loginBody))
+    expect(validateAssignmentRows).toHaveBeenCalled()
+    expect(dedupeAssignmentRows).toHaveBeenCalled()
+    expect(validateAssignmentRows.mock.invocationCallOrder[0])
+      .toBeLessThan(dedupeAssignmentRows.mock.invocationCallOrder[0])
+  })
+
+  it('does not dedupe at all when the rows fail validation', async () => {
+    validateAssignmentRows.mockResolvedValueOnce('Unknown revenue center')
+    await POST(postReq(loginBody))
+    expect(dedupeAssignmentRows).not.toHaveBeenCalled()
+  })
+
+  // Both halves genuinely exist and are individually correct — only the join
+  // failed. That is a warning on a 201, not an error.
+  it('degrades a failed link to a warning on a 201, not an error', async () => {
+    cookUpdate.mockRejectedValueOnce(new Error('db down'))
+    const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.cookId).toBe('c-new')
+    expect(body.userId).toBe('u-new')
+    expect(body.warning).toMatch(/link/i)
+  })
+
+  it('omits the warning key entirely when the link succeeds', async () => {
+    const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).not.toHaveProperty('warning')
+  })
+
+  // The findUnique pre-check can be raced past; the unique violation must land
+  // as the same readable 409, not a generic 500.
+  it('maps a clockId P2002 race to the same readable 409', async () => {
+    cookCreate.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test', meta: { target: ['clockId'] },
+      }),
+    )
+    cookFindUnique
+      .mockResolvedValueOnce(null)                            // pre-check: free
+      .mockResolvedValueOnce({ id: 'other', name: 'Alex' })   // post-race holder
+    const res = await POST(postReq(rosterBody))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain('Alex')
+  })
+
+  it('still 500s on a non-P2002 roster create failure', async () => {
+    cookCreate.mockRejectedValueOnce(new Error('db down'))
+    const res = await POST(postReq(rosterBody))
+    expect(res.status).toBe(500)
   })
 })
