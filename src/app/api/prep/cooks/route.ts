@@ -9,6 +9,26 @@ function normalizeInitials(value: unknown): string | null {
   return value.trim().toUpperCase().slice(0, 3)
 }
 
+// Every consumer of this endpoint — the prep run sheet's claim popover/crew
+// strip (src/app/prep/page.tsx, components/prep/runsheet/assignee.tsx's Cook
+// type) and the ADMIN-gated Kitchen Crew roster page (src/app/setup/kitchen-crew/page.tsx)
+// — renders only roster identity: name, initials, home station, active flag,
+// sort order. NONE of them use the tip-payroll columns (lastName, clockId,
+// wage, dailyHourCap, tipRoleId, onTipPool, posPosition) that also live on
+// Cook (see prisma/schema.prisma) — those are for src/lib/tips/* and
+// /api/tips/roster only. This endpoint has no minRole (STAFF need it to
+// claim prep jobs), so an explicit select is the only thing standing between
+// any authenticated user and every colleague's wage + POS employee number.
+// Do not widen this select without threading a role check through first.
+const COOK_ROSTER_SELECT = {
+  id: true,
+  name: true,
+  initials: true,
+  homeStation: true,
+  isActive: true,
+  sortOrder: true,
+} as const
+
 // ── GET /api/prep/cooks ─────────────────────────────────────────────────────
 // Default: active cooks only, ordered by sortOrder, name — this is what
 // /api/prep/items and every other consumer relies on. Pass
@@ -22,6 +42,7 @@ export async function GET(req: NextRequest) {
 
     const cooks = await prisma.cook.findMany({
       where: includeInactive ? {} : { isActive: true },
+      select: COOK_ROSTER_SELECT,
       orderBy: includeInactive
         ? [{ isActive: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }]
         : [{ sortOrder: 'asc' }, { name: 'asc' }],

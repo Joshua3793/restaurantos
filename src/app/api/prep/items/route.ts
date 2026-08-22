@@ -98,7 +98,14 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'asc' },
   })
 
-  const cooks = await prisma.cook.findMany({ where: { isActive: true } })
+  // Only identity fields reach `assignedCook` below (id, initials, name,
+  // homeStation) — select narrowly rather than pulling Cook's tip-payroll
+  // columns (wage, clockId, ...) into memory just to discard them. Mirrors
+  // the select in GET /api/prep/cooks.
+  const cooks = await prisma.cook.findMany({
+    where: { isActive: true },
+    select: { id: true, initials: true, name: true, homeStation: true },
+  })
   const cookById = new Map(cooks.map(c => [c.id, c]))
 
   // Last-made per item = one aggregate row each (max logDate), not every historical
