@@ -4,7 +4,7 @@ import { assignableLevels, atLeast, ROLE_COLORS, ROLE_DESCRIPTIONS, ROLE_DOT, RO
 import { resolveEffective, type EffectiveEntry, type RcNode } from '@/lib/access-model'
 import AssignmentEditor, { type AssignmentDraft } from '@/components/people/AssignmentEditor'
 import type { LocationNode } from '@/components/people/people-utils'
-import type { Person } from '@/lib/people'
+import type { Person, PersonScope } from '@/lib/people'
 import type { PeopleHubPayload } from '@/app/setup/users/page'
 import { EmptyTab, SectionLabel, WarningNote, useSave } from './kit'
 import { useState } from 'react'
@@ -33,16 +33,34 @@ interface Props {
   onChanged: (nextKey?: string) => void
 }
 
+/**
+ * Same normalization the AssignmentEditor drafts use: an RC-level pick nulls
+ * out locationId even though PersonScope carries both for display. Shared by
+ * the initial draft state and by submit()'s unchanged-check so the two never
+ * drift apart.
+ */
+function toAssignmentDrafts(assignments: PersonScope[]): AssignmentDraft[] {
+  return assignments.map(a => ({
+    locationId: a.revenueCenterId ? null : a.locationId,
+    revenueCenterId: a.revenueCenterId,
+    clearance: a.clearance,
+  }))
+}
+
+const draftKey = (d: { locationId: string | null; revenueCenterId: string | null }) =>
+  `${d.locationId ?? ''}|${d.revenueCenterId ?? ''}`
+
+/** Order-independent: toggling one row off and another on can reorder the array. */
+function assignmentsUnchanged(drafts: AssignmentDraft[], saved: AssignmentDraft[]): boolean {
+  if (drafts.length !== saved.length) return false
+  const savedByKey = new Map(saved.map(d => [draftKey(d), d.clearance]))
+  return drafts.every(d => savedByKey.has(draftKey(d)) && savedByKey.get(draftKey(d)) === d.clearance)
+}
+
 export default function AccessTab({ person, payload, actorRole, isMe, onChanged }: Props) {
   const login = person.login
   const [clearance, setClearance] = useState<Role>(login?.role ?? 'STAFF')
-  const [drafts, setDrafts] = useState<AssignmentDraft[]>(
-    (login?.assignments ?? []).map(a => ({
-      locationId: a.revenueCenterId ? null : a.locationId,
-      revenueCenterId: a.revenueCenterId,
-      clearance: a.clearance,
-    })),
-  )
+  const [drafts, setDrafts] = useState<AssignmentDraft[]>(toAssignmentDrafts(login?.assignments ?? []))
   const { busy, error, warning, save, Spinner } = useSave(onChanged)
 
   if (!login) {
@@ -69,6 +87,14 @@ export default function AccessTab({ person, payload, actorRole, isMe, onChanged 
         body: JSON.stringify({ clearance }),
       })
       if (!r.ok) return r
+    }
+    // PUT /assignments 400s on an empty array. A person with legitimately zero
+    // assignments (globally-visible ADMIN/OWNER) must still be able to save a
+    // clearance-only edit, so skip the call entirely when drafts match what's
+    // already saved — but still send it when they genuinely differ, including
+    // a deliberate clear-to-empty, where the resulting 400 is correct.
+    if (assignmentsUnchanged(drafts, toAssignmentDrafts(login.assignments))) {
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     return fetch(`/api/settings/users/${login.id}/assignments`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -113,7 +139,11 @@ export default function AccessTab({ person, payload, actorRole, isMe, onChanged 
         </p>
       </div>
 
-      {!isOwner && (
+      {/* Locked (OWNER or own account) drops to read-only: the server rejects
+          both edits, so nothing interactive should sit above the hidden Save
+          button. The "Effective access" preview below carries the read-only
+          view of the same data. */}
+      {!locked && (
         <div>
           <SectionLabel>Assignments</SectionLabel>
           <AssignmentEditor
