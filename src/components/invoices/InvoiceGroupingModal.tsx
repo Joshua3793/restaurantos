@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
-import { X, Loader2, ScanLine, FileText, FileSpreadsheet, AlertTriangle } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { X, Loader2, ScanLine, FileText, FileSpreadsheet, AlertTriangle, Pencil, Trash2, Undo2 } from 'lucide-react'
 import type { ProposedGroup } from '@/lib/invoice-grouping'
 
 interface PeekFile { id: string; fileName: string; fileType: string; fileUrl: string }
@@ -16,6 +16,52 @@ function groupLabel(g: ProposedGroup, idx: number): string {
   if (g.invoiceNumber) bits.push(`#${g.invoiceNumber}`)
   if (g.invoiceDate) bits.push(g.invoiceDate)
   return `Invoice ${idx + 1} — ${bits.join(' · ')}`
+}
+
+// Tap-to-edit invoice number: the OCR read is a suggestion, the user is the
+// authority. Committed value flows into the split prefill for that invoice.
+function EditableInvoiceNumber({ value, onCommit }: { value: string | null; onCommit: (v: string | null) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select()
+  }, [editing])
+
+  const commit = () => {
+    const v = draft.trim()
+    onCommit(v.length ? v : null)
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setDraft(value ?? ''); setEditing(true) }}
+        className="inline-flex items-center gap-1 font-mono text-xs px-1.5 py-0.5 rounded-md border border-line text-ink-2 hover:border-gold hover:text-ink transition-colors shrink-0"
+        title="Correct the invoice number"
+      >
+        {value ? `#${value}` : 'no number'}
+        <Pencil size={10} className="text-ink-4" />
+      </button>
+    )
+  }
+  return (
+    <input
+      ref={inputRef}
+      autoFocus
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') commit()
+        if (e.key === 'Escape') setEditing(false)
+      }}
+      placeholder="invoice #"
+      className="font-mono text-xs px-1.5 py-0.5 rounded-md border border-gold outline-none w-32 shrink-0 text-ink"
+    />
+  )
 }
 
 // Module scope (project rule: sub-components defined inside a component body
@@ -48,6 +94,7 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
   const [groups, setGroups] = useState<ProposedGroup[]>([])
   const [unassigned, setUnassigned] = useState<string[]>([])
   const [movingId, setMovingId] = useState<string | null>(null)
+  const [discarded, setDiscarded] = useState<string[]>([])
   const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
@@ -87,11 +134,33 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
     setMovingId(null)
   }
 
+  // Throw out a double-shot / blurry photo. Removed from every group (empty
+  // groups drop) and queued for deletion at confirm; restorable until then.
+  const discardFile = (fileId: string) => {
+    setUnassigned(prev => prev.filter(id => id !== fileId))
+    setGroups(prev => prev
+      .map(g => ({ ...g, fileIds: g.fileIds.filter(id => id !== fileId) }))
+      .filter(g => g.fileIds.length > 0))
+    setDiscarded(prev => [...prev, fileId])
+    setMovingId(null)
+  }
+
+  // Restore lands in "unassigned" so the user must place it deliberately.
+  const restoreFile = (fileId: string) => {
+    setDiscarded(prev => prev.filter(id => id !== fileId))
+    setUnassigned(prev => [...prev, fileId])
+  }
+
+  const setGroupNumber = (idx: number, v: string | null) => {
+    setGroups(prev => prev.map((g, i) => (i === idx ? { ...g, invoiceNumber: v } : g)))
+  }
+
   // Peek totally failed (e.g. every photo unreadable) → offer today's behavior.
-  const allUnassigned = !loading && !error && groups.length === 0 && unassigned.length > 0
+  const allUnassigned = !loading && !error && groups.length === 0 && unassigned.length > 0 && discarded.length === 0
   const scanAsOne = () => {
     setGroups([{ fileIds: files.map(f => f.id), kind: 'photos', supplierName: null, invoiceNumber: null, invoiceDate: null }])
     setUnassigned([])
+    setDiscarded([])
   }
 
   const confirm = async () => {
@@ -107,6 +176,7 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
             invoiceNumber: g.invoiceNumber,
             invoiceDate: g.invoiceDate,
           })),
+          discardFileIds: discarded,
         }),
       })
       const j = await res.json().catch(() => ({}))
@@ -190,8 +260,14 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
 
             {groups.map((g, i) => (
               <div key={i} className="border border-line rounded-xl p-4 space-y-2">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-sm font-semibold text-ink truncate">{groupLabel(g, i)}</span>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-semibold text-ink truncate">
+                      Invoice {i + 1} — {g.supplierName ?? 'Unknown supplier'}
+                    </span>
+                    <EditableInvoiceNumber value={g.invoiceNumber} onCommit={v => setGroupNumber(i, v)} />
+                    {g.invoiceDate && <span className="text-xs text-ink-4 shrink-0">{g.invoiceDate}</span>}
+                  </span>
                   <span className="text-xs text-ink-4 shrink-0">
                     {g.fileIds.length} {g.kind === 'photos' ? `photo${g.fileIds.length > 1 ? 's' : ''}` : g.kind.toUpperCase()}
                   </span>
@@ -210,6 +286,32 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
                 </div>
               </div>
             ))}
+            {discarded.length > 0 && (
+              <div className="border border-dashed border-line rounded-xl p-4 space-y-2 bg-bg-2/40">
+                <div className="flex items-center gap-2 text-xs font-semibold text-ink-3 uppercase tracking-wide">
+                  <Trash2 size={12} /> Discarded ({discarded.length}) — removed when you scan · tap to restore
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {discarded.map(id => {
+                    const f = fileById.get(id)
+                    return f ? (
+                      <button
+                        key={id}
+                        onClick={() => restoreFile(id)}
+                        className="relative shrink-0 rounded-lg border border-line overflow-hidden opacity-50 hover:opacity-90 transition-opacity"
+                        title={`${f.fileName} — tap to restore`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={f.fileUrl} alt={f.fileName} className="h-20 w-14 object-cover" />
+                        <span className="absolute inset-0 grid place-items-center bg-black/30">
+                          <Undo2 size={16} className="text-paper" />
+                        </span>
+                      </button>
+                    ) : null
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -270,6 +372,12 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
               className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-bg-2 text-sm font-semibold text-ink"
             >
               + New invoice
+            </button>
+            <button
+              onClick={() => discardFile(movingId)}
+              className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-red-soft text-sm font-semibold text-red-text flex items-center gap-2"
+            >
+              <Trash2 size={14} /> Discard this photo
             </button>
             <button
               onClick={() => setMovingId(null)}

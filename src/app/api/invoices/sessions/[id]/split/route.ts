@@ -32,6 +32,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       groups.some(g => !g || typeof g !== 'object' || !Array.isArray(g.fileIds) || g.fileIds.length === 0)) {
     return NextResponse.json({ error: 'groups must be a non-empty array of non-empty fileId lists' }, { status: 400 })
   }
+  // Photos the user threw out on the confirm screen (double-shots, blurry
+  // retakes). Deleted with the split — they belong to no invoice.
+  const discardFileIds = (body?.discardFileIds ?? []) as string[]
+  if (!Array.isArray(discardFileIds) || discardFileIds.some(id => typeof id !== 'string')) {
+    return NextResponse.json({ error: 'discardFileIds must be an array of file ids' }, { status: 400 })
+  }
 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
@@ -42,7 +48,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: `Session is ${session.status} — cannot re-split` }, { status: 409 })
   }
 
-  // Every file of the session in exactly one group — no strays, no dupes, no misses.
+  // Every file of the session in exactly one group OR the discard list —
+  // no strays, no dupes, no misses.
   const sessionFileIds = new Set(session.files.map(f => f.id))
   const seen = new Set<string>()
   for (const g of groups) {
@@ -52,12 +59,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       seen.add(fid)
     }
   }
+  for (const fid of discardFileIds) {
+    if (!sessionFileIds.has(fid)) return NextResponse.json({ error: `Unknown file: ${fid}` }, { status: 400 })
+    if (seen.has(fid)) return NextResponse.json({ error: `File both assigned and discarded: ${fid}` }, { status: 400 })
+    seen.add(fid)
+  }
   if (seen.size !== sessionFileIds.size) {
-    return NextResponse.json({ error: 'Every uploaded file must be assigned to a group' }, { status: 400 })
+    return NextResponse.json({ error: 'Every uploaded file must be assigned to a group or discarded' }, { status: 400 })
   }
 
   const [first, ...rest] = groups
   const ops: Prisma.PrismaPromise<unknown>[] = []
+
+  if (discardFileIds.length > 0) {
+    ops.push(prisma.invoiceFile.deleteMany({
+      where: { id: { in: discardFileIds }, sessionId: session.id },
+    }))
+  }
 
   ops.push(prisma.invoiceSession.update({
     where: { id: session.id },
