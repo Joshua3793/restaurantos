@@ -121,8 +121,13 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
     })
 
     // updateUserById can fail two ways: it RETURNS { error }, or it THROWS
-    // (network blip, Supabase 5xx). Both leave the same divergence, so both
-    // must run the exact same compensation below.
+    // (network blip, Supabase 5xx). Both leave the same divergence — Prisma
+    // already holds the new role/scopes, Supabase still has the old metadata —
+    // so both must run the exact same compensation below. If a throw were left
+    // to propagate to the outer catch instead, the revert would never run:
+    // Prisma would stay committed to the new state, and the caller would just
+    // be told 'failed', hiding a real, uncompensated divergence between the
+    // two stores.
     let metaError: { message: string } | null = null
     try {
       const { error } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
@@ -135,9 +140,13 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
 
     if (metaError) {
       // The revert is itself a $transaction against the same pgBouncer
-      // transaction-mode pooler. If IT throws, Prisma holds the new role/scopes
-      // while Supabase has the old metadata and nothing will retry — a strictly
-      // worse, silently-diverged outcome that must be reported distinctly.
+      // transaction-mode pooler documented elsewhere in this repo as an
+      // intermittent write-failure source (see CLAUDE.md). If IT throws, Prisma
+      // is left holding the new role/scopes while Supabase still has the old
+      // metadata, and nothing here will retry it — that's a strictly worse,
+      // silently-diverged outcome than "invite failed," so it must be reported
+      // as its own loud, distinct result rather than falling into the generic
+      // 'failed' message below or the outer catch's generic text.
       try {
         await prisma.$transaction(async (tx) => {
           if (priorUser) {
@@ -174,8 +183,12 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
       }
     }
 
-    // Both stores have committed. The audit write is secondary — a failure here
-    // must not flip a real success to 'failed', and must not be swallowed.
+    // Both stores have now committed: Prisma upsert + Supabase metadata. The
+    // audit write is secondary to that — by this point the reactivation has
+    // genuinely succeeded, so a failure here must not flip it to 'failed' and
+    // must not be swallowed either. Log it loudly and surface it as a non-fatal
+    // warning on the result so the caller can see the audit trail is
+    // incomplete, without losing the real success.
     let auditWarning: string | undefined
     try {
       await recordAccessEvent(prisma, {
