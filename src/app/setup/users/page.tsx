@@ -30,6 +30,10 @@ export default function PeopleHubPage() {
   const [error, setError] = useState('')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Lives on the PAGE, not in the detail pane, so it survives the pane
+  // unmounting — a delete clears the selection, and a warning rendered inside
+  // the pane would be destroyed before it ever painted.
+  const [notice, setNotice] = useState('')
 
   const load = useCallback(async (): Promise<PeopleHubPayload | null> => {
     setError('')
@@ -49,12 +53,26 @@ export default function PeopleHubPage() {
 
   useEffect(() => { load() }, [load])
 
-  const refresh = useCallback(async () => {
+  /**
+   * Reload and re-settle the selection in ONE pass.
+   *
+   * `nextKey` is how a link/unlink keeps the pane open: `Person.key` is
+   * `cook:<cookId>` while unlinked and `<userId>` once linked, so after a
+   * successful link the old key matches nobody and the pane would collapse to
+   * the empty state (on mobile, bounce back to the list) exactly when the
+   * hub's headline action succeeds. Applying the new key against the freshly
+   * loaded body — rather than setting it before the fetch resolves — means the
+   * selection is never momentarily unresolvable.
+   */
+  const refresh = useCallback(async (nextKey?: string) => {
     const body = await load()
     setRefreshKey(k => k + 1)
     // Clear the selection if that person is gone (removed), otherwise the
     // detail pane keeps rendering a row that no longer exists.
-    if (body) setSelectedKey(prev => (prev && body.people.some(p => p.key === prev) ? prev : null))
+    if (body) setSelectedKey(prev => {
+      const want = nextKey ?? prev
+      return want && body.people.some(p => p.key === want) ? want : null
+    })
   }, [load])
 
   /**
@@ -122,6 +140,18 @@ export default function PeopleHubPage() {
         </div>
       )}
 
+      {notice && (
+        <div className="px-4 py-3 bg-gold-soft rounded-[10px] flex items-start justify-between gap-3">
+          <p className="text-[12.5px] text-ink-2 leading-relaxed">{notice}</p>
+          <button
+            onClick={() => setNotice('')}
+            className="shrink-0 text-[11.5px] font-semibold text-ink-3 underline hover:no-underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Master–detail. Below md: the list IS the page and selecting swaps to
           the detail — both panes are mounted, CSS decides which is visible. */}
       <div className="bg-paper border border-line rounded-xl overflow-hidden md:flex md:h-[calc(100vh-260px)] md:min-h-[420px]">
@@ -131,7 +161,7 @@ export default function PeopleHubPage() {
             locations={data?.locations ?? []}
             selectedKey={selectedKey}
             currentUserId={user?.id ?? null}
-            onSelect={p => setSelectedKey(p.key)}
+            onSelect={p => { setNotice(''); setSelectedKey(p.key) }}
             onReorder={reorder}
           />
         </div>
@@ -145,13 +175,19 @@ export default function PeopleHubPage() {
               >
                 <ArrowLeft size={14} /> All people
               </button>
+              {/* `key` is load-bearing, not a list hint: without it React
+                  reuses the pane's state and DOM across a person switch, so an
+                  armed "Remove permanently" confirm, a chosen link target, the
+                  active tab and every uncontrolled name input carry the
+                  PREVIOUS person's values onto the next one. */}
               <PersonDetail
+                key={selected.key}
                 person={selected}
                 payload={data!}
                 actorRole={user?.role ?? 'STAFF'}
                 isMe={!!user?.id && selected.login?.id === user.id}
                 onChanged={refresh}
-                onCleared={() => setSelectedKey(null)}
+                onCleared={msg => { setSelectedKey(null); setNotice(msg ?? '') }}
               />
             </div>
           ) : (

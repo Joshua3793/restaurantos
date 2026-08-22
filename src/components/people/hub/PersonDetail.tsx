@@ -22,8 +22,10 @@ interface Props {
   payload: PeopleHubPayload
   actorRole: Role
   isMe: boolean
-  onChanged: () => void
-  onCleared: () => void
+  /** `nextKey` re-selects a person whose key changed (link/unlink). */
+  onChanged: (nextKey?: string) => void
+  /** `notice` is surfaced by the PAGE — this pane is unmounted by the call. */
+  onCleared: (notice?: string) => void
 }
 
 export default function PersonDetail({ person, payload, actorRole, isMe, onChanged, onCleared }: Props) {
@@ -68,11 +70,13 @@ export default function PersonDetail({ person, payload, actorRole, isMe, onChang
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
+            // Applicability drives the dim INDEPENDENTLY of selection —
+            // folding it into the non-active branch made a non-applicable tab
+            // look perfectly normal the moment you clicked it, which is
+            // precisely when the reader needs to know it does not apply.
             className={`px-3 py-2 text-[12.5px] font-medium border-b-2 -mb-px ${
-              tab === t.id
-                ? 'border-gold text-ink'
-                : `border-transparent hover:text-ink-2 ${applies[t.id] ? 'text-ink-3' : 'text-ink-4'}`
-            }`}
+              tab === t.id ? 'border-gold' : 'border-transparent hover:text-ink-2'
+            } ${applies[t.id] ? (tab === t.id ? 'text-ink' : 'text-ink-3') : 'text-ink-4'}`}
           >
             {t.label}
           </button>

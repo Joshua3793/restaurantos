@@ -42,25 +42,45 @@ export function EmptyTab({ title, body, action }: { title: string; body: string;
   )
 }
 
+export interface SaveOptions {
+  /**
+   * Runs on success, BEFORE the list reload. Receives the route's non-fatal
+   * `warning` so a caller that unmounts this component (the delete path calls
+   * `onCleared`) can hand the warning to a survivor — see Important 3: a
+   * warning written to local state here never paints, because the pane is
+   * gone by the time React commits.
+   */
+  after?: (warning?: string) => void
+  /**
+   * The Person key to select after the reload. A link/unlink moves a person
+   * between `cook:<id>` and `<userId>`; without this the old key resolves to
+   * nothing and the detail pane collapses mid-action (Important 4). Passed
+   * through to `onChanged` so the reload and the re-selection land in the
+   * SAME pass — re-selecting separately would blank the pane for a frame.
+   */
+  nextKey?: string
+}
+
 /**
  * Shared save wrapper. Surfaces the non-fatal `warning` some routes return when
  * the audit write fails AFTER the mutation already committed — dropping it
  * (as PersonDetailPanel.call() does today) hides an incomplete audit trail
  * behind an apparent clean success.
  */
-export function useSave(onChanged: () => void) {
+export function useSave(onChanged: (nextKey?: string) => void) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')
 
-  const save = async (fn: () => Promise<Response>, after?: () => void) => {
+  const save = async (fn: () => Promise<Response>, opts?: SaveOptions): Promise<boolean> => {
     setError(''); setWarning(''); setBusy(true)
     try {
       const res = await fn()
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setError(body.error ?? 'Something went wrong'); return false }
-      if (body.warning) setWarning(body.warning)
-      after?.(); onChanged()
+      const routeWarning = typeof body.warning === 'string' ? body.warning : undefined
+      if (routeWarning) setWarning(routeWarning)
+      opts?.after?.(routeWarning); onChanged(opts?.nextKey)
       return true
     } catch (e) {
       // A network rejection throws before any response exists — without this,
