@@ -8,7 +8,7 @@ import { ArrowRight, Check, AlertTriangle } from 'lucide-react'
 import { IssueBadge, ActButton, VariancePill, type IssueKind } from './atoms'
 import { useDrawerContext } from './context'
 import { computeNormalisedPrices } from '@/lib/invoice/calculations'
-import { classifyDimensionRelationship } from '@/lib/invoice/classify'
+import { classifyDimensionRelationship, bridgeUnitOptions, isValidBridgeUnit } from '@/lib/invoice/classify'
 import { costDriftWithinBand } from '@/lib/invoice/cost-sanity'
 import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { dimensionOf } from '@/lib/item-model'
@@ -195,7 +195,7 @@ export function DimensionConflictIssue({
   // the invoice pack; reverse (count line on a measured item) starts blank.
   const isCountItem = itemDim === 'COUNT'
   const fwdBridge = isCountItem && (offer.dimension === 'MASS' || offer.dimension === 'VOLUME')
-  const bridgeDim = isCountItem ? offer.dimension : itemDim     // measured dimension
+  const bridgeDim = (isCountItem ? offer.dimension : itemDim) as 'MASS' | 'VOLUME' | 'COUNT'  // measured dimension
   const countLabel = isCountItem ? itemUnit : 'each'            // left of "1 ___ ="
   // Prefill: prefer the classifier's perEach, then the invoice-derived pack.
   const perEachQty = rel.verdict === 'PACK_BRIDGE' && rel.perEach
@@ -206,14 +206,21 @@ export function DimensionConflictIssue({
     : (fwdBridge ? (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null : null)
 
   const [bq, setBq] = useState(perEachQty != null ? String(perEachQty) : '')
-  const [bu, setBu] = useState(perEachUnit ?? (bridgeDim === 'VOLUME' ? 'ml' : 'lb'))
+  // The unit must measure the gap. A prefill that doesn't (a count pack unit, or
+  // the wrong measured dimension) is dropped in favour of the dimension default —
+  // saving it would be a silent no-op that leaves this issue on screen.
+  const unitOpts = bridgeUnitOptions(bridgeDim)
+  const [bu, setBu] = useState(
+    isValidBridgeUnit(perEachUnit, bridgeDim) ? perEachUnit! : (bridgeDim === 'VOLUME' ? 'ml' : 'lb'),
+  )
   const [saving, setSaving] = useState(false)
-  const unitOpts = bridgeDim === 'VOLUME' ? ['ml', 'l', 'oz'] : ['lb', 'kg', 'g', 'oz']
-  if (bu && !unitOpts.includes(bu)) unitOpts.unshift(bu)
-  const canSave = Number(bq) > 0 && !!bu && !saving
+  const [bridgeErr, setBridgeErr] = useState<string | null>(null)
+  const canSave = Number(bq) > 0 && isValidBridgeUnit(bu, bridgeDim) && !saving
   const saveBridge = async () => {
     setSaving(true)
+    setBridgeErr(null)
     try { await ctx.bridgeAndReceiveAsCount(item, { qty: Number(bq), unit: bu }) }
+    catch (e) { setBridgeErr(e instanceof Error ? e.message : 'Could not save the bridge.') }
     finally { setSaving(false) }
   }
 
@@ -224,9 +231,12 @@ export function DimensionConflictIssue({
   const norm = computeNormalisedPrices(item)
   const driftOk = norm ? costDriftWithinBand(norm.invoicePPB * Number(dq || 0), norm.inventoryPPB) : true
   const canSaveDensity = Number(dq) > 0 && !savingD
+  const [densityErr, setDensityErr] = useState<string | null>(null)
   const saveDensity = async () => {
     setSavingD(true)
+    setDensityErr(null)
     try { await ctx.setItemDensity(item, Number(dq)) }
+    catch (e) { setDensityErr(e instanceof Error ? e.message : 'Could not save the bridge.') }
     finally { setSavingD(false) }
   }
 
@@ -265,6 +275,7 @@ export function DimensionConflictIssue({
             <span className="text-[12.5px] text-ink-2">g</span>
           </div>
           {!driftOk && <div className="mt-1.5"><i className="text-[11.5px] text-red-text">This factor swings cost &gt;25% — check it.</i></div>}
+          {densityErr && <div className="mt-1.5 text-[11.5px] text-red-text">{densityErr}</div>}
         </div>
         {advanced}
       </IssueShell>
@@ -313,6 +324,7 @@ export function DimensionConflictIssue({
               {unitOpts.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
+          {bridgeErr && <div className="mt-1.5 text-[11.5px] text-red-text">{bridgeErr}</div>}
         </div>
         {advanced}
       </IssueShell>

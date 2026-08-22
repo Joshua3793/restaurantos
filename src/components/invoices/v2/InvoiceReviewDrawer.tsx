@@ -30,7 +30,7 @@ import { isBridgeable } from '@/lib/invoice/classify'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { formatPricePerBase } from '@/lib/utils'
 import {
-  DIMENSION_BASE, pricePerBaseUnit, basePerUnit, validateChainItem,
+  DIMENSION_BASE, pricePerBaseUnit, basePerUnit, validateChainItem, dimensionOf,
   type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { formToChain } from '@/lib/item-model-form'
@@ -971,6 +971,24 @@ export function InvoiceReviewDrawer({
     return { page: typeof bb.page === 'number' ? bb.page : 0, x: bb.x, y: bb.y, w: bb.w, h: bb.h }
   }, [activeBboxItemId, session, editedLines])
 
+  // After an inventory-side write the refreshed session carries the authoritative
+  // matchedItem. The link picker, though, stages a PARTIAL matchedItem snapshot
+  // (id / name / chain — no bridge fields) as a line edit, and getEffectiveLine
+  // lays edits OVER the refreshed line: leaving it there hides the bridge we just
+  // saved and the issue never clears. Drop just that key; the rest of the edit
+  // (action, matchedItemId, …) is still in flight to the server.
+  const dropStagedMatchedItem = useCallback((lineId: string) => {
+    setEditedLines(prev => {
+      const edits = prev.get(lineId)
+      if (!edits || !('matchedItem' in edits)) return prev
+      const { matchedItem: _drop, ...keep } = edits
+      const next = new Map(prev)
+      if (Object.keys(keep).length) next.set(lineId, keep as Partial<ScanItem>)
+      else next.delete(lineId)
+      return next
+    })
+  }, [])
+
   // ── Non-destructive dimension-conflict resolver ──────────────────────────────
   // Sets the item's eachMeasure bridge so 1 each = N unit (e.g. 1100 g), without
   // changing the item's dimension, packChain, stock, or recipes. After the write
@@ -985,9 +1003,14 @@ export function InvoiceReviewDrawer({
     // is how much mass/volume is in one each.
     const rawQty  = measure ? measure.qty : (item.invoicePackSize != null ? Number(item.invoicePackSize) : null)
     const rawUnit = measure ? measure.unit.toLowerCase() : (item.invoicePackUOM ?? item.rateUOM ?? null)?.toLowerCase() ?? null
-    if (!(rawQty != null && rawQty > 0) || !rawUnit) return
+    if (!(rawQty != null && rawQty > 0) || !rawUnit) throw new Error('Enter how much one unit weighs or holds.')
+    // The bridge only means something in a measured unit — the route refuses a
+    // count unit, and refusing here keeps that from looking like a saved change.
+    if (dimensionOf(rawUnit) === 'COUNT') {
+      throw new Error(`"${rawUnit}" can't measure the bridge — pick a weight or volume unit.`)
+    }
 
-    await fetch(`/api/inventory/${md.id}`, {
+    const res = await fetch(`/api/inventory/${md.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -999,8 +1022,14 @@ export function InvoiceReviewDrawer({
         eachMeasureUnit: rawUnit,
       }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
+    }
+    await flushPendingEdits()
+    dropStagedMatchedItem(item.id)
     if (session) await refreshSession(session.id)
-  }, [session, refreshSession])
+  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem])
 
   // ── Non-destructive weight↔volume resolver ──────────────────────────────────
   // Sets the item's densityGPerMl so a measured invoice in the other dimension
@@ -1008,8 +1037,9 @@ export function InvoiceReviewDrawer({
   // without changing the item's dimension, packChain, stock, or recipes.
   const setItemDensity = useCallback(async (item: ScanItem, gPerMl: number) => {
     const md = item.matchedItem
-    if (!md?.id || !(gPerMl > 0)) return
-    await fetch(`/api/inventory/${md.id}`, {
+    if (!md?.id) return
+    if (!(gPerMl > 0)) throw new Error('Enter a density greater than zero.')
+    const res = await fetch(`/api/inventory/${md.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1020,8 +1050,14 @@ export function InvoiceReviewDrawer({
         densityGPerMl: gPerMl,           // ← the only meaningful write
       }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
+    }
+    await flushPendingEdits()
+    dropStagedMatchedItem(item.id)
     if (session) await refreshSession(session.id)
-  }, [session, refreshSession])
+  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem])
 
   // ── Context value ────────────────────────────────────────────────────────────
   const ctxValue = useMemo<DrawerContextValue>(() => ({

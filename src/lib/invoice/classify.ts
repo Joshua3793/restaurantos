@@ -16,6 +16,30 @@ export type DimRelationship =
 
 const isMeasured = (d: string) => d === 'MASS' || d === 'VOLUME'
 
+/** The units a count↔measured bridge may be expressed in, per measured dimension.
+ *  A bridge answers "how much does ONE each weigh / hold", so its unit ALWAYS
+ *  belongs to the measured side of the gap. Note `oz` is weight — the volume
+ *  ounce is `fl oz`; offering plain `oz` on a volume bridge stores a mass unit
+ *  that can never span the gap. */
+export const BRIDGE_UNITS: Record<'MASS' | 'VOLUME', string[]> = {
+  MASS:   ['lb', 'kg', 'g', 'oz'],
+  VOLUME: ['ml', 'l', 'fl oz'],
+}
+
+/** The unit list to offer for a bridge on `dim`. */
+export function bridgeUnitOptions(dim: 'MASS' | 'VOLUME' | 'COUNT'): string[] {
+  return dim === 'COUNT' ? [] : BRIDGE_UNITS[dim]
+}
+
+/** True when `unit` can express a bridge on `dim`. A count unit ('each', 'cs')
+ *  never can, and neither can a unit from the other measured dimension — the
+ *  inventory route drops both, so saving one is a silent no-op that leaves the
+ *  line stuck on the same issue. */
+export function isValidBridgeUnit(unit: string | null | undefined, dim: 'MASS' | 'VOLUME' | 'COUNT'): boolean {
+  if (!unit || dim === 'COUNT') return false
+  return dimensionOf(String(unit).trim().toLowerCase()) === dim
+}
+
 export function classifyDimensionRelationship(item: ScanItem): DimRelationship {
   if (!item.matchedItem) return { verdict: 'IDENTICAL' } // unlinked is a separate issue
   const offer = buildOffer(scanItemToOfferInput(item))
@@ -53,14 +77,23 @@ export function classifyDimensionRelationship(item: ScanItem): DimRelationship {
       (itemDim === 'COUNT' && dimensionOf(stored.unit) === offer.dimension) ||
       (offer.dimension === 'COUNT' && dimensionOf(stored.unit) === itemDim)
     )) return { verdict: 'IDENTICAL' }
-    // Auto when the line itself carries pack count + per-each measure.
+    // The bridge is always expressed on the MEASURED side of the gap: when the
+    // item is counted the invoice is the measured one, and vice-versa.
+    const measuredDim = itemDim === 'COUNT' ? offer.dimension : itemDim
+    // Auto when the line itself carries pack count + per-each measure — but only
+    // when that pack unit actually measures the gap. A count-priced line on a
+    // measured item (pack "1 each") tells us nothing about what one each weighs,
+    // and pre-filling 'each' produces a Save the inventory route silently drops.
     const packSize = item.invoicePackSize != null ? Number(item.invoicePackSize) : null
     const packUnit = (item.invoicePackUOM ?? item.rateUOM ?? '')?.toLowerCase() || null
-    if (packSize && packSize > 0 && packUnit) {
+    if (packSize && packSize > 0 && packUnit && isValidBridgeUnit(packUnit, measuredDim)) {
       return { verdict: 'PACK_BRIDGE', tier: 'auto', perEach: { qty: packSize, unit: packUnit } }
     }
-    // A stored (non-spanning) each-measure still beats asking.
-    if (stored) return { verdict: 'PACK_BRIDGE', tier: 'suggest', perEach: stored }
+    // A stored each-measure still beats asking — but only if it measures THIS
+    // gap (a stored gram bridge is no prefill for a litre invoice).
+    if (stored && isValidBridgeUnit(stored.unit, measuredDim)) {
+      return { verdict: 'PACK_BRIDGE', tier: 'suggest', perEach: stored }
+    }
     if (item.matchConfidence === 'HIGH') return { verdict: 'PACK_BRIDGE', tier: 'ask', perEach: null }
     return { verdict: 'TRUE_CONFLICT' }
   }
