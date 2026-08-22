@@ -22,7 +22,19 @@ export default function PersonListRow({
   const dimmed =
     (person.login && !person.login.isActive && !person.login.isPending) ||
     (!person.login && person.roster && !person.roster.isActive)
-  const warnings = personWarnings(person)
+  /**
+   * ONLY the payday warning earns a list-row alarm.
+   *
+   * `personWarnings` also returns NAME_DIVERGENCE, which fires for very nearly
+   * every linked person BY DESIGN — Cook.name is the short first name on prep
+   * chips and Cook.lastName is null on every pre-existing roster row, so
+   * "Mia" ≠ "Mia Chen" — and NO_ASSIGNMENTS, which the list already expresses
+   * as its own group. Badging all three made the badge meaningless and buried
+   * POOL_NO_CLOCK: on the tip pool with no clock ID, hours match on nothing,
+   * and that person is paid $0 without anyone noticing until payday. The other
+   * codes still show in full on the Identity tab.
+   */
+  const payWarning = personWarnings(person).find(w => w.code === 'POOL_NO_CLOCK')
   const secondary = person.login?.email
     ?? [person.roster?.clockId ? `Clock #${person.roster.clockId}` : null, person.roster?.homeStation]
       .filter(Boolean).join(' · ')
@@ -58,7 +70,9 @@ export default function PersonListRow({
           {person.roster && !person.roster.onTipPool && (
             <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-bg-2 text-ink-3">off pool</span>
           )}
-          {warnings.length > 0 && <AlertTriangle size={11} className="text-gold-2" />}
+          {payWarning && (
+            <AlertTriangle size={11} className="text-gold-2" aria-label={payWarning.message} />
+          )}
         </span>
       </button>
 

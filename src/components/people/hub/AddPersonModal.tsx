@@ -4,7 +4,7 @@ import type { Role } from '@prisma/client'
 import { X, Loader2, Check } from 'lucide-react'
 import { assignableLevels, ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/roles'
 import AssignmentEditor, { type AssignmentDraft } from '@/components/people/AssignmentEditor'
-import { displayName } from '@/lib/people'
+import { deriveInitials, displayName } from '@/lib/people'
 import type { PeopleHubPayload } from '@/app/setup/users/page'
 import { Field, SectionLabel, WarningNote, inputClass } from './kit'
 
@@ -15,8 +15,15 @@ interface Props {
   onCreated: () => void
 }
 
+/**
+ * Says what actually happens, which is the OPPOSITE of "no access":
+ * `resolveScopedRcIds` (src/lib/rc-scope.ts) returns `null` — UNRESTRICTED —
+ * for a user with zero UserScope rows, so an unassigned person reads every
+ * revenue center. The block stays; only the reason was wrong.
+ */
 const ZERO_ASSIGNMENT_ERROR =
-  'Assign at least one location or revenue center — a person with no assignments has no access.'
+  'Assign at least one location or revenue center. Zero assignments does not mean no access — '
+  + 'it means no restriction, so this person would see EVERY revenue center.'
 
 /**
  * A half this modal has ALREADY committed on the server. Module scope, not a
@@ -97,11 +104,10 @@ export default function AddPersonModal({ payload, actorRole, onClose, onCreated 
    */
   const halvesLocked = rosterCommitted || loginCommitted
 
-  const derivedInitials = (() => {
-    const parts = name.trim().split(/\s+/)
-    const raw = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.trim().slice(0, 2)
-    return raw.toUpperCase().slice(0, 3)
-  })()
+  // The shared rule (src/lib/people.ts) — the same one POST /api/settings/people
+  // applies server-side when `initials` is omitted, so the placeholder shown
+  // here is exactly what gets stored.
+  const derivedInitials = deriveInitials(name)
 
   // `POST /api/settings/people` reuses the same idempotent invite the bulk
   // path uses: an email that already belongs to an ACCEPTED account gets

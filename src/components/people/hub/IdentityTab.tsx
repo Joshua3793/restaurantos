@@ -22,6 +22,12 @@ export default function IdentityTab({ person, payload, isMe, onChanged, onCleare
   const { busy, error, warning, setError, save, Spinner } = useSave(onChanged)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [linkTarget, setLinkTarget] = useState('')
+  /**
+   * Only used when the login carries NO name of its own — see `rosterNameSource`.
+   * An invite can be sent without a name, so `User.name` is genuinely null for a
+   * pending or freshly-accepted account.
+   */
+  const [rosterNameDraft, setRosterNameDraft] = useState('')
 
   const isOwner = person.login?.role === 'OWNER'
   /**
@@ -49,6 +55,19 @@ export default function IdentityTab({ person, payload, isMe, onChanged, onCleare
   // PATCH /api/tips/roster/[id] refuses a userId that is not an ACTIVE user
   // (400). Blocking here is what stops a doomed link from stranding a Cook.
   const loginLinkable = !!person.login?.isActive
+
+  /**
+   * The name a NEW roster row is built from.
+   *
+   * `Cook.name` is the short first name printed on prep run-sheet chips and
+   * exported as the first-name column of the tip payout CSV; `Cook.lastName` is
+   * the surname column. An email address is not a name and must never become
+   * either — an invite sent without a name leaves `User.name === null`, and
+   * falling back to the email put "mia.chen@example.com" on the chip and in the
+   * payroll export. When there is no account name, the admin types one.
+   */
+  const loginName = person.login?.name?.trim() ?? ''
+  const rosterNameSource = loginName || rosterNameDraft.trim()
 
   const patchUser = (patch: Record<string, unknown>) =>
     save(() => fetch(`/api/settings/users/${person.login!.id}`, {
@@ -91,32 +110,79 @@ export default function IdentityTab({ person, payload, isMe, onChanged, onCleare
       body: JSON.stringify({ userId: person.login!.id }),
     }))
 
+  /**
+   * Re-send a pending invite.
+   *
+   * The route re-keys the account: a re-invite mints a NEW Supabase auth UUID
+   * and POST /api/settings/users/[id]/resend deletes and recreates the Prisma
+   * row on it. So this person's `Person.key` (their user id) changes and the
+   * old one resolves to nobody — there is no `nextKey` to pass, because the new
+   * id is not in the response. Close the pane deliberately and put the outcome
+   * on the PAGE notice, which survives the unmount; a message set in local
+   * state here would be destroyed before it painted.
+   */
+  const resendInvite = () =>
+    save(
+      () => fetch(`/api/settings/users/${person.login!.id}/resend`, { method: 'POST' }),
+      {
+        after: routeWarning => onCleared(
+          routeWarning
+            ?? `A fresh invite is on its way to ${person.login!.email}. Their account record was re-issued, `
+              + 'so open them again from the list if you need to change anything.',
+        ),
+      },
+    )
+
+  /**
+   * Put a login-only person on the kitchen roster.
+   *
+   * Routed through POST /api/settings/people, NOT POST /api/prep/cooks. That
+   * other route defaults `sortOrder` to 0 — dropping the new cook at the TOP of
+   * the prep run sheet, tied with whoever is already there — and leaves
+   * `dailyHourCap` null, i.e. UNCAPPED, so the person is paid tips on every
+   * hour the clock reports rather than the hours their contract covers.
+   * /api/settings/people is the ONE implementation of both defaults
+   * (`sortOrder: cook.count()`, `dailyHourCap` from
+   * `TipSettings.defaultDailyHourCap`). Same ADMIN gate either way.
+   *
+   * Only the ROSTER half is sent: this person already has a login, and the two
+   * halves are joined by the explicit PATCH below. `initials` is omitted so the
+   * shared rule (`deriveInitials`) runs server-side.
+   */
   const addRoster = () =>
     save(async () => {
-      // Cook.name is the SHORT FIRST NAME on prep run-sheet chips; the surname
-      // lives in Cook.lastName. POST /api/prep/cooks has no lastName field, so
-      // it is sent in the follow-up link PATCH below — same split as
-      // POST /api/settings/people uses when it creates a roster row from a
-      // full name. Skipping this drops the surname: the tip payout CSV export
-      // (src/app/api/tips/periods/[id]/export/route.ts) emits name and
-      // lastName as separate columns, so the person would export with a blank
-      // surname.
-      const source = person.login!.name ?? person.login!.email
-      const [firstName, ...restOfName] = source.split(/\s+/)
+      const fullName = rosterNameSource
+      if (!fullName) {
+        return new Response(
+          JSON.stringify({ error: 'Type this person’s full name before putting them on the kitchen roster.' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      // The server splits the name exactly this way when it builds the Cook.
+      // The copy here exists only so the link PATCH can restate lastName and
+      // the failure message below can name the row that was created.
+      const [firstName, ...restOfName] = fullName.split(/\s+/)
       const lastName = restOfName.join(' ') || null
 
-      const res = await fetch('/api/prep/cooks', {
+      const res = await fetch('/api/settings/people', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: firstName,
-          initials: source.slice(0, 2).toUpperCase(),
-        }),
+        body: JSON.stringify({ name: fullName, roster: {} }),
       })
       if (!res.ok) return res
-      const cook = await res.json()
+      const { cookId } = await res.json() as { cookId: string | null }
+      if (!cookId) {
+        return new Response(
+          JSON.stringify({
+            error: 'The server did not return a roster row. Reload the People list and check whether one was '
+              + 'created before using this button again.',
+          }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
 
-      // The link is a separate, deliberate step — /api/prep/cooks never sets it.
-      const linked = await fetch(`/api/tips/roster/${cook.id}`, {
+      // The link is a separate, deliberate step — /api/settings/people joins
+      // the two halves only when it creates BOTH in one request.
+      const linked = await fetch(`/api/tips/roster/${cookId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: person.login!.id, lastName }),
       }).catch(() => null)
@@ -236,6 +302,33 @@ export default function IdentityTab({ person, payload, isMe, onChanged, onCleare
         )}
       </div>
 
+      {/* Pending invite. `isPending` is `!isActive && name === null`
+          (GET /api/settings/people): the Prisma row is created inactive at
+          invite time and flipped active by /auth/callback on accept, so this is
+          an invite that has never been accepted — not a deactivation. Without
+          this action the ONLY way to re-send a bounced or expired invite was
+          "Invite several people", re-typing their clearance and every
+          assignment. POST /api/settings/users/[id]/resend refuses an account
+          that already accepted (400 — they should use "Forgot password"). */}
+      {person.login?.isPending && (
+        <div className="border border-line rounded-[10px] px-4 py-3.5 space-y-2.5">
+          <SectionLabel>Invite</SectionLabel>
+          <p className="text-[12.5px] text-ink-3 leading-relaxed">
+            Invited, but they have not set a password yet. Re-send if the email bounced or the link
+            expired — it replaces the pending invite with a fresh one and keeps their clearance and
+            assignments exactly as they are.
+          </p>
+          <button
+            onClick={resendInvite}
+            disabled={busy}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-line text-[12.5px] font-medium text-ink-2 hover:bg-bg disabled:opacity-50"
+          >
+            {Spinner ?? <Mail size={14} className="text-gold-2" />}
+            Re-send invite email
+          </button>
+        </div>
+      )}
+
       {/* the link control — the point of the hub */}
       <div className="border border-line rounded-[10px] px-4 py-3.5 space-y-2.5">
         <SectionLabel>App login ↔ kitchen roster</SectionLabel>
@@ -316,9 +409,27 @@ export default function IdentityTab({ person, payload, isMe, onChanged, onCleare
                     </p>
                   </>
                 )}
+                {/* No account name to build a roster name from — and the email
+                    is NOT a substitute: it would be printed on prep run-sheet
+                    chips and exported as this person's first name on the tip
+                    payout CSV. Ask, rather than guess. */}
+                {!loginName && (
+                  <Field
+                    label="Roster name"
+                    hint="This account has no name on it yet. Type their full name — the first word becomes the chip label on the prep run sheet, the rest becomes their surname on the tip payout export."
+                  >
+                    <input
+                      value={rosterNameDraft}
+                      onChange={e => setRosterNameDraft(e.target.value)}
+                      placeholder="e.g. Mia Chen"
+                      disabled={busy}
+                      className={inputClass}
+                    />
+                  </Field>
+                )}
                 <button
                   onClick={addRoster}
-                  disabled={busy}
+                  disabled={busy || !rosterNameSource}
                   className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-line text-[12.5px] font-medium text-ink-2 hover:bg-bg disabled:opacity-50"
                 >
                   <ChefHat size={14} className="text-gold-2" />

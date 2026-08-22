@@ -1,7 +1,7 @@
 // List-shaping rules for the People hub's left pane. Pure and unit-tested —
 // see src/lib/__tests__/people-hub.test.ts.
 import { atLeast } from '@/lib/roles'
-import { displayName, matchesQuery, type Person } from '@/lib/people'
+import { deriveInitials, displayName, matchesQuery, type Person } from '@/lib/people'
 import type { LocationNode } from '@/components/people/people-utils'
 
 export type HubFilter = 'all' | 'logins' | 'roster' | 'pending' | 'inactive'
@@ -131,11 +131,12 @@ export function groupPeople(people: Person[], locations: LocationNode[]): HubGro
   return groups.filter(g => g.people.length > 0)
 }
 
-/** Two-letter avatar token. Prefers the roster's own initials when there is one. */
+/**
+ * Avatar token. Prefers the roster's own stored initials; otherwise derives
+ * them from the display name with the SHARED rule (`deriveInitials` in
+ * src/lib/people.ts), so the token here matches the one the server stores.
+ */
 export function initialsFor(p: Person): string {
   if (p.roster?.initials) return p.roster.initials
-  const source = displayName(p).trim()
-  const parts = source.split(/\s+/)
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-  return source.slice(0, 2).toUpperCase() || '?'
+  return deriveInitials(displayName(p)) || '?'
 }

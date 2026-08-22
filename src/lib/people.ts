@@ -69,6 +69,27 @@ export function rosterFullName(r: PersonRoster): string {
 }
 
 /**
+ * The ONE initials rule. The initial of each of the first two words
+ * ("Mia Chen" → "MC"), falling back to the first two letters when there is only
+ * one word ("Mia" → "MI"). Upper-cased and capped at 3, which is what
+ * `Cook.initials` stores (see `normalizeInitials` in /api/prep/cooks).
+ *
+ * Returns '' for a blank name — a caller rendering an avatar substitutes its
+ * own placeholder rather than having one baked in here.
+ *
+ * This lives in the client-safe lib on purpose: POST /api/settings/people, the
+ * Add-person modal and the hub's avatar token all derive initials, and three
+ * copies of the rule meant one person's chip read "MC" and another's "MI".
+ */
+export function deriveInitials(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return ''
+  const parts = trimmed.split(/\s+/)
+  const raw = parts.length >= 2 ? parts[0][0] + parts[1][0] : trimmed.slice(0, 2)
+  return raw.toUpperCase().slice(0, 3)
+}
+
+/**
  * Build the person list. `linked` is every User with its Cook relation (which
  * may be null); `orphanRosters` is every Cook with userId IS NULL. A cook that
  * IS linked arrives inside `linked` and must not also appear in

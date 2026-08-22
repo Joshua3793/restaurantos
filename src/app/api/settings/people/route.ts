@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PREP_STATIONS } from '@/lib/prep-utils'
-import { mergePeople, type PersonLogin, type PersonRoster } from '@/lib/people'
+import { deriveInitials, mergePeople, type PersonLogin, type PersonRoster } from '@/lib/people'
 import { Prisma } from '@prisma/client'
 import type { Role } from '@prisma/client'
 import { assignableLevels } from '@/lib/roles'
@@ -130,17 +130,6 @@ export async function GET() {
     tipRoles: tipRoles.map(r => ({ ...r, multiplier: Number(r.multiplier) })),
     stations: prepSettings?.stations?.filter(Boolean) ?? PREP_STATIONS,
   })
-}
-
-/**
- * The initial of each of the first two words ("Sam Lee" → "SL"), falling back to
- * the first two letters when there is only one word. Matches the ADMIN cook
- * form's normalisation, and `initialsFor` in POST /api/tips/roster.
- */
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  const raw = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.trim().slice(0, 2)
-  return raw.toUpperCase().slice(0, 3)
 }
 
 // POST — create one person: a login, a roster row, or both.

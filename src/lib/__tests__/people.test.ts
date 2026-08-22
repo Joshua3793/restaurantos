@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  mergePeople, displayName, personWarnings, matchesQuery, rosterFullName,
+  mergePeople, displayName, personWarnings, matchesQuery, rosterFullName, deriveInitials,
   type PersonLogin, type PersonRoster,
 } from '@/lib/people'
 
@@ -74,6 +74,54 @@ describe('rosterFullName', () => {
   })
   it('omits a null last name without a trailing space', () => {
     expect(rosterFullName(roster({ lastName: null }))).toBe('Mia')
+  })
+})
+
+describe('deriveInitials', () => {
+  it('takes the initial of each of the first two words', () => {
+    expect(deriveInitials('Mia Chen')).toBe('MC')
+  })
+
+  it('ignores a third word', () => {
+    expect(deriveInitials('Mia Rose Chen')).toBe('MR')
+  })
+
+  it('falls back to the first two letters of a single word', () => {
+    expect(deriveInitials('Mia')).toBe('MI')
+  })
+
+  it('upper-cases', () => {
+    expect(deriveInitials('mia chen')).toBe('MC')
+  })
+
+  it('tolerates extra whitespace between and around the words', () => {
+    expect(deriveInitials('  Mia   Chen  ')).toBe('MC')
+  })
+
+  it('caps at the 3 characters Cook.initials stores', () => {
+    expect(deriveInitials('Bo').length).toBeLessThanOrEqual(3)
+    expect(deriveInitials('Mia Chen').length).toBeLessThanOrEqual(3)
+  })
+
+  it('returns empty for a blank name rather than a placeholder — the caller picks its own', () => {
+    expect(deriveInitials('')).toBe('')
+    expect(deriveInitials('   ')).toBe('')
+  })
+
+  // The three call sites (POST /api/settings/people, the Add-person modal and
+  // the hub avatar) previously disagreed: two took first letters, one took
+  // `slice(0, 2)`, so the same person read "MC" in one place and "MI" in
+  // another. One rule, one answer.
+  it('gives one answer for a name — never the first-two-letters variant', () => {
+    expect(deriveInitials('Mia Chen')).not.toBe('MI')
+  })
+
+  // NOT a supported input for a ROSTER name — an email must never become
+  // Cook.name (it would print on prep chips and in the payout CSV). Pinned only
+  // because the audit-panel avatar may still be handed an email when an account
+  // has no name.
+  it('treats an email as a single word', () => {
+    expect(deriveInitials('mia.chen@example.com')).toBe('MI')
   })
 })
 
