@@ -6,6 +6,53 @@ import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
 import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
 
+/**
+ * ── Ledger sink ─────────────────────────────────────────────────────────────
+ *
+ * The drawer's movement track used to be a hand-rolled second implementation of
+ * everything below: its own purchase query, its own prep traversal, its own
+ * window rule. It drifted on every axis — most visibly it multiplied a
+ * catch-weight line's billed weight by the case size (44.61 lb received showed
+ * as "+446.10 lb"), and it dated prep by `updatedAt`, so a data-repair script
+ * that touched a June log resurrected it into the August ledger.
+ *
+ * There is no second implementation any more. A caller that wants the individual
+ * movements passes a sink, and every builder below records an event at the exact
+ * line where it accumulates into its map. The list and the total are therefore
+ * the same computation, and cannot disagree.
+ */
+export type LedgerEventType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
+
+export interface LedgerEvent {
+  id:          string
+  /** The date the movement is APPLIED on — received date, log date, sale date. */
+  date:        Date
+  type:        LedgerEventType
+  itemId:      string
+  /** Signed, in the item's baseUnit: positive adds stock, negative removes it. */
+  qtyBase:     number
+  description: string
+  revenueCenterId: string | null
+}
+
+/** Collects events as the maps are built. Array-compatible on purpose. */
+export interface LedgerSink { push(event: LedgerEvent): void }
+
+/**
+ * Threaded through {@link getTheoreticalStockMap} by a caller that needs to show
+ * its WORKING, not just its answer.
+ *
+ * `onRcResult` fires once per (revenue centre, item) with the baseline the sum
+ * started from and the floored result it ended at. Because "All RCs" is Σ RC and
+ * each RC is floored at zero independently, Σ baselines + Σ events does not always
+ * equal the total — the caller reconciles the difference explicitly rather than
+ * quietly presenting a column that doesn't add up.
+ */
+export interface TheoreticalTrace {
+  sink: LedgerSink
+  onRcResult?: (rcId: string, itemId: string, baseStock: number, expected: number) => void
+}
+
 type IngredientWithLinks = {
   inventoryItemId: string | null
   inventoryItem:   { id: string; baseUnit: string } | null
@@ -134,6 +181,14 @@ export async function buildCountFinalizedMap(ids: string[]): Promise<Map<string,
   return map
 }
 
+/** What a sale-driven consumption event should call itself in the ledger. */
+interface SaleEventMeta {
+  sink?:   LedgerSink
+  saleId:  string
+  label:   string
+  rcId:    string | null
+}
+
 function expandRecipeIngredients(
   recipe: RecipeForExpansion,
   batches: number,
@@ -142,6 +197,7 @@ function expandRecipeIngredients(
   eventDate?: Date,
   cutoff?: Map<string, Date>,
   until?: Date,
+  meta?: SaleEventMeta,
 ): void {
   if (visitedRecipes.has(recipe.id)) return
   visitedRecipes.add(recipe.id)
@@ -150,6 +206,11 @@ function expandRecipeIngredients(
     if (ing.inventoryItemId && ing.inventoryItem && (!eventDate || inWindow(cutoff, ing.inventoryItemId, eventDate, until))) {
       const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, ing.inventoryItem.baseUnit)
       map.set(ing.inventoryItemId, (map.get(ing.inventoryItemId) ?? 0) + consumed)
+      if (meta?.sink && eventDate) meta.sink.push({
+        id: `sale-${meta.saleId}-${recipe.id}-${ing.inventoryItemId}`,
+        date: eventDate, type: 'SALE', itemId: ing.inventoryItemId,
+        qtyBase: -consumed, description: meta.label, revenueCenterId: meta.rcId,
+      })
     }
 
     if (ing.linkedRecipeId && ing.linkedRecipe && !visitedRecipes.has(ing.linkedRecipeId)) {
@@ -157,6 +218,11 @@ function expandRecipeIngredients(
       if (prep.inventoryItemId && prep.inventoryItem && (!eventDate || inWindow(cutoff, prep.inventoryItemId, eventDate, until))) {
         const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, prep.inventoryItem.baseUnit)
         map.set(prep.inventoryItemId, (map.get(prep.inventoryItemId) ?? 0) + consumed)
+        if (meta?.sink && eventDate) meta.sink.push({
+          id: `sale-${meta.saleId}-${recipe.id}-prep-${prep.inventoryItemId}`,
+          date: eventDate, type: 'SALE', itemId: prep.inventoryItemId,
+          qtyBase: -consumed, description: meta.label, revenueCenterId: meta.rcId,
+        })
       }
     }
   }
@@ -167,6 +233,7 @@ export async function buildConsumptionMap(
   rcId?: string | null,
   cutoff?: Map<string, Date>,
   until?: Date,
+  sink?: LedgerSink,
 ): Promise<Map<string, number>> {
   const lineItems = await prisma.saleLineItem.findMany({
     where: {
@@ -178,7 +245,7 @@ export async function buildConsumptionMap(
       },
     },
     include: {
-      sale: { select: { date: true, endDate: true } },
+      sale: { select: { id: true, date: true, endDate: true, revenueCenterId: true } },
       recipe: {
         include: {
           ingredients: {
@@ -214,7 +281,9 @@ export async function buildConsumptionMap(
     // mid-period gets the full period's consumption, not just the post-count portion —
     // acceptable until per-day sales granularity exists.)
     const effectiveDate = li.sale.endDate ?? li.sale.date
-    expandRecipeIngredients(recipe, batches, map, new Set<string>(), effectiveDate, cutoff, until)
+    expandRecipeIngredients(recipe, batches, map, new Set<string>(), effectiveDate, cutoff, until, sink && {
+      sink, saleId: li.sale.id, label: `${recipe.name} × ${li.qtySold}`, rcId: li.sale.revenueCenterId ?? null,
+    })
   }
   return map
 }
@@ -224,6 +293,7 @@ export async function buildPurchaseMap(
   rcId?: string | null,
   cutoff?: Map<string, Date>,
   until?: Date,
+  sink?: LedgerSink,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
 
@@ -231,7 +301,17 @@ export async function buildPurchaseMap(
     where: {
       session: {
         status: 'APPROVED',
-        createdAt: { gte: since },
+        // Window on the RECEIVED date, the same date the loop below applies the
+        // stock on — with `createdAt` kept as an OR so the filter stays a superset
+        // and `inWindow` remains the only real gate. Filtering on `createdAt` alone
+        // silently dropped a receipt dated AFTER the session was keyed in (goods
+        // still to arrive, or a corrected forward date): the row never reached
+        // inWindow to be judged. `purchaseDate` is null only on sessions that
+        // predate the column, which the createdAt leg still catches.
+        OR: [
+          { purchaseDate: { gte: since } },
+          { createdAt:    { gte: since } },
+        ],
         ...(rcId ? { revenueCenterId: rcId } : {}),   // null = all RCs (matches sibling maps)
       },
       approved: true,
@@ -246,6 +326,7 @@ export async function buildPurchaseMap(
       // stock for goods that were bought and paid for.
     },
     select: {
+      id: true,
       matchedItemId: true,
       rawQty: true,
       rawUnit: true,
@@ -255,7 +336,7 @@ export async function buildPurchaseMap(
       invoicePackQty: true,
       invoicePackSize: true,
       invoicePackUOM: true,
-      session: { select: { createdAt: true, invoiceDate: true } },
+      session: { select: { createdAt: true, purchaseDate: true, invoiceDate: true, supplierName: true, invoiceNumber: true, revenueCenterId: true } },
       matchedItem: {
         select: {
           id: true,
@@ -267,12 +348,21 @@ export async function buildPurchaseMap(
 
   for (const si of scanItems) {
     if (!si.matchedItemId || !si.matchedItem) continue
-    // A purchase enters theoretical stock on the day the goods were RECEIVED
-    // (invoiceDate), not the day the invoice was keyed in (createdAt). Gating on
-    // entry time double-counts an invoice for pre-count goods that is entered
-    // AFTER the count — the goods were already on the shelf when it was counted.
-    // invoiceDate is a nullable "YYYY-MM-DD" OCR string; fall back to createdAt.
-    const receivedDate = parseInvoiceDate(si.session.invoiceDate) ?? si.session.createdAt
+    // A purchase enters theoretical stock on the day the goods were RECEIVED,
+    // not the day the invoice was keyed in. Gating on entry time double-counts an
+    // invoice for pre-count goods that is entered AFTER the count — the goods were
+    // already on the shelf when it was counted.
+    //
+    // `purchaseDate` is THE resolved received date (src/lib/purchase-date.ts): it is
+    // written at approval, re-resolved whenever the invoice date is corrected, and
+    // is what every spend, COGS and supplier report already windows on. This engine
+    // used to re-derive its own date from the raw `invoiceDate` string instead, so a
+    // purchase could land in one period for money and another for stock — and any
+    // correction to the resolved date never reached theoretical stock at all.
+    // The fallbacks cover only sessions written before the column existed.
+    const receivedDate = si.session.purchaseDate
+      ?? parseInvoiceDate(si.session.invoiceDate)
+      ?? si.session.createdAt
     // `until` gate arrives from upstream (#81 count-reopen window).
     if (!inWindow(cutoff, si.matchedItemId, receivedDate, until)) continue
     // ONE receiving rule, shared with the RC split editor and the approved-invoice
@@ -294,6 +384,12 @@ export async function buildPurchaseMap(
     if (baseUnits <= 0) continue
 
     map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)
+    sink?.push({
+      id: si.id, date: receivedDate, type: 'PURCHASE', itemId: si.matchedItemId,
+      qtyBase: baseUnits,
+      description: `${si.session.supplierName ?? 'Purchase'}${si.session.invoiceNumber ? ` · #${si.session.invoiceNumber}` : ''}`,
+      revenueCenterId: si.session.revenueCenterId ?? null,
+    })
   }
 
   return map
@@ -305,6 +401,7 @@ export async function buildWastageMap(
   rcId?: string | null,
   cutoff?: Map<string, Date>,
   until?: Date,
+  sink?: LedgerSink,
 ): Promise<Map<string, number>> {
   const wastageRows = await prisma.wastageLog.findMany({
     where: {
@@ -313,10 +410,13 @@ export async function buildWastageMap(
       ...(rcId ? { revenueCenterId: rcId } : {}),
     },
     select: {
+      id:              true,
       inventoryItemId: true,
       qtyWasted:       true,
       unit:            true,
       date:            true,
+      reason:          true,
+      revenueCenterId: true,
       inventoryItem:   { select: { baseUnit: true } },
     },
   })
@@ -326,6 +426,12 @@ export async function buildWastageMap(
     if (!inWindow(cutoff, w.inventoryItemId, w.date, until)) continue
     const converted = convertQty(Number(w.qtyWasted), w.unit, w.inventoryItem.baseUnit)
     map.set(w.inventoryItemId, (map.get(w.inventoryItemId) ?? 0) + converted)
+    sink?.push({
+      id: w.id, date: w.date, type: 'WASTAGE', itemId: w.inventoryItemId,
+      qtyBase: -converted,
+      description: w.reason && w.reason !== 'UNKNOWN' ? w.reason : 'Wastage',
+      revenueCenterId: w.revenueCenterId,
+    })
   }
   return map
 }
@@ -360,6 +466,7 @@ export async function buildTransferMap(
   cutoff?: Map<string, Date>,
   finalizedAt?: Map<string, Date>,
   until?: Date,
+  sink?: LedgerSink,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
   if (!rcId) return map
@@ -369,7 +476,10 @@ export async function buildTransferMap(
       createdAt: { gte: since },
       OR: [{ fromRcId: rcId }, { toRcId: rcId }],
     },
-    select: { inventoryItemId: true, fromRcId: true, toRcId: true, quantity: true, createdAt: true },
+    select: {
+      id: true, inventoryItemId: true, fromRcId: true, toRcId: true, quantity: true, createdAt: true,
+      fromRc: { select: { name: true } }, toRc: { select: { name: true } },
+    },
   })
 
   for (const t of transfers) {
@@ -380,6 +490,10 @@ export async function buildTransferMap(
     // one branch applies per row.
     const signed = t.toRcId === rcId ? Number(t.quantity) : -Number(t.quantity)
     map.set(t.inventoryItemId, (map.get(t.inventoryItemId) ?? 0) + signed)
+    sink?.push({
+      id: `${t.id}-${rcId}`, date: t.createdAt, type: 'TRANSFER', itemId: t.inventoryItemId,
+      qtyBase: signed, description: `${t.fromRc.name} → ${t.toRc.name}`, revenueCenterId: rcId,
+    })
   }
   return map
 }
@@ -430,6 +544,7 @@ export function computeExpected(
 export async function computeExpectedForItem(
   itemId: string,
   rcId?: string | null,
+  sink?: LedgerSink,
 ): Promise<{ expectedBase: number; baseStock: number } | null> {
   const item = await prisma.inventoryItem.findUnique({
     where: { id: itemId },
@@ -475,12 +590,17 @@ export async function computeExpectedForItem(
 
   // finalizedAt orders same-day prep AND transfers against the count moment.
   const finalizedAt = await buildCountFinalizedMap([itemId])
+  // A sink only wants THIS item's events; the maps are per-item-keyed anyway, so
+  // filter at the sink rather than narrowing every query.
+  const itemSink: LedgerSink | undefined = sink && {
+    push: (e: LedgerEvent) => { if (e.itemId === itemId) sink.push(e) },
+  }
   const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = await Promise.all([
-    buildConsumptionMap(since, rcId, cutoff),
-    buildPurchaseMap(since, rcId, cutoff),
-    buildWastageMap(since, [itemId], rcId, cutoff),
-    buildPrepMap(since, rcId, cutoff, finalizedAt),
-    buildTransferMap(since, rcId, cutoff, finalizedAt),
+    buildConsumptionMap(since, rcId, cutoff, undefined, itemSink),
+    buildPurchaseMap(since, rcId, cutoff, undefined, itemSink),
+    buildWastageMap(since, [itemId], rcId, cutoff, undefined, itemSink),
+    buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, itemSink),
+    buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, itemSink),
   ])
 
   return {
@@ -511,6 +631,7 @@ export async function buildPrepMap(
   cutoff?: Map<string, Date>,
   finalizedAt?: Map<string, Date>,
   until?: Date,
+  sink?: LedgerSink,
 ): Promise<{ consumption: Map<string, number>; output: Map<string, number> }> {
   const logs = await prisma.prepLog.findMany({
     where: {
@@ -564,18 +685,37 @@ export async function buildPrepMap(
       // conversion afterward — same pattern as recipeCosts.ts.
       const qty = Number(ing.qtyBase) * scale
       if (ing.inventoryItemId && ing.inventoryItem) {
-        if (prepEventCounts(finalizedAt, cutoff, ing.inventoryItem.id, log.createdAt, log.logDate, until))
-          add(consumption, ing.inventoryItem.id, convertQty(qty, ing.unit, ing.inventoryItem.baseUnit))
+        if (prepEventCounts(finalizedAt, cutoff, ing.inventoryItem.id, log.createdAt, log.logDate, until)) {
+          const drawn = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
+          add(consumption, ing.inventoryItem.id, drawn)
+          sink?.push({
+            id: `prep-in-${log.id}-${ing.inventoryItem.id}`, date: log.logDate, type: 'PREP_IN',
+            itemId: ing.inventoryItem.id, qtyBase: -drawn,
+            description: `Prep: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
+          })
+        }
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         const prep = ing.linkedRecipe.inventoryItem
-        if (prepEventCounts(finalizedAt, cutoff, prep.id, log.createdAt, log.logDate, until))
-          add(consumption, prep.id, convertQty(qty, ing.unit, prep.baseUnit))
+        if (prepEventCounts(finalizedAt, cutoff, prep.id, log.createdAt, log.logDate, until)) {
+          const drawn = convertQty(qty, ing.unit, prep.baseUnit)
+          add(consumption, prep.id, drawn)
+          sink?.push({
+            id: `prep-in-${log.id}-${prep.id}`, date: log.logDate, type: 'PREP_IN',
+            itemId: prep.id, qtyBase: -drawn,
+            description: `Prep: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
+          })
+        }
       }
     }
 
     if (recipe.inventoryItemId && recipe.inventoryItem && prepEventCounts(finalizedAt, cutoff, recipe.inventoryItem.id, log.createdAt, log.logDate, until)) {
       const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
       add(output, recipe.inventoryItem.id, yieldInBase)
+      sink?.push({
+        id: `prep-out-${log.id}`, date: log.logDate, type: 'PREP_OUT',
+        itemId: recipe.inventoryItem.id, qtyBase: yieldInBase,
+        description: `Prep output: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
+      })
     }
   }
 
@@ -595,6 +735,8 @@ export async function getTheoreticalStockMap(
   // limited to these revenue centers instead of every RC. Ignored when an
   // explicit rcId is given. `null`/undefined = no restriction (all RCs).
   allowedRcIds?: Set<string> | null,
+  // Optional working-out recorder — see TheoreticalTrace. Costs nothing when absent.
+  trace?: TheoreticalTrace,
 ): Promise<Map<string, number>> {
   // "All RCs" = the SUM of every revenue center's theoretical map. This makes
   // ALL = ΣRC true by construction (each RC floored at 0 independently).
@@ -604,7 +746,7 @@ export async function getTheoreticalStockMap(
       where: allowedRcIds ? { id: { in: [...allowedRcIds] } } : undefined,
       select: { id: true },
     })
-    const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, itemIds)))
+    const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, itemIds, null, trace)))
     const sum = new Map<string, number>()
     for (const m of perRc) for (const [id, q] of m) sum.set(id, (sum.get(id) ?? 0) + q)
     return sum
@@ -644,11 +786,11 @@ export async function getTheoreticalStockMap(
   const finalizedAt = since ? await buildCountFinalizedMap(ids) : new Map<string, Date>()
   const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = since
     ? await Promise.all([
-        buildConsumptionMap(since, rcId, cutoff),
-        buildPurchaseMap(since, rcId, cutoff),
-        buildWastageMap(since, ids, rcId, cutoff),
-        buildPrepMap(since, rcId, cutoff, finalizedAt),
-        buildTransferMap(since, rcId, cutoff, finalizedAt),
+        buildConsumptionMap(since, rcId, cutoff, undefined, trace?.sink),
+        buildPurchaseMap(since, rcId, cutoff, undefined, trace?.sink),
+        buildWastageMap(since, ids, rcId, cutoff, undefined, trace?.sink),
+        buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, trace?.sink),
+        buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, trace?.sink),
       ])
     : [empty, empty, empty, { consumption: empty, output: empty }, empty]
 
@@ -669,7 +811,9 @@ export async function getTheoreticalStockMap(
     const baseStock = rcId
       ? (stockAllocationMap.has(item.id) ? stockAllocationMap.get(item.id)! : (isDefaultRc ? Number(item.stockOnHand) : 0))
       : Number(item.stockOnHand)
-    result.set(item.id, computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap))
+    const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
+    result.set(item.id, expected)
+    trace?.onRcResult?.(rcId, item.id, baseStock, expected)
   }
   return result
 }

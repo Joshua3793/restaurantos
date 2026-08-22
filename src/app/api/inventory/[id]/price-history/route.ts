@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { displayDayKey } from '@/lib/prep-day'
+import { parseInvoiceDate } from '@/lib/purchase-date'
 
 // Returns the recent approved-purchase history for an inventory item, derived
 // from the active InvoiceScanItem records. Used by the invoice review drawer
@@ -35,14 +37,27 @@ export async function GET(
 
   // Sort newest-first for the API consumer; the sparkline reverses to chrono
   // when drawing.
-  const history = scanItems.map(s => ({
-    date:           s.session.invoiceDate ?? (s.session.approvedAt?.toISOString() ?? null),
-    invoiceNumber:  s.session.invoiceNumber,
-    supplierName:   s.session.supplierName,
-    unitPrice:      Number(s.rawUnitPrice),
-    qty:            s.rawQty != null ? Number(s.rawQty) : null,
-    invoicePackUOM: s.invoicePackUOM,
-  }))
+  //
+  // Field names are the ones the drawer reads. They used to be `date` / `qty` /
+  // no line total at all against a UI reading `invoiceDate` / `qtyPurchased` /
+  // `lineTotal`, so every row rendered "Invalid Date … $0.00 total".
+  const history = scanItems.map(s => {
+    const resolved = parseInvoiceDate(s.session.invoiceDate) ?? s.session.approvedAt ?? null
+    return {
+      invoiceDate:    s.session.invoiceDate ?? resolved?.toISOString() ?? null,
+      // 'YYYY-MM-DD' to print — see displayDayKey. Formatting the raw value in the
+      // browser's zone walks a UTC-midnight invoice date back to the previous day.
+      dayKey:         resolved ? displayDayKey(resolved) : null,
+      invoiceNumber:  s.session.invoiceNumber,
+      supplierName:   s.session.supplierName,
+      unitPrice:      Number(s.rawUnitPrice),
+      // rawLineTotal is what the invoice actually billed. Never re-derive it as
+      // unitPrice × qty — that is wrong for every catch-weight line.
+      qtyPurchased:   s.rawQty != null ? Number(s.rawQty) : null,
+      lineTotal:      s.rawLineTotal != null ? Number(s.rawLineTotal) : null,
+      invoicePackUOM: s.invoicePackUOM,
+    }
+  })
 
   return NextResponse.json(history)
 }

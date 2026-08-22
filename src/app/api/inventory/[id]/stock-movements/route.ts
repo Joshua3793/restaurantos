@@ -1,276 +1,120 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { portionsPerBatch } from '@/lib/recipe-portions'
-import { convertQty } from '@/lib/uom'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
-import { getCountedStockMap } from '@/lib/counted-stock'
-import { getTheoreticalStock } from '@/lib/count-expected'
-import { computeScale } from '@/lib/prep-utils'
-import { asChainItem, basePerUnit } from '@/lib/item-model'
-import { parseInvoiceDate } from '@/lib/purchase-date'
+import { buildItemLedger, splitLedger } from '@/lib/stock-ledger'
+import { displayDayKey } from '@/lib/prep-day'
+
+export const dynamic = 'force-dynamic'
 
 export type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
 
 export interface StockMovement {
   id: string
   date: string
+  /**
+   * 'YYYY-MM-DD' — the day to PRINT. Business dates are stored as UTC-midnight
+   * markers, so letting the browser format `date` in Pacific walks them back a
+   * day. Render this and never construct a local Date from `date`.
+   */
+  dayKey: string
   type: MovementType
   qty: number   // in displayUnit, negative = deduction, positive = addition
   unit: string
   description: string
-  revenueCenterId?: string | null   // present on PURCHASE rows; which RC the purchase was attributed to
+  revenueCenterId?: string | null
+}
+
+/**
+ * The drawer's promise, in numbers: `opening + additions − consumptions + adjustment
+ * === theoretical`, always, exactly. Sent as totals rather than left for the client
+ * to add up, because the client only renders the most recent dozen movements.
+ *
+ * All figures are in `unit`.
+ */
+export interface StockReconciliation {
+  opening:      number
+  additions:    number   // purchases + prep yield
+  consumptions: number   // sales + wastage + prep draw-down (positive magnitude)
+  /**
+   * Non-zero only when the engine's arithmetic and the physical count disagree:
+   * a revenue centre whose column ran below zero and was floored there (the house
+   * consumed more than it ever recorded receiving), or a stale opening balance.
+   * Never hidden — an unexplained gap is the thing worth seeing.
+   */
+  adjustment:   number
+  theoretical:  number
+  unit:         string
+  /** Total movements in the window; `movements` carries them all, the UI truncates. */
+  movementCount: number
 }
 
 export interface StockMovementsResponse {
-  lastCount: { qty: number; unit: string; date: string | null }
+  lastCount: { qty: number; unit: string; date: string | null; dayKey: string | null }
   theoretical: { qty: number; unit: string }
   movements: StockMovement[]
+  reconciliation: StockReconciliation
 }
 
 // GET /api/inventory/[id]/stock-movements
+//
+// The whole ledger comes from src/lib/stock-ledger.ts, which reads the theoretical
+// engine's own working. This route only picks the display unit and converts.
+// It deliberately computes NOTHING about stock itself: the previous version
+// reimplemented the engine here and drifted from it on every axis (a catch-weight
+// receipt showed 10× the weight actually delivered).
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const item = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
-    select: {
-      id: true, baseUnit: true,
-      stockOnHand: true,
-      dimension: true, packChain: true, countUnit: true, pricing: true,
-    },
+    select: { id: true, baseUnit: true, dimension: true, packChain: true, countUnit: true },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  const nonNullItem = item
-
-  // This drawer is a GLOBAL (all-RC) view, so its baseline is the all-RC counted
-  // quantity: each revenue centre's own most recent physical count, summed — the same
-  // ΣRC construction getTheoreticalStockMap uses. It must NOT read the item's global
-  // lastCountQty/lastCountDate columns: an RC-scoped count overwrites those without
-  // touching any other RC's stock, so a satellite RC counting 0 made this panel report
-  // "last count 0 / theoretical 0" for an item the inventory list valued at $1,575.
-  const countedMap = await getCountedStockMap(null, [params.id])
-  const counted = countedMap.get(params.id) ?? null
-  // Never counted anywhere → fall back to the item's own pool figure, and look back 90 days.
-  const baseQty = counted ? counted.qtyBase : Number(nonNullItem.stockOnHand)
-  const countDate: Date | null = counted ? new Date(counted.date) : null
-  const since: Date = countDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
   // Resolve the display unit exactly like the drawer header does: a stored
   // countUOM that is no longer valid for the item's purchase structure (e.g.
   // a stale "each" on a by-weight item) falls back to the first valid unit.
   // Using the raw value here made the stock section read "each" while the rest
   // of the panel read "KG".
-  const dimsBase = {
-    dimension: nonNullItem.dimension,
-    baseUnit:  nonNullItem.baseUnit,
-    packChain: nonNullItem.packChain,
-  }
-  const displayUnit = resolveCountUom({ ...dimsBase, countUnit: nonNullItem.countUnit ?? nonNullItem.baseUnit })
+  const dims = { dimension: item.dimension, baseUnit: item.baseUnit, packChain: item.packChain }
+  const displayUnit = resolveCountUom({ ...dims, countUnit: item.countUnit ?? item.baseUnit })
+  const toDisplay = (qtyInBase: number): number => convertBaseToCountUom(qtyInBase, displayUnit, dims)
 
-  function toDisplay(qtyInBase: number): number {
-    return convertBaseToCountUom(qtyInBase, displayUnit, dimsBase)
-  }
+  const ledger = await buildItemLedger(params.id, null)
+  if (!ledger) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const raw: Array<{ id: string; date: Date; type: MovementType; qtyBase: number; description: string; revenueCenterId?: string | null }> = []
+  const movements: StockMovement[] = ledger.events.map(e => ({
+    id:              e.id,
+    date:            e.date.toISOString(),
+    dayKey:          displayDayKey(e.date),
+    type:            e.type,
+    qty:             toDisplay(e.qtyBase),
+    unit:            displayUnit,
+    description:     e.description,
+    revenueCenterId: e.revenueCenterId,
+  }))
 
-  // ── WASTAGE ────────────────────────────────────────────────────────────────
-  const wastageLogs = await prisma.wastageLog.findMany({
-    where: { inventoryItemId: params.id, date: { gte: since } },
-    orderBy: { date: 'desc' },
-  })
-  for (const w of wastageLogs) {
-    const qtyBase = convertQty(Number(w.qtyWasted), w.unit, nonNullItem.baseUnit)
-    raw.push({
-      id: w.id, date: w.date, type: 'WASTAGE', qtyBase: -qtyBase,
-      description: w.reason && w.reason !== 'UNKNOWN' ? w.reason : 'Wastage',
-    })
-  }
-
-  // ── PURCHASES (from approved invoice sessions) ────────────────────────────
-  // A purchase belongs to the day the goods were RECEIVED (the invoice's own date),
-  // not the day the session was approved — matching the theoretical-stock model in
-  // count-expected.ts (buildPurchaseMap). The DB filter is a superset (either date
-  // in-window); the real inclusion + display date use the resolved received date
-  // below, so a pre-count invoice keyed in after the count drops out of the list
-  // (it's already in the counted baseline) instead of inflating theoretical stock.
-  const scanItems = await prisma.invoiceScanItem.findMany({
-    where: {
-      matchedItemId: params.id,
-      approved: true,
-      // CREATE_NEW = the invoice that created the item also received its first stock.
-      action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
-      session: { status: 'APPROVED', OR: [{ approvedAt: { gte: since } }, { purchaseDate: { gte: since } }] },
-      rawQty: { not: null },
-      splitToSessionId: null,
-    },
-    include: {
-      session: { select: { supplierName: true, invoiceDate: true, invoiceNumber: true, approvedAt: true, purchaseDate: true, revenueCenterId: true } },
-    },
-  })
-  for (const si of scanItems) {
-    const qty = Number(si.rawQty ?? 0)
-    if (qty <= 0) continue
-    // Received date: resolved purchaseDate → raw invoiceDate string → approvedAt.
-    const receivedDate = si.session.purchaseDate ?? parseInvoiceDate(si.session.invoiceDate) ?? si.session.approvedAt ?? new Date()
-    // Skip anything received on/before the count baseline — it's already counted.
-    if (receivedDate < since) continue
-    let baseUnits: number
-    const packQty  = si.invoicePackQty  ? Number(si.invoicePackQty)  : 0
-    const packSize = si.invoicePackSize ? Number(si.invoicePackSize) : 0
-    const packUOM  = si.invoicePackUOM ?? null
-    if (packQty > 0 && packSize > 0 && packUOM) {
-      baseUnits = convertQty(qty * packQty * packSize, packUOM, nonNullItem.baseUnit)
-    } else {
-      // Fall back to the item's own pack CHAIN: base units received =
-      // qtyShipped × the chain's top-level base content (levelBaseUnits[top]).
-      const ci = asChainItem(nonNullItem)
-      const top = ci.packChain[0]?.unit
-      baseUnits = qty * (top ? basePerUnit(ci, top) : 1)
-    }
-    const supplier = si.session.supplierName ?? 'Purchase'
-    const invNum   = si.session.invoiceNumber ? ` · #${si.session.invoiceNumber}` : ''
-    raw.push({ id: si.id, date: receivedDate, type: 'PURCHASE', qtyBase: baseUnits, description: `${supplier}${invNum}`, revenueCenterId: si.session.revenueCenterId ?? null })
-  }
-
-  // ── SALES consumption ─────────────────────────────────────────────────────
-  // Find all recipes that use this item as a direct ingredient
-  const recipeIngredients = await prisma.recipeIngredient.findMany({
-    where: { inventoryItemId: params.id },
-    include: {
-      recipe: {
-        include: {
-          saleLineItems: {
-            where: { sale: { date: { gte: since } } },
-            include: { sale: { select: { id: true, date: true } } },
-          },
-        },
-      },
-    },
-  })
-  for (const ri of recipeIngredients) {
-    const recipe = ri.recipe
-    const perBatch = portionsPerBatch(
-      Number(recipe.baseYieldQty), recipe.yieldUnit,
-      recipe.portionSize !== null ? Number(recipe.portionSize) : null, recipe.portionUnit,
-    ) ?? 1
-    for (const li of recipe.saleLineItems) {
-      const batches  = li.qtySold / perBatch
-      const consumed = convertQty(Number(ri.qtyBase) * batches, ri.unit, nonNullItem.baseUnit)
-      raw.push({
-        id: `sale-${li.saleId}-${ri.id}`,
-        date: li.sale.date, type: 'SALE', qtyBase: -consumed,
-        description: `${recipe.name} × ${li.qtySold}`,
-      })
-    }
-  }
-
-  // ── PREP: this item used as ingredient (deduction) ────────────────────────
-  const prepIngredientRows = await prisma.recipeIngredient.findMany({
-    where: { inventoryItemId: params.id },
-    include: {
-      recipe: {
-        include: {
-          prepItems: {
-            include: {
-              logs: {
-                // NOTE: do NOT filter on inventoryAdjusted — the theoretical-stock
-                // model never sets it (prep no longer writes stockOnHand directly),
-                // so filtering on it would hide every prep movement. Mirrors buildPrepMap.
-                where: { status: { in: ['DONE', 'PARTIAL'] }, actualPrepQty: { not: null }, updatedAt: { gte: since } },
-              },
-            },
-          },
-        },
-      },
-    },
-  })
-  for (const ri of prepIngredientRows) {
-    for (const prepItem of ri.recipe.prepItems) {
-      for (const log of prepItem.logs) {
-        const actualQty = Number(log.actualPrepQty ?? 0)
-        if (actualQty <= 0) continue
-        const { scale } = computeScale(actualQty, prepItem.unit, ri.recipe.yieldUnit, Number(ri.recipe.baseYieldQty))
-        const consumed  = convertQty(Number(ri.qtyBase) * scale, ri.unit, nonNullItem.baseUnit)
-        raw.push({
-          id: `prep-in-${log.id}-${ri.id}`,
-          date: log.updatedAt, type: 'PREP_IN', qtyBase: -consumed,
-          description: `Prep: ${ri.recipe.name}`,
-        })
-      }
-    }
-  }
-
-  // ── PREP: this item is the output of a prep recipe (credit) ──────────────
-  const prepOutputLogs = await prisma.prepLog.findMany({
-    where: {
-      // See note above: inventoryAdjusted is unset under the theoretical model.
-      status: { in: ['DONE', 'PARTIAL'] },
-      actualPrepQty: { not: null },
-      updatedAt: { gte: since },
-      prepItem: { linkedRecipe: { inventoryItemId: params.id } },
-    },
-    include: {
-      prepItem: {
-        include: {
-          linkedRecipe: { select: { name: true, yieldUnit: true, baseYieldQty: true } },
-        },
-      },
-    },
-  })
-  for (const log of prepOutputLogs) {
-    const recipe    = log.prepItem.linkedRecipe!
-    const actualQty = Number(log.actualPrepQty ?? 0)
-    if (actualQty <= 0) continue
-    // Mirror buildPrepMap exactly: scale the recipe's base yield by how many batches
-    // were made (computeScale converts prep-unit → yield-unit). Treating actualPrepQty
-    // as if it were already in the yield unit diverged from the page's theoretical math.
-    const { scale } = computeScale(actualQty, log.prepItem.unit, recipe.yieldUnit, Number(recipe.baseYieldQty))
-    const credited  = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, nonNullItem.baseUnit) * scale
-    raw.push({
-      id: `prep-out-${log.id}`,
-      date: log.updatedAt, type: 'PREP_OUT', qtyBase: credited,
-      description: `Prep output: ${recipe.name}`,
-    })
-  }
-
-  // ── RC-to-RC TRANSFERS (theoretical moves between revenue centers) ─────────
-  // Shown for provenance/history. This drawer is a GLOBAL (all-RC) view, and a
-  // transfer only moves stock between RCs — it never changes total on-hand — so
-  // transfer rows are display-only and excluded from the theoretical total below.
-  const transfers = await prisma.stockTransfer.findMany({
-    where: { inventoryItemId: params.id, createdAt: { gte: since } },
-    include: { fromRc: { select: { name: true } }, toRc: { select: { name: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 20,
-  })
-  for (const t of transfers) {
-    raw.push({
-      id: `transfer-${t.id}`,
-      date: t.createdAt, type: 'TRANSFER', qtyBase: Number(t.quantity),
-      description: `${t.fromRc.name} → ${t.toRc.name}`,
-    })
-  }
-
-  // Sort newest first
-  raw.sort((a, b) => b.date.getTime() - a.date.getTime())
-
-  // The headline theoretical figure comes from the theoretical ENGINE, not from this
-  // route's own ledger sum, so the drawer and the inventory list cannot report
-  // different theoretical stock for the same item — they now call the same function.
-  // (The ledger below stays as provenance: it is deliberately more detailed than the
-  // engine's window and shows transfers, which are net-zero globally.)
-  const theoreticalBase = (await getTheoreticalStock(params.id, null)) ?? Math.max(0, baseQty)
+  // Transfer legs stay in the list for provenance but out of the split — see splitLedger.
+  const { additions, consumptions, transferNet } = splitLedger(ledger.events)
 
   const response: StockMovementsResponse = {
-    lastCount:   { qty: toDisplay(baseQty), unit: displayUnit, date: countDate?.toISOString() ?? null },
-    theoretical: { qty: toDisplay(theoreticalBase), unit: displayUnit },
-    movements: raw.map(m => ({
-      id:          m.id,
-      date:        m.date.toISOString(),
-      type:        m.type,
-      qty:         toDisplay(m.qtyBase),
-      unit:        displayUnit,
-      description: m.description,
-      revenueCenterId: m.revenueCenterId ?? null,
-    })),
+    lastCount: {
+      qty:    toDisplay(ledger.openingBase),
+      unit:   displayUnit,
+      date:   ledger.openingDate?.toISOString() ?? null,
+      dayKey: ledger.openingDate ? displayDayKey(ledger.openingDate) : null,
+    },
+    theoretical: { qty: toDisplay(ledger.theoreticalBase), unit: displayUnit },
+    movements,
+    reconciliation: {
+      opening:       toDisplay(ledger.openingBase),
+      additions:     toDisplay(additions),
+      consumptions:  toDisplay(consumptions),
+      // transferNet is zero across all RCs; folded in so the identity holds even
+      // if a future scope makes it non-zero.
+      adjustment:    toDisplay(ledger.residualBase + transferNet),
+      theoretical:   toDisplay(ledger.theoreticalBase),
+      unit:          displayUnit,
+      movementCount: ledger.events.length,
+    },
   }
 
   return NextResponse.json(response)
