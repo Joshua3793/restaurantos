@@ -18,6 +18,7 @@ const REDIRECTS: Array<[string, string]> = [
   ['/settings/users',          '/setup/users'],
   ['/settings/revenue-centers','/setup/revenue-centers'],
   ['/settings',                '/setup'],
+  ['/setup/kitchen-crew',      '/setup/users'],
   ['/reports/theoretical-usage','/variance'],
   ['/reports/signals',         '/signals'],
   ['/cost',                    '/reports'],

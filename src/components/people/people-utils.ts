@@ -1,5 +1,4 @@
 import type { Role } from '@prisma/client'
-import { atLeast, ROLE_LABELS } from '@/lib/roles'
 
 export interface Assignment {
   id: string
@@ -40,57 +39,10 @@ export interface LocationGroup {
   isGlobal?: boolean
 }
 
-const hasGlobalAccess = (p: Person) => atLeast(p.role, 'ADMIN')
-
-/**
- * Group people under every location they touch. Somebody assigned to two
- * locations appears under both — the list is a map of who is where, not a
- * partition. OWNER/ADMIN people with no assignments land in the trailing
- * "global access" group (they don't need one — access is unconditional).
- * Everyone else with no assignments lands in the trailing unassigned group,
- * which is a real warning: a non-global role with zero assignments has no
- * access at all.
- */
-export function groupByLocation(
-  people: Person[],
-  locations: LocationNode[],
-): LocationGroup[] {
-  const groups: LocationGroup[] = locations.map(location => ({
-    location,
-    people: people.filter(p => p.assignments.some(a => a.locationId === location.id)),
-  }))
-  const global = people.filter(p => hasGlobalAccess(p) && p.assignments.length === 0)
-  if (global.length) groups.push({ location: null, people: global, isGlobal: true })
-  const unassigned = people.filter(p => !hasGlobalAccess(p) && p.assignments.length === 0)
-  if (unassigned.length) groups.push({ location: null, people: unassigned })
-  return groups.filter(g => g.people.length > 0)
-}
-
 /** "Downtown · whole location" / "Rooftop Bar" */
 export function assignmentLabel(a: Assignment): string {
   if (a.revenueCenterId) return a.rcName ?? 'Revenue center'
   return `${a.locationName ?? 'Location'} · whole location`
-}
-
-/** One-line access summary for a person row. */
-export function summarizeAccess(p: Person): string {
-  if (hasGlobalAccess(p)) return 'All locations'
-  if (p.assignments.length === 0) return 'No assignments'
-  const overrides = p.assignments.filter(a => a.clearance).length
-  const base = p.assignments.length === 1
-    ? assignmentLabel(p.assignments[0])
-    : `${p.assignments.length} places`
-  return overrides > 0 ? `${base} · ${overrides} override${overrides > 1 ? 's' : ''}` : base
-}
-
-/** Effective clearance shown on a chip for one assignment. */
-export function chipClearance(p: Person, a: Assignment): Role {
-  return a.clearance ?? p.role
-}
-
-export function chipLabel(p: Person, a: Assignment): string {
-  const node = a.revenueCenterId ? a.rcName ?? 'RC' : a.locationName ?? 'Location'
-  return `${node} · ${ROLE_LABELS[chipClearance(p, a)]}`
 }
 
 export function initials(nameOrEmail: string): string {
