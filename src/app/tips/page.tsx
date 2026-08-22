@@ -206,15 +206,17 @@ export default function TipsPage() {
       }
       let errorMessage: string | null = null
       if (action.kind === 'onPool') {
-        await fetch(`/api/tips/roster/${action.arg}`, {
+        const res = await fetch(`/api/tips/roster/${action.arg}`, {
           method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onTipPool: true }),
         })
+        if (!res.ok) errorMessage = (await res.json()).error ?? 'Could not add that person to the pool'
       }
       if (action.kind === 'setCode') {
         const [cookId, code] = action.arg.split(':')
-        await fetch(`/api/tips/roster/${cookId}`, {
+        const res = await fetch(`/api/tips/roster/${cookId}`, {
           method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clockId: code }),
         })
+        if (!res.ok) errorMessage = (await res.json()).error ?? 'Could not set that clock ID'
       }
       if (action.kind === 'addPerson') {
         const punch = payload.punches.find(p => p.clockId === action.arg)
@@ -455,19 +457,35 @@ export default function TipsPage() {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ dailyHourCap: cap }),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not save that cap')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this —
+                // and only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onRoleChange={(cookId, roleId) => {
               void fetch(`/api/tips/roster/${cookId}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tipRoleId: roleId }),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not change that role')))
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onHoursChange={(cookId, dayIndex, hours) => void putAdjustment({ cookId, dayIndex, hours })}
             onBoostChange={(cookId, dayIndex, boost) => void putAdjustment({ cookId, dayIndex, boost })}
             onClearAdjustments={cookId => {
               if (!periodId) return
               void fetch(`/api/tips/periods/${periodId}/adjustments?cookId=${cookId}`, { method: 'DELETE' })
-                .then(() => loadPeriod(periodId))
+                .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not clear those adjustments')))
+                .then(async errorMessage => {
+                  const reloaded = await loadPeriod(periodId)
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onFix={applyFix}
             onGoto={t => setTab(t as TipTabId)}
@@ -525,13 +543,25 @@ export default function TipsPage() {
             onSaveRole={(id, patch) => {
               void fetch(`/api/tips/roles/${id}`, {
                 method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not save that role')))
+                // setError must run AFTER the reload — loadPeriod's own success
+                // path calls setError(null), which would otherwise wipe this —
+                // and only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onAddRole={() => {
               void fetch('/api/tips/roles', {
                 method: 'POST', headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ name: 'New role', multiplier: 1 }),
-              }).then(() => { if (periodId) void loadPeriod(periodId) })
+              }).then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not add a role')))
+                .then(async errorMessage => {
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
             }}
             onDeleteRole={id => {
               void fetch(`/api/tips/roles/${id}`, { method: 'DELETE' })
