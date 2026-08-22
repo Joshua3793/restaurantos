@@ -58,6 +58,23 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const errors = validateChainItem(ci)
   if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
+  // ── Bridge fields ───────────────────────────────────────────────────────────
+  // Both bridges are PATCH-shaped: a key that isn't in the body is left alone
+  // (so saving a density can't wipe an each-measure), a key that is present with
+  // an empty/zero value clears it. A positive quantity with a unit that can't
+  // express the bridge is a 400 — silently storing null there is what made a
+  // saved bridge look like it did nothing.
+  const hasEachMeasure = 'eachMeasureQty' in body || 'eachMeasureUnit' in body
+  const emQty = Number(eachMeasureQty)
+  const emUnit = eachMeasureUnit ? String(eachMeasureUnit).trim().toLowerCase() : ''
+  if (hasEachMeasure && emQty > 0 && (!emUnit || dimensionOf(emUnit) === 'COUNT')) {
+    return NextResponse.json({
+      error: `"${emUnit || eachMeasureUnit}" can't measure the bridge — use a weight or volume unit.`,
+    }, { status: 400 })
+  }
+  const emValid = emQty > 0 && !!emUnit && dimensionOf(emUnit) !== 'COUNT'
+  const hasDensity = 'densityGPerMl' in body
+
   await prisma.inventoryItem.update({
     where: { id: params.id },
     data: {
@@ -74,16 +91,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       // Count↔weight bridge ("1 each = N g/ml"). Valid in EITHER direction — a
       // per-each weight on a COUNT item, or how much one each weighs on a
       // measured item — so it is NOT gated on dimension. The unit must be a
-      // measured one (the bridge always spans count↔measured).
-      eachMeasureQty: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
-        ? Number(eachMeasureQty) : null,
-      eachMeasureUnit: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
-        ? String(eachMeasureUnit) : null,
+      // measured one (the bridge always spans count↔measured); an invalid one
+      // already 400'd above.
+      ...(hasEachMeasure ? {
+        eachMeasureQty:  emValid ? emQty : null,
+        eachMeasureUnit: emValid ? emUnit : null,
+      } : {}),
       // Weight↔volume density bridge. Non-destructive: allows a measured invoice
       // in the other dimension to cost correctly without changing the item's
-      // dimension, chain, or stock. Written only when a positive value is provided.
-      ...(densityGPerMl != null && Number(densityGPerMl) > 0
-        ? { densityGPerMl: Number(densityGPerMl) }
+      // dimension, chain, or stock.
+      ...(hasDensity
+        ? { densityGPerMl: Number(densityGPerMl) > 0 ? Number(densityGPerMl) : null }
         : {}),
     },
   })

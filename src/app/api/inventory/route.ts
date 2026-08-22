@@ -45,6 +45,17 @@ export async function POST(req: NextRequest) {
   const errors = validateChainItem(ci)
   if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
+  // Count↔weight bridge — a positive quantity with a unit that can't measure it
+  // is a 400, never a silent null (see the [id] PUT route).
+  const emQty = Number(eachMeasureQty)
+  const emUnit = eachMeasureUnit ? String(eachMeasureUnit).trim().toLowerCase() : ''
+  if (emQty > 0 && (!emUnit || dimensionOf(emUnit) === 'COUNT')) {
+    return NextResponse.json({
+      error: `"${emUnit || eachMeasureUnit}" can't measure the bridge — use a weight or volume unit.`,
+    }, { status: 400 })
+  }
+  const emValid = emQty > 0 && !!emUnit && dimensionOf(emUnit) !== 'COUNT'
+
   // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
   const isStocked = body.isStocked !== false
 
@@ -70,10 +81,8 @@ export async function POST(req: NextRequest) {
       storageAreaId: storageAreaId || null,
       // Count↔weight bridge — valid in either direction (see [id] PUT route),
       // so not gated on dimension; the unit must be a measured one.
-      eachMeasureQty: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
-        ? Number(eachMeasureQty) : null,
-      eachMeasureUnit: Number(eachMeasureQty) > 0 && eachMeasureUnit && dimensionOf(String(eachMeasureUnit)) !== 'COUNT'
-        ? String(eachMeasureUnit) : null,
+      eachMeasureQty:  emValid ? emQty : null,
+      eachMeasureUnit: emValid ? emUnit : null,
     },
     include: { supplier: true, storageArea: true },
   })
