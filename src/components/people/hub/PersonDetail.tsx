@@ -7,7 +7,8 @@ import type { PeopleHubPayload } from '@/app/setup/users/page'
 import { initialsFor } from './hub-utils'
 import IdentityTab from './IdentityTab'
 import AccessTab from './AccessTab'
-import { EmptyTab } from './kit'
+import PrepTab from './PrepTab'
+import TipsTab from './TipsTab'
 
 export type TabId = 'identity' | 'access' | 'prep' | 'tips'
 
@@ -104,12 +105,8 @@ export default function PersonDetail({ person, payload, actorRole, isMe, onChang
             onChanged={onChanged}
           />
         )}
-        {tab === 'prep' && (
-          <EmptyTab title="Prep" body="Prep tab — Task 9." />
-        )}
-        {tab === 'tips' && (
-          <EmptyTab title="Tips" body="Tips tab — Task 9." />
-        )}
+        {tab === 'prep' && <PrepTab person={person} payload={payload} onChanged={onChanged} />}
+        {tab === 'tips' && <TipsTab person={person} payload={payload} onChanged={onChanged} />}
       </div>
     </div>
   )
