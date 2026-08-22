@@ -70,6 +70,19 @@ describe('GET /api/tips/me', () => {
     expect(await res.json()).toEqual({ linked: false })
   })
 
+  it('looks the cook up by userId — the single check that decides whose pay is returned', async () => {
+    // Pinned deliberately: this is the only thing standing between two staff
+    // members named Sam seeing each other's pay. Every other test's mock
+    // returns the same cook regardless of arguments, so without this
+    // assertion a switch to matching by name (or an email fallback) would
+    // pass the whole suite.
+    await GET()
+    expect(cookFindUnique).toHaveBeenCalledWith({
+      where: { userId: 'u1' },
+      select: { id: true, name: true },
+    })
+  })
+
   it('reports an empty payout list for a linked cook who has never been paid', async () => {
     cookFindUnique.mockResolvedValue({ id: 'cook-1', name: 'Sam' })
     const res = await GET()

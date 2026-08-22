@@ -25,12 +25,16 @@ export default function TipsPage() {
   const [revenueCenters, setRevenueCenters] = useState<LookupOption[]>([])
 
   /* ── load ──────────────────────────────────────────────────────────────── */
-  const loadPeriod = useCallback(async (id: string) => {
+  // Returns whether the reload actually succeeded. Callers that reload after
+  // a save use this to decide whose error message should survive — see the
+  // NOTE above patchPeriod.
+  const loadPeriod = useCallback(async (id: string): Promise<boolean> => {
     const res = await fetch(`/api/tips/periods/${id}`, { cache: 'no-store' })
-    if (!res.ok) { setError((await res.json()).error ?? 'Could not load the period'); return }
+    if (!res.ok) { setError((await res.json()).error ?? 'Could not load the period'); return false }
     setPayload(await res.json())
     setPeriodId(id)
     setError(null)
+    return true
   }, [])
 
   /**
@@ -146,6 +150,14 @@ export default function TipsPage() {
   // error last fixes both halves of the failure at once: the table still
   // needs to stop showing the value the server rejected (the reload pulls the
   // server's actual state) AND the error must survive the reload that follows it.
+  //
+  // But the reload can itself fail (GET 500), in which case `loadPeriod` has
+  // already set its OWN error ("Could not load the period") and left `payload`
+  // at its stale pre-save value — the view is now not just wrong but unknown
+  // to be wrong. Unconditionally applying the save's `errorMessage` afterward
+  // would stomp that "your view is stale" error with the comparatively minor
+  // save failure. So the save error is only applied when the reload itself
+  // succeeded; `loadPeriod`'s return value tells us which happened.
   const patchPeriod = useCallback(async (body: Record<string, unknown>) => {
     if (!periodId) return
     setBusy(true)
@@ -153,8 +165,8 @@ export default function TipsPage() {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
     const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not save')
-    await loadPeriod(periodId)
-    if (errorMessage) setError(errorMessage)
+    const reloaded = await loadPeriod(periodId)
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -166,8 +178,8 @@ export default function TipsPage() {
     let errorMessage: string | null = null
     if (res.ok) setSettings(await res.json())
     else errorMessage = (await res.json()).error ?? 'Could not save settings'
-    if (periodId) await loadPeriod(periodId)
-    if (errorMessage) setError(errorMessage)
+    const reloaded = periodId ? await loadPeriod(periodId) : true
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -178,8 +190,8 @@ export default function TipsPage() {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     })
     const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not save that edit')
-    await loadPeriod(periodId)
-    if (errorMessage) setError(errorMessage)
+    const reloaded = await loadPeriod(periodId)
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, loadPeriod])
 
@@ -218,9 +230,10 @@ export default function TipsPage() {
         }
       }
       // See the comment above patchPeriod: setError must come AFTER loadPeriod,
-      // or the reload's own setError(null) wipes it out.
-      await loadPeriod(periodId)
-      if (errorMessage) setError(errorMessage)
+      // or the reload's own setError(null) wipes it out — and only when the
+      // reload itself succeeded, or a load failure gets stomped by this error.
+      const reloaded = await loadPeriod(periodId)
+      if (errorMessage && reloaded) setError(errorMessage)
     } finally { setBusy(false) }
   }, [periodId, payload, patchPeriod, loadPeriod])
 
@@ -232,8 +245,8 @@ export default function TipsPage() {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reopen }),
     })
     const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not update the period')
-    await loadPeriod(periodId)
-    if (errorMessage) setError(errorMessage)
+    const reloaded = await loadPeriod(periodId)
+    if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
   }, [periodId, payload, loadPeriod])
 
@@ -524,10 +537,12 @@ export default function TipsPage() {
               void fetch(`/api/tips/roles/${id}`, { method: 'DELETE' })
                 .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not delete that role')))
                 // setError must run AFTER the reload — loadPeriod's own success
-                // path calls setError(null), which would otherwise wipe this.
+                // path calls setError(null), which would otherwise wipe this —
+                // and only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
                 .then(async errorMessage => {
-                  if (periodId) await loadPeriod(periodId)
-                  if (errorMessage) setError(errorMessage)
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
                 })
             }}
             onSaveRoster={(cookId, patch) => {
@@ -538,9 +553,11 @@ export default function TipsPage() {
                 // path calls setError(null), which would otherwise wipe this.
                 // Reloading first also means the picker/field reflects the
                 // server's actual (unchanged) value instead of the rejected one.
+                // And only when the reload itself succeeded, or a load failure
+                // gets stomped by this error.
                 .then(async errorMessage => {
-                  if (periodId) await loadPeriod(periodId)
-                  if (errorMessage) setError(errorMessage)
+                  const reloaded = periodId ? await loadPeriod(periodId) : true
+                  if (errorMessage && reloaded) setError(errorMessage)
                 })
             }}
             onAddEmployee={() => setError('Add new kitchen staff in Setup → Kitchen crew, then give them a clock ID here.')}

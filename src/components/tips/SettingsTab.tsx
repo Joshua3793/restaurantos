@@ -22,7 +22,13 @@ export interface TipSettingsDto {
 
 export interface LookupOption { id: string; name: string; locationId?: string }
 
-const GRID = 'minmax(180px,1.4fr) 68px 78px 74px 100px 120px 50px 74px 48px 26px'
+// Column widths trimmed to fit inside the max content width (max-w-7xl minus
+// md:px-8 = 1216px, see AppShell.tsx) alongside the 330px settings rail.
+// 180(Employee,floor) + 44(Code) + 68(Wage) + 64(Cap) + 100(Role) + 90(App login)
+// + 50(Hours) + 74(Tips) + 48(On pool) + 26(menu) = 744
+// + 9 gaps × 8px (gap-2) = 72 + px-[18px] × 2 = 36 → roster min-content 852
+// + 20 (grid-cols gap-5) + 330 (rail) = 1202px, under the 1216px ceiling.
+const GRID = 'minmax(180px,1.4fr) 44px 68px 64px 100px 90px 50px 74px 48px 26px'
 
 /**
  * THE SETTINGS TAB IS NEVER READ-ONLY, not even while the open period is PAID.

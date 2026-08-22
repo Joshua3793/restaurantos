@@ -1,9 +1,7 @@
 'use client'
 import type { MyPayout, MyPayoutDay } from '@/lib/tips/me'
+import { paidLine } from '@/lib/tips/payout-label'
 import { money, hoursLabel } from './kit'
-
-const dateLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
 
 function DayRow({ day }: { day: MyPayoutDay }) {
   const worked = day.rawHours > 0
@@ -50,9 +48,7 @@ export function MyPayoutDetail({ payout }: { payout: MyPayout }) {
         </div>
         <div className="text-[12px] text-ink-3 mt-1.5">
           {payout.startDate} – {payout.endDate}
-          {payout.paidAt
-            ? ` · paid ${dateLabel(payout.paidAt)}${payout.paidByName ? ` by ${payout.paidByName}` : ''}`
-            : payout.paidByName ? ` · paid by ${payout.paidByName}` : ''}
+          {paidLine(payout.paidAt, payout.paidByName)}
         </div>
       </div>
 
