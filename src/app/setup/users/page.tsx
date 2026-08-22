@@ -5,6 +5,7 @@ import { useUser } from '@/contexts/UserContext'
 import type { Person } from '@/lib/people'
 import type { LocationNode } from '@/components/people/people-utils'
 import PeopleHubList from '@/components/people/hub/PeopleHubList'
+import { reorderPatches } from '@/components/people/hub/hub-utils'
 import AccessAuditPanel from '@/components/people/AccessAuditPanel'
 
 export interface TipRoleOption {
@@ -56,29 +57,29 @@ export default function PeopleHubPage() {
   }, [load])
 
   /**
-   * Run-sheet reorder. Normalises sortOrder to 0..n-1 over the CURRENTLY VISIBLE
-   * roster list and persists only the rows whose value actually changed.
+   * Run-sheet reorder. The index maths run over the FULL roster (see
+   * `reorderPatches`) — never the filtered/searched view, which would renumber
+   * matched cooks to 0,1,… and collide with cooks who are off-screen.
    */
-  const reorder = async (visible: Person[], moved: Person, direction: 'up' | 'down') => {
-    const idx = visible.findIndex(p => p.key === moved.key)
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (idx < 0 || swapIdx < 0 || swapIdx >= visible.length) return
-    const swapped = [...visible]
-    ;[swapped[idx], swapped[swapIdx]] = [swapped[swapIdx], swapped[idx]]
+  const reorder = async (moved: Person, direction: 'up' | 'down') => {
+    const patches = reorderPatches((data?.people ?? []).filter(p => p.roster), moved, direction)
+    if (patches.length === 0) return
 
-    const patches = swapped
-      .map((p, i) => ({ p, i }))
-      .filter(({ p, i }) => p.roster && p.roster.sortOrder !== i)
-
-    const results = await Promise.all(patches.map(({ p, i }) =>
-      fetch(`/api/prep/cooks/${p.roster!.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sortOrder: i }),
-      }),
-    ))
-    if (results.some(r => !r.ok)) setError('Failed to reorder')
-    refresh()
+    try {
+      const results = await Promise.all(patches.map(({ cookId, sortOrder }) =>
+        fetch(`/api/prep/cooks/${cookId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sortOrder }),
+        }),
+      ))
+      if (results.some(r => !r.ok)) setError('Failed to reorder')
+    } catch {
+      // A thrown fetch (offline, DNS) must surface the same banner as a non-ok
+      // response — otherwise it is a silent unhandled rejection.
+      setError('Failed to reorder')
+    }
+    await refresh()
   }
 
   if (loading) {

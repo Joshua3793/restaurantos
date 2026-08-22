@@ -4,7 +4,7 @@ import { Search } from 'lucide-react'
 import type { Person } from '@/lib/people'
 import type { LocationNode } from '@/components/people/people-utils'
 import PersonListRow from './PersonListRow'
-import { applyFilter, groupPeople, HUB_FILTERS, type HubFilter } from './hub-utils'
+import { applyFilter, groupPeople, rosterOrder, HUB_FILTERS, type HubFilter } from './hub-utils'
 
 interface Props {
   people: Person[]
@@ -12,7 +12,7 @@ interface Props {
   selectedKey: string | null
   currentUserId: string | null
   onSelect: (p: Person) => void
-  onReorder: (ordered: Person[], moved: Person, direction: 'up' | 'down') => void
+  onReorder: (moved: Person, direction: 'up' | 'down') => void
 }
 
 export default function PeopleHubList({
@@ -27,21 +27,33 @@ export default function PeopleHubList({
     [visible, locations, filter],
   )
 
-  const move = (p: Person, direction: 'up' | 'down') => onReorder(visible, p, direction)
+  // Bounds come from position in the FULL run sheet, not the visible slice —
+  // only the genuinely first/last cook gets a disabled arrow.
+  const rosterRank = useMemo(() => {
+    const ordered = rosterOrder(people)
+    return { size: ordered.length, index: new Map(ordered.map((p, i) => [p.key, i])) }
+  }, [people])
 
-  const row = (p: Person, index: number, list: Person[]) => (
-    <PersonListRow
-      key={p.key}
-      person={p}
-      selected={p.key === selectedKey}
-      isMe={!!currentUserId && p.login?.id === currentUserId}
-      showReorder={filter === 'roster'}
-      canMoveUp={index > 0}
-      canMoveDown={index < list.length - 1}
-      onSelect={onSelect}
-      onMove={move}
-    />
-  )
+  // A search hides the neighbour a move would swap with, so the row appears not
+  // to move. Handles are offered only on the unsearched Roster view.
+  const showReorder = filter === 'roster' && query.trim() === ''
+
+  const row = (p: Person) => {
+    const rank = rosterRank.index.get(p.key) ?? -1
+    return (
+      <PersonListRow
+        key={p.key}
+        person={p}
+        selected={p.key === selectedKey}
+        isMe={!!currentUserId && p.login?.id === currentUserId}
+        showReorder={showReorder}
+        canMoveUp={rank > 0}
+        canMoveDown={rank >= 0 && rank < rosterRank.size - 1}
+        onSelect={onSelect}
+        onMove={onReorder}
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -82,11 +94,11 @@ export default function PeopleHubList({
                   <span className="text-[9px] text-gold-2">sees all RCs</span>
                 )}
               </div>
-              {g.people.map((p, i) => row(p, i, g.people))}
+              {g.people.map(p => row(p))}
             </div>
           ))
         ) : (
-          visible.map((p, i) => row(p, i, visible))
+          visible.map(p => row(p))
         )}
       </div>
     </div>

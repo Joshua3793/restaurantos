@@ -39,11 +39,56 @@ export function applyFilter(people: Person[], filter: HubFilter, query: string):
       default: return true
     }
   })
-  if (filter === 'roster') {
-    out = [...out].sort((a, b) =>
-      (a.roster!.sortOrder - b.roster!.sortOrder) || a.roster!.name.localeCompare(b.roster!.name))
-  }
+  if (filter === 'roster') out = rosterOrder(out)
   return out.filter(p => matchesQuery(p, query))
+}
+
+/**
+ * The TRUE run-sheet order: every person who has a roster row, sorted by
+ * Cook.sortOrder with a name tie-break — the same ordering `applyFilter` gives
+ * the Roster view, minus the search. Reorder maths must always run over THIS,
+ * never over a filtered/searched slice.
+ */
+export function rosterOrder(people: Person[]): Person[] {
+  return people
+    .filter(p => p.roster)
+    .sort((a, b) =>
+      (a.roster!.sortOrder - b.roster!.sortOrder) || a.roster!.name.localeCompare(b.roster!.name))
+}
+
+export interface ReorderPatch {
+  cookId: string
+  sortOrder: number
+}
+
+/**
+ * Move `moved` one step up/down the run sheet and renumber the WHOLE roster to
+ * 0..n-1, returning only the rows whose sortOrder actually changed.
+ *
+ * `fullRoster` must be every person with a roster row, in any order — pass the
+ * unfiltered list. Computing over the visible subset renumbers matched cooks to
+ * 0,1,… and collides with cooks who are off-screen, silently corrupting the
+ * prep run-sheet order for people the admin never touched.
+ *
+ * Returns [] when the move is out of bounds or `moved` has no roster row.
+ */
+export function reorderPatches(
+  fullRoster: Person[],
+  moved: Person,
+  direction: 'up' | 'down',
+): ReorderPatch[] {
+  if (!moved.roster) return []
+
+  const ordered = rosterOrder(fullRoster)
+  const idx = ordered.findIndex(p => p.key === moved.key)
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+  if (idx < 0 || swapIdx < 0 || swapIdx >= ordered.length) return []
+  ;[ordered[idx], ordered[swapIdx]] = [ordered[swapIdx], ordered[idx]]
+
+  return ordered
+    .map((p, i) => ({ cookId: p.roster!.id, sortOrder: i, stored: p.roster!.sortOrder }))
+    .filter(r => r.stored !== r.sortOrder)
+    .map(({ cookId, sortOrder }) => ({ cookId, sortOrder }))
 }
 
 const isGlobal = (p: Person) => !!p.login && atLeast(p.login.role, 'ADMIN')

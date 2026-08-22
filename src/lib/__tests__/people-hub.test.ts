@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { mergePeople, type PersonLogin, type PersonRoster } from '@/lib/people'
-import { applyFilter, groupPeople } from '@/components/people/hub/hub-utils'
+import { mergePeople, type Person, type PersonLogin, type PersonRoster } from '@/lib/people'
+import { applyFilter, groupPeople, reorderPatches } from '@/components/people/hub/hub-utils'
 import type { LocationNode } from '@/components/people/people-utils'
 
 const login = (over: Partial<PersonLogin> = {}): PersonLogin => ({
@@ -102,5 +102,88 @@ describe('groupPeople', () => {
 
   it('drops empty groups', () => {
     expect(groupPeople([], locations)).toEqual([])
+  })
+})
+
+describe('reorderPatches', () => {
+  // Five cooks in run-sheet order: Ana(0) Bo(1) Cy(2) Dee(3) Eve(4).
+  const crew = (): Person[] => mergePeople([], [
+    roster({ id: 'cA', name: 'Ana', sortOrder: 0 }),
+    roster({ id: 'cB', name: 'Bo', sortOrder: 1 }),
+    roster({ id: 'cC', name: 'Cy', sortOrder: 2 }),
+    roster({ id: 'cD', name: 'Dee', sortOrder: 3 }),
+    roster({ id: 'cE', name: 'Eve', sortOrder: 4 }),
+  ])
+  const find = (people: Person[], id: string) => people.find(p => p.roster!.id === id)!
+
+  it('moving a middle cook up patches exactly the two swapped rows', () => {
+    const people = crew()
+    expect(reorderPatches(people, find(people, 'cC'), 'up')).toEqual([
+      { cookId: 'cC', sortOrder: 1 },
+      { cookId: 'cB', sortOrder: 2 },
+    ])
+  })
+
+  it('moving a middle cook down patches exactly the two swapped rows', () => {
+    const people = crew()
+    expect(reorderPatches(people, find(people, 'cC'), 'down')).toEqual([
+      { cookId: 'cD', sortOrder: 2 },
+      { cookId: 'cC', sortOrder: 3 },
+    ])
+  })
+
+  // THE REGRESSION. A search for "e" on the Roster tab shows only Dee and Eve.
+  // Renumbering that 2-item slice would emit Eve→0 / Dee→1, colliding head-on
+  // with Ana(0) and Bo(1), who are not even on screen. Computing over the full
+  // roster must leave every other cook's slot alone.
+  it('indexes against the full roster even when the visible subset is smaller', () => {
+    const people = crew()
+    const visibleSubset = [find(people, 'cD'), find(people, 'cE')]
+    const wrong = reorderPatches(visibleSubset, find(people, 'cE'), 'up')
+    expect(wrong.map(r => r.sortOrder)).toEqual([0, 1]) // what the old code did
+
+    const right = reorderPatches(people, find(people, 'cE'), 'up')
+    expect(right).toEqual([
+      { cookId: 'cE', sortOrder: 3 },
+      { cookId: 'cD', sortOrder: 4 },
+    ])
+    // No patch may land on a slot already held by an untouched cook.
+    const untouched = [0, 1, 2] // Ana, Bo, Cy
+    expect(right.some(r => untouched.includes(r.sortOrder))).toBe(false)
+  })
+
+  it('returns [] when the first cook moves up', () => {
+    const people = crew()
+    expect(reorderPatches(people, find(people, 'cA'), 'up')).toEqual([])
+  })
+
+  it('returns [] when the last cook moves down', () => {
+    const people = crew()
+    expect(reorderPatches(people, find(people, 'cE'), 'down')).toEqual([])
+  })
+
+  it('returns [] for a person with no roster row', () => {
+    const people = crew()
+    const bookkeeper = mergePeople([{ login: login({ id: 'u2' }), roster: null }], [])[0]
+    expect(reorderPatches([...people, bookkeeper], bookkeeper, 'up')).toEqual([])
+  })
+
+  it('omits rows whose sortOrder is already correct', () => {
+    const people = crew()
+    const out = reorderPatches(people, find(people, 'cB'), 'down')
+    expect(out.map(r => r.cookId).sort()).toEqual(['cB', 'cC'])
+    expect(out.some(r => ['cA', 'cD', 'cE'].includes(r.cookId))).toBe(false)
+  })
+
+  it('renumbers non-contiguous stored sortOrders contiguously', () => {
+    const people = mergePeople([], [
+      roster({ id: 'cA', name: 'Ana', sortOrder: 0 }),
+      roster({ id: 'cB', name: 'Bo', sortOrder: 5 }),
+      roster({ id: 'cC', name: 'Cy', sortOrder: 9 }),
+    ])
+    expect(reorderPatches(people, find(people, 'cC'), 'up')).toEqual([
+      { cookId: 'cC', sortOrder: 1 },
+      { cookId: 'cB', sortOrder: 2 },
+    ])
   })
 })
