@@ -5,7 +5,23 @@ const cookFindMany = vi.fn(async () => [] as unknown[])
 const locationFindMany = vi.fn(async () => [] as unknown[])
 const tipRoleFindMany = vi.fn(async () => [] as unknown[])
 const prepSettingsFindUnique = vi.fn(async () => null as { stations: string[] } | null)
-const requireSession = vi.fn(async () => ({ id: 'u9', role: 'ADMIN', isActive: true }))
+// Explicit return type (rather than letting it infer from the initial value)
+// so later `mockResolvedValue` calls in the POST describe block — which add
+// `email`/`name`/`error` fields the GET-only initial value doesn't have — pass
+// tsc's excess-property check instead of tripping it.
+const requireSession = vi.fn(async (): Promise<
+  { id: string; email?: string; name?: string | null; role: string; isActive: boolean }
+> => ({ id: 'u9', role: 'ADMIN', isActive: true }))
+
+const cookCreate = vi.fn(async () => ({ id: 'c-new' }))
+const cookUpdate = vi.fn(async () => ({ id: 'c-new' }))
+const cookCount = vi.fn(async () => 3)
+const cookFindUnique = vi.fn(async () => null as { id: string; name: string } | null)
+const inviteOne = vi.fn(async (): Promise<
+  { email: string; status: string; userId?: string; error?: string }
+> => ({ email: 'sam@fergies.test', status: 'invited', userId: 'u-new' }))
+const validateAssignmentRows = vi.fn(async () => null as string | null)
+const loadSettings = vi.fn(async () => ({ defaultDailyHourCap: 8 }))
 
 class MockAuthError extends Error {
   constructor(public readonly status: 401 | 403, message: string) {
@@ -17,7 +33,13 @@ class MockAuthError extends Error {
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: { findMany: (...a: unknown[]) => userFindMany(...(a as [])) },
-    cook: { findMany: (...a: unknown[]) => cookFindMany(...(a as [])) },
+    cook: {
+      findMany: (...a: unknown[]) => cookFindMany(...(a as [])),
+      findUnique: (...a: unknown[]) => cookFindUnique(...(a as [])),
+      create: (...a: unknown[]) => cookCreate(...(a as [])),
+      update: (...a: unknown[]) => cookUpdate(...(a as [])),
+      count: (...a: unknown[]) => cookCount(...(a as [])),
+    },
     location: { findMany: (...a: unknown[]) => locationFindMany(...(a as [])) },
     tipRole: { findMany: (...a: unknown[]) => tipRoleFindMany(...(a as [])) },
     prepSettings: { findUnique: (...a: unknown[]) => prepSettingsFindUnique(...(a as [])) },
@@ -27,8 +49,15 @@ vi.mock('@/lib/auth', () => ({
   requireSession: (...a: unknown[]) => requireSession(...(a as [])),
   AuthError: MockAuthError,
 }))
+vi.mock('@/lib/user-invite', () => ({ inviteOne: (...a: unknown[]) => inviteOne(...(a as [])) }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
+vi.mock('@/lib/tips/settings', () => ({ loadSettings: (...a: unknown[]) => loadSettings(...(a as [])) }))
+vi.mock('@/lib/assignment-input', () => ({
+  validateAssignmentRows: (...a: unknown[]) => validateAssignmentRows(...(a as [])),
+  dedupeAssignmentRows: (rows: unknown[]) => rows,
+}))
 
-const { GET } = await import('@/app/api/settings/people/route')
+const { GET, POST } = await import('@/app/api/settings/people/route')
 const { AuthError } = await import('@/lib/auth')
 
 const dbCook = (over: Record<string, unknown> = {}) => ({
@@ -151,5 +180,139 @@ describe('GET /api/settings/people', () => {
     prepSettingsFindUnique.mockResolvedValueOnce({ stations: ['Grill', 'Fry'] })
     const body = await (await GET()).json()
     expect(body.stations).toEqual(['Grill', 'Fry'])
+  })
+})
+
+import type { NextRequest } from 'next/server'
+
+const postReq = (body: Record<string, unknown>) =>
+  ({ json: async () => body, url: 'https://app.test/api/settings/people' }) as unknown as NextRequest
+
+const loginBody = {
+  name: 'Sam Lee',
+  login: { email: 'sam@fergies.test', clearance: 'STAFF', assignments: [{ locationId: 'loc1', revenueCenterId: null, clearance: null }] },
+}
+const rosterBody = {
+  name: 'Sam',
+  roster: { initials: 'SL', homeStation: 'Hot', clockId: '4521', tipRoleId: 'r1', onTipPool: true },
+}
+
+describe('POST /api/settings/people', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireSession.mockResolvedValue({ id: 'u9', email: 'admin@fergies.test', name: 'Admin', role: 'ADMIN', isActive: true })
+    cookCreate.mockResolvedValue({ id: 'c-new' })
+    cookCount.mockResolvedValue(3)
+    cookFindUnique.mockResolvedValue(null)
+    validateAssignmentRows.mockResolvedValue(null)
+    loadSettings.mockResolvedValue({ defaultDailyHourCap: 8 })
+    inviteOne.mockResolvedValue({ email: 'sam@fergies.test', status: 'invited', userId: 'u-new' })
+  })
+
+  it('requires ADMIN', async () => {
+    requireSession.mockRejectedValueOnce(new AuthError(403, 'Forbidden'))
+    const res = await POST(postReq(loginBody))
+    expect(res.status).toBe(403)
+    expect(cookCreate).not.toHaveBeenCalled()
+    expect(inviteOne).not.toHaveBeenCalled()
+  })
+
+  it('rejects a body with neither half', async () => {
+    const res = await POST(postReq({ name: 'Sam' }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/login|roster/i)
+  })
+
+  it('rejects a blank name', async () => {
+    const res = await POST(postReq({ ...rosterBody, name: '  ' }))
+    expect(res.status).toBe(400)
+  })
+
+  it('creates a roster-only person', async () => {
+    const res = await POST(postReq(rosterBody))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.cookId).toBe('c-new')
+    expect(body.userId).toBeNull()
+    expect(inviteOne).not.toHaveBeenCalled()
+  })
+
+  it('creates a login-only person', async () => {
+    const res = await POST(postReq(loginBody))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.cookId).toBeNull()
+    expect(body.userId).toBe('u-new')
+    expect(cookCreate).not.toHaveBeenCalled()
+  })
+
+  it('prefills dailyHourCap from TipSettings — /api/prep/cooks does not, and the hub must not inherit that', async () => {
+    await POST(postReq(rosterBody))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ dailyHourCap: 8 }) }),
+    )
+  })
+
+  it('appends the new roster row to the end of the run-sheet order', async () => {
+    cookCount.mockResolvedValueOnce(3)
+    await POST(postReq(rosterBody))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sortOrder: 3 }) }),
+    )
+  })
+
+  it('derives initials from the name when none are supplied', async () => {
+    await POST(postReq({ name: 'Sam', roster: { onTipPool: true } }))
+    expect(cookCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ initials: 'SA' }) }),
+    )
+  })
+
+  it('creates the roster row BEFORE inviting, and links the two', async () => {
+    const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(res.status).toBe(201)
+    expect(cookCreate.mock.invocationCallOrder[0]).toBeLessThan(inviteOne.mock.invocationCallOrder[0])
+    expect(cookUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'c-new' }, data: { userId: 'u-new' } }),
+    )
+  })
+
+  it('keeps the roster row and reports the failure when the invite fails', async () => {
+    inviteOne.mockResolvedValueOnce({ email: 'sam@fergies.test', status: 'failed', error: 'SMTP down' })
+    const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.cookId).toBe('c-new')
+    expect(body.userId).toBeNull()
+    expect(body.invite.status).toBe('failed')
+    expect(cookUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not attempt the invite when the roster create fails', async () => {
+    cookCreate.mockRejectedValueOnce(new Error('db down'))
+    const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(res.status).toBe(500)
+    expect(inviteOne).not.toHaveBeenCalled()
+  })
+
+  it('returns a readable 409 when the clock id is taken, before creating anything', async () => {
+    cookFindUnique.mockResolvedValueOnce({ id: 'other', name: 'Alex Kim' })
+    const res = await POST(postReq(rosterBody))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain('Alex Kim')
+    expect(cookCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a clearance the actor may not hand out', async () => {
+    const res = await POST(postReq({ ...loginBody, login: { ...loginBody.login, clearance: 'OWNER' } }))
+    expect(res.status).toBe(400)
+    expect(inviteOne).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid assignment rows before anything is created', async () => {
+    validateAssignmentRows.mockResolvedValueOnce('Unknown revenue center')
+    const res = await POST(postReq({ ...loginBody, roster: rosterBody.roster }))
+    expect(res.status).toBe(400)
+    expect(cookCreate).not.toHaveBeenCalled()
   })
 })

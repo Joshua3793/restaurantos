@@ -1,8 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PREP_STATIONS } from '@/lib/prep-utils'
 import { mergePeople, type PersonLogin, type PersonRoster } from '@/lib/people'
+import { Role } from '@prisma/client'
+import { assignableLevels } from '@/lib/roles'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { inviteOne, type InviteResult } from '@/lib/user-invite'
+import { loadSettings } from '@/lib/tips/settings'
+import {
+  type AssignmentInput, validateAssignmentRows, dedupeAssignmentRows,
+} from '@/lib/assignment-input'
 
 export const dynamic = 'force-dynamic'
 
@@ -121,4 +129,143 @@ export async function GET() {
     tipRoles: tipRoles.map(r => ({ ...r, multiplier: Number(r.multiplier) })),
     stations: prepSettings?.stations?.filter(Boolean) ?? PREP_STATIONS,
   })
+}
+
+/** First two letters of the name, matching the ADMIN cook form's normalisation. */
+function deriveInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  const raw = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.trim().slice(0, 2)
+  return raw.toUpperCase().slice(0, 3)
+}
+
+// POST — create one person: a login, a roster row, or both.
+//
+// ORDER IS DELIBERATE: Cook first → invite → link.
+//
+// Both partial outcomes are VALID people (roster-only, login-only), so neither
+// needs undoing. The invite is the failure-prone half (network, email delivery,
+// Supabase) and the retryable one — if it fails, the roster row survives and
+// the caller is told, with a retry available on the Identity tab. Inverting the
+// order would mean compensating a Supabase invite, a second thing that can fail.
+export async function POST(req: NextRequest) {
+  let admin
+  try { admin = await requireSession('ADMIN') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
+  const body = await req.json().catch(() => ({})) as {
+    name?: string
+    login?: { email?: string; clearance?: string; assignments?: AssignmentInput[] }
+    roster?: {
+      initials?: string; homeStation?: string | null; clockId?: string | null
+      tipRoleId?: string | null; onTipPool?: boolean
+    }
+  }
+
+  const name = String(body.name ?? '').trim()
+  if (!name) return NextResponse.json({ error: 'A name is required' }, { status: 400 })
+  if (!body.login && !body.roster) {
+    return NextResponse.json(
+      { error: 'Give this person an app login, a kitchen roster row, or both.' }, { status: 400 },
+    )
+  }
+
+  // ── validate EVERYTHING before writing anything ──────────────────────────
+  let assignments: Array<{ locationId: string | null; revenueCenterId: string | null; clearance: Role | null }> = []
+  let role: Role | null = null
+  let email = ''
+
+  if (body.login) {
+    email = String(body.login.email ?? '').trim().toLowerCase()
+    if (!email) return NextResponse.json({ error: 'An email is required for an app login' }, { status: 400 })
+    if (email === admin.email.toLowerCase()) {
+      return NextResponse.json({ error: 'Cannot invite yourself' }, { status: 400 })
+    }
+    const allowed = assignableLevels(admin.role)
+    if (!body.login.clearance || !allowed.includes(body.login.clearance as Role)) {
+      return NextResponse.json(
+        { error: `Clearance must be one of: ${allowed.join(', ')}` }, { status: 400 },
+      )
+    }
+    role = body.login.clearance as Role
+    // Validate BEFORE dedupe — dedupe keeps only the first row per node, so
+    // validate-first checks both rows when the same node is submitted twice
+    // with different clearances. Same order as the other two routes.
+    const rows = Array.isArray(body.login.assignments) ? body.login.assignments : []
+    const assignmentError = await validateAssignmentRows(rows, admin.role)
+    if (assignmentError) return NextResponse.json({ error: assignmentError }, { status: 400 })
+    assignments = dedupeAssignmentRows(rows)
+  }
+
+  const clockId = body.roster ? String(body.roster.clockId ?? '').trim() : ''
+  if (clockId) {
+    const clash = await prisma.cook.findUnique({ where: { clockId }, select: { id: true, name: true } })
+    if (clash) {
+      return NextResponse.json(
+        { error: `Clock #${clockId} already belongs to ${clash.name}` }, { status: 409 },
+      )
+    }
+  }
+
+  // ── 1. roster row ────────────────────────────────────────────────────────
+  let cookId: string | null = null
+  if (body.roster) {
+    try {
+      const settings = await loadSettings()
+      const created = await prisma.cook.create({
+        data: {
+          name,
+          initials: (body.roster.initials?.trim().toUpperCase().slice(0, 3)) || deriveInitials(name),
+          homeStation: body.roster.homeStation?.trim() || null,
+          clockId: clockId || null,
+          tipRoleId: body.roster.tipRoleId || null,
+          onTipPool: body.roster.onTipPool ?? true,
+          // Prefilled once, then owned by the person — never re-read from
+          // settings. POST /api/prep/cooks omits this; the hub must not.
+          dailyHourCap: settings.defaultDailyHourCap,
+          sortOrder: await prisma.cook.count(),
+        },
+      })
+      cookId = created.id
+    } catch (e) {
+      console.error('[settings/people POST] roster create failed', e)
+      return NextResponse.json(
+        { error: 'Could not create the roster row. Nothing was created.' }, { status: 500 },
+      )
+    }
+  }
+
+  // ── 2. invite ────────────────────────────────────────────────────────────
+  let invite: InviteResult | null = null
+  if (body.login && role) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || new URL(req.url).origin
+    invite = await inviteOne({
+      email, role, name, assignments,
+      actor: { id: admin.id, email: admin.email, name: admin.name },
+      appUrl,
+      supabaseAdmin: createAdminClient(),
+    })
+  }
+
+  // ── 3. link ──────────────────────────────────────────────────────────────
+  const userId = invite?.userId ?? null
+  let warning: string | undefined
+  if (cookId && userId) {
+    try {
+      await prisma.cook.update({ where: { id: cookId }, data: { userId } })
+    } catch (e) {
+      // Both halves exist and are individually correct; only the join failed.
+      // Report it rather than failing a create that mostly succeeded — the
+      // Identity tab can link them in one click.
+      console.error('[settings/people POST] link failed', e)
+      warning = 'Created both, but could not link the login to the roster row. Link them on the Identity tab.'
+    }
+  }
+
+  return NextResponse.json(
+    { cookId, userId, invite, ...(warning ? { warning } : {}) },
+    { status: 201 },
+  )
 }
