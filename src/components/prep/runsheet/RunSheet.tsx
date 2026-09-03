@@ -33,6 +33,12 @@ function minuteOfDay(iso: string): number {
 
 // PARTIAL is a reachable resolved state (onDrawerComplete sets it when the logged
 // qty falls short of suggestedQty) — treat DONE/PARTIAL as done-equivalent everywhere.
+// Right gutter every row container reserves, so the ladder's Remove button can
+// hang OUTSIDE the card without overflowing the sheet. Applied to Working On and
+// Done too — only todo rows paint a button in it, but every card has to end at
+// the same x or the sections look ragged.
+const RUN_GUTTER = 'pr-[30px]'
+
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
@@ -144,7 +150,7 @@ export function RunSheet({
 
   const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
   const rows = (list: PrepItemRich[]) => (
-    <div className="flex flex-col gap-2">
+    <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
       {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}
     </div>
   )
@@ -342,7 +348,7 @@ export function RunSheet({
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
-          <div className="flex flex-col gap-2">
+          <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
             {doing.map(i => (
               <WorkingRow
                 key={i.id}
@@ -374,7 +380,7 @@ export function RunSheet({
             DONE · {done.length} — yields logged, feeds history
           </button>
           {showDone && (
-            <div className="flex flex-col gap-1.5 mt-2">
+            <div className={`flex flex-col gap-1.5 mt-2 ${RUN_GUTTER}`}>
               {done.map(i => {
                 const doneMin = i.todayLog?.completedAt ? minuteOfDay(i.todayLog.completedAt) : null
                 const qty = i.todayLog?.actualPrepQty ?? i.suggestedQty ?? i.targetToday ?? i.parLevel

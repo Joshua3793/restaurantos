@@ -28,6 +28,12 @@ type Mode = 'station' | 'kitchen'
 // redundant here — My-station mode already IS the station filter.
 type Group = 'time' | 'priority'
 
+// Right gutter every mobile row container reserves, so Remove can hang OUTSIDE
+// the card instead of pressing against the 44px Start button. Narrower than the
+// desktop gutter — a phone has no width to spare — and applied to Working On and
+// Done too so every card ends at the same x.
+const MOBILE_GUTTER = 'pr-[22px]'
+
 // Same buckets and copy the desktop priority ladder uses, kept in one place so
 // the two frames can't drift apart.
 const PRIORITY_GROUPS: { key: PrepPriority; dot: string; title: string; sub: string }[] = [
@@ -152,7 +158,7 @@ export function RunSheetMobile({
   const claimTap = (item: PrepItemRich) => onClaim(item, item.assignedCook?.id === cook ? null : cook)
 
   const rows = (list: PrepItemRich[], kitchen: boolean) => (
-    <div className="flex flex-col gap-[7px]">
+    <div className={`flex flex-col gap-[7px] ${MOBILE_GUTTER}`}>
       {list.map(i => (
         <RunRowMobile
           key={i.id}
@@ -270,7 +276,7 @@ export function RunSheetMobile({
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
-          <div className="flex flex-col gap-2">
+          <div className={`flex flex-col gap-2 ${MOBILE_GUTTER}`}>
             {doing.map(i => (
               <WorkingRowMobile
                 key={i.id}
@@ -343,7 +349,7 @@ export function RunSheetMobile({
             DONE · {done.length}
           </button>
           {showDone && (
-            <div className="flex flex-col gap-1.5 mt-[7px]">
+            <div className={`flex flex-col gap-1.5 mt-[7px] ${MOBILE_GUTTER}`}>
               {done.map(i => {
                 const qty = i.todayLog?.actualPrepQty ?? i.suggestedQty ?? i.targetToday ?? i.parLevel
                 return (

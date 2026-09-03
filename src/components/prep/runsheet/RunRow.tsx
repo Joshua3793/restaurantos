@@ -55,6 +55,11 @@ export function RunRow({
   // a second. Keeping all four columns on one line at that width squeezed the
   // name column to ~140px and broke long names over seven lines.
   return (
+    // The card sits inside a wrapper so Remove can hang in the gutter BESIDE it
+    // rather than inside the action cluster. The gutter is reserved by the row
+    // containers in RunSheet (see RUN_GUTTER), so the button is visually outside
+    // the bar without ever overflowing the sheet.
+    <div className="relative">
     <div
       className={`grid grid-cols-[64px_minmax(0,1fr)] lg:grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 bg-paper border border-line border-l-[3px] rounded-[11px] relative ${
         dense ? 'py-2 px-4' : 'py-[13px] px-4'
@@ -131,19 +136,6 @@ export function RunRow({
             />
           )}
         </div>
-        {onRemove && (
-          // Deliberately NOT a peer of the Recipe/Start buttons below — it is
-          // destructive (Undo is the only safety net, there's no confirm step),
-          // so it stays borderless/quiet at rest and only signals on hover.
-          <button
-            onClick={() => onRemove(item)}
-            title="Remove from the list"
-            aria-label={`Remove ${item.name} from the list`}
-            className="w-[34px] h-[34px] rounded-[9px] bg-transparent border-none grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red"
-          >
-            <X size={15} />
-          </button>
-        )}
         <button
           onClick={() => onOpenRecipe(item)}
           title="Recipe"
@@ -158,6 +150,21 @@ export function RunRow({
           <Zap size={12} className="text-gold" /> Start
         </button>
       </div>
+    </div>
+      {onRemove && (
+        // Off the card entirely, past its right edge and clear of Start: it is
+        // destructive (Undo is the only safety net — there is no confirm step),
+        // so it must never sit where a thumb aiming for Start can land. Quiet at
+        // rest, and only signals on hover.
+        <button
+          onClick={() => onRemove(item)}
+          title="Remove from the list"
+          aria-label={`Remove ${item.name} from the list`}
+          className="absolute top-1/2 -translate-y-1/2 -right-[30px] w-[26px] h-[26px] rounded-[7px] bg-transparent border-none grid place-items-center cursor-pointer text-ink-4/70 hover:text-red hover:bg-red-soft transition-colors"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   )
 }

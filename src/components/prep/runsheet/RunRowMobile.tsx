@@ -64,6 +64,11 @@ export function RunRowMobile({
     .join(' · ')
 
   return (
+    // Wrapper so Remove can hang in the gutter beside the card (see MOBILE_GUTTER
+    // in RunSheetMobile). Outside is also the SAFER place on a phone: inside, the
+    // only spot left is hard against the 44px Start button, and a mis-tap there
+    // is a destructive action a thumb reached for by accident.
+    <div className="relative">
     <div
       className={`flex items-center gap-3 bg-paper border border-line border-l-[3px] rounded-[11px] ${
         dense ? 'py-2 px-3' : 'py-[11px] px-[13px]'
@@ -120,15 +125,6 @@ export function RunRowMobile({
           narrower than a square tap target so it gives width back to the name
           column — the one thing a cook must always be able to read — while
           keeping the tappable height at 44px. */}
-      {onRemove && (
-        <button
-          onClick={() => onRemove(item)}
-          aria-label={`Remove ${item.name} from the list`}
-          className="w-6 h-11 grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red bg-transparent border-none"
-        >
-          <X size={15} />
-        </button>
-      )}
       {/* Stock-out / blocked items are NOT gated — the urgency dot flags the risk and the
           drawer spells it out, but the cook can still start (uncounted stock, or prepping
           toward a restock). */}
@@ -138,6 +134,19 @@ export function RunRowMobile({
       >
         <Zap size={15} className="text-gold" />
       </button>
+    </div>
+      {onRemove && (
+        <button
+          onClick={() => onRemove(item)}
+          aria-label={`Remove ${item.name} from the list`}
+          // h-11: 44px of thumb, in a 22px-wide gutter. Height is free here —
+          // it costs no horizontal space and the 7px row gap keeps it clear of
+          // the neighbouring rows.
+          className="absolute top-1/2 -translate-y-1/2 -right-[22px] w-[22px] h-11 grid place-items-center cursor-pointer text-ink-4/70 hover:text-red bg-transparent border-none"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   )
 }
