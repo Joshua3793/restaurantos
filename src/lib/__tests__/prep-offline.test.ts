@@ -265,21 +265,21 @@ describe('prep offline queue — a failed request is never counted as synced', (
     mockFetchWith(() => errRes(404))
     enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1' })
 
-    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1, kept: 0 })
   })
 
   it('counts a 400 from plan/post as failed', async () => {
     mockFetchWith(() => errRes(400))   // "Nothing on the list to post"
     enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
 
-    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1, kept: 0 })
   })
 
   it('counts a 403 on the draft_edit PUT as failed', async () => {
     mockFetchWith(() => errRes(403))   // non-LEAD editing plan fields
     enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, 'log-real'))
 
-    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1, kept: 0 })
   })
 
   it('marks the mutation failed and skips the PUT when the log create fails', async () => {
@@ -287,7 +287,7 @@ describe('prep offline queue — a failed request is never counted as synced', (
     const calls = mockFetchWith(() => errRes(400))
     enqueueMutation({ type: 'status', itemId: 'item-1', logId: '_opt_item-1', status: 'DONE', actualQty: 3, revenueCenterId: 'rc-1' })
 
-    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1, kept: 0 })
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toBe('/api/prep/logs')
   })
@@ -296,7 +296,7 @@ describe('prep offline queue — a failed request is never counted as synced', (
     const calls = mockFetchWith(() => okRes({}))
     enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, null))
 
-    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1, kept: 0 })
     expect(calls).toHaveLength(1)
     expect(loadQueue()).toHaveLength(0)   // a bad contract will not fix itself
   })
@@ -314,22 +314,24 @@ describe('prep offline queue — retry vs drop', () => {
     expect(loadQueue()).toHaveLength(0)
   })
 
-  it('keeps a 5xx for the next flush', async () => {
+  it('keeps a 5xx for the next flush, reported as kept rather than failed', async () => {
     mockFetchWith(() => errRes(503))
     enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1' })
 
     const res = await flushQueue()
 
-    expect(res).toEqual({ synced: 0, failed: 1 })
+    // This is the case Fix 2 exists for: work that is safely queued for retry
+    // must not be reported the same way as work that was permanently dropped.
+    expect(res).toEqual({ synced: 0, failed: 0, kept: 1 })
     const left = loadQueue()
     expect(left).toHaveLength(1)
     expect(left[0].type).toBe('remove_item')
   })
 
-  it('keeps the un-attempted remainder when the network drops mid-flush', async () => {
+  it('keeps the un-attempted remainder when the network drops mid-flush, and never attempts them', async () => {
     // First mutation lands, then the connection dies. The two behind it were
     // never attempted and must not be wiped.
-    mockFetchWith(call => {
+    const calls = mockFetchWith(call => {
       if (call.index === 0) return okRes({ id: 'srv-1' })
       throw new TypeError('Failed to fetch')
     })
@@ -341,6 +343,77 @@ describe('prep offline queue — retry vs drop', () => {
 
     expect(res.synced).toBe(1)
     expect(loadQueue().map(m => m.type)).toEqual(['remove_item', 'post'])
+    // Pins that the flush actually STOPPED at the transient failure instead of
+    // attempting (and failing) the remaining queued mutations too.
+    expect(calls).toHaveLength(2)
+  })
+
+  it('reports a permanent drop and a kept retry separately in the same flush', async () => {
+    mockFetchWith(call => (call.index === 0 ? errRes(404) : errRes(503)))
+    enqueueMutation({ type: 'remove_item', itemId: 'a', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'priority', itemId: 'b', priority: 'PASS' })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 1, kept: 1 })
+  })
+
+  it('keeps a 401 for the next flush instead of dropping the queue — a lapsed session is not a decision about the mutation', async () => {
+    mockFetchWith(() => errRes(401))
+    enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1' })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 0, kept: 1 })
+    expect(loadQueue()).toHaveLength(1)
+  })
+
+  it('keeps a 429 for the next flush — a rate limit is not a decision about the mutation', async () => {
+    mockFetchWith(() => errRes(429))
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 0, kept: 1 })
+    expect(loadQueue()).toHaveLength(1)
+  })
+
+  it('keeps a 408 for the next flush — a timeout is not a decision about the mutation', async () => {
+    mockFetchWith(() => errRes(408))
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'item-1', isOnList: true })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 0, kept: 1 })
+    expect(loadQueue()).toHaveLength(1)
+  })
+
+  it('drops a persistently transient mutation after MAX_ATTEMPTS instead of retrying it forever', async () => {
+    mockFetchWith(() => errRes(503))
+    enqueueMutation({ type: 'remove_item', itemId: 'a', revenueCenterId: 'rc-1' })
+
+    let res: Awaited<ReturnType<typeof flushQueue>> | undefined
+    for (let i = 0; i < 5; i++) {
+      res = await flushQueue()
+    }
+
+    expect(res).toEqual({ synced: 0, failed: 1, kept: 0 })
+    expect(loadQueue()).toHaveLength(0)   // a dead endpoint no longer blocks the queue forever
+  })
+
+  it('does not run a second flush while one is already in flight', async () => {
+    let resolveFirst!: (r: Response) => void
+    const fn = vi.fn(() => new Promise<Response>(resolve => { resolveFirst = resolve }))
+    ;(globalThis as unknown as { fetch: typeof fn }).fetch = fn
+    enqueueMutation({ type: 'priority', itemId: 'a', priority: 'PASS' })
+
+    const first = flushQueue()
+    const second = await flushQueue()   // fires while the first is still awaiting fetch
+
+    expect(second).toEqual({ synced: 0, failed: 0, kept: 0 })
+
+    resolveFirst(okRes({ id: 'srv-1' }))
+    expect(await first).toEqual({ synced: 1, failed: 0, kept: 0 })
   })
 
   it('retries the merged survivor, not the individual edits it came from', async () => {
@@ -362,7 +435,7 @@ describe('prep offline queue — retry vs drop', () => {
 
     const res = await flushQueue()
 
-    expect(res).toEqual({ synced: 1, failed: 1 })
+    expect(res).toEqual({ synced: 1, failed: 1, kept: 0 })
     expect(calls).toHaveLength(2)
     expect(loadQueue()).toHaveLength(0)
   })
@@ -381,7 +454,7 @@ describe('prep offline queue — work enqueued during a flush', () => {
 
     const res = await flushQueue()
 
-    expect(res).toEqual({ synced: 1, failed: 0 })
+    expect(res).toEqual({ synced: 1, failed: 0, kept: 0 })
     const left = loadQueue()
     expect(left).toHaveLength(1)
     expect(left[0].itemId).toBe('item-2')
@@ -425,7 +498,7 @@ describe('prep offline queue — merged draft_edit identity fields', () => {
 
     const res = await flushQueue()
 
-    expect(res).toEqual({ synced: 1, failed: 0 })
+    expect(res).toEqual({ synced: 1, failed: 0, kept: 0 })
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toBe('/api/prep/logs')
     expect(calls[0].method).toBe('POST')

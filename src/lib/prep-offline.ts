@@ -28,6 +28,14 @@ export interface OfflineMutation {
   revenueCenterId?: string | null   // active RC captured at enqueue time
   patch?:     DraftPatch      // for draft_edit
   restore?:   boolean         // for remove_item — true puts the item back
+  /**
+   * How many times this mutation has already been sent and gotten a
+   * `transient` outcome back. Absent/undefined means zero. Survives
+   * write-back into the queue (and survives `deduplicateQueue`, which always
+   * spreads the winning/anchor mutation) so repeated flush cycles accumulate
+   * it rather than resetting it — see `MAX_ATTEMPTS` in `flushQueue`.
+   */
+  attempts?: number
 }
 
 // ── Cache ──────────────────────────────────────────────────────────────────────
@@ -198,19 +206,40 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
  * it could not possibly change the outcome:
  *
  *  · `ok`        — 2xx. Done, drop it.
- *  · `permanent` — 4xx. A DECISION, not a hiccup: `requireSession('LEAD')`
- *                  returning 403 for a cook, `remove-item` returning 404 for an
- *                  item owned by another revenue center, `plan/post` returning
- *                  400 for an empty draft. The same request will get the same
- *                  answer forever, so keeping it would build an infinite retry
- *                  loop that also blocks everything queued behind it. Dropped,
- *                  and reported through the returned `failed` count — which the
- *                  page surfaces as an error banner.
- *  · `transient` — a THROWN fetch (offline / DNS / connection reset) or a 5xx.
- *                  The server never decided, so this may well succeed later.
- *                  Kept for the next flush. This is the dead-zone case.
+ *  · `permanent` — a 4xx that is a DECISION ABOUT THIS MUTATION:
+ *                  `requireSession('LEAD')` returning 403 for a cook,
+ *                  `remove-item` returning 404 for an item owned by another
+ *                  revenue center, `plan/post` returning 400 for an empty
+ *                  draft. The same request will get the same answer forever,
+ *                  so keeping it would build an infinite retry loop that also
+ *                  blocks everything queued behind it. Dropped, and reported
+ *                  through the returned `failed` count — which the page
+ *                  surfaces as an error banner.
+ *  · `transient` — a THROWN fetch (offline / DNS / connection reset), a 5xx,
+ *                  or one of three 4xx statuses that LOOK like a decision but
+ *                  aren't:
+ *                    - **401** — `requireSession` throws this whenever
+ *                      `supabase.auth.getUser()` returns no user: an expired
+ *                      refresh token, a session revoked elsewhere, or
+ *                      Supabase auth being briefly unreachable. Crucially this
+ *                      is not a verdict on the mutation — it hits EVERY queued
+ *                      request at once, and a fresh login makes every one of
+ *                      them succeed unchanged. Treating it as permanent would
+ *                      silently empty the whole queue the moment a chef's
+ *                      session lapses in the walk-in.
+ *                    - **408** — request timeout. The server never finished
+ *                      deciding.
+ *                    - **429** — rate limited. The server is refusing to
+ *                      decide right now, not refusing forever.
+ *                  Kept for the next flush (up to `MAX_ATTEMPTS`, see
+ *                  `flushQueue`) — this is the dead-zone case.
  */
 type Outcome = 'ok' | 'permanent' | 'transient'
+
+/** 5xx, or a 4xx that isn't actually a decision about the mutation — see THE RETRY RULE above. */
+function isTransientStatus(status: number): boolean {
+  return status >= 500 || status === 401 || status === 408 || status === 429
+}
 
 async function send(url: string, init: RequestInit): Promise<{ outcome: Outcome; res: Response | null }> {
   let res: Response
@@ -220,7 +249,7 @@ async function send(url: string, init: RequestInit): Promise<{ outcome: Outcome;
     return { outcome: 'transient', res: null }   // never reached the server
   }
   if (res.ok) return { outcome: 'ok', res }
-  return { outcome: res.status >= 500 ? 'transient' : 'permanent', res }
+  return { outcome: isTransientStatus(res.status) ? 'transient' : 'permanent', res }
 }
 
 /**
@@ -316,44 +345,93 @@ async function runMutation(m: OfflineMutation): Promise<Outcome> {
   return 'permanent'
 }
 
-export async function flushQueue(): Promise<{ synced: number; failed: number }> {
-  // Snapshot: everything enqueued AFTER this line is the page's, not ours.
-  const original = loadQueue()
-  if (original.length === 0) return { synced: 0, failed: 0 }
+// A mutation that keeps getting a transient outcome is retried this many times
+// (across separate flushes — a walk-in dead zone can easily span several) before
+// it is dropped for good. The page flushes on a 60s interval, the `online`
+// event, and a manual "Sync now" button, so 5 attempts comfortably covers a
+// multi-minute dead spot or a brief 401/5xx blip while still guaranteeing that
+// a persistently-broken endpoint stops blocking the mutations queued behind it
+// within a few minutes rather than forever.
+const MAX_ATTEMPTS = 5
 
-  const deduped = deduplicateQueue(original)
-  let synced = 0
-  let failed = 0
+// Only one flush may run at a time. Two overlapping calls (the interval timer,
+// the `online` listener, and the manual button can all fire close together)
+// would otherwise both read the same queue: the first send()s a mutation
+// successfully while the second — mid-flight against the same snapshot —
+// hasn't dropped it yet, gets a transient outcome of its own, and writes the
+// already-synced mutation back into the queue. Every mutation here happens to
+// be an idempotent state write, so a resurrected duplicate is harmless today,
+// but there's no reason to rely on that.
+let flushInFlight = false
 
-  // What to put back. Always the SURVIVOR, never the originals it was merged
-  // from — the survivor already carries the merged patch and the last edit's
-  // logId/RC, and that merged state is exactly what should reach the server.
-  const retry: OfflineMutation[] = []
-
-  for (let i = 0; i < deduped.length; i++) {
-    const outcome = await runMutation(deduped[i])
-    if (outcome === 'ok') { synced++; continue }
-    failed++
-    if (outcome === 'permanent') continue   // see THE RETRY RULE above
-    // Transient. The network decided, not the server, so stop here: the rest of
-    // the queue would only pile up identical failures, and firing them anyway
-    // would let a later mutation land ahead of this one. Keep this mutation and
-    // every un-attempted one behind it, in order, for the next flush.
-    retry.push(...deduped.slice(i))
-    break
-  }
-
-  // Anything the page enqueued DURING the awaits above must survive — the
-  // planner enqueues a draft_edit per edit, so a chef typing through a flush is
-  // ordinary. Identify them by id: they are not in the opening snapshot.
-  const snapshotIds = new Set(original.map(o => o.id))
-  const appended = loadQueue().filter(o => !snapshotIds.has(o.id))
-
-  const next = [...retry, ...appended]
+/**
+ * Send every queued mutation to the server, in order.
+ *
+ * `synced` — 2xx, done.
+ * `failed` — dropped for good, either because the server made a decision
+ *            (`permanent`, see THE RETRY RULE) or because a `transient`
+ *            mutation exhausted `MAX_ATTEMPTS`. This is what the page should
+ *            show as an error banner: work that will NOT come back on its own.
+ * `kept`   — `transient` and still under `MAX_ATTEMPTS`: safely queued and
+ *            retained for the next flush. Never show this as an error — it is
+ *            exactly the walk-in-dead-zone case this queue exists for.
+ */
+export async function flushQueue(): Promise<{ synced: number; failed: number; kept: number }> {
+  if (flushInFlight) return { synced: 0, failed: 0, kept: 0 }
+  flushInFlight = true
   try {
-    if (next.length === 0) clearQueue()
-    else localStorage.setItem(QUEUE_KEY, JSON.stringify(next))
-  } catch { /* graceful degradation */ }
+    // Snapshot: everything enqueued AFTER this line is the page's, not ours.
+    const original = loadQueue()
+    if (original.length === 0) return { synced: 0, failed: 0, kept: 0 }
 
-  return { synced, failed }
+    const deduped = deduplicateQueue(original)
+    let synced = 0
+    let failed = 0
+    let kept = 0
+
+    // What to put back. Always the SURVIVOR, never the originals it was merged
+    // from — the survivor already carries the merged patch and the last edit's
+    // logId/RC, and that merged state is exactly what should reach the server.
+    const retry: OfflineMutation[] = []
+
+    for (let i = 0; i < deduped.length; i++) {
+      const outcome = await runMutation(deduped[i])
+      if (outcome === 'ok') { synced++; continue }
+      if (outcome === 'permanent') { failed++; continue }   // see THE RETRY RULE above
+
+      // Transient. An endpoint that is permanently 500ing (or a session that
+      // never recovers) would otherwise sit at the head of the queue and stop
+      // everything behind it on every single flush, forever — so once this
+      // mutation has used up its attempts, drop it instead of retrying again,
+      // and keep draining the rest of THIS flush rather than stopping here.
+      const attempts = (deduped[i].attempts ?? 0) + 1
+      if (attempts >= MAX_ATTEMPTS) { failed++; continue }
+
+      // Still under the cap. The network (or the server's willingness to
+      // decide) is the blocker, not the mutation's content, so stop here: the
+      // rest of the queue would only pile up identical failures, and firing
+      // them anyway would let a later mutation land ahead of this one. Keep
+      // this mutation (with its attempt count bumped) and every un-attempted
+      // one behind it, in order, for the next flush.
+      kept += deduped.length - i
+      retry.push({ ...deduped[i], attempts }, ...deduped.slice(i + 1))
+      break
+    }
+
+    // Anything the page enqueued DURING the awaits above must survive — the
+    // planner enqueues a draft_edit per edit, so a chef typing through a flush
+    // is ordinary. Identify them by id: they are not in the opening snapshot.
+    const snapshotIds = new Set(original.map(o => o.id))
+    const appended = loadQueue().filter(o => !snapshotIds.has(o.id))
+
+    const next = [...retry, ...appended]
+    try {
+      if (next.length === 0) clearQueue()
+      else localStorage.setItem(QUEUE_KEY, JSON.stringify(next))
+    } catch { /* graceful degradation */ }
+
+    return { synced, failed, kept }
+  } finally {
+    flushInFlight = false
+  }
 }
