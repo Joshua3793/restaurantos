@@ -818,13 +818,40 @@ export default function PrepPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ revenueCenterId: rcId, prepItemId: item.id, restore }),
       })
-      if (!res.ok) throw new Error((await res.json()).error || 'Could not update the list — try again.')
+      if (!res.ok) {
+        // The server's `error` field is written for users (e.g. "already removed by
+        // someone else") — surface it verbatim. Anything else reaching this branch
+        // (a non-JSON error body) is not user copy, so fall back to a plain sentence
+        // rather than whatever the parse failure says.
+        let message = 'Could not update the list — try again.'
+        try { const body = await res.json(); if (body?.error) message = body.error } catch { /* non-JSON error body */ }
+        setActionError(message)
+        load()
+        return
+      }
       if (!restore) {
         toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true) } })
+      } else {
+        // RESTORE direction only: the optimistic patch above only restamps an
+        // EXISTING todayLog's postedAt — it does nothing for a carried (pre-today)
+        // job whose todayLog was already nulled out. isLiveLog (src/lib/prep-plan.ts)
+        // keeps a pre-today log only while postedAt != null, so once removed, any
+        // load() landing before Undo is clicked (the 60s poll, the Refresh button,
+        // the activeOnly toggle, or another handler's error-path load()) returns
+        // todayLog: null for it — the row would stay missing from the To Do until
+        // the next poll even though the server-side restore succeeded. Reconcile
+        // from the server. `true` = silent background reload — no full-screen
+        // loading state over a list the cook is actively reading.
+        //
+        // The removal direction doesn't need this: every row on the To Do already
+        // has a todayLog, so patching its postedAt to null is always sufficient.
+        load(true)
       }
       loadPlan()
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'Could not update the list — try again.')
+    } catch {
+      // Network failure (offline) or an unparseable response — not user copy,
+      // so don't surface the raw exception text (e.g. "TypeError: Failed to fetch").
+      setActionError('Could not update the list — try again.')
       load()
     }
   }

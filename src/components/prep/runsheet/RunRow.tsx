@@ -132,11 +132,14 @@ export function RunRow({
           )}
         </div>
         {onRemove && (
+          // Deliberately NOT a peer of the Recipe/Start buttons below — it is
+          // destructive (Undo is the only safety net, there's no confirm step),
+          // so it stays borderless/quiet at rest and only signals on hover.
           <button
             onClick={() => onRemove(item)}
             title="Remove from the list"
             aria-label={`Remove ${item.name} from the list`}
-            className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-line-2 grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red hover:border-red"
+            className="w-[34px] h-[34px] rounded-[9px] bg-transparent border-none grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red"
           >
             <X size={15} />
           </button>

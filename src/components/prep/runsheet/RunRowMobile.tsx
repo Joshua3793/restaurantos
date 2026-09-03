@@ -116,18 +116,22 @@ export function RunRowMobile({
         </div>
       </div>
 
-      {/* Stock-out / blocked items are NOT gated — the urgency dot flags the risk and the
-          drawer spells it out, but the cook can still start (uncounted stock, or prepping
-          toward a restock). */}
+      {/* Borderless/quiet at rest (Undo is the safety net, not a confirm step) and
+          narrower than a square tap target so it gives width back to the name
+          column — the one thing a cook must always be able to read — while
+          keeping the tappable height at 44px. */}
       {onRemove && (
         <button
           onClick={() => onRemove(item)}
           aria-label={`Remove ${item.name} from the list`}
-          className="w-9 h-11 grid place-items-center cursor-pointer shrink-0 text-ink-4 bg-transparent border-none"
+          className="w-6 h-11 grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red bg-transparent border-none"
         >
-          <X size={16} />
+          <X size={15} />
         </button>
       )}
+      {/* Stock-out / blocked items are NOT gated — the urgency dot flags the risk and the
+          drawer spells it out, but the cook can still start (uncounted stock, or prepping
+          toward a restock). */}
       <button
         onClick={() => onStart(item)}
         className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
