@@ -20,14 +20,21 @@ export interface OfflineMutation {
   type:       'isOnList_toggle' | 'status' | 'priority' | 'draft_edit' | 'post' | 'remove_item'
   /** '' for `post`, which is RC-scoped rather than item-scoped. */
   itemId:     string
-  isOnList?:  boolean         // for isOnList_toggle
+  /**
+   * For `isOnList_toggle`, the value to write. For a `remove_item` with
+   * `restore: true`, the Smart Prep DRAFT flag as it stood BEFORE the removal
+   * cleared it — an item can be posted while already off the draft, so the
+   * Undo has to put back what was there rather than assuming `true`. Ignored
+   * on a removal.
+   */
+  isOnList?:  boolean
   logId?:     string | null   // null or '_opt_<itemId>' = not yet on server
   status?:    string
   actualQty?: number
   priority?:  string
   revenueCenterId?: string | null   // active RC captured at enqueue time
   patch?:     DraftPatch      // for draft_edit
-  restore?:   boolean         // for remove_item — true puts the item back
+  restore?:   boolean         // for remove_item — true puts the item back (with `isOnList`)
   /**
    * How many times this mutation has already been sent and gotten a
    * `transient` outcome back. Absent/undefined means zero. Survives
@@ -382,6 +389,11 @@ async function runMutation(m: OfflineMutation): Promise<Outcome> {
       revenueCenterId: m.revenueCenterId ?? null,
       prepItemId: m.itemId,
       restore: m.restore === true,
+      // Restore only — the removal path always clears the draft flag, so
+      // sending it there would just be noise. `deduplicateQueue` keeps the LAST
+      // remove_item per item per segment, so a remove-then-undo pair collapses
+      // to the undo, and the undo is the entry carrying this value.
+      ...(m.restore === true ? { isOnList: m.isOnList !== false } : {}),
     }))
     return outcome
   }

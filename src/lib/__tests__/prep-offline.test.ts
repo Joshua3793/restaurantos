@@ -147,6 +147,36 @@ describe('prep offline queue — post and remove_item', () => {
     expect(calls[0].body).toEqual({ revenueCenterId: 'rc-1', prepItemId: 'item-1', restore: false })
   })
 
+  it('carries the restored draft flag through the flush to the request body', async () => {
+    // `isOnList` is the Smart Prep DRAFT flag the removal cleared, captured by
+    // the page BEFORE it patched anything. An item can be posted while already
+    // off the draft, so the route must be told what to put back rather than
+    // assuming `true`.
+    const calls = mockFetch()
+    enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1', restore: true, isOnList: false })
+
+    await flushQueue()
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/prep/plan/remove-item')
+    expect(calls[0].body).toEqual({
+      revenueCenterId: 'rc-1', prepItemId: 'item-1', restore: true, isOnList: false,
+    })
+  })
+
+  it('keeps the undo\'s draft flag when a remove-then-undo pair collapses', async () => {
+    // remove_item dedupes to the LAST per item per segment, so the pair
+    // collapses to the undo — which is the entry carrying the flag.
+    const calls = mockFetch()
+    enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1', restore: true, isOnList: false })
+
+    await flushQueue()
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].body).toMatchObject({ restore: true, isOnList: false })
+  })
+
   it('flushes a post to the plan post route', async () => {
     const calls = mockFetch()
     enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })

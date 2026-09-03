@@ -45,6 +45,22 @@ export async function POST(req: NextRequest) {
   const revenueCenterId: string | undefined = body?.revenueCenterId
   const prepItemId: string | undefined = body?.prepItemId
   const restore: boolean = body?.restore === true
+  // The DRAFT flag to put back, restore path only. `isOnList` is NOT "is on the
+  // kitchen's To Do" — that is `PrepLog.postedAt`, stamped separately below.
+  // The two diverge routinely: post the list, then take an item off the draft,
+  // and the post goes `dirty` while the item stays on the cooks' To Do with
+  // `isOnList` ALREADY false. Hardcoding `true` here would end an Undo with the
+  // item back in the chef's draft, which is not where it was.
+  //
+  // This route cannot read the prior value — the removal that cleared it was a
+  // separate request — so the CALLER carries it. Omitted means `true`: that is
+  // the common case (posted AND on the draft), and it is the safe direction. An
+  // item wrongly ON the draft is visible to the chef and keeps its posted row
+  // through the next Post; one wrongly OFF it is silently dropped by the next
+  // Post, which clears `postedAt` for everything `notIn draftIds`. Every caller
+  // sends the field today (src/app/prep/page.tsx and the offline queue in
+  // src/lib/prep-offline.ts are the only two).
+  const restoreIsOnList: boolean = typeof body?.isOnList === 'boolean' ? body.isOnList : true
   if (!revenueCenterId) return NextResponse.json({ error: 'revenueCenterId is required' }, { status: 400 })
   if (!prepItemId) return NextResponse.json({ error: 'prepItemId is required' }, { status: 400 })
 
@@ -139,7 +155,7 @@ export async function POST(req: NextRequest) {
       })
       // updateMany, not update: a row deleted mid-flight must not P2025 into a
       // 500 on a restore that otherwise succeeded.
-      await tx.prepItem.updateMany({ where: { id: prepItemId }, data: { isOnList: true } })
+      await tx.prepItem.updateMany({ where: { id: prepItemId }, data: { isOnList: restoreIsOnList } })
       // +1 for the one item just put back, gated on a log write that really
       // happened. Atomic increment so it cannot clobber a concurrent post's
       // counters with a value read before the transaction. `updateMany` also

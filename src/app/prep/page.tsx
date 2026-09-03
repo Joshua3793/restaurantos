@@ -953,10 +953,27 @@ export default function PrepPage() {
   // Take one item straight off the kitchen's To Do — no Smart Prep round trip,
   // no inventory write. `restore` is the Undo. The optimistic patch mirrors what
   // the route does: postedAt cleared (that is what todayItems filters on — see
-  // `todayItems`) AND isOnList false.
-  async function handleRemoveFromToDo(item: PrepItemRich, restore = false, headerWasAdjusted?: boolean) {
+  // `todayItems`) AND isOnList false. The Undo re-stamps postedAt and puts back
+  // whatever isOnList actually WAS, which the caller carries — see below.
+  async function handleRemoveFromToDo(
+    item: PrepItemRich,
+    restore = false,
+    headerWasAdjusted?: boolean,
+    priorIsOnList?: boolean,
+  ) {
     const rcId = item.revenueCenterId ?? activeRcId
     if (!rcId) { setActionError('Select a revenue center (not "All") to change the list.'); return }
+
+    // `isOnList` is the Smart Prep DRAFT flag, NOT "is on the kitchen's To Do"
+    // (that is `todayLog.postedAt`). They diverge: post the list, then take the
+    // item off the draft, and it stays posted with `isOnList` already false. So
+    // an Undo cannot assert `true` — it has to put back whatever was there.
+    // Threaded, not recomputed, for the same reason `headerWasAdjusted` is: the
+    // Undo runs from a closure frozen at removal time (see the note below), so
+    // it is TOLD the prior value rather than reading anything at click time.
+    // Captured before the patch below, which is what overwrites it.
+    const wasOnList = item.isOnList
+    const nextIsOnList = restore ? priorIsOnList ?? true : false
 
     mutationSeq.current++
     const stamp = restore ? new Date().toISOString() : null
@@ -964,14 +981,17 @@ export default function PrepPage() {
       i.id === item.id
         ? {
             ...i,
-            isOnList: restore,
+            isOnList: nextIsOnList,
             todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp } : i.todayLog,
           }
         : i
     )))
 
     if (!navigator.onLine) {
-      enqueueMutation({ type: 'remove_item', itemId: item.id, revenueCenterId: rcId, restore })
+      // `isOnList` rides along so the flush sends the same draft flag the online
+      // path does — the route defaults an omitted one to `true`, which is wrong
+      // for an item that was posted but already off the draft.
+      enqueueMutation({ type: 'remove_item', itemId: item.id, revenueCenterId: rcId, restore, isOnList: nextIsOnList })
       setPendingCount(n => n + 1)
       // Move the posted band with the row, or it contradicts the list under it:
       // post 6 items offline, × two rows, and the synthetic header goes on
@@ -1017,7 +1037,7 @@ export default function PrepPage() {
         })
       }
       if (!restore) {
-        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true, didAdjust) } })
+        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true, didAdjust, wasOnList) } })
       }
       return
     }
@@ -1026,7 +1046,12 @@ export default function PrepPage() {
       const res = await fetch('/api/prep/plan/remove-item', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revenueCenterId: rcId, prepItemId: item.id, restore }),
+        // `isOnList` is restore-only: the removal path always clears the draft
+        // flag, so sending it there would just be noise.
+        body: JSON.stringify({
+          revenueCenterId: rcId, prepItemId: item.id, restore,
+          ...(restore ? { isOnList: nextIsOnList } : {}),
+        }),
       })
       if (!res.ok) {
         // The server's `error` field is written for users (e.g. "already removed by
@@ -1040,7 +1065,7 @@ export default function PrepPage() {
         return
       }
       if (!restore) {
-        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true) } })
+        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true, undefined, wasOnList) } })
       } else {
         // RESTORE direction only: the optimistic patch above only restamps an
         // EXISTING todayLog's postedAt — it does nothing for a carried (pre-today)

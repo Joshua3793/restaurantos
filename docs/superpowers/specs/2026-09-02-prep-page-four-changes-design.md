@@ -101,7 +101,7 @@ the destructive action away from an item someone is standing over.
 **New route: `POST /api/prep/plan/remove-item`**
 
 ```
-body: { revenueCenterId, prepItemId, restore?: boolean }
+body: { revenueCenterId, prepItemId, restore?: boolean, isOnList?: boolean }
 ```
 
 - `requireSession('LEAD')` then `assertRcWritable(user, revenueCenterId)`. Removing an
@@ -114,10 +114,27 @@ body: { revenueCenterId, prepItemId, restore?: boolean }
   items `notIn draftIds`.
 - `restore: true`: resolve the item's live log with
   `ensureLiveLogs([prepItemId], revenueCenterId)` and stamp `postedAt: new Date()` on
-  it, then set `isOnList: true`. **Not** `postedOpenWhere` — that fragment requires
-  `postedAt: { not: null }` and so cannot find the row the removal just cleared.
-  `ensureLiveLogs` is also what keeps the one-live-log-per-item invariant, and is the
-  same primitive the post route uses.
+  it, then set `isOnList` to the value in the body. **Not** `postedOpenWhere` — that
+  fragment requires `postedAt: { not: null }` and so cannot find the row the removal
+  just cleared. `ensureLiveLogs` is also what keeps the one-live-log-per-item
+  invariant, and is the same primitive the post route uses.
+- **`isOnList` is carried by the caller, not hardcoded to `true`.** Being on the
+  kitchen's To Do is `PrepLog.postedAt`; `isOnList` is the separate Smart Prep DRAFT
+  flag, and the two diverge routinely — post the list, then take the item off the
+  draft, and the post goes `dirty` while the item stays posted with `isOnList`
+  ALREADY false. Restoring `true` there would put a row the chef deliberately dropped
+  back into the draft. The route cannot read the prior value (the removal was a
+  separate request that already cleared it), so `handleRemoveFromToDo` captures
+  `item.isOnList` before its optimistic patch and threads it into the Undo call, the
+  same way it threads `headerWasAdjusted` — `usePrepToast` stores the Undo's
+  `onClick` verbatim and fires it later from a closure frozen at removal time, so
+  nothing can be recomputed at Undo time. The offline queue carries the same value on
+  its `remove_item` entry. Omitted means `true`: the common case (posted AND on the
+  draft), and the safe direction — an item wrongly ON the draft is visible to the
+  chef and keeps its posted row through the next Post, whereas one wrongly OFF it is
+  silently dropped by the next Post, which clears `postedAt` for everything
+  `notIn draftIds`. (Which is also why "just leave `isOnList` alone on a restore" is
+  not the fix.) Ignored on the removal path, which always clears the flag.
 - **Keeps the `PrepPost` header honest.** `PostedBand` renders
   `{itemCount} items · {activeMinutes} hands-on`, so a removal that left them alone
   would make the band lie. Look up the header with `livePost(revenueCenterId)`; when
@@ -135,7 +152,9 @@ body: { revenueCenterId, prepItemId, restore?: boolean }
 **Client:** `handleRemoveFromToDo(item)` in `src/app/prep/page.tsx` bumps
 `mutationSeq`, optimistically sets `todayLog.postedAt = null` and `isOnList = false`
 on that item, calls the route, and raises a toast with an Undo action that calls the
-same route with `restore: true`.
+same route with `restore: true` plus the `isOnList` the item had before the patch.
+The optimistic patch on the restore direction uses that same carried value — not
+`true`.
 
 **Role gate:** the `×` renders only when the page's existing `canPlan` is true
 (LEAD+, writable RC, not read-only). STAFF never sees it.
@@ -184,7 +203,7 @@ Three gaps:
 type: 'isOnList_toggle' | 'status' | 'priority'
     | 'draft_edit'   // { itemId, logId, revenueCenterId, patch: {requiredQty?, note?, assignedTo?, listOrder?} }
     | 'post'         // { revenueCenterId }
-    | 'remove_item'  // { itemId, revenueCenterId, restore?: boolean }
+    | 'remove_item'  // { itemId, revenueCenterId, restore?: boolean, isOnList?: boolean }
 ```
 
 **Dedup — `draft_edit` merges, it does not replace.** The existing rule (keep the last

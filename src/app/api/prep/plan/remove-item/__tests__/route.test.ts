@@ -359,6 +359,15 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
     expect(postUpdateMany).not.toHaveBeenCalled()
   })
 
+  it('clears isOnList on the removal path whatever the body says — the field is restore-only', async () => {
+    // `isOnList` in the body is the value the caller wants PUT BACK on an Undo.
+    // A removal always clears the draft flag, so the field must not be read here.
+    db.logs = [log({})]
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', isOnList: true }))
+    expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(false)
+    expect(itemUpdateMany.mock.calls[0][0].data).toEqual({ isOnList: false })
+  })
+
   it('404s an item owned by ANOTHER revenue center, and writes nothing', async () => {
     // assertRcWritable guards the REQUEST's center, not the item's. Without the
     // visibility check a Cafe LEAD's × matched no Catering logs (Catering's To
@@ -504,6 +513,55 @@ describe('POST /api/prep/plan/remove-item — restore', () => {
     expect(db.logs[0].id).toBe('l-done-today')
     expect(db.logs[0].postedAt).not.toBeNull()
     expect(db.posts[0]).toMatchObject({ itemCount: 4, activeMinutes: 85 })
+  })
+
+  it('puts back the DRAFT flag the caller carries, not `true` — a posted item that was already off the draft stays off it', async () => {
+    // The scenario the hardcoded `true` got wrong. `isOnList` is the Smart Prep
+    // DRAFT flag; being on the kitchen's To Do is `PrepLog.postedAt`. Post the
+    // list, then take this item off the draft: the post goes dirty and the item
+    // is posted with `isOnList` ALREADY false. The chef then taps × and Undo.
+    // Undo must put back exactly what the × took away — restoring the draft
+    // flag to `true` would add a row the chef had deliberately dropped.
+    db.items.find(i => i.id === 'i-brisket')!.isOnList = false
+    db.posts[0].dirty = true
+    db.logs = [log({})]
+
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    expect(db.logs[0].postedAt).toBeNull()
+    expect(db.posts[0]).toMatchObject({ itemCount: 2, activeMinutes: 45 })
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true, isOnList: false }))
+    expect(res.status).toBe(200)
+    // Back on the To Do, still off the draft — the exact pre-removal state.
+    expect(db.logs[0].postedAt).not.toBeNull()
+    expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(false)
+    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+  })
+
+  it('puts the draft flag back to true when that is what the caller carries', async () => {
+    // The common case: posted AND on the draft, so the removal cleared both and
+    // the Undo has to restore both. Leaving `isOnList` false here would bring
+    // the item back posted but off the draft, and the next Post — which clears
+    // postedAt for everything `notIn draftIds` — would silently drop it again.
+    db.items.find(i => i.id === 'i-brisket')!.isOnList = false
+    db.logs = [log({ postedAt: null })]
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true, isOnList: true }))
+    expect(res.status).toBe(200)
+    expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(true)
+    expect(db.logs[0].postedAt).not.toBeNull()
+  })
+
+  it('treats an omitted isOnList as true', async () => {
+    // Documented default: the common case, and the safe direction — an item
+    // wrongly ON the draft is visible to the chef and survives the next Post,
+    // one wrongly off it is silently dropped by the next Post.
+    db.items.find(i => i.id === 'i-brisket')!.isOnList = false
+    db.logs = [log({ postedAt: null })]
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
+    expect(res.status).toBe(200)
+    expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(true)
   })
 
   it('404s an item owned by another revenue center on the restore path too', async () => {
