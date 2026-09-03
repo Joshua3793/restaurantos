@@ -12,7 +12,7 @@ import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
 import type { PrepItemRich, PrepPriority } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
-import { InProgressRailMobile } from './InProgressRailMobile'
+import { WorkingRowMobile } from './WorkingRowMobile'
 import { NextUpHero } from './NextUpHero'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
@@ -260,13 +260,22 @@ export function RunSheetMobile({
         </div>
       )}
 
-      {/* in-progress rail */}
+      {/* Working On — full-width rows, above every ladder group. */}
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
-          {/* full-bleed horizontal scroll rail */}
-          <div className="-mx-4 px-4">
-            <InProgressRailMobile items={doing} nowMs={nowMs} onClaim={claimTap} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+          <div className="flex flex-col gap-2">
+            {doing.map(i => (
+              <WorkingRowMobile
+                key={i.id}
+                item={i}
+                nowMs={nowMs}
+                onClaim={claimTap}
+                onLog={onLog}
+                onStop={onStop}
+                onOpenRecipe={onOpenRecipe}
+              />
+            ))}
           </div>
         </>
       )}
