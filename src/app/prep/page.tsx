@@ -67,6 +67,12 @@ export default function PrepPage() {
   const [actionError,  setActionError]  = useState<string | null>(null)
   const [isOffline,      setIsOffline]      = useState(false)
   const [offlineSyncing, setOfflineSyncing] = useState(false)
+  // Mirrors `offlineSyncing` for the 60s interval effect below, which needs to
+  // read the current in-flight state without depending on it — putting
+  // `offlineSyncing` in that effect's deps would tear the interval down and
+  // rebuild it on every sync, which is worse than the stomp it would fix.
+  const offlineSyncingRef = useRef(false)
+  useEffect(() => { offlineSyncingRef.current = offlineSyncing }, [offlineSyncing])
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
 
@@ -234,12 +240,22 @@ export default function PrepPage() {
       // change and applying it would revert the optimistic update — e.g. a
       // just-completed item snapping back to "in progress". The mutation's own write
       // already made the server authoritative; the next quiet load will reconcile.
+      // The fetch itself demonstrably succeeded and demonstrably came from the
+      // server — both true regardless of whether it's safe to apply `fetched`
+      // to state. So these two flip ABOVE the mutation guard: otherwise a
+      // mutation landing mid-fetch makes the guard return early below, and
+      // `setCacheAge` never clears — the "Showing the saved list" banner then
+      // sticks around after a perfectly successful fetch, until some later poll
+      // happens to land with no intervening mutation. Only `setItems` /
+      // `savePrepCache` / `hydratedFromCache` stay below the guard, because
+      // only those would clobber an optimistic update with stale data. Do not
+      // "tidy" these back together.
+      setIsOffline(false)
+      setCacheAge(null)
       if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
       savePrepCache(fetched, { fetchedAt: Date.now() })
       hydratedFromCache.current = true
-      setIsOffline(false)
-      setCacheAge(null)
     } catch (e) {
       // ANY failure falls back to the cache — not just navigator.onLine === false.
       // A flaky signal fails the fetch while the browser still calls itself online,
@@ -331,6 +347,12 @@ export default function PrepPage() {
   // (idempotent), just a few redundant localStorage writes.
   const markPlanDirtyLocal = useCallback(() => {
     if (!plan.post || plan.post.dirty) return
+    // `plan.post` is only ever set while an RC is active, so `activeRcId` should
+    // never be null here — but `savePlanCache` writes a single RC-keyed slot, and
+    // a null-RC write would silently overwrite (orphan) whatever real RC's header
+    // is cached there. Guard the invariant here instead of trusting it three files
+    // away.
+    if (!activeRcId) return
     const next = { ...plan.post, dirty: true }
     setPlan({ post: next })
     savePlanCache(next, activeRcId)
@@ -452,7 +474,13 @@ export default function PrepPage() {
     const id = setInterval(() => {
       load(true)
       loadPlan()
-      if (loadQueue().length > 0) {
+      // Skip the flush while one is already in flight (e.g. a manual "Sync now").
+      // `flushQueue`'s own re-entrancy guard makes an overlap harmless for data,
+      // but its `.then` here would still fire immediately with `{0,0,0}` and
+      // prematurely clear `offlineSyncing` / write a mid-flight `pendingCount`
+      // out from under the real flush's own `.then`. Read via a ref, not
+      // `offlineSyncing` state, so this stays out of the effect's deps.
+      if (!offlineSyncingRef.current && loadQueue().length > 0) {
         setOfflineSyncing(true)
         flushQueue().then(result => {
           setPendingCount(loadQueue().length)
