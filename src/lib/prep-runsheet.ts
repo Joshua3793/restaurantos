@@ -91,3 +91,41 @@ export function scaleQtyLabel(qty: number, scale: number, unit: string): string 
     : String(v)
   return `${s} ${unit}`
 }
+
+/**
+ * Next/previous 0.25 step for a batch scale factor, clamped to [min, max].
+ *
+ * Two things this has to survive:
+ *
+ *  · A genuinely off-grid factor. Callers derive it (makeQty / baseInUnit), so
+ *    1.13 is ordinary. `+` must land on the NEIGHBOURING quarter (1.25), not
+ *    add 0.25 to an off-grid value and stay off-grid forever. Hence floor/ceil
+ *    onto the grid rather than round-then-step, which would skip to 1.5.
+ *
+ *  · Float noise from that same derivation. multiply-then-divide by baseInUnit
+ *    does not invert exactly in IEEE-754: a factor of exactly 0.75 comes back as
+ *    0.7500000000000001 for ~40% of real recipe yields. Un-snapped, floor/ceil
+ *    reads that as already past the grid point and returns the SAME step — the
+ *    button goes dead while still looking enabled. Snap first, then step.
+ */
+export function stepFactor(factor: number, dir: 1 | -1, min: number, max: number): number {
+  const raw = factor * 4
+  const nearest = Math.round(raw)
+  const q = Math.abs(raw - nearest) < 1e-6 ? nearest : raw
+  const next = dir === 1 ? Math.floor(q + 1) : Math.ceil(q - 1)
+  return Math.min(max, Math.max(min, next / 4))
+}
+
+/**
+ * Quantity for a run-sheet row: kg/L show one decimal only when fractional,
+ * every other unit rounds to a whole number.
+ *
+ * Distinct from `formatQtyUnit` in prep-utils.ts, which up-converts g→kg — a
+ * run-sheet row must show the qty in the unit the cook will actually measure.
+ * This lived as seven byte-identical local copies across the runsheet
+ * components before it was hoisted here.
+ */
+export function fmtQty(q: number, u: string): string {
+  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
+  return `${v} ${u}`
+}

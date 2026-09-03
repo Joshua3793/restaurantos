@@ -100,8 +100,14 @@ export async function livePost(revenueCenterId: string) {
   })
 }
 
-/** Ids of the live post for one RC, or for every RC when `rcId` is null. */
-async function livePostIds(rcId: string | null): Promise<string[]> {
+/**
+ * Ids of the live post for one RC, or for every RC when `rcId` is null.
+ *
+ * The null fan-out is the Shared-item rule: an item with no RC of its own sits
+ * on every center's plan, so anything that describes it (dirty flag, header
+ * counters) has to move on every center's header at once.
+ */
+export async function livePostIds(rcId: string | null): Promise<string[]> {
   if (rcId) {
     const post = await livePost(rcId)
     return post ? [post.id] : []

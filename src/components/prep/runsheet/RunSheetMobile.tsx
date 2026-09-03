@@ -2,8 +2,10 @@
 // Prep run-sheet — mobile frame.
 // Ported from the prototype's PTMobile (scratchpad/prototype-ref/mobile.jsx):
 // header (date / now / next-service), My-station|Kitchen segmented (default
-// station), horizontal cook picker, in-progress rail, station mode = NextUpHero
-// + "Coming up" queue, kitchen mode = time sections, and a collapsible Done.
+// station), horizontal cook picker, station mode = NextUpHero + "Coming up"
+// queue, kitchen mode = time sections, and a collapsible Done. The prototype's
+// horizontal-scrolling in-progress rail is gone: an item being worked on stays
+// in the queue as a WorkingRowMobile.
 // The prototype's recipe/log bottom-sheets are dropped — the fused PrepDrawer
 // (onOpenRecipe) and PrepDoneSheet (onLog) are the real surfaces, opened via
 // props. Flat Tailwind tokens replace the hex palette; mono via `font-mono`.
@@ -12,13 +14,13 @@ import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
 import type { PrepItemRich, PrepPriority } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
-import { InProgressRailMobile } from './InProgressRailMobile'
+import { WorkingRowMobile } from './WorkingRowMobile'
 import { NextUpHero } from './NextUpHero'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
-import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
@@ -33,13 +35,6 @@ const PRIORITY_GROUPS: { key: PrepPriority; dot: string; title: string; sub: str
   { key: 'NEEDED_TODAY',  dot: 'bg-gold',  title: 'Needed today', sub: 'below par before service' },
   { key: 'LATER',         dot: 'bg-ink-4', title: 'Later',        sub: 'can slip to the afternoon' },
 ]
-
-// Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
-// fractional, everything else rounds to a whole. Same rule as the row/hero/rail.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
 
 // PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
 // treat it as todo.
@@ -75,6 +70,7 @@ export function RunSheetMobile({
   onStop,
   onClaim,
   onOpenRecipe,
+  onRemove,
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
@@ -90,6 +86,8 @@ export function RunSheetMobile({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
+  onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('station')
   const [group, setGroup] = useState<Group>('time')
@@ -165,6 +163,7 @@ export function RunSheetMobile({
           onClaim={claimTap}
           onOpenRecipe={onOpenRecipe}
           onStart={onStart}
+          onRemove={onRemove}
         />
       ))}
     </div>
@@ -267,13 +266,22 @@ export function RunSheetMobile({
         </div>
       )}
 
-      {/* in-progress rail */}
+      {/* Working On — full-width rows, above every ladder group. */}
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
-          {/* full-bleed horizontal scroll rail */}
-          <div className="-mx-4 px-4">
-            <InProgressRailMobile items={doing} nowMs={nowMs} onClaim={claimTap} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+          <div className="flex flex-col gap-2">
+            {doing.map(i => (
+              <WorkingRowMobile
+                key={i.id}
+                item={i}
+                nowMs={nowMs}
+                onClaim={claimTap}
+                onLog={onLog}
+                onStop={onStop}
+                onOpenRecipe={onOpenRecipe}
+              />
+            ))}
           </div>
         </>
       )}

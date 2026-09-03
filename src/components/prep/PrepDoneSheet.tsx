@@ -5,7 +5,7 @@
  * the one-tap shortcut for the drawer's "How much did you make?" prompt: opening it
  * pre-fills the suggested qty (editable, Enter submits) and confirming logs DONE.
  * Rendered only while an item is set; triggered from the run sheet's in-progress
- * rail "Log" button (desktop InProgressRail / mobile InProgressRailMobile) and
+ * "Done" button on a Working On row (WorkingRow / WorkingRowMobile) and
  * Smart Prep's PrepBoard quick-done action.
  */
 import { useEffect, useState } from 'react'

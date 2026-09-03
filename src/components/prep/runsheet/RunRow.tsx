@@ -3,23 +3,14 @@
 // Ported from desktop.jsx's DRow (+ its inline claim popover, now the shared
 // ClaimPopover atom). Grid: 64px start-by | 1fr task | auto assignee | auto action.
 import { useRef, useState } from 'react'
-import { Zap } from 'lucide-react'
+import { Zap, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
 import { StationTag, NeedChip, RunwayBar, UrgencyDot } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
-import { fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
-
-// Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
-// fractional, everything else rounds to a whole number. No existing helper in
-// prep-utils.ts/utils.ts matches this exact rule (formatQtyUnit up-converts
-// g→kg instead), so it stays a tiny local function rather than a shared export.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
   blocked: 'border-l-gold',
@@ -35,6 +26,7 @@ export function RunRow({
   onStart,
   onOpenRecipe,
   onClaim,
+  onRemove,
   dense = false,
 }: {
   item: PrepItemRich
@@ -43,6 +35,9 @@ export function RunRow({
   onStart: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
+  /** Take this item straight off the kitchen's list. Omitted (not just
+   *  disabled) for anyone who cannot plan — that is what hides the button. */
+  onRemove?: (item: PrepItemRich) => void
   dense?: boolean
 }) {
   const [claimOpen, setClaimOpen] = useState(false)
@@ -136,6 +131,19 @@ export function RunRow({
             />
           )}
         </div>
+        {onRemove && (
+          // Deliberately NOT a peer of the Recipe/Start buttons below — it is
+          // destructive (Undo is the only safety net, there's no confirm step),
+          // so it stays borderless/quiet at rest and only signals on hover.
+          <button
+            onClick={() => onRemove(item)}
+            title="Remove from the list"
+            aria-label={`Remove ${item.name} from the list`}
+            className="w-[34px] h-[34px] rounded-[9px] bg-transparent border-none grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red"
+          >
+            <X size={15} />
+          </button>
+        )}
         <button
           onClick={() => onOpenRecipe(item)}
           title="Recipe"

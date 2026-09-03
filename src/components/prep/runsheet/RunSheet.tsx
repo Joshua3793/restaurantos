@@ -2,33 +2,27 @@
 // Prep run-sheet — desktop frame.
 // Ported from the prototype's PTDesktop (scratchpad/prototype-ref/desktop.jsx):
 // status band, Kitchen/My-station segmented, crew strip / cook picker, station
-// filter, in-progress rail, the grouped ladder (renderLadder: time / station /
-// priority), the NOW divider, and the collapsible Done section. The prototype's
-// DSidebar (the app has its own nav), tweaks slider, and clock slider are
-// dropped — real props drive everything instead. Flat Tailwind tokens replace
+// filter, the grouped ladder (renderLadder: time / station / priority), the NOW
+// divider, and the collapsible Done section. The prototype's DSidebar (the app
+// has its own nav), tweaks slider, and clock slider are dropped — real props
+// drive everything instead. The prototype's horizontal-scrolling in-progress
+// rail is gone too: an item being worked on stays in the ladder as a WorkingRow. Flat Tailwind tokens replace
 // the hex palette; mono via `font-mono`; Lucide icons.
 import { useState, useMemo, useEffect } from 'react'
 import { RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
-import { InProgressRail } from './InProgressRail'
+import { WorkingRow } from './WorkingRow'
 import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
-import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
 type Group = 'time' | 'station' | 'priority'
-
-// Local port of the prototype's `ptFmtQ` (same rule as RunRow/InProgressRail):
-// kg/L show one decimal only when fractional, everything else rounds to a whole.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
 
 // Minutes-since-midnight for a done item's completion timestamp — the Done
 // section shows a wall-clock stamp the same way CrewStrip derives elapsed.
@@ -57,6 +51,7 @@ export function RunSheet({
   onStop,
   onClaim,
   onOpenRecipe,
+  onRemove,
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
@@ -73,6 +68,8 @@ export function RunSheet({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
+  onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('kitchen')
   const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
@@ -145,7 +142,7 @@ export function RunSheet({
 
   const handsOn = (list: PrepItemRich[]) => fmtMins(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
 
-  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim }
+  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
   const rows = (list: PrepItemRich[]) => (
     <div className="flex flex-col gap-2">
       {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}
@@ -340,11 +337,25 @@ export function RunSheet({
         </div>
       </div>
 
-      {/* in-progress rail */}
+      {/* Working On — full-width rows on the ladder's own grid, above every
+          ladder group in all three groupings. */}
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
-          <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onClaim={onClaim} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+          <div className="flex flex-col gap-2">
+            {doing.map(i => (
+              <WorkingRow
+                key={i.id}
+                item={i}
+                nowMs={nowMs}
+                cooks={cooks}
+                onClaim={onClaim}
+                onLog={onLog}
+                onStop={onStop}
+                onOpenRecipe={onOpenRecipe}
+              />
+            ))}
+          </div>
         </>
       )}
 

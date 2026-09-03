@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Minus, Plus } from 'lucide-react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
 import { convertQty } from '@/lib/uom'
+import { stepFactor } from '@/lib/prep-runsheet'
 import { computeBakersPercents } from '@/lib/bakers-percent'
 
 /**
@@ -260,6 +262,15 @@ export default function PrepRecipeSection({
         <div className="text-[10.5px] uppercase text-gold-2 font-semibold tracking-[0.04em] flex-shrink-0">
           Making
         </div>
+        <button
+          type="button"
+          onClick={() => onMakeQtyChange(stepFactor(factor, -1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
+          disabled={sliderValue <= SLIDER_MIN}
+          aria-label="Decrease batch by a quarter"
+          className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Minus size={14} />
+        </button>
         <input
           type="range"
           min={SLIDER_MIN}
@@ -269,6 +280,15 @@ export default function PrepRecipeSection({
           onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) * baseInUnit)}
           className="flex-1 accent-gold"
         />
+        <button
+          type="button"
+          onClick={() => onMakeQtyChange(stepFactor(factor, 1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
+          disabled={sliderValue >= SLIDER_MAX}
+          aria-label="Increase batch by a quarter"
+          className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Plus size={14} />
+        </button>
         <div className="text-right min-w-[96px] flex-shrink-0">
           <div className="font-mono text-[17px] font-semibold">
             {fmtAmt(makeQty)} {unit}

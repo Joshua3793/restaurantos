@@ -54,9 +54,30 @@ export function AssigneeChip({
 // ─── ClaimPopover ────────────────────────────────────────────────────────
 // Click-away backdrop + a right-aligned menu of cooks (initials, first name,
 // home station) with an UNASSIGN row. Rendered in a portal on document.body and
-// positioned `fixed` off the trigger's rect, so it is never clipped by an
-// ancestor's overflow (e.g. the in-progress rail's horizontal scroller) or
-// contained by the page's `container-type` context.
+// positioned `fixed` off the trigger's rect.
+//
+// The portal is LOAD-BEARING — do not "simplify" it back into the tree. Its
+// original justification (escaping the in-progress rail's horizontal scroller)
+// is gone with the rail, but TWO reasons replaced it, not one:
+//
+// 1. The desktop Today block wraps RunSheet (which renders RunRow/WorkingRow,
+//    which render this popover) in a container-query root — see
+//    src/app/prep/page.tsx:1662, `style={{ containerType: 'inline-size' }}`
+//    (React's camelCase for the CSS `container-type` property). A
+//    `container-type` element becomes the containing block for its `fixed`-
+//    positioned descendants, same as a `transform` would — so without the
+//    portal, this popover's `position: fixed` placement (computed from
+//    `getBoundingClientRect()` against the viewport) would resolve against
+//    that container instead, landing the menu in the wrong place.
+// 2. The menu is taller than the chip it hangs off, so in-tree it overflows
+//    its row — and every row it can be opened from (RunRow, WorkingRow)
+//    paints an OPAQUE background (`bg-paper` / `bg-gold-soft`) and anchors
+//    the chip in a `relative` wrapper. A menu that overflows row N is
+//    therefore painted under row N+1's background, and a z-index on the menu
+//    cannot lift it out of its own row's positioned subtree.
+//
+// On document.body neither problem exists: nothing repositions `fixed`
+// there, and there is nothing above it to be covered by.
 export function ClaimPopover({
   cooks,
   currentId,

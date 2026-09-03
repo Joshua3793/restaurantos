@@ -1,7 +1,7 @@
 'use client'
 // Prep run-sheet — the live clock hook.
 // Ticks every 30s and exposes both an epoch (`nowMs`, for elapsed-timer math on
-// the in-progress rail) and minutes-since-Pacific-local-midnight (`nowMin`, the
+// a WorkingRow's elapsed timer) and minutes-since-Pacific-local-midnight (`nowMin`, the
 // basis every start-by comparison in the ladder uses). The restaurant runs on
 // Pacific time regardless of server/browser TZ — mirrors the businessDateLocal
 // convention in src/lib/eod-close.ts rather than reinventing the math.

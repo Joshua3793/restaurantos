@@ -3,21 +3,13 @@
 // Ported from mobile.jsx's MRow. Compact layout vs. the desktop RunRow.tsx
 // ladder: 44px start-by column | task (name+qty, single meta line) | assignee
 // chip (kitchen mode only) | Start/Lock action button.
-import { Zap } from 'lucide-react'
+import { Zap, X } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
 import { UrgencyDot } from './atoms'
-import { fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
-
-// Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
-// fractional, everything else rounds to a whole number. Same rule as
-// RunRow.tsx/InProgressRail.tsx; kept local since no shared helper matches it.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
+import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
   blocked: 'border-l-gold',
@@ -35,6 +27,7 @@ export function RunRowMobile({
   onClaim,
   onOpenRecipe,
   onStart,
+  onRemove,
 }: {
   item: PrepItemRich
   nowMin: number
@@ -47,6 +40,8 @@ export function RunRowMobile({
   onClaim: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
   onStart: (item: PrepItemRich) => void
+  /** Take this item straight off the kitchen's list. Omitted for non-planners. */
+  onRemove?: (item: PrepItemRich) => void
 }) {
   const sb = item.startByMinutes
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
@@ -121,6 +116,19 @@ export function RunRowMobile({
         </div>
       </div>
 
+      {/* Borderless/quiet at rest (Undo is the safety net, not a confirm step) and
+          narrower than a square tap target so it gives width back to the name
+          column — the one thing a cook must always be able to read — while
+          keeping the tappable height at 44px. */}
+      {onRemove && (
+        <button
+          onClick={() => onRemove(item)}
+          aria-label={`Remove ${item.name} from the list`}
+          className="w-6 h-11 grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red bg-transparent border-none"
+        >
+          <X size={15} />
+        </button>
+      )}
       {/* Stock-out / blocked items are NOT gated — the urgency dot flags the risk and the
           drawer spells it out, but the cook can still start (uncounted stock, or prepping
           toward a restock). */}
