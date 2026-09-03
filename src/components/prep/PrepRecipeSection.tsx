@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Minus, Plus } from 'lucide-react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
 import { convertQty } from '@/lib/uom'
@@ -34,6 +35,21 @@ const SLIDER_MAX = 5
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n))
+}
+
+/**
+ * Next/previous 0.25 step for an off-grid factor.
+ *
+ * `factor` is derived (makeQty / baseInUnit), so it is frequently NOT a
+ * multiple of 0.25 — a plain `f + 0.25` would keep an off-grid value off-grid
+ * forever. Floor/ceil onto the quarter grid instead: from 1.13, `+` lands on
+ * 1.25 and `-` on 1.00, and from an on-grid 1.25 they land on 1.5 and 1.0.
+ * Always moves, always lands on a quarter.
+ */
+function stepFactor(factor: number, dir: 1 | -1): number {
+  const q = factor * 4
+  const next = dir === 1 ? Math.floor(q + 1) : Math.ceil(q - 1)
+  return clamp(next / 4, SLIDER_MIN, SLIDER_MAX)
 }
 
 function fmtAmt(n: number): string {
@@ -260,6 +276,15 @@ export default function PrepRecipeSection({
         <div className="text-[10.5px] uppercase text-gold-2 font-semibold tracking-[0.04em] flex-shrink-0">
           Making
         </div>
+        <button
+          type="button"
+          onClick={() => onMakeQtyChange(stepFactor(factor, -1) * baseInUnit)}
+          disabled={sliderValue <= SLIDER_MIN}
+          aria-label="Decrease batch by a quarter"
+          className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Minus size={14} />
+        </button>
         <input
           type="range"
           min={SLIDER_MIN}
@@ -269,6 +294,15 @@ export default function PrepRecipeSection({
           onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) * baseInUnit)}
           className="flex-1 accent-gold"
         />
+        <button
+          type="button"
+          onClick={() => onMakeQtyChange(stepFactor(factor, 1) * baseInUnit)}
+          disabled={sliderValue >= SLIDER_MAX}
+          aria-label="Increase batch by a quarter"
+          className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Plus size={14} />
+        </button>
         <div className="text-right min-w-[96px] flex-shrink-0">
           <div className="font-mono text-[17px] font-semibold">
             {fmtAmt(makeQty)} {unit}
