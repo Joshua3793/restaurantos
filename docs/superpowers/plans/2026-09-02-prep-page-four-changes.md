@@ -18,7 +18,8 @@
 - **API routes guard themselves.** Middleware excludes `/api`. Each handler calls `requireSession(minRole?)` from `@/lib/auth` and catches `AuthError` into `NextResponse.json({ error }, { status })`.
 - **Sub-components at module scope.** A component defined inside another component's body remounts every render and loses focus/state.
 - **Prisma `Decimal` arrives as a string in JSON.** Wrap with `Number()` before arithmetic.
-- **`npm run build` is the type check.** `npm test` covers the pure libs and runs in <1s.
+- **Type-check with `npx tsc --noEmit -p tsconfig.json`, NOT `npm run build`.** `next build` REWRITES `tsconfig.json` and corrupts `.next` when a dev server is up, and this plan's browser-verification steps need one running. Wherever a task step says "run `npm run build`", run `npx tsc --noEmit -p tsconfig.json` instead. The real production build runs ONCE, in Final verification, from a detached worktree.
+- `npm test` covers the pure libs and runs in ~5s. Baseline at branch point: **914 tests / 60 files**.
 - Commit messages end with:
   `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`
 
@@ -46,6 +47,114 @@
 - `src/lib/prep-offline.ts` — three new mutation types, merge dedup, `ensureLogId`, plan cache (Task 6)
 - `src/app/prep/page.tsx` — remove handler (Task 5), offline enqueues (Task 7), cache-first paint (Task 8)
 - `src/components/prep/PrepDoneSheet.tsx`, `src/components/prep/runsheet/NextUpHero.tsx` — stale comments referencing the deleted rails (Task 3)
+
+---
+
+## Task 0: Extract the shared `fmtQty` helper
+
+Added after the plan's pre-flight review. Seven byte-identical copies of this
+4-line formatter live in `src/components/prep/runsheet/` (verified: every copy
+hashes to `f40c0ce4…`), and the plan's Tasks 2 and 3 were about to add two more.
+Extract it first so the new rows import it and the existing ones stop drifting.
+
+**Files:**
+- Modify: `src/lib/prep-runsheet.ts` (add the export)
+- Modify: `src/lib/__tests__/prep-runsheet.test.ts` (add cases)
+- Modify: `src/components/prep/runsheet/RunRow.tsx`, `RunRowMobile.tsx`, `RunSheet.tsx`, `RunSheetMobile.tsx`, `NextUpHero.tsx` (delete the local copy, import instead)
+
+**Interfaces:**
+- Produces: `fmtQty(q: number, u: string): string`, exported from `@/lib/prep-runsheet` alongside `fmtMins` / `fmtClock` / `fmtStartBy`. Tasks 2 and 3 import it.
+
+**Context:** This is a **pure move** — the behaviour must not change. `InProgressRail.tsx` and `InProgressRailMobile.tsx` also carry the copy, but Tasks 2 and 3 delete those files outright; leave them alone here rather than editing code that is about to disappear.
+
+The rule (kg/L show one decimal only when fractional, everything else rounds to a whole) is genuinely distinct from `formatQtyUnit` in `prep-utils.ts`, which up-converts g→kg. That is why each copy carried a comment saying no shared helper matched — this task creates the helper that does.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `src/lib/__tests__/prep-runsheet.test.ts` (keep the file's existing imports; add `fmtQty` to the import from `../prep-runsheet`):
+
+```ts
+describe('fmtQty', () => {
+  it('shows one decimal for a fractional kg or L', () => {
+    expect(fmtQty(2.5, 'kg')).toBe('2.5 kg')
+    expect(fmtQty(1.25, 'L')).toBe('1.3 L')
+  })
+
+  it('drops the decimal for a whole kg or L', () => {
+    expect(fmtQty(3, 'kg')).toBe('3 kg')
+    expect(fmtQty(4, 'L')).toBe('4 L')
+  })
+
+  it('rounds every other unit to a whole number', () => {
+    expect(fmtQty(2.5, 'each')).toBe('3 each')
+    expect(fmtQty(2.4, 'each')).toBe('2 each')
+    expect(fmtQty(1250.7, 'g')).toBe('1251 g')
+  })
+})
+```
+
+- [ ] **Step 2: Run the tests to confirm they fail**
+
+Run: `npm test -- prep-runsheet`
+Expected: FAIL — `fmtQty` is not exported from `../prep-runsheet`.
+
+- [ ] **Step 3: Add the export**
+
+Append to `src/lib/prep-runsheet.ts`:
+
+```ts
+/**
+ * Quantity for a run-sheet row: kg/L show one decimal only when fractional,
+ * every other unit rounds to a whole number.
+ *
+ * Distinct from `formatQtyUnit` in prep-utils.ts, which up-converts g→kg — a
+ * run-sheet row must show the qty in the unit the cook will actually measure.
+ * This lived as seven byte-identical local copies across the runsheet
+ * components before it was hoisted here.
+ */
+export function fmtQty(q: number, u: string): string {
+  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
+  return `${v} ${u}`
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npm test -- prep-runsheet`
+Expected: PASS.
+
+- [ ] **Step 5: Replace the five surviving call sites**
+
+In each of `src/components/prep/runsheet/RunRow.tsx`, `RunRowMobile.tsx`, `RunSheet.tsx`, `RunSheetMobile.tsx` and `NextUpHero.tsx`:
+
+1. Delete the local `function fmtQty(…)` declaration **and its explanatory comment** (the comment says no shared helper matches this rule — that is no longer true).
+2. Add `fmtQty` to the file's existing `import { … } from '@/lib/prep-runsheet'`.
+
+Do **not** touch `InProgressRail.tsx` or `InProgressRailMobile.tsx` — Tasks 2 and 3 delete them.
+
+- [ ] **Step 6: Verify nothing was missed and nothing changed shape**
+
+Run: `grep -rn "^function fmtQty" src/components/prep/runsheet/`
+Expected: exactly two hits — `InProgressRail.tsx` and `InProgressRailMobile.tsx`, both slated for deletion.
+
+Run: `npx tsc --noEmit -p tsconfig.json`
+Expected: no output (clean).
+
+Run: `npm test`
+Expected: PASS, with 3 more tests than the 914-test baseline.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lib/prep-runsheet.ts src/lib/__tests__/prep-runsheet.test.ts src/components/prep/runsheet/
+git commit -m "refactor(prep): hoist fmtQty into prep-runsheet
+
+Seven byte-identical local copies across the run-sheet components. Pure
+move, now covered by tests, so the new Working On rows import it instead
+of adding two more.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
 
 ---
 
@@ -189,14 +298,7 @@ import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
 import { StationTag } from './atoms'
 import { IcCheck, IcRecipe } from '@/components/prep/icons'
-import { minutesBetween, fmtMins } from '@/lib/prep-runsheet'
-
-// Same rounding rule as RunRow/RunSheet: kg/L show one decimal only when
-// fractional, everything else rounds to a whole number.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
+import { minutesBetween, fmtMins, fmtQty } from '@/lib/prep-runsheet'
 
 export function WorkingRow({
   item,
@@ -369,28 +471,18 @@ with:
       )}
 ```
 
-- [ ] **Step 3: Fix the stale comment in RunSheet**
-
-`src/components/prep/runsheet/RunSheet.tsx:26` reads:
-
-```
-// Local port of the prototype's `ptFmtQ` (same rule as RunRow/InProgressRail):
-```
-
-Change `InProgressRail` to `WorkingRow`.
-
-- [ ] **Step 4: Delete the rail**
+- [ ] **Step 3: Delete the rail**
 
 ```bash
 git rm src/components/prep/runsheet/InProgressRail.tsx
 ```
 
-- [ ] **Step 5: Type-check**
+- [ ] **Step 4: Type-check**
 
-Run: `npm run build`
-Expected: build completes. A failure naming `InProgressRail` means a leftover import — grep for it and remove.
+Run: `npx tsc --noEmit -p tsconfig.json`
+Expected: no output. An error naming `InProgressRail` means a leftover import — grep for it and remove.
 
-- [ ] **Step 6: Verify in the browser**
+- [ ] **Step 5: Verify in the browser**
 
 At desktop width on `/prep` → To do, start two preps and confirm:
 - Both appear as full-width gold rows stacked vertically under `Working On`, nothing scrolls sideways.
@@ -398,7 +490,7 @@ At desktop width on `/prep` → To do, start two preps and confirm:
 - Timer counts up; Claim popover, Recipe, Stop and Done all work.
 - Narrow the window below `lg` — the action cluster drops to a second line and the name stays whole.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A src/components/prep/runsheet/
@@ -449,12 +541,7 @@ import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
 import { IcCheck } from '@/components/prep/icons'
-import { minutesBetween, fmtMins } from '@/lib/prep-runsheet'
-
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
+import { minutesBetween, fmtMins, fmtQty } from '@/lib/prep-runsheet'
 
 export function WorkingRowMobile({
   item,
@@ -621,10 +708,6 @@ Change to:
 ```
 
 Change `InProgressRail.tsx` to `WorkingRow.tsx`.
-
-Also check `src/components/prep/runsheet/RunRowMobile.tsx:16`, which reads
-`// RunRow.tsx/InProgressRail.tsx; kept local since no shared helper matches it.` —
-change `InProgressRail.tsx` to `WorkingRow.tsx`.
 
 - [ ] **Step 5: Type-check**
 
