@@ -397,9 +397,12 @@ export default function PrepPage() {
   // (`activeRcId` starts null on every mount), so a `[]` effect would run
   // before there's anything to match the cache against and could never paint
   // anything. Re-running on every RC change is also a genuine feature, not
-  // just a workaround: it means switching back to a previously-visited RC
-  // while offline repaints that RC's own cached header instead of leaving
-  // whatever the last RC's post happened to be on screen.
+  // just a workaround: `loadPlanCache` is a SINGLE slot (see `PLAN_KEY` in
+  // src/lib/prep-offline.ts), holding only the most recently loaded RC's
+  // header — so switching to a DIFFERENT RC than that one correctly hits the
+  // `else` below and blanks, rather than leaving whatever the last RC's post
+  // happened to be on screen. It only "repaints" when the RC switched back to
+  // is the same one the single slot was last stamped for.
   //
   // The `else` is load-bearing, not tidiness. `loadPlan`'s catch deliberately
   // KEEPS the last known post so a failed refresh doesn't blank a good header —
@@ -951,7 +954,7 @@ export default function PrepPage() {
   // no inventory write. `restore` is the Undo. The optimistic patch mirrors what
   // the route does: postedAt cleared (that is what todayItems filters on — see
   // `todayItems`) AND isOnList false.
-  async function handleRemoveFromToDo(item: PrepItemRich, restore = false) {
+  async function handleRemoveFromToDo(item: PrepItemRich, restore = false, headerWasAdjusted?: boolean) {
     const rcId = item.revenueCenterId ?? activeRcId
     if (!rcId) { setActionError('Select a revenue center (not "All") to change the list.'); return }
 
@@ -977,30 +980,44 @@ export default function PrepPage() {
       // flushes. `remove-item/route.ts` goes to real trouble to keep that header
       // honest; the offline path used to bypass all of it.
       //
-      // Mirrors the route exactly: it moves the header by the ONE item it
-      // changed (never re-deriving it from the draft — that would fold unposted
-      // next-day additions into a header describing what the cooks see now), and
-      // gates the ±1 on the log write having really changed something
-      // (`cleared.count` / the `postedAt: null` where). So a removal only counts
-      // when the job was actually posted, a restore only when it wasn't, and a
-      // repeat tap moves nothing — same idempotence.
-      const wasPosted = !!item.todayLog?.postedAt
-      if (plan.post && activeRcId && (restore ? !wasPosted : wasPosted)) {
+      // Mirrors the route's idempotence, but NOT by re-running the route's own
+      // check on each call: `usePrepToast` stores this call's `onClick` verbatim
+      // and invokes it later without re-reading anything (src/components/prep/
+      // PrepToast.tsx:35), so the Undo call runs inside a CLOSURE frozen at
+      // removal time — `item` is never mutated (setItems above builds a new
+      // object) and `plan` is whatever this render saw, not what's on screen
+      // when the chef actually taps Undo. Recomputing "was it posted" from
+      // either of those on the Undo call reads stale data (worse: `item`'s
+      // postedAt is unchanged, so the restore gate would evaluate as if nothing
+      // had happened, and never re-credit the header).
+      //
+      // So only the REMOVAL direction computes the gate from source (the item's
+      // real state right now); Undo doesn't recompute anything, it's told
+      // explicitly what removal did and reverses exactly that — "adjust the
+      // header" and "un-adjust the header" are then provably the same amount.
+      // The arithmetic itself uses the functional setPlan form so it always
+      // applies against the live header, not the one this closure was born
+      // with.
+      const didAdjust = restore ? !!headerWasAdjusted : !!item.todayLog?.postedAt
+      if (didAdjust && activeRcId) {
         // The same expression the routes sum — `resolveActive(i) ?? estimatedPrepTime ?? 0`.
         // `item.activeMinutes` IS the resolved value; /api/prep/items runs
         // `resolveActive` before serializing the row.
         const minutes = item.activeMinutes ?? item.estimatedPrepTime ?? 0
         const delta = restore ? 1 : -1
-        const nextPost: PrepPostInfo = {
-          ...plan.post,
-          itemCount:     Math.max(0, plan.post.itemCount + delta),
-          activeMinutes: Math.max(0, plan.post.activeMinutes + delta * minutes),
-        }
-        setPlan({ post: nextPost })
-        savePlanCache(nextPost, activeRcId)
+        setPlan(prev => {
+          if (!prev.post) return prev
+          const nextPost: PrepPostInfo = {
+            ...prev.post,
+            itemCount:     Math.max(0, prev.post.itemCount + delta),
+            activeMinutes: Math.max(0, prev.post.activeMinutes + delta * minutes),
+          }
+          savePlanCache(nextPost, activeRcId)
+          return { post: nextPost }
+        })
       }
       if (!restore) {
-        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true) } })
+        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true, didAdjust) } })
       }
       return
     }

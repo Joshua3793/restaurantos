@@ -96,7 +96,7 @@ const itemUpdateMany = vi.fn(async (args: Args) => {
 const logFindFirst = vi.fn(async (args: Args) => {
   const rows = db.logs.filter(l => matchWhere(l, args?.where))
   if (args?.orderBy?.logDate === 'desc') {
-    rows.sort((a, b) => new Date(b.logDate as string).getTime() - new Date(a.logDate as string).getTime())
+    rows.sort((a, b) => new Date(b.logDate as Date).getTime() - new Date(a.logDate as Date).getTime())
   }
   return rows[0] ? applySelect(rows[0], args.select) : null
 })
@@ -153,7 +153,7 @@ const ensureLiveLogs = vi.fn(async (ids: string[], revenueCenterId: string) => {
   for (const prepItemId of ids) {
     const newest = db.logs
       .filter(l => l.prepItemId === prepItemId)
-      .sort((a, b) => new Date(b.logDate as string).getTime() - new Date(a.logDate as string).getTime())[0]
+      .sort((a, b) => new Date(b.logDate as Date).getTime() - new Date(a.logDate as Date).getTime())[0]
     if (newest && isLiveLog(newest as never, TODAY.getTime())) {
       map.set(prepItemId, newest.id as string)
       continue
