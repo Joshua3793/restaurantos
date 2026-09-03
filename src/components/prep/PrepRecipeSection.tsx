@@ -258,42 +258,61 @@ export default function PrepRecipeSection({
   return (
     <div>
       {/* SCALE */}
-      <div className="flex items-center gap-3.5 px-3.5 py-3 bg-[#fff7ed] border border-[#fed7aa] rounded-[10px]">
-        <div className="text-[10.5px] uppercase text-gold-2 font-semibold tracking-[0.04em] flex-shrink-0">
-          Making
+      {/* Value row, then a full-width control track beneath it.
+          This used to be ONE flex line carrying the label, both steppers, the
+          slider and a two-line readout. Inside the drawer's ~385px column that
+          needed 420px: it overflowed by 20px, clipping "of base" off the right
+          edge, and squeezed the slider to 129px — about 6px per 0.25 step, which
+          is not draggable. The readout's own `min-w-[96px]` was exactly the width
+          "×N.NN of base" needs, so it had no slack to give. */}
+      <div className="px-3.5 py-3 bg-[#fff7ed] border border-[#fed7aa] rounded-[10px]">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[10.5px] uppercase text-gold-2 font-semibold tracking-[0.04em] shrink-0">
+            Making
+          </span>
+          {/* flex-1, not content-sized: the yield block takes the whole row minus
+              the label, so "×N.NN of base" always has room. Sized to content it
+              settled at 82px for a 96px string and overhung its own box. */}
+          <span className="flex-1 text-right">
+            <span className="block font-mono text-[19px] font-semibold tracking-[-0.02em] leading-tight">
+              {fmtAmt(makeQty)} <span className="text-[13px] font-medium text-ink-3">{unit}</span>
+            </span>
+            <span className="block font-mono text-[10.5px] text-gold-2 mt-0.5">
+              ×{factor.toFixed(2)} of base
+            </span>
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={() => onMakeQtyChange(stepFactor(factor, -1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
-          disabled={sliderValue <= SLIDER_MIN}
-          aria-label="Decrease batch by a quarter"
-          className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Minus size={14} />
-        </button>
-        <input
-          type="range"
-          min={SLIDER_MIN}
-          max={SLIDER_MAX}
-          step={0.25}
-          value={sliderValue}
-          onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) * baseInUnit)}
-          className="flex-1 accent-gold"
-        />
-        <button
-          type="button"
-          onClick={() => onMakeQtyChange(stepFactor(factor, 1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
-          disabled={sliderValue >= SLIDER_MAX}
-          aria-label="Increase batch by a quarter"
-          className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Plus size={14} />
-        </button>
-        <div className="text-right min-w-[96px] flex-shrink-0">
-          <div className="font-mono text-[17px] font-semibold">
-            {fmtAmt(makeQty)} {unit}
-          </div>
-          <div className="font-mono text-[10.5px] text-gold-2">×{factor.toFixed(2)} of base</div>
+        <div className="flex items-center gap-2.5 mt-2.5">
+          <button
+            type="button"
+            onClick={() => onMakeQtyChange(stepFactor(factor, -1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
+            disabled={sliderValue <= SLIDER_MIN}
+            aria-label="Decrease batch by a quarter"
+            className="w-9 h-9 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Minus size={15} />
+          </button>
+          {/* min-w-0 so a flex item can actually shrink — without it the track
+              refuses to go below its intrinsic width and pushes the row wide. */}
+          <input
+            type="range"
+            min={SLIDER_MIN}
+            max={SLIDER_MAX}
+            step={0.25}
+            value={sliderValue}
+            onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) * baseInUnit)}
+            aria-label="Batch scale"
+            className="flex-1 min-w-0 accent-gold"
+          />
+          <button
+            type="button"
+            onClick={() => onMakeQtyChange(stepFactor(factor, 1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
+            disabled={sliderValue >= SLIDER_MAX}
+            aria-label="Increase batch by a quarter"
+            className="w-9 h-9 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus size={15} />
+          </button>
         </div>
       </div>
 
