@@ -972,6 +972,12 @@ export default function PrepPage() {
     // Undo runs from a closure frozen at removal time (see the note below), so
     // it is TOLD the prior value rather than reading anything at click time.
     // Captured before the patch below, which is what overwrites it.
+    //
+    // Frozen at removal time is the point, but it does mean an Undo clicked
+    // after the chef re-adds the item to the draft within the toast's 6s window
+    // writes the stale `false` back. Narrow, only self-inflicted, and strictly
+    // better than the mirror-image bug this replaced (which asserted `true`
+    // unconditionally and put an item back on a draft it was never on).
     const wasOnList = item.isOnList
     const nextIsOnList = restore ? priorIsOnList ?? true : false
 
@@ -990,8 +996,13 @@ export default function PrepPage() {
     if (!navigator.onLine) {
       // `isOnList` rides along so the flush sends the same draft flag the online
       // path does — the route defaults an omitted one to `true`, which is wrong
-      // for an item that was posted but already off the draft.
-      enqueueMutation({ type: 'remove_item', itemId: item.id, revenueCenterId: rcId, restore, isOnList: nextIsOnList })
+      // for an item that was posted but already off the draft. Restore-only, so
+      // this mirrors the online body exactly; the removal path never sends it
+      // (the route ignores it there and always clears the flag).
+      enqueueMutation({
+        type: 'remove_item', itemId: item.id, revenueCenterId: rcId, restore,
+        ...(restore ? { isOnList: nextIsOnList } : {}),
+      })
       setPendingCount(n => n + 1)
       // Move the posted band with the row, or it contradicts the list under it:
       // post 6 items offline, × two rows, and the synthetic header goes on

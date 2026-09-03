@@ -112,12 +112,16 @@ body: { revenueCenterId, prepItemId, restore?: boolean, isOnList?: boolean }
   the `PrepItem`. That is the exact end state the remove-then-re-post round trip
   produces today — and it matches what `POST /api/prep/plan/post` already does to
   items `notIn draftIds`.
-- `restore: true`: resolve the item's live log with
-  `ensureLiveLogs([prepItemId], revenueCenterId)` and stamp `postedAt: new Date()` on
-  it, then set `isOnList` to the value in the body. **Not** `postedOpenWhere` — that
-  fragment requires `postedAt: { not: null }` and so cannot find the row the removal
-  just cleared. `ensureLiveLogs` is also what keeps the one-live-log-per-item
-  invariant, and is the same primitive the post route uses.
+- `restore: true`: take the item's NEWEST log and re-stamp `postedAt: new Date()` on
+  it when that row is still open (`isOpenPrepStatus`) — that is the exact row the
+  removal cleared, so the cook's timer, claim and planned qty survive an Undo on a
+  carried job. Fall back to `ensureLiveLogs([prepItemId], revenueCenterId)` only when
+  the newest row is resolved or absent. Then set `isOnList` to the value in the body.
+  **Not** `postedOpenWhere` — that fragment requires `postedAt: { not: null }` and so
+  cannot find the row the removal just cleared. And **not** `ensureLiveLogs` alone:
+  `isLiveLog` treats a pre-today row as live only while `postedAt != null`, so after a
+  removal it would mint a fresh `NOT_STARTED` row for today and orphan the carried
+  one. The fallback still keeps the one-live-log-per-item invariant.
 - **`isOnList` is carried by the caller, not hardcoded to `true`.** Being on the
   kitchen's To Do is `PrepLog.postedAt`; `isOnList` is the separate Smart Prep DRAFT
   flag, and the two diverge routinely — post the list, then take the item off the

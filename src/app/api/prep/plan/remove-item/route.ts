@@ -57,9 +57,11 @@ export async function POST(req: NextRequest) {
   // the common case (posted AND on the draft), and it is the safe direction. An
   // item wrongly ON the draft is visible to the chef and keeps its posted row
   // through the next Post; one wrongly OFF it is silently dropped by the next
-  // Post, which clears `postedAt` for everything `notIn draftIds`. Every caller
-  // sends the field today (src/app/prep/page.tsx and the offline queue in
-  // src/lib/prep-offline.ts are the only two).
+  // Post, which clears `postedAt` for everything `notIn draftIds`. Both callers
+  // (src/app/prep/page.tsx and the offline queue in src/lib/prep-offline.ts —
+  // the only two) send it on the RESTORE path, which is the only path that
+  // reads it; neither sends it on a removal, where the flag is always cleared.
+  // So the default is defence-in-depth, not a live code path.
   const restoreIsOnList: boolean = typeof body?.isOnList === 'boolean' ? body.isOnList : true
   if (!revenueCenterId) return NextResponse.json({ error: 'revenueCenterId is required' }, { status: 400 })
   if (!prepItemId) return NextResponse.json({ error: 'prepItemId is required' }, { status: 400 })
