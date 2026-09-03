@@ -1,13 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
+import { isLiveLog } from '@/lib/prep-plan'
 
 // Same vi.mock-of-Prisma pattern as src/app/api/prep/cooks/__tests__/route.test.ts,
 // but with an in-memory store instead of canned rows: this route's whole job is a
 // sequence of conditional writes, so the assertions are about what the tables look
 // like afterwards, not about a response body.
 //
-// `livePost` and `ensureLiveLogs` are stubbed; everything else in
+// `livePostIds` and `ensureLiveLogs` are stubbed; everything else in
 // @/lib/prep-plan-server (notably `postedOpenWhere`) is the real module.
+//
+// KNOWN LIMITS of this harness, stated rather than papered over:
+//  1. `$transaction` runs the callback straight through and never rolls back, so
+//     NO test here proves atomicity. A failure part-way through a removal would
+//     leave the store half-written and every assertion below would still pass.
+//  2. `ensureLiveLogs` is a stub. It reproduces the real helper's *decision*
+//     (`isLiveLog` on the newest row, mint only when there is none or it is not
+//     live) but not its queries — the real one does a groupBy + createMany with
+//     skipDuplicates against Postgres.
 
 type Row = Record<string, any>
 
@@ -32,9 +42,23 @@ function matchWhere(row: Row, where: Row | undefined): boolean {
         if (cond.not === null ? rv === null || rv === undefined : rv === cond.not) return false
       }
       if ('in' in cond && !(cond.in as unknown[]).includes(rv)) return false
+      if ('gte' in cond && !(rv >= cond.gte)) return false
     } else if (rv !== v) return false
   }
   return true
+}
+
+// Prisma `data` semantics — plain sets plus the atomic number operations the
+// header write uses.
+function applyData(row: Row, data: Row) {
+  for (const [k, v] of Object.entries(data ?? {})) {
+    if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
+      const op = v as Row
+      if ('increment' in op) { row[k] = (row[k] ?? 0) + op.increment; continue }
+      if ('decrement' in op) { row[k] = (row[k] ?? 0) - op.decrement; continue }
+    }
+    row[k] = v
+  }
 }
 
 function applySelect(row: Row, select?: Row): Row {
@@ -54,8 +78,13 @@ const itemFindMany = vi.fn(async (args: Row) =>
 const itemUpdate = vi.fn(async (args: Row) => {
   const row = db.items.find(i => i.id === args.where.id)
   if (!row) throw new Error('P2025')
-  Object.assign(row, args.data)
+  applyData(row, args.data)
   return row
+})
+const itemUpdateMany = vi.fn(async (args: Row) => {
+  const rows = db.items.filter(i => matchWhere(i, args?.where))
+  for (const r of rows) applyData(r, args.data)
+  return { count: rows.length }
 })
 const logFindFirst = vi.fn(async (args: Row) => {
   const rows = db.logs.filter(l => matchWhere(l, args?.where))
@@ -67,30 +96,31 @@ const logFindFirst = vi.fn(async (args: Row) => {
 const logUpdate = vi.fn(async (args: Row) => {
   const row = db.logs.find(l => l.id === args.where.id)
   if (!row) throw new Error('P2025')
-  Object.assign(row, args.data)
+  applyData(row, args.data)
   return row
 })
 const logUpdateMany = vi.fn(async (args: Row) => {
   const rows = db.logs.filter(l => matchWhere(l, args?.where))
-  for (const r of rows) Object.assign(r, args.data)
+  for (const r of rows) applyData(r, args.data)
   return { count: rows.length }
 })
 const postUpdate = vi.fn(async (args: Row) => {
   const row = db.posts.find(p => p.id === args.where.id)
   if (!row) throw new Error('P2025 — no PrepPost')
-  Object.assign(row, args.data)
+  applyData(row, args.data)
   return row
 })
 const postUpdateMany = vi.fn(async (args: Row) => {
   const rows = db.posts.filter(p => matchWhere(p, args?.where))
-  for (const r of rows) Object.assign(r, args.data)
+  for (const r of rows) applyData(r, args.data)
   return { count: rows.length }
 })
 
 const prismaMock = {
-  prepItem: { findUnique: itemFindUnique, findMany: itemFindMany, update: itemUpdate },
+  prepItem: { findUnique: itemFindUnique, findMany: itemFindMany, update: itemUpdate, updateMany: itemUpdateMany },
   prepLog: { findFirst: logFindFirst, update: logUpdate, updateMany: logUpdateMany },
   prepPost: { update: postUpdate, updateMany: postUpdateMany },
+  // NOTE: no rollback. See KNOWN LIMITS at the top of this file.
   $transaction: async (arg: unknown) => {
     if (typeof arg === 'function') return (arg as (tx: unknown) => Promise<unknown>)(prismaMock)
     return Promise.all(arg as Promise<unknown>[])
@@ -99,12 +129,28 @@ const prismaMock = {
 
 const requireSession = vi.fn(async () => ({ id: 'u1', role: 'LEAD', isActive: true }))
 const assertRcWritable = vi.fn(async () => {})
-const livePost = vi.fn(async (rcId: string) => db.posts.find(p => p.revenueCenterId === rcId) ?? null)
-// Stands in for the real primitive: it mints today's NOT_STARTED row, which is
-// exactly the behaviour the restore path must AVOID for a carried open job.
+// One RC → its own live post. null (a Shared item) → every RC's, which is the
+// fan-out `markPlanDirty` already relies on.
+const livePostIds = vi.fn(async (rcId: string | null) => {
+  if (rcId) {
+    const p = db.posts.find(x => x.revenueCenterId === rcId)
+    return p ? [p.id] : []
+  }
+  return db.posts.map(p => p.id)
+})
+// Reproduces the real primitive's DECISION: the newest row if `isLiveLog` says
+// it is live (which is true for ANY of today's rows, resolved or not), else a
+// freshly minted NOT_STARTED row for today.
 const ensureLiveLogs = vi.fn(async (ids: string[], revenueCenterId: string) => {
   const map = new Map<string, string>()
   for (const prepItemId of ids) {
+    const newest = db.logs
+      .filter(l => l.prepItemId === prepItemId)
+      .sort((a, b) => new Date(b.logDate).getTime() - new Date(a.logDate).getTime())[0]
+    if (newest && isLiveLog(newest as never, TODAY.getTime())) {
+      map.set(prepItemId, newest.id)
+      continue
+    }
     const id = `minted-${prepItemId}`
     db.logs.push({ id, prepItemId, revenueCenterId, logDate: TODAY, status: 'NOT_STARTED', postedAt: null })
     map.set(prepItemId, id)
@@ -129,7 +175,7 @@ vi.mock('@/lib/prep-plan-server', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/prep-plan-server')>()
   return {
     ...actual,
-    livePost: (...a: unknown[]) => livePost(...(a as [string])),
+    livePostIds: (...a: unknown[]) => livePostIds(...(a as [string | null])),
     ensureLiveLogs: (...a: unknown[]) => ensureLiveLogs(...(a as [string[], string])),
   }
 })
@@ -141,20 +187,32 @@ const req = (body: Row) => ({ json: async () => body }) as unknown as NextReques
 const CAFE = 'rc-cafe'
 const CATERING = 'rc-catering'
 
-// A Cafe draft of three visible items: two Cafe-owned, one Shared. `i-catering`
-// belongs to another center and `i-inactive` is archived — neither counts.
-// Hands-on total = 20 + 30 + 15 (the Shared item resolves its minutes from its
-// linked recipe, not estimatedPrepTime) = 65.
+const item = (over: Row): Row => ({
+  revenueCenterId: CAFE, isActive: true, isOnList: true, estimatedPrepTime: 0,
+  activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null,
+  linkedRecipe: null,
+  ...over,
+})
+
+// A Cafe list of three items: two Cafe-owned, one Shared. `i-catering` belongs
+// to another center and `i-inactive` is archived — neither is on the Cafe list.
+// The header was written by a post of those three: 20 + 30 + 15 (the Shared
+// item resolves its minutes from its linked recipe) = 65 hands-on minutes.
 function seedDraft() {
   db.items = [
-    { id: 'i-brisket', revenueCenterId: CAFE, isActive: true, isOnList: true, estimatedPrepTime: 20, activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: null },
-    { id: 'i-stock', revenueCenterId: CAFE, isActive: true, isOnList: true, estimatedPrepTime: 30, activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: null },
-    { id: 'i-shared', revenueCenterId: null, isActive: true, isOnList: true, estimatedPrepTime: 10, activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: { activeMinutes: 15, passiveMinutes: 0, passiveNote: null } },
-    { id: 'i-catering', revenueCenterId: CATERING, isActive: true, isOnList: true, estimatedPrepTime: 99, activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: null },
-    { id: 'i-inactive', revenueCenterId: CAFE, isActive: false, isOnList: true, estimatedPrepTime: 99, activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: null },
+    item({ id: 'i-brisket', estimatedPrepTime: 20 }),
+    item({ id: 'i-stock', estimatedPrepTime: 30 }),
+    item({ id: 'i-shared', revenueCenterId: null, estimatedPrepTime: 10, linkedRecipe: { activeMinutes: 15, passiveMinutes: 0, passiveNote: null } }),
+    item({ id: 'i-catering', revenueCenterId: CATERING, estimatedPrepTime: 99 }),
+    item({ id: 'i-inactive', isActive: false, estimatedPrepTime: 99 }),
   ]
   db.posts = [{ id: 'p1', revenueCenterId: CAFE, listDate: TODAY, itemCount: 3, activeMinutes: 65, dirty: false, postedByName: 'Chef' }]
   db.logs = []
+}
+
+/** Catering has its own posted list — 4 items, 120 minutes. */
+function seedCateringPost() {
+  db.posts.push({ id: 'p2', revenueCenterId: CATERING, listDate: TODAY, itemCount: 4, activeMinutes: 120, dirty: false, postedByName: 'Chef' })
 }
 
 const log = (over: Row): Row => ({
@@ -169,7 +227,7 @@ beforeEach(() => {
 })
 
 describe('POST /api/prep/plan/remove-item — removal', () => {
-  it('un-posts the item, takes it off the draft, and rewrites the header from what is left', async () => {
+  it('un-posts the item, takes it off the draft, and moves the header by that one item', async () => {
     db.logs = [log({})]
     const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
     expect(res.status).toBe(200)
@@ -182,6 +240,23 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
     // deletes the row, and P2025 would 500 a removal that already succeeded.
     expect(postUpdate).not.toHaveBeenCalled()
     expect(postUpdateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('describes the POSTED list, not the draft — an unposted next-day addition is not absorbed', async () => {
+    // The regression this route must not have: the chef posted 3 items, then
+    // added tomorrow's confit to the DRAFT (PrepPost.dirty is exactly this
+    // state). Re-deriving the header from the draft would make PostedBand claim
+    // 3 items · 85m over a To Do that holds 2 — and silently bill the kitchen
+    // for 40 minutes of work nobody posted.
+    db.items.push(item({ id: 'i-tomorrow', estimatedPrepTime: 40 }))
+    db.posts[0].dirty = true
+    db.logs = [log({})]
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    expect(res.status).toBe(200)
+    expect(db.posts[0]).toMatchObject({ itemCount: 2, activeMinutes: 45 })
+    // The draft query belongs to the post route. This one must never run it.
+    expect(itemFindMany).not.toHaveBeenCalled()
   })
 
   it('is idempotent — a second removal (a retry, or an offline-queue replay) does not move the counters again', async () => {
@@ -209,17 +284,53 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
     expect(db.posts[0]).toMatchObject({ itemCount: 2, activeMinutes: 50 })
   })
 
+  it('moves EVERY live post\'s counters when the item is Shared', async () => {
+    // The single log row leaves every center's To Do at once, so leaving
+    // Catering's header at 4 items · 120m would describe a list that no longer
+    // exists.
+    seedCateringPost()
+    db.logs = [log({ id: 'l-shared', prepItemId: 'i-shared', revenueCenterId: CATERING })]
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-shared' }))
+    expect(res.status).toBe(200)
+    expect(livePostIds).toHaveBeenCalledWith(null)
+    expect(db.posts.find(p => p.id === 'p1')).toMatchObject({ itemCount: 2, activeMinutes: 50 })
+    expect(db.posts.find(p => p.id === 'p2')).toMatchObject({ itemCount: 3, activeMinutes: 105 })
+  })
+
+  it('moves only the owning center\'s header for an RC-owned item', async () => {
+    seedCateringPost()
+    db.logs = [log({})]
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    expect(livePostIds).toHaveBeenCalledWith(CAFE)
+    expect(db.posts.find(p => p.id === 'p2')).toMatchObject({ itemCount: 4, activeMinutes: 120 })
+  })
+
   it('still scopes an RC-owned item\'s log by revenue center', async () => {
     db.logs = [log({})]
     await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
     expect(logUpdateMany.mock.calls[0][0].where).toMatchObject({ revenueCenterId: CAFE, prepItemId: 'i-brisket' })
   })
 
-  it('leaves a resolved (DONE) log posted — postedOpenWhere still gates the un-post', async () => {
+  it('writes the log and the item with updateMany, never update', async () => {
+    // A row deleted mid-flight must not P2025 into a 500 on a removal that
+    // otherwise succeeded — the same defence recall/route.ts uses.
+    db.logs = [log({})]
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    expect(logUpdate).not.toHaveBeenCalled()
+    expect(itemUpdate).not.toHaveBeenCalled()
+    expect(itemUpdateMany.mock.calls[0][0]).toMatchObject({ where: { id: 'i-brisket' }, data: { isOnList: false } })
+  })
+
+  it('leaves a resolved (DONE) log posted, and leaves the header alone with it', async () => {
+    // postedOpenWhere gates the un-post, so nothing was cleared — and a header
+    // adjustment gated on that write must not fire either.
     const posted = new Date('2026-09-01T23:00:00.000Z')
     db.logs = [log({ status: 'DONE', postedAt: posted })]
     await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
     expect(db.logs[0].postedAt).toEqual(posted)
+    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+    expect(postUpdateMany).not.toHaveBeenCalled()
   })
 
   it('succeeds when the RC has no posted header at all', async () => {
@@ -230,7 +341,6 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
     expect(db.logs[0].postedAt).toBeNull()
     expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(false)
     expect(postUpdateMany).not.toHaveBeenCalled()
-    expect(itemFindMany).not.toHaveBeenCalled()
   })
 
   it('404s an unknown item without writing anything', async () => {
@@ -238,6 +348,22 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
     const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'nope' }))
     expect(res.status).toBe(404)
     expect(logUpdateMany).not.toHaveBeenCalled()
+    expect(itemUpdateMany).not.toHaveBeenCalled()
+    expect(postUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('404s an item owned by ANOTHER revenue center, and writes nothing', async () => {
+    // assertRcWritable guards the REQUEST's center, not the item's. Without the
+    // visibility check a Cafe LEAD's × matched no Catering logs (Catering's To
+    // Do kept the job) yet still flipped isOnList on Catering's draft.
+    db.logs = [log({ id: 'l-catering', prepItemId: 'i-catering', revenueCenterId: CATERING })]
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-catering' }))
+    expect(res.status).toBe(404)
+
+    expect(db.items.find(i => i.id === 'i-catering')!.isOnList).toBe(true)
+    expect(db.logs[0].postedAt).not.toBeNull()
+    expect(logUpdateMany).not.toHaveBeenCalled()
+    expect(itemUpdateMany).not.toHaveBeenCalled()
     expect(postUpdateMany).not.toHaveBeenCalled()
   })
 })
@@ -263,14 +389,16 @@ describe('POST /api/prep/plan/remove-item — restore', () => {
     })
     expect(db.logs[0].postedAt).not.toBeNull()
     expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(true)
-    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+    expect(db.posts[0]).toMatchObject({ itemCount: 4, activeMinutes: 85 })
+    expect(logUpdate).not.toHaveBeenCalled()
+    expect(itemUpdate).not.toHaveBeenCalled()
   })
 
   it('falls back to ensureLiveLogs when the newest row is resolved, and never reaches past it', async () => {
-    // Made this morning; last night's open posted row still sits underneath.
-    // Stamping either would be wrong — the DONE row could then never be
-    // un-posted (postedOpenWhere needs an OPEN status), and the older one
-    // resurrects a job that was already made.
+    // Made last night; a still-open posted row from the night before sits
+    // underneath. Stamping either would be wrong — the DONE row could then
+    // never be un-posted (postedOpenWhere needs an OPEN status), and the older
+    // one resurrects a job that was already made.
     db.items.find(i => i.id === 'i-brisket')!.isOnList = false
     db.logs = [
       log({ id: 'l-older-open', logDate: new Date(TODAY.getTime() - 2 * DAY), status: 'NOT_STARTED', postedAt: null }),
@@ -282,26 +410,45 @@ describe('POST /api/prep/plan/remove-item — restore', () => {
 
     expect(ensureLiveLogs).toHaveBeenCalledTimes(1)
     expect(ensureLiveLogs).toHaveBeenCalledWith(['i-brisket'], CAFE)
-    expect(logUpdate.mock.calls[0][0].where).toEqual({ id: 'minted-i-brisket' })
+    expect(logUpdateMany.mock.calls[0][0].where).toMatchObject({ id: 'minted-i-brisket' })
     expect(db.logs.find(l => l.id === 'l-older-open')!.postedAt).toBeNull()
     expect(db.logs.find(l => l.id === 'l-done')!.postedAt).toBeNull()
   })
 
-  it('rebuilds the header from the draft instead of incrementing, so remove → restore is a round trip', async () => {
+  it('remove → restore is a round trip on the header', async () => {
     db.logs = [log({})]
     await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
     expect(db.posts[0]).toMatchObject({ itemCount: 2, activeMinutes: 45 })
 
     await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
     expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
-
-    // And a replayed restore does not walk the counters up.
-    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
-    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
     expect(postUpdate).not.toHaveBeenCalled()
   })
 
-  it('looks the newest log up without an RC filter for a Shared item', async () => {
+  it('a restore of an already-restored item does not increment twice', async () => {
+    // Double tap, timeout retry, or the prep page's offline queue replaying the
+    // same Undo. The log stamp is gated on `postedAt: null`, so the second call
+    // changes nothing and the counters must not walk up.
+    db.logs = [log({})]
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
+    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
+    expect(res.status).toBe(200)
+    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+  })
+
+  it('a restore of an item that was never removed is a no-op on the header', async () => {
+    db.logs = [log({})]
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
+    expect(res.status).toBe(200)
+    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+    expect(postUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('looks the newest log up without an RC filter for a Shared item, and moves every header', async () => {
+    seedCateringPost()
     db.items.find(i => i.id === 'i-shared')!.isOnList = false
     db.logs = [log({ id: 'l-shared', prepItemId: 'i-shared', revenueCenterId: CATERING, status: 'IN_PROGRESS', postedAt: null })]
 
@@ -310,6 +457,56 @@ describe('POST /api/prep/plan/remove-item — restore', () => {
     expect(logFindFirst.mock.calls[0][0].where).not.toHaveProperty('revenueCenterId')
     expect(ensureLiveLogs).not.toHaveBeenCalled()
     expect(db.logs[0].postedAt).not.toBeNull()
+    expect(db.posts.find(p => p.id === 'p1')).toMatchObject({ itemCount: 4, activeMinutes: 80 })
+    expect(db.posts.find(p => p.id === 'p2')).toMatchObject({ itemCount: 5, activeMinutes: 135 })
+  })
+
+  it('round-trips an item whose newest row is TODAY\'s DONE row without touching anything', async () => {
+    // isLiveLog short-circuits true on the DATE, so ensureLiveLogs hands back
+    // today's DONE row rather than minting. Both halves are gated on a real
+    // write, and neither fires: postedOpenWhere refuses to un-post a DONE row,
+    // and the restore stamp only fires on `postedAt: null`. The pair is a
+    // no-op on the log and on the header — only isOnList moves.
+    const posted = new Date('2026-09-01T23:00:00.000Z')
+    db.logs = [log({ id: 'l-done-today', logDate: TODAY, status: 'DONE', postedAt: posted })]
+
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(false)
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
+    expect(res.status).toBe(200)
+    expect(db.logs).toHaveLength(1)
+    expect(db.logs[0].postedAt).toEqual(posted)
+    expect(db.items.find(i => i.id === 'i-brisket')!.isOnList).toBe(true)
+    expect(db.posts[0]).toMatchObject({ itemCount: 3, activeMinutes: 65 })
+    expect(postUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('stamps TODAY\'s unposted DONE row rather than minting a second row for the day', async () => {
+    // The honest description of the fallback: it is not guaranteed to mint. A
+    // DONE row that is not posted gets postedAt written onto it — which is what
+    // keeps the (prepItemId, logDate) unique key intact, and what the post
+    // route does through the same primitive.
+    db.items.find(i => i.id === 'i-brisket')!.isOnList = false
+    db.logs = [log({ id: 'l-done-today', logDate: TODAY, status: 'DONE', postedAt: null })]
+
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket', restore: true }))
+    expect(res.status).toBe(200)
+    expect(ensureLiveLogs).toHaveBeenCalledTimes(1)
+    expect(db.logs).toHaveLength(1)
+    expect(db.logs[0].id).toBe('l-done-today')
+    expect(db.logs[0].postedAt).not.toBeNull()
+    expect(db.posts[0]).toMatchObject({ itemCount: 4, activeMinutes: 85 })
+  })
+
+  it('404s an item owned by another revenue center on the restore path too', async () => {
+    db.items.find(i => i.id === 'i-catering')!.isOnList = false
+    const res = await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-catering', restore: true }))
+    expect(res.status).toBe(404)
+    expect(db.items.find(i => i.id === 'i-catering')!.isOnList).toBe(false)
+    expect(logFindFirst).not.toHaveBeenCalled()
+    expect(ensureLiveLogs).not.toHaveBeenCalled()
+    expect(postUpdateMany).not.toHaveBeenCalled()
   })
 })
 

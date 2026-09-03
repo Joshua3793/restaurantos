@@ -4,57 +4,26 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive } from '@/lib/prep-runsheet'
-import { livePost, ensureLiveLogs, postedOpenWhere } from '@/lib/prep-plan-server'
+import { livePostIds, ensureLiveLogs, postedOpenWhere } from '@/lib/prep-plan-server'
 import { isOpenPrepStatus } from '@/lib/prep-plan'
 
 export const dynamic = 'force-dynamic'
 
-// The timing fields POST /api/prep/plan/post feeds to `resolveActive` when it
-// sums the posted header's hands-on total. Shared so the recompute below is the
-// same expression, on the same rows, as the post it has to agree with.
-const DRAFT_TIMING_SELECT = {
-  id: true, estimatedPrepTime: true,
-  activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
-  linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true } },
-} as const
-
-/**
- * Rewrite the posted header's counters from the draft as it now stands — the
- * same query and the same sum POST /api/prep/plan/post runs.
- *
- * Derived, never incremented: arithmetic on a value read before the write is
- * wrong the moment the same call is replayed (the prep page queues these
- * offline), or the log write it is supposed to describe matches nothing. This
- * is idempotent, so it needs no floor and survives a replay or a concurrent
- * post. `updateMany` because a concurrent Recall may have deleted the header
- * mid-flight — the same defence recall/route.ts uses — and it must not 500 a
- * removal that otherwise succeeded.
- *
- * Only the counters are touched: postedAt / postedByName / dirty are the post's
- * own provenance and this route is not a post.
- */
-async function recomputeHeaderCounters(tx: Prisma.TransactionClient, revenueCenterId: string, postId: string) {
-  const draft = await tx.prepItem.findMany({
-    where: {
-      isActive: true, isOnList: true,
-      OR: [{ revenueCenterId: null }, { revenueCenterId }],
-    },
-    select: DRAFT_TIMING_SELECT,
-  })
-  const activeMinutes = draft.reduce((a, d) => a + (resolveActive(d) ?? d.estimatedPrepTime ?? 0), 0)
-  await tx.prepPost.updateMany({
-    where: { id: postId },
-    data: { itemCount: draft.length, activeMinutes },
-  })
-}
-
 // Take ONE item off the kitchen's To Do without the Smart Prep → remove →
 // re-post round trip, or put it back (`restore`).
 //
-// The end state is exactly what a re-post produces: `POST /api/prep/plan/post`
-// already clears postedAt for every item `notIn draftIds`, and rebuilds the
-// header's counters from the draft. Both halves are reproduced here, so this is
-// a shortcut to a state the app can already reach, not a new one.
+// The log half is exactly what a re-post produces: `POST /api/prep/plan/post`
+// already clears postedAt for every item `notIn draftIds`.
+//
+// The header half is NOT a re-post, and deliberately so. `post/route.ts` writes
+// `itemCount = draft.length` because at the instant of a post the draft IS the
+// posted set. They diverge immediately afterwards — that is the whole reason
+// `PrepPost.dirty` exists, and `/api/prep/items/[id]` calls `markPlanDirty` on
+// every `isOnList` change. Re-deriving the counters from the draft here would
+// therefore fold a chef's unposted next-day additions into a header that is
+// supposed to describe what the cooks are looking at right now. So the header
+// moves by the ONE item this call actually changed, and only when the log write
+// really changed something — see the ±1 comments below.
 //
 // Deliberately NOT here: any inventory write. No PrepLog status change, no
 // theoretical-stock invalidation, no InventoryTransaction. The prep is simply
@@ -85,11 +54,27 @@ export async function POST(req: NextRequest) {
     throw e
   }
 
+  // The timing fields `resolveActive` needs, so the header's hands-on total can
+  // be moved by this item's own minutes — the same expression POST
+  // /api/prep/plan/post sums over the draft, evaluated on one row.
   const item = await prisma.prepItem.findUnique({
     where: { id: prepItemId },
-    select: { id: true, revenueCenterId: true },
+    select: {
+      id: true, revenueCenterId: true, estimatedPrepTime: true,
+      activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
+      linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true } },
+    },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // `assertRcWritable` guards the REQUEST's revenue center, not the item's. An
+  // item owned by another center is not visible to this one: without this the
+  // log write would match nothing (a silent no-op, the other center's To Do
+  // keeps the job) while `isOnList` was still flipped on that center's draft.
+  // Same for an item reassigned between centers after its logs were written.
+  if (item.revenueCenterId && item.revenueCenterId !== revenueCenterId) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   // PrepLog is keyed (prepItemId, logDate) — logs are NOT partitioned per RC,
   // and `revenueCenterId` on the row is simply whichever center last wrote it
@@ -97,11 +82,18 @@ export async function POST(req: NextRequest) {
   // own) shows on EVERY RC's To Do and has ONE log, so a Cafe chef must be able
   // to clear a row a Catering cook flipped to Catering. Only an RC-owned item's
   // log is safely scoped by RC — and there it still matters, so a removal
-  // cannot reach into another center's list.
+  // cannot reach into another center's list. Keyed off `item.revenueCenterId`:
+  // the guard above proved it equals `revenueCenterId` or the item is Shared.
   const logScope: Prisma.PrepLogWhereInput =
-    item.revenueCenterId ? { revenueCenterId, prepItemId } : { prepItemId }
+    item.revenueCenterId ? { revenueCenterId: item.revenueCenterId, prepItemId } : { prepItemId }
 
-  const post = await livePost(revenueCenterId)
+  // A Shared item's single log row leaves (or rejoins) EVERY center's To Do at
+  // once, so every center's header has to move with it — otherwise Catering's
+  // band goes on claiming "3 items · 65m" over a To Do that now holds 2. Same
+  // fan-out rule `markPlanDirty` uses, through the same helper. For an RC-owned
+  // item this is just that one center's live post.
+  const postIds = await livePostIds(item.revenueCenterId ? revenueCenterId : null)
+  const minutes = resolveActive(item) ?? item.estimatedPrepTime ?? 0
 
   if (restore) {
     // Undo. The removal cleared postedAt on the item's newest row, which for a
@@ -117,6 +109,13 @@ export async function POST(req: NextRequest) {
     // resolved (or there is none), fall back to ensureLiveLogs, the same
     // primitive the post route uses, which keeps the one-live-log-per-item
     // invariant.
+    //
+    // That fallback does NOT always mint: `isLiveLog` short-circuits true on
+    // the date, so if the newest row is TODAY's DONE row ensureLiveLogs hands
+    // that row straight back and the stamp below lands on a DONE log. The end
+    // state is still exactly what the removal left — `postedOpenWhere` means a
+    // removal never cleared a DONE row's postedAt, and the stamp only fires on
+    // a row whose postedAt is null — so the pair still round-trips.
     const newest = await prisma.prepLog.findFirst({
       where: logScope,
       orderBy: { logDate: 'desc' },
@@ -131,10 +130,28 @@ export async function POST(req: NextRequest) {
     const logId = candidate
 
     await prisma.$transaction(async tx => {
-      await tx.prepLog.update({ where: { id: logId }, data: { postedAt: new Date() } })
-      await tx.prepItem.update({ where: { id: prepItemId }, data: { isOnList: true } })
-      // After the isOnList write, so the draft it reads is the post-restore one.
-      if (post) await recomputeHeaderCounters(tx, revenueCenterId, post.id)
+      // `postedAt: null` in the where is what makes the restore idempotent: a
+      // second Undo (a double tap, a timeout retry, the prep page's offline
+      // queue replaying) stamps nothing and so must not walk the counters up.
+      const stamped = await tx.prepLog.updateMany({
+        where: { id: logId, postedAt: null },
+        data: { postedAt: new Date() },
+      })
+      // updateMany, not update: a row deleted mid-flight must not P2025 into a
+      // 500 on a restore that otherwise succeeded.
+      await tx.prepItem.updateMany({ where: { id: prepItemId }, data: { isOnList: true } })
+      // +1 for the one item just put back, gated on a log write that really
+      // happened. Atomic increment so it cannot clobber a concurrent post's
+      // counters with a value read before the transaction. `updateMany` also
+      // covers a concurrent Recall having deleted the header — the same defence
+      // recall/route.ts uses. postedAt / postedByName / dirty are the post's own
+      // provenance and this route is not a post, so they are left alone.
+      if (stamped.count > 0 && postIds.length > 0) {
+        await tx.prepPost.updateMany({
+          where: { id: { in: postIds } },
+          data: { itemCount: { increment: 1 }, activeMinutes: { increment: minutes } },
+        })
+      }
     })
     return NextResponse.json({ ok: true })
   }
@@ -143,13 +160,23 @@ export async function POST(req: NextRequest) {
     // Any day, not just today: a carried job's row is exactly what holds it on
     // the list. The row itself is never deleted; emptying the whole list is
     // what Recall is for.
-    await tx.prepLog.updateMany({
+    const cleared = await tx.prepLog.updateMany({
       where: { ...logScope, ...postedOpenWhere },
       data: { postedAt: null },
     })
-    await tx.prepItem.update({ where: { id: prepItemId }, data: { isOnList: false } })
-    // Keep the posted header honest — PostedBand renders both counters.
-    if (post) await recomputeHeaderCounters(tx, revenueCenterId, post.id)
+    // updateMany, not update — see the restore path.
+    await tx.prepItem.updateMany({ where: { id: prepItemId }, data: { isOnList: false } })
+    // −1 for the one item just taken off, gated on `cleared.count` so a second
+    // removal (retry, double tap, offline replay) clears nothing and decrements
+    // nothing. `itemCount: { gte: 1 }` is a DEFENSIVE clamp only — the gate
+    // above is what actually keeps the counters honest; it exists so a header
+    // corrupted by some other path can never be driven negative.
+    if (cleared.count > 0 && postIds.length > 0) {
+      await tx.prepPost.updateMany({
+        where: { id: { in: postIds }, itemCount: { gte: 1 } },
+        data: { itemCount: { decrement: 1 }, activeMinutes: { decrement: minutes } },
+      })
+    }
   })
 
   return NextResponse.json({ ok: true })
