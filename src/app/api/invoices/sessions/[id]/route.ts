@@ -5,6 +5,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, withPpb } from '@/lib/item-model'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
+import { deleteFileBlobs } from '@/lib/invoice-files'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -216,6 +217,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     select: {
       id: true,
       status: true,
+      // Blob refs, captured before the cascade delete takes the rows away.
+      files: { select: { fileUrl: true } },
       scanItems: {
         where: { action: 'UPDATE_PRICE', approved: true },
         select: {
@@ -268,5 +271,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   }
 
   await prisma.invoiceSession.delete({ where: { id: params.id } })
-  return NextResponse.json({ ok: true, pricesReverted })
+  // Rows first, bytes second: the delete must succeed even if the CDN doesn't.
+  const blobs = await deleteFileBlobs(session.files)
+  return NextResponse.json({ ok: true, pricesReverted, blobsDeleted: blobs.deleted, blobsFailed: blobs.failed })
 }

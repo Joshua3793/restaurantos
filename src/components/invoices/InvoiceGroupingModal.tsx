@@ -1,7 +1,8 @@
 'use client'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { X, Loader2, ScanLine, FileText, FileSpreadsheet, AlertTriangle, Pencil, Trash2, Undo2 } from 'lucide-react'
 import type { ProposedGroup } from '@/lib/invoice-grouping'
+import { DRAFT_VERSION, type GroupingDraft } from '@/lib/invoice-grouping-draft'
 
 interface PeekFile { id: string; fileName: string; fileType: string; fileUrl: string }
 
@@ -96,6 +97,66 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
   const [movingId, setMovingId] = useState<string | null>(null)
   const [discarded, setDiscarded] = useState<string[]>([])
   const [confirming, setConfirming] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // ── The draft is server state ──────────────────────────────────────────
+  // Every edit (move / discard / restore / corrected number / scan-as-one) is
+  // PUT to the session so closing the sorter, locking the phone, or opening
+  // it elsewhere never loses work. lastSavedRef holds the JSON the server has
+  // (seeded at load, so the initial render doesn't re-save the proposal);
+  // saves are serialised — one in flight, newest pending wins — so a slow
+  // earlier response can never overwrite a later edit.
+  const lastSavedRef = useRef<string | null>(null)
+  const pendingRef = useRef<GroupingDraft | null>(null)
+  const inflightRef = useRef(false)
+
+  const flushSave = useCallback(async () => {
+    if (inflightRef.current) return
+    const next = pendingRef.current
+    if (!next) return
+    pendingRef.current = null
+    inflightRef.current = true
+    let retryScheduled = false
+    try {
+      const res = await fetch(`/api/invoices/sessions/${sessionId}/grouping`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw Object.assign(new Error(j.error ?? `Couldn't save your changes (${res.status})`), { status: res.status })
+      }
+      lastSavedRef.current = JSON.stringify(next)
+      setSaveError(null)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+      // Network drop / 5xx: keep the draft queued and retry shortly, unless a
+      // newer edit has already replaced it. A 4xx (409 once the batch has
+      // been split elsewhere, 400 on a rejected shape) is final — retrying
+      // the same body would just repeat the answer.
+      const status = (e as { status?: number }).status
+      if ((status === undefined || status >= 500) && !pendingRef.current) {
+        pendingRef.current = next
+        retryScheduled = true
+        setTimeout(() => void flushSave(), 2500)
+      }
+    } finally {
+      inflightRef.current = false
+      // A newer edit queued while we were saving → send it now. A scheduled
+      // retry waits for its timer instead (no tight loop on a dead network).
+      if (pendingRef.current && !retryScheduled) void flushSave()
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    if (lastSavedRef.current === null) return   // not loaded yet
+    const draft: GroupingDraft = { v: DRAFT_VERSION, groups, unassigned, discarded }
+    const json = JSON.stringify(draft)
+    if (json === lastSavedRef.current) return
+    pendingRef.current = draft
+    void flushSave()
+  }, [groups, unassigned, discarded, flushSave])
 
   useEffect(() => {
     let alive = true
@@ -105,7 +166,9 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
         const j = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(j.error ?? `Couldn't read the photos (${res.status})`)
         if (!alive) return
-        setFiles(j.files); setGroups(j.groups); setUnassigned(j.unassigned)
+        const loaded: GroupingDraft = { v: DRAFT_VERSION, groups: j.groups, unassigned: j.unassigned, discarded: j.discarded ?? [] }
+        lastSavedRef.current = JSON.stringify(loaded)
+        setFiles(j.files); setGroups(loaded.groups); setUnassigned(loaded.unassigned); setDiscarded(loaded.discarded)
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e))
       } finally {
@@ -212,10 +275,15 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
               </div>
               <div>
                 <h2 className="text-base font-bold text-ink">Confirm invoices</h2>
-                <p className="text-xs text-ink-4">Tap a photo to move it if something&apos;s misfiled</p>
+                <p className="text-xs text-ink-4">Tap a photo to move it if something&apos;s misfiled · changes save as you go</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-ink-4 hover:bg-bg-2" title="Keep for later">
+            <button
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-ink-4 hover:bg-bg-2 hover:text-ink-2 text-xs"
+              title="Keep for later — your sorting is saved"
+            >
+              <span className="hidden sm:inline">Keep for later</span>
               <X size={16} />
             </button>
           </div>
@@ -232,6 +300,13 @@ export function InvoiceGroupingModal({ sessionId, onClose, onDone }: Props) {
             {error && (
               <div className="bg-red-soft border border-red-soft rounded-xl p-4 text-sm text-red-text">
                 <strong>Error:</strong> {error}
+              </div>
+            )}
+
+            {saveError && (
+              <div className="bg-red-soft border border-red-soft rounded-xl p-3 text-xs text-red-text flex items-center gap-2">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span><strong>Not saved:</strong> {saveError}</span>
               </div>
             )}
 

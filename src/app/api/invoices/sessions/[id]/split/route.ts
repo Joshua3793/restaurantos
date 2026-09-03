@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
+import { deleteFileBlobs } from '@/lib/invoice-files'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
-    select: { id: true, status: true, revenueCenterId: true, files: { select: { id: true } } },
+    select: { id: true, status: true, revenueCenterId: true, files: { select: { id: true, fileUrl: true } } },
   })
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   if (!['GROUPING', 'UPLOADING'].includes(session.status)) {
@@ -85,6 +86,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       invoiceNumber: first.invoiceNumber ?? null,
       invoiceDate: first.invoiceDate ?? null,
       errorMessage: null,
+      // The batch is now invoices; the sorter draft has done its job.
+      groupingDraft: Prisma.DbNull,
     },
   }))
 
@@ -109,6 +112,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   await prisma.$transaction(ops)
+
+  // Rows are gone; now free the bytes. Best-effort — a CDN hiccup must not
+  // fail a split whose sessions are already PROCESSING.
+  if (discardFileIds.length > 0) {
+    const discardSet = new Set(discardFileIds)
+    await deleteFileBlobs(session.files.filter(f => discardSet.has(f.id)))
+  }
 
   return NextResponse.json({ sessionIds: [session.id, ...newIds] })
 }

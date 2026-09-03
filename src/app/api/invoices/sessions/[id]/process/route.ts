@@ -35,6 +35,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   })
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
+  // A batch (>1 file registered, not yet sorted) becomes invoices ONLY via
+  // /split. Running OCR here would read every photo as pages of one invoice.
+  if (session.status === 'GROUPING') {
+    return NextResponse.json(
+      { error: "This batch hasn't been sorted yet — open it and confirm the invoices first" },
+      { status: 409 },
+    )
+  }
+
   // Allow retrying ERROR sessions — reset their files to PENDING
   if (session.status === 'ERROR') {
     await prisma.invoiceSession.update({

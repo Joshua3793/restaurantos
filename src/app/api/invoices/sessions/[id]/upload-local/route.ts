@@ -33,9 +33,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }))
   }
 
+  // Status by file count, not by the peek (see ../upload/route.ts). The native
+  // scanner's local fallback registers one page per request, so a multi-page
+  // capture passes through PROCESSING after page 1 and settles in GROUPING at
+  // page 2 — the client only fires /process when its own page count is 1.
+  const fileCount = await prisma.invoiceFile.count({ where: { sessionId: params.id } })
   await prisma.invoiceSession.update({
     where: { id: params.id },
-    data:  { status: 'PROCESSING' },
+    data:  { status: fileCount > 1 ? 'GROUPING' : 'PROCESSING' },
   })
 
   return NextResponse.json(
