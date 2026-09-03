@@ -2,8 +2,10 @@
 // Prep run-sheet — mobile frame.
 // Ported from the prototype's PTMobile (scratchpad/prototype-ref/mobile.jsx):
 // header (date / now / next-service), My-station|Kitchen segmented (default
-// station), horizontal cook picker, in-progress rail, station mode = NextUpHero
-// + "Coming up" queue, kitchen mode = time sections, and a collapsible Done.
+// station), horizontal cook picker, station mode = NextUpHero + "Coming up"
+// queue, kitchen mode = time sections, and a collapsible Done. The prototype's
+// horizontal-scrolling in-progress rail is gone: an item being worked on stays
+// in the queue as a WorkingRowMobile.
 // The prototype's recipe/log bottom-sheets are dropped — the fused PrepDrawer
 // (onOpenRecipe) and PrepDoneSheet (onLog) are the real surfaces, opened via
 // props. Flat Tailwind tokens replace the hex palette; mono via `font-mono`.

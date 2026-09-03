@@ -19,7 +19,14 @@ import { isLiveLog } from '@/lib/prep-plan'
 //     live) but not its queries — the real one does a groupBy + createMany with
 //     skipDuplicates against Postgres.
 
-type Row = Record<string, any>
+// A row (or a Prisma call-arg object) in this harness. Deliberately loose — the
+// fake tables are built and read by column name — but not `any`: the recursive
+// value union still forces a cast wherever the harness does arithmetic or date
+// math on a column, which is exactly where a wrong assumption would hide.
+type RowValue = string | number | boolean | Date | null | undefined | RowValue[] | Row
+type Row = { [key: string]: RowValue }
+/** The subset of Prisma call args this harness understands. */
+type Args = { where?: Row; data?: Row; select?: Row; orderBy?: Row }
 
 const DAY = 86_400_000
 const TODAY = new Date('2026-09-02T00:00:00.000Z')
@@ -42,7 +49,7 @@ function matchWhere(row: Row, where: Row | undefined): boolean {
         if (cond.not === null ? rv === null || rv === undefined : rv === cond.not) return false
       }
       if ('in' in cond && !(cond.in as unknown[]).includes(rv)) return false
-      if ('gte' in cond && !(rv >= cond.gte)) return false
+      if ('gte' in cond && !((rv as number) >= (cond.gte as number))) return false
     } else if (rv !== v) return false
   }
   return true
@@ -50,12 +57,12 @@ function matchWhere(row: Row, where: Row | undefined): boolean {
 
 // Prisma `data` semantics — plain sets plus the atomic number operations the
 // header write uses.
-function applyData(row: Row, data: Row) {
+function applyData(row: Row, data: Row | undefined) {
   for (const [k, v] of Object.entries(data ?? {})) {
     if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
       const op = v as Row
-      if ('increment' in op) { row[k] = (row[k] ?? 0) + op.increment; continue }
-      if ('decrement' in op) { row[k] = (row[k] ?? 0) - op.decrement; continue }
+      if ('increment' in op) { row[k] = ((row[k] as number) ?? 0) + (op.increment as number); continue }
+      if ('decrement' in op) { row[k] = ((row[k] as number) ?? 0) - (op.decrement as number); continue }
     }
     row[k] = v
   }
@@ -68,49 +75,49 @@ function applySelect(row: Row, select?: Row): Row {
   return out
 }
 
-const itemFindUnique = vi.fn(async (args: Row) => {
-  const row = db.items.find(i => i.id === args.where.id)
+const itemFindUnique = vi.fn(async (args: Args) => {
+  const row = db.items.find(i => i.id === args.where?.id)
   return row ? applySelect(row, args.select) : null
 })
-const itemFindMany = vi.fn(async (args: Row) =>
+const itemFindMany = vi.fn(async (args: Args) =>
   db.items.filter(i => matchWhere(i, args?.where)).map(i => applySelect(i, args?.select)),
 )
-const itemUpdate = vi.fn(async (args: Row) => {
-  const row = db.items.find(i => i.id === args.where.id)
+const itemUpdate = vi.fn(async (args: Args) => {
+  const row = db.items.find(i => i.id === args.where?.id)
   if (!row) throw new Error('P2025')
   applyData(row, args.data)
   return row
 })
-const itemUpdateMany = vi.fn(async (args: Row) => {
+const itemUpdateMany = vi.fn(async (args: Args) => {
   const rows = db.items.filter(i => matchWhere(i, args?.where))
   for (const r of rows) applyData(r, args.data)
   return { count: rows.length }
 })
-const logFindFirst = vi.fn(async (args: Row) => {
+const logFindFirst = vi.fn(async (args: Args) => {
   const rows = db.logs.filter(l => matchWhere(l, args?.where))
   if (args?.orderBy?.logDate === 'desc') {
-    rows.sort((a, b) => new Date(b.logDate).getTime() - new Date(a.logDate).getTime())
+    rows.sort((a, b) => new Date(b.logDate as string).getTime() - new Date(a.logDate as string).getTime())
   }
   return rows[0] ? applySelect(rows[0], args.select) : null
 })
-const logUpdate = vi.fn(async (args: Row) => {
-  const row = db.logs.find(l => l.id === args.where.id)
+const logUpdate = vi.fn(async (args: Args) => {
+  const row = db.logs.find(l => l.id === args.where?.id)
   if (!row) throw new Error('P2025')
   applyData(row, args.data)
   return row
 })
-const logUpdateMany = vi.fn(async (args: Row) => {
+const logUpdateMany = vi.fn(async (args: Args) => {
   const rows = db.logs.filter(l => matchWhere(l, args?.where))
   for (const r of rows) applyData(r, args.data)
   return { count: rows.length }
 })
-const postUpdate = vi.fn(async (args: Row) => {
-  const row = db.posts.find(p => p.id === args.where.id)
+const postUpdate = vi.fn(async (args: Args) => {
+  const row = db.posts.find(p => p.id === args.where?.id)
   if (!row) throw new Error('P2025 — no PrepPost')
   applyData(row, args.data)
   return row
 })
-const postUpdateMany = vi.fn(async (args: Row) => {
+const postUpdateMany = vi.fn(async (args: Args) => {
   const rows = db.posts.filter(p => matchWhere(p, args?.where))
   for (const r of rows) applyData(r, args.data)
   return { count: rows.length }
@@ -146,9 +153,9 @@ const ensureLiveLogs = vi.fn(async (ids: string[], revenueCenterId: string) => {
   for (const prepItemId of ids) {
     const newest = db.logs
       .filter(l => l.prepItemId === prepItemId)
-      .sort((a, b) => new Date(b.logDate).getTime() - new Date(a.logDate).getTime())[0]
+      .sort((a, b) => new Date(b.logDate as string).getTime() - new Date(a.logDate as string).getTime())[0]
     if (newest && isLiveLog(newest as never, TODAY.getTime())) {
-      map.set(prepItemId, newest.id)
+      map.set(prepItemId, newest.id as string)
       continue
     }
     const id = `minted-${prepItemId}`

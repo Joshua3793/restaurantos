@@ -159,6 +159,91 @@ describe('prep offline queue — post and remove_item', () => {
   })
 })
 
+// THE SEGMENT RULE (see the comment above `keyOf` in prep-offline.ts). `post`
+// rebuilds the kitchen's list from `isOnList` as it stands when the request
+// lands, and clears postedAt for everything not in it — so an isOnList write
+// made BEFORE a post must reach the server before that post, and one made after
+// must stay after. Collapsing them together emits the survivor at the LAST
+// occurrence's position, which is on the wrong side of the post.
+describe('prep offline queue — isOnList writes never collapse across a post', () => {
+  beforeEach(() => { installLocalStorage(); clearQueue() })
+
+  it('keeps an isOnList toggle that preceded a post, so the post is built from the draft the chef had', () => {
+    // Chef adds Aioli to the draft, posts, then thinks better of it and removes it.
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'aioli', isOnList: true })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'aioli', isOnList: false })
+
+    const out = deduplicateQueue(loadQueue())
+
+    expect(out.map(m => [m.type, m.isOnList])).toEqual([
+      ['isOnList_toggle', true],
+      ['post', undefined],
+      ['isOnList_toggle', false],
+    ])
+  })
+
+  it('keeps an isOnList toggle that TOOK an item off before a post, so the post cannot put it back', () => {
+    // The mirror: dropped, the post would see isOnList:true and send a cook to
+    // prep something the chef deliberately pulled.
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'aioli', isOnList: false })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'aioli', isOnList: true })
+
+    const out = deduplicateQueue(loadQueue())
+
+    expect(out.map(m => [m.type, m.isOnList])).toEqual([
+      ['isOnList_toggle', false],
+      ['post', undefined],
+      ['isOnList_toggle', true],
+    ])
+  })
+
+  it('keeps a remove_item that preceded a post separate from the restore that followed it', () => {
+    enqueueMutation({ type: 'remove_item', itemId: 'aioli', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'remove_item', itemId: 'aioli', revenueCenterId: 'rc-1', restore: true })
+
+    const out = deduplicateQueue(loadQueue())
+
+    expect(out.map(m => [m.type, m.restore ?? false])).toEqual([
+      ['remove_item', false],
+      ['post', false],
+      ['remove_item', true],
+    ])
+  })
+
+  it('still collapses two posts around one removal down to that removal and the last post', () => {
+    // The third row of the table: already correct before the segment rule, and
+    // it has to stay correct. The removal sits in segment 1 either way, and the
+    // two posts share a key because they share a revenue center.
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'remove_item', itemId: 'aioli', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+
+    const out = deduplicateQueue(loadQueue())
+
+    expect(out.map(m => m.type)).toEqual(['remove_item', 'post'])
+  })
+
+  it('flushes a pre-post isOnList toggle to the server BEFORE the post itself', async () => {
+    const calls = mockFetch()
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'aioli', isOnList: true })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'aioli', isOnList: false })
+
+    await flushQueue()
+
+    expect(calls.map(c => c.url)).toEqual([
+      '/api/prep/items/aioli',
+      '/api/prep/plan/post',
+      '/api/prep/items/aioli',
+    ])
+    expect(calls[0].body).toEqual({ isOnList: true })
+    expect(calls[2].body).toEqual({ isOnList: false })
+  })
+})
+
 describe('prep offline queue — log resolution', () => {
   beforeEach(() => { installLocalStorage(); clearQueue() })
 

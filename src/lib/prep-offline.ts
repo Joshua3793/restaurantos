@@ -131,23 +131,45 @@ export function clearQueue(): void {
 
 // ── Deduplication ──────────────────────────────────────────────────────────────
 //
-// Three rules, one pass, order preserved:
+// Four rules, one pass, order preserved:
 //
-//  · isOnList_toggle / status / priority — keep the LAST per item. The final
-//    value is the only one that matters.
+//  · status / priority — keep the LAST per item. The final value is the only one
+//    that matters, and neither field is read by `plan/post`.
 //  · post — keep the LAST per revenue center.
 //  · draft_edit — MERGE per item, field by field, in enqueue order. Keeping only
 //    the last mutation would drop a qty edit as soon as a note edit followed it.
-//  · remove_item — keep the LAST per item, so a remove immediately undone
-//    collapses to the undo.
+//  · isOnList_toggle / remove_item — keep the LAST per item.
 //
-// draft_edit merging is bounded by `post` boundaries: an edit made before a post
-// belongs to that post, an edit made after it is an unposted change. Merging
-// across a post would fold a later edit into an earlier post.
+// THE SEGMENT RULE — `draft_edit`, `isOnList_toggle` and `remove_item` all
+// collapse WITHIN a post-delimited segment, never across one. A `post` is not
+// just another queued write: the server rebuilds the posted set from the draft
+// as it stands when the post request lands (`plan/post` selects
+// `isActive: true, isOnList: true`, and then ACTIVELY CLEARS postedAt for
+// everything `notIn` that set). So every field a post is computed from has to
+// reach the server with the value it had AT THE MOMENT THE CHEF TAPPED POST —
+// which means the collapse has to stop at each post boundary, and the survivor
+// has to keep its position relative to it:
+//
+//  · `draft_edit` — an edit made before a post belongs to that post, an edit
+//    made after it is an unposted change. Merging across a post would fold a
+//    later edit into an earlier post.
+//  · `isOnList_toggle` / `remove_item` — both write `isOnList`, which is the
+//    field a post's membership is LITERALLY computed from. Un-segmented, the
+//    last-per-item survivor is emitted at the LAST occurrence's position, i.e.
+//    AFTER the post: `[toggle(A,true), post, toggle(A,false)]` would drop the
+//    `true` and post a draft the chef never had — A is not in `draftIds`, so
+//    the post pulls a carried-over job off the kitchen's To Do entirely. The
+//    mirror (`[toggle(A,false), post, toggle(A,true)]`) posts an item the chef
+//    deliberately kept off, and a cook preps it.
+//
+// Collapsing ACROSS a post is only ever safe for a field no post reads.
 //
 // Preserving the relative order of survivors is the entire ordering guarantee the
 // flush needs — a post enqueued after its edits flushes after them, so the server
 // builds the post from a draft that is already correct.
+
+// Types whose survivor must never cross a post boundary — see THE SEGMENT RULE.
+const SEGMENTED_TYPES = new Set<OfflineMutation['type']>(['draft_edit', 'isOnList_toggle', 'remove_item'])
 
 export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
   // Which post-delimited segment each mutation sits in.
@@ -167,7 +189,7 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
 
   const keyOf = (m: OfflineMutation): string =>
     m.type === 'post' ? `post|${m.revenueCenterId ?? ''}`
-    : m.type === 'draft_edit' ? `draft_edit|${segmentOf.get(m)}|${m.itemId}`
+    : SEGMENTED_TYPES.has(m.type) ? `${m.type}|${segmentOf.get(m)}|${m.itemId}`
     : `${m.type}|${m.itemId}`
 
   // First pass — the survivor for each key, and (for draft_edit) the merged patch.

@@ -2,10 +2,11 @@
 // Prep run-sheet — desktop frame.
 // Ported from the prototype's PTDesktop (scratchpad/prototype-ref/desktop.jsx):
 // status band, Kitchen/My-station segmented, crew strip / cook picker, station
-// filter, in-progress rail, the grouped ladder (renderLadder: time / station /
-// priority), the NOW divider, and the collapsible Done section. The prototype's
-// DSidebar (the app has its own nav), tweaks slider, and clock slider are
-// dropped — real props drive everything instead. Flat Tailwind tokens replace
+// filter, the grouped ladder (renderLadder: time / station / priority), the NOW
+// divider, and the collapsible Done section. The prototype's DSidebar (the app
+// has its own nav), tweaks slider, and clock slider are dropped — real props
+// drive everything instead. The prototype's horizontal-scrolling in-progress
+// rail is gone too: an item being worked on stays in the ladder as a WorkingRow. Flat Tailwind tokens replace
 // the hex palette; mono via `font-mono`; Lucide icons.
 import { useState, useMemo, useEffect } from 'react'
 import { RotateCcw } from 'lucide-react'

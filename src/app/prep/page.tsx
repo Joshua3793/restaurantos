@@ -95,7 +95,8 @@ export default function PrepPage() {
   const [subRecipeChecked, setSubRecipeChecked] = useState<Set<string>>(new Set())
   const [alertDismissed, setAlertDismissed] = useState(false)
 
-  // Live Pacific-local clock for the desktop run sheet (start-by math + rail timers).
+  // Live Pacific-local clock for the desktop run sheet (start-by math + the
+  // elapsed timer on a WorkingRow).
   const { nowMs, nowMin } = useNowMinute()
 
   // View state
@@ -136,9 +137,16 @@ export default function PrepPage() {
   // and after its fetch and discards its result if any mutation happened meanwhile.
   const mutationSeq = useRef(0)
 
-  // Set once the cache has painted, so `load` does not slam the full-screen
-  // spinner over a list the cook is already reading.
-  const hydratedFromCache = useRef(false)
+  // Set by the MOUNT-time cache paint and consumed by the first non-silent
+  // `load` that follows it, so that load does not slam the full-screen spinner
+  // over a list the cook is already reading.
+  //
+  // One-shot on purpose. Latched, it also swallowed the spinner for every LATER
+  // non-silent load — and those are user-initiated (flipping "active only",
+  // tapping Refresh) against a ~5s /api/prep/items fetch, so the previous list
+  // just sat there and the tap read as a no-op. Suppressing the spinner is only
+  // ever right when something was painted a moment ago for this exact load.
+  const cachePaintedOnMount = useRef(false)
 
   // ── Prep tasks (checklist) ─────────────────────────────────────────────────
   const [taskLibrary, setTaskLibrary] = useState<PrepTask[]>([])
@@ -228,7 +236,14 @@ export default function PrepPage() {
   // `silent` = background refresh (auto-poll): update data in place without the
   // full-screen loading state or wiping the list on a transient failure.
   const load = useCallback(async (silent = false) => {
-    if (!silent && !hydratedFromCache.current) setLoading(true)
+    // Consume the mount-paint suppression — see `cachePaintedOnMount`. Read and
+    // cleared only on a non-silent load, so a background poll landing first can
+    // never spend it on the user's behalf.
+    if (!silent) {
+      const skipSpinner = cachePaintedOnMount.current
+      cachePaintedOnMount.current = false
+      if (!skipSpinner) setLoading(true)
+    }
     const seqAtStart = mutationSeq.current
     try {
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`, { cache: 'no-store' })
@@ -247,15 +262,13 @@ export default function PrepPage() {
       // `setCacheAge` never clears — the "Showing the saved list" banner then
       // sticks around after a perfectly successful fetch, until some later poll
       // happens to land with no intervening mutation. Only `setItems` /
-      // `savePrepCache` / `hydratedFromCache` stay below the guard, because
-      // only those would clobber an optimistic update with stale data. Do not
-      // "tidy" these back together.
+      // `savePrepCache` stay below the guard, because only those would clobber
+      // an optimistic update with stale data. Do not "tidy" these back together.
       setIsOffline(false)
       setCacheAge(null)
       if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
       savePrepCache(fetched, { fetchedAt: Date.now() })
-      hydratedFromCache.current = true
     } catch (e) {
       // ANY failure falls back to the cache — not just navigator.onLine === false.
       // A flaky signal fails the fetch while the browser still calls itself online,
@@ -268,7 +281,6 @@ export default function PrepPage() {
         // The check lives in the updater, but nothing is ASSIGNED inside it:
         // a state updater must stay pure or StrictMode's double-invoke makes it lie.
         setItems(prev => (prev.length === 0 ? cached.items : prev))
-        hydratedFromCache.current = true
         setCacheAge(Math.round((Date.now() - cached.ts) / 60000))
       } else if (!silent) {
         setItems([])
@@ -371,7 +383,7 @@ export default function PrepPage() {
   useEffect(() => {
     const cached = loadPrepCache()
     if (cached && cached.items.length > 0) {
-      hydratedFromCache.current = true
+      cachePaintedOnMount.current = true
       setItems(cached.items)
       setCacheAge(Math.round((Date.now() - cached.ts) / 60000))
       setLoading(false)
@@ -388,11 +400,22 @@ export default function PrepPage() {
   // just a workaround: it means switching back to a previously-visited RC
   // while offline repaints that RC's own cached header instead of leaving
   // whatever the last RC's post happened to be on screen.
+  //
+  // The `else` is load-bearing, not tidiness. `loadPlan`'s catch deliberately
+  // KEEPS the last known post so a failed refresh doesn't blank a good header —
+  // but "last known" is the previous RC's when the chef has just switched
+  // centers offline. Without an active clear here, a Cafe band ("Posted list ·
+  // 6 items · Chef has unposted changes") sits above Catering's To Do
+  // indefinitely: the fetch throws, the catch keeps Cafe's post, and a cache
+  // entry stamped for a different RC no-ops. Clearing on a MISMATCH is what
+  // makes the RC stamp guard the state carry-over and not just the cache read.
   useEffect(() => {
     if (!activeRcId) return
     const cachedPlan = loadPlanCache()
     if (cachedPlan && cachedPlan.revenueCenterId === activeRcId) {
       setPlan({ post: cachedPlan.post })
+    } else {
+      setPlan({ post: null })
     }
   }, [activeRcId])
 
@@ -428,6 +451,11 @@ export default function PrepPage() {
         }
       }
       load()
+      // The queue's posts and removals are exactly the mutations that move the
+      // PrepPost header, so the band is stale the instant a flush lands. Without
+      // this it stayed stale until the 60s interval's own loadPlan — a header
+      // reading "6 items" over a list of 4 for up to a minute after reconnect.
+      loadPlan()
     }
     const handleOffline = () => setIsOffline(true)
     window.addEventListener('online',  handleOnline)
@@ -436,7 +464,7 @@ export default function PrepPage() {
       window.removeEventListener('online',  handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [load])
+  }, [load, loadPlan])
 
   const handleOfflineSync = useCallback(async () => {
     if (isOffline || offlineSyncing) return
@@ -448,7 +476,8 @@ export default function PrepPage() {
       setActionError(`Synced ${result.synced}, but ${result.failed} change${result.failed !== 1 ? 's' : ''} failed — please refresh.`)
     }
     load()
-  }, [isOffline, offlineSyncing, load])
+    loadPlan()   // the flush just moved the header — see handleOnline
+  }, [isOffline, offlineSyncing, load, loadPlan])
 
   // Fetch history logs when History tab is active or date changes
   useEffect(() => {
@@ -941,6 +970,35 @@ export default function PrepPage() {
     if (!navigator.onLine) {
       enqueueMutation({ type: 'remove_item', itemId: item.id, revenueCenterId: rcId, restore })
       setPendingCount(n => n + 1)
+      // Move the posted band with the row, or it contradicts the list under it:
+      // post 6 items offline, × two rows, and the synthetic header goes on
+      // reading "6 items · 2h 10m" over a To Do that now holds 4 — for as long
+      // as the chef stays offline, since nothing recomputes it until the queue
+      // flushes. `remove-item/route.ts` goes to real trouble to keep that header
+      // honest; the offline path used to bypass all of it.
+      //
+      // Mirrors the route exactly: it moves the header by the ONE item it
+      // changed (never re-deriving it from the draft — that would fold unposted
+      // next-day additions into a header describing what the cooks see now), and
+      // gates the ±1 on the log write having really changed something
+      // (`cleared.count` / the `postedAt: null` where). So a removal only counts
+      // when the job was actually posted, a restore only when it wasn't, and a
+      // repeat tap moves nothing — same idempotence.
+      const wasPosted = !!item.todayLog?.postedAt
+      if (plan.post && activeRcId && (restore ? !wasPosted : wasPosted)) {
+        // The same expression the routes sum — `resolveActive(i) ?? estimatedPrepTime ?? 0`.
+        // `item.activeMinutes` IS the resolved value; /api/prep/items runs
+        // `resolveActive` before serializing the row.
+        const minutes = item.activeMinutes ?? item.estimatedPrepTime ?? 0
+        const delta = restore ? 1 : -1
+        const nextPost: PrepPostInfo = {
+          ...plan.post,
+          itemCount:     Math.max(0, plan.post.itemCount + delta),
+          activeMinutes: Math.max(0, plan.post.activeMinutes + delta * minutes),
+        }
+        setPlan({ post: nextPost })
+        savePlanCache(nextPost, activeRcId)
+      }
       if (!restore) {
         toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true) } })
       }
@@ -1726,8 +1784,8 @@ export default function PrepPage() {
               )}
             </div>
           ) : (
-            /* Mobile run sheet — the Today surface (hero, in-progress rail, queue).
-               Same wired callbacks as the desktop RunSheet (Task 13). */
+            /* Mobile run sheet — the Today surface (hero, queue, in-place
+               WorkingRowMobile). Same wired callbacks as the desktop RunSheet. */
             <div className="pb-24 sm:pb-0">
               {plan.post && activeRcId && <PostedBand post={plan.post} />}
               <RunSheetMobile
