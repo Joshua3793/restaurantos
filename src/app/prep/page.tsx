@@ -9,7 +9,7 @@ import {
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { fmtDuration, serviceStatus, upcomingInfo, formatServiceStatus, type RcService } from '@/lib/service-hours'
-import { savePrepCache, loadPrepCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
+import { savePrepCache, loadPrepCache, savePlanCache, loadPlanCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
@@ -46,7 +46,7 @@ const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsMo
 export default function PrepPage() {
   const { setDrawerOpen } = useDrawer()
   const { activeRc, activeRcId, activeKind, activeLocationId, isReadOnly } = useRc()
-  const { role } = useUser()
+  const { role, user } = useUser()
   const [items,        setItems]        = useState<PrepItemRich[]>([])
   const [cooks,        setCooks]        = useState<Cook[]>([])
   // Today's posted-list header for the active RC (null = nothing posted yet).
@@ -233,7 +233,7 @@ export default function PrepPage() {
       // already made the server authoritative; the next quiet load will reconcile.
       if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
-      savePrepCache(fetched)
+      savePrepCache(fetched, { fetchedAt: Date.now() })
       setIsOffline(false)
       setCacheAge(null)
     } catch (e) {
@@ -282,7 +282,11 @@ export default function PrepPage() {
     if (!activeRcId) { setPlan({ post: null }); return }
     try {
       const res = await fetch(`/api/prep/plan?rcId=${encodeURIComponent(activeRcId)}`, { cache: 'no-store' })
-      if (res.ok) setPlan(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        setPlan(data)
+        savePlanCache(data.post ?? null)
+      }
     } catch { /* keep the last known post */ }
   }, [activeRcId])
 
@@ -322,7 +326,7 @@ export default function PrepPage() {
       if (queue.length > 0) {
         setOfflineSyncing(true)
         const result = await flushQueue()
-        setPendingCount(0)
+        setPendingCount(loadQueue().length)
         setOfflineSyncing(false)
         if (result.failed > 0) {
           setActionError(`Synced ${result.synced} change${result.synced !== 1 ? 's' : ''}, but ${result.failed} failed — please refresh.`)
@@ -343,7 +347,7 @@ export default function PrepPage() {
     if (isOffline || offlineSyncing) return
     setOfflineSyncing(true)
     const result = await flushQueue()
-    setPendingCount(0)
+    setPendingCount(loadQueue().length)
     setOfflineSyncing(false)
     if (result.failed > 0) {
       setActionError(`Synced ${result.synced}, but ${result.failed} change${result.failed !== 1 ? 's' : ''} failed — please refresh.`)
@@ -812,6 +816,15 @@ export default function PrepPage() {
         : i
     )))
 
+    if (!navigator.onLine) {
+      enqueueMutation({ type: 'remove_item', itemId: item.id, revenueCenterId: rcId, restore })
+      setPendingCount(n => n + 1)
+      if (!restore) {
+        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true) } })
+      }
+      return
+    }
+
     try {
       const res = await fetch('/api/prep/plan/remove-item', {
         method: 'POST',
@@ -901,7 +914,21 @@ export default function PrepPage() {
     markPlanDirtyLocal()
     markSaving(item.id, true)
 
-    if (!navigator.onLine) { markSaving(item.id, false); return } // planner edits are online-only
+    // Offline, the edit queues and replays on reconnect. The optimistic patch
+    // above is already in `items`, and the items-cache effect persists it, so it
+    // also survives a reload in a dead zone.
+    if (!navigator.onLine) {
+      enqueueMutation({
+        type: 'draft_edit',
+        itemId: item.id,
+        logId: item.todayLog?.id ?? null,
+        revenueCenterId: item.revenueCenterId ?? activeRcId,
+        patch,
+      })
+      setPendingCount(n => n + 1)
+      markSaving(item.id, false)
+      return
+    }
 
     const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
     const runOp = prevOp.catch(() => {}).then(async () => {
@@ -1003,6 +1030,44 @@ export default function PrepPage() {
   // Post the draft: the kitchen's To Do switches to exactly what's on the list.
   async function handlePost() {
     if (!activeRcId) { setActionError('Select a revenue center (not "All") to post the list.'); return }
+
+    // Offline: stamp the post locally and queue it. The queued draft edits that
+    // preceded this flush FIRST (deduplicateQueue preserves order), so the
+    // server builds the post from the chef's own numbers.
+    //
+    // Known and accepted: a post queued at 06:00 and replayed at 14:00 posts a
+    // list whose quantities are the chef's, but whose stock evidence is as old
+    // as the queue.
+    if (!navigator.onLine) {
+      const stamp = new Date().toISOString()
+      const drafted = items.filter(i => i.isOnList)
+      mutationSeq.current++
+      setItems(prev => prev.map(i => {
+        if (i.isOnList) return { ...i, todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp } : seedLog(i, { postedAt: stamp }) }
+        if (i.todayLog?.postedAt) return { ...i, todayLog: { ...i.todayLog, postedAt: null } }
+        return i
+      }))
+      const localPost: PrepPostInfo = {
+        id: `_opt_post_${activeRcId}`,
+        postedAt: stamp,
+        postedByName: user?.name ?? user?.email ?? 'Chef',
+        itemCount: drafted.length,
+        // Same sum RunSheet's `handsOn` shows. Deliberately NOT
+        // computeWorkloadMinutes — that sums estimatedPrepTime, while the post
+        // route sums `resolveActive(d) ?? d.estimatedPrepTime ?? 0`. This header
+        // is a local stand-in either way: the server's real one replaces it on
+        // the next loadPlan after the queue flushes.
+        activeMinutes: drafted.reduce((a, i) => a + (i.activeMinutes ?? 0), 0),
+        dirty: false,
+        listDate: `${prepDayKey()}T00:00:00.000Z`,
+      }
+      setPlan({ post: localPost })
+      savePlanCache(localPost)
+      enqueueMutation({ type: 'post', itemId: '', revenueCenterId: activeRcId })
+      setPendingCount(n => n + 1)
+      toast('Posted — will sync when back online')
+      return
+    }
     try {
       const res = await fetch('/api/prep/plan/post', {
         method: 'POST',
@@ -1012,6 +1077,7 @@ export default function PrepPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Post failed — try again.')
       setPlan({ post: data.post })
+      savePlanCache(data.post)
       // Stamp postedAt locally so the To Do fills without waiting for a reload.
       mutationSeq.current++
       const stamp: string = data.post.postedAt
@@ -1037,6 +1103,7 @@ export default function PrepPage() {
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Recall failed — try again.')
       setPlan({ post: null })
+      savePlanCache(null)
       mutationSeq.current++
       setItems(prev => prev.map(i => (i.todayLog?.postedAt ? { ...i, todayLog: { ...i.todayLog, postedAt: null } } : i)))
       toast('Recalled to draft')
