@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
-    select: { id: true, status: true, revenueCenterId: true, files: { select: { id: true, fileUrl: true } } },
+    select: { id: true, status: true, revenueCenterId: true, files: { select: { id: true, fileUrl: true, createdAt: true } } },
   })
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   if (!['GROUPING', 'UPLOADING'].includes(session.status)) {
@@ -71,6 +71,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const [first, ...rest] = groups
   const ops: Prisma.PrismaPromise<unknown>[] = []
+
+  // Page order. OCR reads pages in createdAt order and bbox.page indexes into
+  // that same order, so createdAt IS the page order — one source of truth.
+  // The sorter lets the user reorder pages inside an invoice; honour that by
+  // re-stamping the group's files as base, base+1ms, base+2ms… in the order
+  // the user confirmed. Base = the group's earliest capture, so groups keep
+  // their relative age and nothing moves into the future.
+  const createdById = new Map(session.files.map(f => [f.id, f.createdAt]))
+  for (const g of groups) {
+    const base = Math.min(...g.fileIds.map(id => createdById.get(id)!.getTime()))
+    g.fileIds.forEach((id, i) => {
+      const want = base + i
+      if (createdById.get(id)!.getTime() !== want) {
+        ops.push(prisma.invoiceFile.update({ where: { id }, data: { createdAt: new Date(want) } }))
+      }
+    })
+  }
 
   if (discardFileIds.length > 0) {
     ops.push(prisma.invoiceFile.deleteMany({

@@ -6,6 +6,7 @@ import { PRICING_SELECT, withPpb } from '@/lib/item-model'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
 import { deleteFileBlobs } from '@/lib/invoice-files'
+import { atLeast } from '@/lib/roles'
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -205,8 +206,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 // DELETE /api/invoices/sessions/[id]
 // For APPROVED sessions, reverts inventory prices that were applied.
+// Gate by what is being thrown away: a session with NO scan items (an unsorted
+// batch, an upload that never OCR'd) has touched nothing — anyone who can
+// upload can discard it. Once lines exist, history and possibly the spine are
+// involved, and that stays a manager's call.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  try { await requireSession('MANAGER') }
+  let user
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
@@ -217,6 +223,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     select: {
       id: true,
       status: true,
+      _count: { select: { scanItems: true } },
       // Blob refs, captured before the cascade delete takes the rows away.
       files: { select: { fileUrl: true } },
       scanItems: {
@@ -237,6 +244,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   })
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session._count.scanItems > 0 && !atLeast(user.role, 'MANAGER')) {
+    return NextResponse.json({ error: 'Only a manager can delete an invoice that has been scanned' }, { status: 403 })
+  }
 
   let pricesReverted = 0
 

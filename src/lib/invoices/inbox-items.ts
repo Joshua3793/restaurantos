@@ -20,10 +20,11 @@ export type InboxCategory = 'invoices' | 'exceptions' | 'prices' | 'variance' | 
 
 export interface InboxItem {
   id: string
-  kind: 'invoice' | 'signal'
+  /** A batch is a stack of photos that is not invoices yet — it gets its own row treatment everywhere. */
+  kind: 'invoice' | 'batch' | 'signal'
   category: InboxCategory
-  tone: 'gold' | 'red' | 'ink' | 'ink3'
-  icon: 'invoice' | 'price' | 'variance' | 'exception' | 'signal'
+  tone: 'gold' | 'red' | 'blue' | 'ink' | 'ink3'
+  icon: 'invoice' | 'batch' | 'price' | 'variance' | 'exception' | 'signal'
   title: string
   meta: string
   badge?: string
@@ -34,7 +35,7 @@ export interface InboxItem {
 }
 
 const STATUS_BADGE: Partial<Record<SessionStatus, string>> = {
-  REVIEW: 'REVIEW', GROUPING: 'Needs grouping', PROCESSING: 'OCR…', UPLOADING: 'UPLOAD…', APPROVING: 'APPLYING…', ERROR: 'ERROR',
+  REVIEW: 'REVIEW', GROUPING: 'Unsorted', PROCESSING: 'OCR…', UPLOADING: 'UPLOAD…', APPROVING: 'APPLYING…', ERROR: 'ERROR',
 }
 
 function fmtMoney(n: number): string {
@@ -50,8 +51,50 @@ export function fmtAge(iso: string): string {
   return `${Math.floor(h / 24)}d`
 }
 
+/**
+ * What a batch row can say about itself. `invoices` is the draft's group
+ * count — null until the sorter has been opened once (no draft yet).
+ */
+export function batchSummary(s: Pick<SessionSummary, 'files' | 'groupingDraft'>): { photos: number; invoices: number | null } {
+  const d = s.groupingDraft
+  const groups = d && typeof d === 'object' && Array.isArray(d.groups) ? d.groups : null
+  return { photos: s.files?.length ?? 0, invoices: groups ? groups.length : null }
+}
+
+const IMAGE_RE = /\.(jpe?g|png|heic|heif|webp)$/i
+/** "Photo batch" when every file is an image, "File batch" when PDFs/CSVs are in the mix. */
+export function batchTitle(s: Pick<SessionSummary, 'files'>): string {
+  return s.files.every(f => IMAGE_RE.test(f.fileName)) ? 'Photo batch' : 'File batch'
+}
+export function batchNoun(s: Pick<SessionSummary, 'files'>, n: number): string {
+  const photos = s.files.every(f => IMAGE_RE.test(f.fileName))
+  return photos ? (n === 1 ? 'photo' : 'photos') : (n === 1 ? 'file' : 'files')
+}
+
+function batchToItem(s: SessionSummary): InboxItem {
+  const { photos, invoices } = batchSummary(s)
+  const meta = [
+    `${photos} ${batchNoun(s, photos).toUpperCase()}`,
+    invoices != null ? `${invoices} ${invoices === 1 ? 'INVOICE' : 'INVOICES'} FOUND` : 'NOT SORTED YET',
+  ].join(' · ')
+  return {
+    id: `inv-${s.id}`,
+    kind: 'batch',
+    category: 'invoices',
+    tone: 'blue',
+    icon: 'batch',
+    title: batchTitle(s),
+    meta,
+    badge: STATUS_BADGE.GROUPING,
+    needsAction: true,
+    ageMs: Date.now() - new Date(s.createdAt).getTime(),
+    raw: s,
+  }
+}
+
 function sessionToItem(s: SessionSummary): InboxItem | null {
   if (s.status === 'APPROVED' || s.status === 'REJECTED') return null
+  if (s.status === 'GROUPING') return batchToItem(s)
   const isError = s.status === 'ERROR'
   const dateStr = s.invoiceDate
     ? new Date(s.invoiceDate).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -72,7 +115,7 @@ function sessionToItem(s: SessionSummary): InboxItem | null {
     title: [s.supplierName ?? 'Unknown supplier', dateStr].filter(Boolean).join(' · '),
     meta: metaBits.join(' · '),
     badge: STATUS_BADGE[s.status],
-    needsAction: s.status === 'REVIEW' || s.status === 'GROUPING' || isError,
+    needsAction: s.status === 'REVIEW' || isError,
     ageMs: Date.now() - new Date(s.createdAt).getTime(),
     raw: s,
   }

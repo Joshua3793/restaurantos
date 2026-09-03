@@ -125,3 +125,136 @@ export function reconcileDraft(draft: GroupingDraft, sessionFileIds: readonly st
   ]
   return { v: DRAFT_VERSION, groups, unassigned, discarded }
 }
+
+// ── Sorter operations ──────────────────────────────────────────────────────
+// Every edit the sorter can make, as a pure function on the draft. The modal
+// holds ONE draft object and pipes it through these; the result is what gets
+// PUT to the session. All of them return new objects and never mutate input.
+
+export type FileKindOf = (id: string) => 'photo' | 'pdf' | 'csv'
+export type MoveTarget = { group: number } | 'new'
+export type MoveResult = { ok: true; draft: GroupingDraft } | { ok: false; error: string }
+
+const OWN_INVOICE = 'A PDF or spreadsheet is always its own invoice — it can\'t share one with photos'
+
+function groupKindFor(k: 'photo' | 'pdf' | 'csv'): GroupKind {
+  return k === 'photo' ? 'photos' : k
+}
+
+/** Every id in the draft, in display order: groups (in page order), unassigned, discarded. */
+function orderedIds(draft: GroupingDraft): string[] {
+  return [...draft.groups.flatMap(g => g.fileIds), ...draft.unassigned, ...draft.discarded]
+}
+
+/** Remove ids from every bucket; groups left empty collapse. */
+function strip(draft: GroupingDraft, ids: ReadonlySet<string>): GroupingDraft {
+  return {
+    v: DRAFT_VERSION,
+    groups: draft.groups
+      .map(g => ({ ...g, fileIds: g.fileIds.filter(id => !ids.has(id)) }))
+      .filter(g => g.fileIds.length > 0),
+    unassigned: draft.unassigned.filter(id => !ids.has(id)),
+    discarded: draft.discarded.filter(id => !ids.has(id)),
+  }
+}
+
+const emptyGroup = (kind: GroupKind, fileIds: string[]): ProposedGroup =>
+  ({ fileIds, kind, supplierName: null, invoiceNumber: null, invoiceDate: null })
+
+/**
+ * Move a selection into an existing invoice or a new one. Photos may join any
+ * photo invoice; a PDF/CSV is always alone in its own group (kind pdf/csv), so
+ * "new" gives each of them its own group and an existing photo group refuses
+ * them. Moved files are appended in their current draft order, not selection
+ * order. A PDF/CSV already alone in its own group is left untouched by "new".
+ */
+export function moveFiles(draft: GroupingDraft, fileIds: readonly string[], target: MoveTarget, kindOf: FileKindOf): MoveResult {
+  if (fileIds.length === 0) return { ok: false, error: 'Nothing selected' }
+  const sel = new Set(fileIds)
+  const ordered = orderedIds(draft).filter(id => sel.has(id))
+  if (ordered.length !== sel.size) return { ok: false, error: 'Selection includes a file that is not in this batch' }
+
+  if (target !== 'new') {
+    const tg = draft.groups[target.group]
+    if (!tg) return { ok: false, error: 'That invoice no longer exists' }
+    if (tg.kind !== 'photos') return { ok: false, error: OWN_INVOICE }
+    if (ordered.some(id => kindOf(id) !== 'photo')) return { ok: false, error: OWN_INVOICE }
+    // Filter every bucket but keep the target's index stable until the
+    // append, THEN collapse — the target can never end up empty.
+    const groups = draft.groups.map(g => ({ ...g, fileIds: g.fileIds.filter(id => !sel.has(id)) }))
+    groups[target.group] = { ...groups[target.group], fileIds: [...groups[target.group].fileIds, ...ordered] }
+    return {
+      ok: true,
+      draft: {
+        v: DRAFT_VERSION,
+        groups: groups.filter(g => g.fileIds.length > 0),
+        unassigned: draft.unassigned.filter(id => !sel.has(id)),
+        discarded: draft.discarded.filter(id => !sel.has(id)),
+      },
+    }
+  }
+
+  const aloneAlready = (id: string) =>
+    kindOf(id) !== 'photo' && draft.groups.some(g => g.fileIds.length === 1 && g.fileIds[0] === id)
+  const moving = ordered.filter(id => !aloneAlready(id))
+  if (moving.length === 0) return { ok: true, draft: strip(draft, new Set()) }
+  const next = strip(draft, new Set(moving))
+  const photos = moving.filter(id => kindOf(id) === 'photo')
+  if (photos.length > 0) next.groups.push(emptyGroup('photos', photos))
+  for (const id of moving) {
+    const k = kindOf(id)
+    if (k !== 'photo') next.groups.push(emptyGroup(groupKindFor(k), [id]))
+  }
+  return { ok: true, draft: next }
+}
+
+/** Nudge a page one step earlier (-1) or later (+1) within its invoice. Clamped; no-op outside a group. */
+export function reorderInGroup(draft: GroupingDraft, fileId: string, direction: -1 | 1): GroupingDraft {
+  const gi = draft.groups.findIndex(g => g.fileIds.includes(fileId))
+  if (gi < 0) return strip(draft, new Set())
+  const ids = [...draft.groups[gi].fileIds]
+  const i = ids.indexOf(fileId)
+  const j = i + direction
+  if (j < 0 || j >= ids.length) return strip(draft, new Set())
+  ;[ids[i], ids[j]] = [ids[j], ids[i]]
+  const groups = draft.groups.map((g, k) => (k === gi ? { ...g, fileIds: ids } : { ...g, fileIds: [...g.fileIds] }))
+  return { v: DRAFT_VERSION, groups, unassigned: [...draft.unassigned], discarded: [...draft.discarded] }
+}
+
+/** Throw files out (double-shots, blurry retakes). Queued for deletion at confirm; restorable until then. */
+export function discardFiles(draft: GroupingDraft, fileIds: readonly string[]): GroupingDraft {
+  const known = new Set(orderedIds(draft))
+  const adding = fileIds.filter((id, i) => known.has(id) && !draft.discarded.includes(id) && fileIds.indexOf(id) === i)
+  const next = strip(draft, new Set(adding))
+  next.discarded = [...next.discarded, ...adding]
+  return next
+}
+
+/** Restore lands in "unassigned" so the user must place the page deliberately. */
+export function restoreFiles(draft: GroupingDraft, fileIds: readonly string[]): GroupingDraft {
+  const restoring = fileIds.filter((id, i) => draft.discarded.includes(id) && fileIds.indexOf(id) === i)
+  const next = strip(draft, new Set(restoring))
+  next.unassigned = [...next.unassigned, ...restoring]
+  return next
+}
+
+/** Patch one invoice's header fields. Trimmed; empty ⇒ null. */
+export function setGroupMeta(
+  draft: GroupingDraft,
+  groupIdx: number,
+  patch: Partial<Pick<ProposedGroup, 'supplierName' | 'invoiceNumber' | 'invoiceDate'>>,
+): GroupingDraft {
+  const norm = (v: string | null | undefined): string | null => {
+    const t = (v ?? '').trim()
+    return t.length ? t : null
+  }
+  const groups = draft.groups.map((g, i) => {
+    const copy = { ...g, fileIds: [...g.fileIds] }
+    if (i !== groupIdx) return copy
+    if ('supplierName' in patch) copy.supplierName = norm(patch.supplierName)
+    if ('invoiceNumber' in patch) copy.invoiceNumber = norm(patch.invoiceNumber)
+    if ('invoiceDate' in patch) copy.invoiceDate = norm(patch.invoiceDate)
+    return copy
+  })
+  return { v: DRAFT_VERSION, groups, unassigned: [...draft.unassigned], discarded: [...draft.discarded] }
+}
