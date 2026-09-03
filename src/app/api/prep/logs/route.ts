@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { validatePrepQty } from '@/lib/prep-utils'
 import { prepDayFrom, prepDayRange, prepDayStart, prepDaysAgo } from '@/lib/prep-day'
-import { LIVE_LOG_SELECT } from '@/lib/prep-plan-server'
+import { LIVE_LOG_SELECT, markPlanDirty } from '@/lib/prep-plan-server'
 import { isLiveLog } from '@/lib/prep-plan'
 
 // Mutating handlers must never be statically prerendered — a prerendered
@@ -61,6 +61,21 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { prepItemId, logDate, status, requiredQty, actualPrepQty, assignedTo, dueTime, note, listOrder } = body
+
+  // Planner draft fields (planned qty, chef note, bucket order) are the chef's:
+  // LEAD+. Same three fields, same rule as PUT /api/prep/logs/[id] — this route
+  // writes them on BOTH its create and its upsert-the-live-log path (the offline
+  // queue's `ensureLogId` sends the draft patch inline in the POST body), so
+  // without this gate a STAFF session got through the side door. `assignedTo`
+  // deliberately stays session-only — cooks claim their own.
+  const editsPlan = requiredQty !== undefined || listOrder !== undefined || note !== undefined
+  if (editsPlan) {
+    try { await requireSession('LEAD') }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
 
   if (!prepItemId) return NextResponse.json({ error: 'prepItemId is required' }, { status: 400 })
 
@@ -146,6 +161,12 @@ export async function POST(req: NextRequest) {
           ...stamp,
         },
       })
+
+  // Draft edits after posting → the kitchen is on a stale list; flag the post.
+  // Mirrors the log PUT: a draft edit that lands here (the offline queue replaying
+  // against an item with no log yet) must dirty the post exactly as one that lands
+  // there, or the kitchen keeps working a list nobody flagged as changed.
+  if (editsPlan) await markPlanDirty(revenueCenterId)
 
   // Keep `isOnList` coherent with status when one is supplied (mirrors the log PUT
   // route): completing/removing clears the item from today's list, starting/resetting
