@@ -28,10 +28,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }))
   }
 
-  // Advance session to PROCESSING
+  // Status is decided by what the session now HOLDS, not by the peek: >1 file
+  // is a batch to sort (GROUPING — only /split turns it into invoices), exactly
+  // 1 is a single invoice the client OCRs right away. A peek that times out can
+  // therefore never leave a batch as a PROCESSING corpse that the stale sweeper
+  // flips to ERROR and "Retry" hands to /process as ONE invoice.
+  const fileCount = await prisma.invoiceFile.count({ where: { sessionId: params.id } })
   await prisma.invoiceSession.update({
     where: { id: params.id },
-    data:  { status: 'PROCESSING' },
+    data:  { status: fileCount > 1 ? 'GROUPING' : 'PROCESSING' },
   })
 
   return NextResponse.json(

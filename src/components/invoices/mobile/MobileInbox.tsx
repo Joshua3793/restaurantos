@@ -17,13 +17,15 @@ const EMPTY_TEXT: Record<ChipId, string> = {
   other: 'Nothing here.',
 }
 
-export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick, onScanClick, onSignalAct }: {
+export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick, onScanClick, onSignalAct, onDiscardBatch }: {
   sessions: SessionSummary[]
   signals: Signal[]
   onSelectSession: (id: string) => void
   onUploadClick: () => void
   onScanClick?: () => void
   onSignalAct: (id: string, action: 'apply' | 'snooze' | 'dismiss') => void
+  /** Throw an unsorted batch away from its card (the page owns the confirm). */
+  onDiscardBatch?: (id: string) => void
 }) {
   const [chip, setChip] = useState<ChipId>('all')
   const [sheet, setSheet] = useState<InboxItem | null>(null)
@@ -73,8 +75,8 @@ export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick,
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
-          {visible.map(it => it.kind === 'invoice'
-            ? <InboxInvoiceCard key={it.id} item={it} onOpen={onSelectSession} />
+          {visible.map(it => it.kind !== 'signal'
+            ? <InboxInvoiceCard key={it.id} item={it} onOpen={onSelectSession} onDiscardBatch={onDiscardBatch} />
             : <InboxSignalCard key={it.id} item={it} onOpen={setSheet} />
           )}
         </div>

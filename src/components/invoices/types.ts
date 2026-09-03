@@ -165,6 +165,8 @@ export interface SessionSummary {
   revenueCenterId?: string | null
   parentSessionId?: string | null
   errorMessage?: string | null
+  /** Sorter draft (GROUPING only). The list reads just the group count; the full shape lives in src/lib/invoice-grouping-draft.ts. */
+  groupingDraft?: { groups?: unknown[] } | null
 }
 
 export interface ApproveResult {
@@ -183,5 +185,7 @@ export interface KpiData {
   monthInvoiceCount: number
   priceAlertCount: number
   awaitingApprovalCount: number
+  /** GROUPING sessions in scope — batches nobody has sorted yet. Separate from awaiting approval on purpose. */
+  unsortedBatchCount?: number
   topCategories: Array<{ category: string; spend: number }>
 }

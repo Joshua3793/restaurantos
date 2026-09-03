@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react'
 import { Trash2, X, ChevronsUpDown, ChevronUp, ChevronDown, Search, FileText, Upload, MoreHorizontal, RotateCcw } from 'lucide-react'
 import { SessionSummary, SessionStatus } from './types'
 import { formatCurrency } from '@/lib/utils'
+import { batchSummary, batchTitle, batchNoun } from '@/lib/invoices/inbox-items'
 
 type Tab    = 'all' | 'REVIEW' | 'APPROVED' | 'REJECTED'
 type ColKey = 'supplier' | 'date' | 'total' | 'items' | 'status'
@@ -36,7 +37,7 @@ interface Props {
 function StatusBadge({ status }: { status: SessionStatus }) {
   const map: Partial<Record<SessionStatus, { label: string; bg: string; text: string; dot: string; pulse?: boolean }>> = {
     REVIEW:     { label: 'Review',     bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
-    GROUPING:   { label: 'Needs grouping', bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
+    GROUPING:   { label: 'Unsorted',   bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
     APPROVED:   { label: 'Approved',   bg: 'bg-green-soft', text: 'text-green-text', dot: 'bg-green' },
     REJECTED:   { label: 'Rejected',   bg: 'bg-red-soft',   text: 'text-red-text',  dot: 'bg-red' },
     PROCESSING: { label: 'Processing', bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue', pulse: true },
@@ -98,6 +99,12 @@ function Checkbox({ checked, indeterminate, onChange }: {
       {indeterminate && !checked && <span className="block w-2 h-0.5 bg-paper" />}
     </button>
   )
+}
+
+// A batch row's second line: what it holds, never "No invoice #".
+function batchLine(s: SessionSummary): string {
+  const { photos, invoices } = batchSummary(s)
+  return `${photos} ${batchNoun(s, photos)} · ${invoices != null ? `${invoices} ${invoices === 1 ? 'invoice' : 'invoices'} found` : 'not sorted yet'}`
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -306,17 +313,21 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-[13.5px] font-medium text-ink tracking-[-0.005em] truncate">
-                        {s.supplierName ?? 'Unknown supplier'}
+                        {s.status === 'GROUPING' ? batchTitle(s) : (s.supplierName ?? 'Unknown supplier')}
                       </span>
                       {s.parentSessionId && (
                         <span className="font-mono text-[9px] uppercase tracking-[0.04em] font-semibold bg-bg-2 text-ink-3 px-1.5 py-0.5 rounded-[4px] shrink-0">Copy</span>
                       )}
                     </div>
                     <div className="font-mono text-[10.5px] text-ink-3 mt-0.5 tracking-[0]">
-                      {s._count.priceAlerts > 0 && (
-                        <span className="text-gold-2 font-semibold">⚠ {s._count.priceAlerts} alert{s._count.priceAlerts !== 1 ? 's' : ''} · </span>
+                      {s.status === 'GROUPING' ? batchLine(s) : (
+                        <>
+                          {s._count.priceAlerts > 0 && (
+                            <span className="text-gold-2 font-semibold">⚠ {s._count.priceAlerts} alert{s._count.priceAlerts !== 1 ? 's' : ''} · </span>
+                          )}
+                          {s.invoiceNumber ?? 'No invoice #'}
+                        </>
                       )}
-                      {s.invoiceNumber ?? 'No invoice #'}
                     </div>
                     {s.status === 'ERROR' && s.errorMessage && (
                       <div className="font-mono text-[10.5px] text-red-text truncate mt-0.5 tracking-[0]" title={s.errorMessage}>
@@ -356,7 +367,7 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                           onClick={() => { setDeleteConfirm({ id: s.id, status: s.status }); setOpenMenu(null) }}
                           className="w-full px-3 py-2 text-left text-[13px] text-red-text hover:bg-red-soft/50 inline-flex items-center gap-2"
                         >
-                          <Trash2 size={12} /> Delete
+                          <Trash2 size={12} /> {s.status === 'GROUPING' ? 'Discard batch' : 'Delete'}
                         </button>
                       </div>
                     )}
@@ -379,7 +390,7 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-[13.5px] font-medium text-ink tracking-[-0.005em] truncate">
-                          {s.supplierName ?? 'Unknown supplier'}
+                          {s.status === 'GROUPING' ? batchTitle(s) : (s.supplierName ?? 'Unknown supplier')}
                         </span>
                         {s.parentSessionId && (
                           <span className="font-mono text-[9px] uppercase tracking-[0.04em] font-semibold bg-bg-2 text-ink-3 px-1.5 py-0.5 rounded-[4px] shrink-0">Copy</span>
@@ -388,10 +399,14 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                       <StatusBadge status={s.status} />
                     </div>
                     <div className="font-mono text-[10.5px] text-ink-3 mt-1 tracking-[0] flex items-center gap-2 flex-wrap">
-                      {s.total && <span className="font-medium text-ink-2">{formatCurrency(Number(s.total))}</span>}
-                      <span>{s.invoiceDate ?? '—'}</span>
-                      {s._count.priceAlerts > 0 && (
-                        <span className="text-gold-2 font-semibold">⚠ {s._count.priceAlerts} alert{s._count.priceAlerts !== 1 ? 's' : ''}</span>
+                      {s.status === 'GROUPING' ? <span>{batchLine(s)}</span> : (
+                        <>
+                          {s.total && <span className="font-medium text-ink-2">{formatCurrency(Number(s.total))}</span>}
+                          <span>{s.invoiceDate ?? '—'}</span>
+                          {s._count.priceAlerts > 0 && (
+                            <span className="text-gold-2 font-semibold">⚠ {s._count.priceAlerts} alert{s._count.priceAlerts !== 1 ? 's' : ''}</span>
+                          )}
+                        </>
                       )}
                     </div>
                     {s.status === 'ERROR' && s.errorMessage && (
@@ -426,7 +441,7 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                           onClick={() => { setDeleteConfirm({ id: s.id, status: s.status }); setOpenMenu(null) }}
                           className="w-full px-3 py-2 text-left text-[13px] text-red-text hover:bg-red-soft/50 inline-flex items-center gap-2"
                         >
-                          <Trash2 size={12} /> Delete
+                          <Trash2 size={12} /> {s.status === 'GROUPING' ? 'Discard batch' : 'Delete'}
                         </button>
                       </div>
                     )}
@@ -453,13 +468,19 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
           onCancel={() => setDeleteConfirm(null)}
           onConfirm={() => handleDelete(deleteConfirm.id, deleteConfirm.status)}
           confirming={isDeleting}
-          title="Delete invoice?"
+          title={deleteConfirm.status === 'GROUPING' ? 'Discard this batch?' : 'Delete invoice?'}
           body={
             deleteConfirm.status === 'APPROVED'
               ? 'This will remove the approved invoice and reverse its price updates.'
-              : 'This will permanently delete the invoice session.'
+              : deleteConfirm.status === 'GROUPING'
+                ? (() => {
+                    const s = sessions.find(x => x.id === deleteConfirm.id)
+                    const n = s?.files.length ?? 0
+                    return `This deletes ${n} ${s ? batchNoun(s, n) : 'files'}. Nothing has been scanned, so no invoice, price or stock is affected.`
+                  })()
+                : 'This will permanently delete the invoice session.'
           }
-          confirmLabel="Delete"
+          confirmLabel={deleteConfirm.status === 'GROUPING' ? 'Discard batch' : 'Delete'}
         />
       )}
 

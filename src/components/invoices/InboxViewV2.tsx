@@ -3,9 +3,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { formatCurrency } from '@/lib/utils'
 import {
   FileText, ChefHat, ArrowRight, TrendingUp, TrendingDown,
-  Upload, Clock, CheckCircle2, AlertTriangle, X, Loader2,
+  Upload, Clock, CheckCircle2, AlertTriangle, X, Loader2, Layers, Trash2,
 } from 'lucide-react'
 import { SessionSummary, SessionStatus } from './types'
+import { batchSummary, batchTitle, batchNoun } from '@/lib/invoices/inbox-items'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,13 +36,15 @@ interface Props {
   onSelectSession: (id: string) => void
   onUploadClick: () => void
   onScanClick?: () => void
+  /** Throw an unsorted batch away from its queue row (the page owns the confirm). */
+  onDiscardBatch?: (id: string) => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
   REVIEW:     'Needs review',
-  GROUPING:   'Needs grouping',
+  GROUPING:   'Unsorted',
   PROCESSING: 'Processing',
   UPLOADING:  'Uploading',
   APPROVING:  'Applying',
@@ -50,7 +53,8 @@ const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
 
 const STATUS_TINT: Partial<Record<SessionStatus, { bg: string; text: string; dot: string }>> = {
   REVIEW:     { bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
-  GROUPING:   { bg: 'bg-gold-soft',  text: 'text-gold-2',    dot: 'bg-gold' },
+  // A batch is not money waiting for approval — blue, never the gold of "needs review".
+  GROUPING:   { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
   PROCESSING: { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
   UPLOADING:  { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
   APPROVING:  { bg: 'bg-blue-soft',  text: 'text-blue-text', dot: 'bg-blue' },
@@ -86,7 +90,7 @@ function SectionHead({ label, count, action }: { label: string; count: number; a
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanClick }: Props) {
+export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanClick, onDiscardBatch }: Props) {
   const [priceAlerts, setPriceAlerts]   = useState<PriceAlert[]>([])
   const [recipeAlerts, setRecipeAlerts] = useState<RecipeAlert[]>([])
   const [dismissing, setDismissing]     = useState<Set<string>>(new Set())
@@ -194,9 +198,11 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
             {queue.map((session, idx) => {
               const isActive = session.status === 'PROCESSING' || session.status === 'UPLOADING' || session.status === 'APPROVING'
               const isError  = session.status === 'ERROR'
-              const canOpen  = session.status === 'REVIEW' || session.status === 'ERROR' || session.status === 'GROUPING'
+              const isBatch  = session.status === 'GROUPING'
+              const canOpen  = session.status === 'REVIEW' || session.status === 'ERROR' || isBatch
               const tint = STATUS_TINT[session.status] ?? { bg: 'bg-bg-2', text: 'text-ink-3', dot: 'bg-ink-4' }
               const isLast = idx === queue.length - 1
+              const batch = isBatch ? batchSummary(session) : null
 
               return (
                 <div
@@ -212,15 +218,18 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
                       ? <Loader2 size={15} className={`${tint.text} animate-spin`} />
                       : isError
                         ? <AlertTriangle size={15} className={tint.text} />
-                        : <FileText size={15} className={tint.text} />
+                        : isBatch
+                          ? <Layers size={15} className={tint.text} />
+                          : <FileText size={15} className={tint.text} />
                     }
                   </div>
 
-                  {/* Content */}
+                  {/* Content — a batch is a stack of photos, not an invoice: it never
+                      says "Unknown supplier · 0 lines". */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[14px] font-medium text-ink tracking-[-0.01em] truncate">
-                        {session.supplierName ?? 'Unknown supplier'}
+                        {isBatch ? batchTitle(session) : (session.supplierName ?? 'Unknown supplier')}
                       </span>
                       <span className={`inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.04em] font-medium px-2 py-0.5 rounded-full ${tint.bg} ${tint.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${tint.dot}`} />
@@ -228,27 +237,50 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
                       </span>
                     </div>
                     <div className="font-mono text-[10.5px] text-ink-3 mt-1 tracking-[0]">
-                      {session.invoiceNumber && <><span className="text-ink-2">#{session.invoiceNumber}</span> · </>}
-                      {session.invoiceDate && <>{fmtDate(session.invoiceDate)} · </>}
-                      <b className="text-ink-2 font-medium">{session._count.scanItems}</b> {session._count.scanItems === 1 ? 'line' : 'lines'}
-                      {(session._count.priceAlerts > 0 || session._count.recipeAlerts > 0) && (
-                        <> · <span className="text-gold-2 font-semibold">{session._count.priceAlerts + session._count.recipeAlerts} alert{session._count.priceAlerts + session._count.recipeAlerts === 1 ? '' : 's'}</span></>
+                      {batch ? (
+                        <>
+                          <b className="text-ink-2 font-medium">{batch.photos}</b> {batchNoun(session, batch.photos)}
+                          {' · '}
+                          {batch.invoices != null
+                            ? <><b className="text-ink-2 font-medium">{batch.invoices}</b> {batch.invoices === 1 ? 'invoice' : 'invoices'} found</>
+                            : 'not sorted yet'}
+                        </>
+                      ) : (
+                        <>
+                          {session.invoiceNumber && <><span className="text-ink-2">#{session.invoiceNumber}</span> · </>}
+                          {session.invoiceDate && <>{fmtDate(session.invoiceDate)} · </>}
+                          <b className="text-ink-2 font-medium">{session._count.scanItems}</b> {session._count.scanItems === 1 ? 'line' : 'lines'}
+                          {(session._count.priceAlerts > 0 || session._count.recipeAlerts > 0) && (
+                            <> · <span className="text-gold-2 font-semibold">{session._count.priceAlerts + session._count.recipeAlerts} alert{session._count.priceAlerts + session._count.recipeAlerts === 1 ? '' : 's'}</span></>
+                          )}
+                        </>
                       )}
                       <> · <span className="text-ink-4">{fmtAge(session.createdAt)}</span></>
                     </div>
                   </div>
 
-                  {/* Total */}
-                  {session.total && (
+                  {/* Total — or, for a batch, the discard affordance */}
+                  {isBatch ? (
+                    onDiscardBatch ? (
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); onDiscardBatch(session.id) }}
+                        className="inline-flex items-center gap-1.5 font-mono text-[11px] px-2.5 py-1.5 rounded-full border border-line text-ink-3 hover:border-red hover:text-red-text hover:bg-red-soft/40 transition-colors whitespace-nowrap"
+                        title="Discard this batch"
+                      >
+                        <Trash2 size={11} /> Discard
+                      </button>
+                    ) : <span />
+                  ) : session.total ? (
                     <div className="font-mono text-[13.5px] font-semibold text-ink tabular-nums tracking-[-0.01em] text-right whitespace-nowrap">
                       {formatCurrency(parseFloat(String(session.total)))}
                     </div>
-                  )}
+                  ) : null}
 
                   {/* CTA */}
                   {canOpen ? (
                     <button className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-ink text-paper font-medium hover:bg-ink-2 transition-colors whitespace-nowrap">
-                      {session.status === 'GROUPING' ? 'Group' : isError ? 'Retry' : 'Review'}
+                      {isBatch ? 'Sort photos' : isError ? 'Retry' : 'Review'}
                     </button>
                   ) : (
                     <span className="w-7" />

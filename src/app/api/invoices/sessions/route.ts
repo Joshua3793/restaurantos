@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
+import { deleteFileBlobs } from '@/lib/invoice-files'
 
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
@@ -44,17 +45,27 @@ export async function GET(req: NextRequest) {
 // DELETE /api/invoices/sessions — bulk delete sessions by id list
 // Body: { ids: string[] }
 export async function DELETE(req: NextRequest) {
+  // Same gate as the single-id DELETE: this reverts spine prices and deletes
+  // history, and it had no auth check at all until 2026-09-03.
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { ids } = await req.json().catch(() => ({ ids: [] as string[] }))
   if (!Array.isArray(ids) || ids.length === 0)
     return NextResponse.json({ error: 'ids array required' }, { status: 400 })
 
   let pricesReverted = 0
+  const blobsToFree: { fileUrl: string }[] = []
 
   for (const id of ids) {
     const session = await prisma.invoiceSession.findUnique({
       where: { id },
       select: {
         id: true, status: true,
+        files: { select: { fileUrl: true } },
         scanItems: {
           where: { action: 'UPDATE_PRICE', approved: true },
           select: {
@@ -94,9 +105,13 @@ export async function DELETE(req: NextRequest) {
     }
 
     await prisma.invoiceSession.delete({ where: { id } })
+    blobsToFree.push(...session.files)
   }
 
-  return NextResponse.json({ ok: true, deleted: ids.length, pricesReverted })
+  // Rows first, bytes second — one CDN call for the whole batch, best-effort.
+  const blobs = await deleteFileBlobs(blobsToFree)
+
+  return NextResponse.json({ ok: true, deleted: ids.length, pricesReverted, blobsDeleted: blobs.deleted, blobsFailed: blobs.failed })
 }
 
 // POST /api/invoices/sessions — create a new session

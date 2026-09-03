@@ -398,6 +398,11 @@ model InvoiceSession {
   // (NOT createdAt) so a session that sat in GROUPING for an hour isn't
   // insta-flagged as timed out the moment its OCR starts.
   updatedAt       DateTime          @default(now()) @updatedAt
+  // Bulk-upload sorter draft: the proposed grouping PLUS every user edit
+  // ({ v, groups, unassigned, discarded } — see src/lib/invoice-grouping-draft.ts).
+  // Written by /peek and PUT /grouping, cleared by /split. Only meaningful
+  // while status === 'GROUPING'.
+  groupingDraft   Json?
   parentSessionId String?
   revenueCenterId String?
   files           InvoiceFile[]

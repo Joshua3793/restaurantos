@@ -53,9 +53,18 @@ export function InvoiceKpiStripV2({ refreshKey, scope }: Props) {
         value={kpis ? String(kpis.awaitingApprovalCount) : '—'}
         valueClass={kpis && kpis.awaitingApprovalCount > 0 ? 'text-gold-2' : ''}
         delta={
-          kpis && kpis.awaitingApprovalCount > 0
-            ? <><b>{kpis.awaitingApprovalCount === 1 ? 'session' : 'sessions'}</b> in queue</>
-            : <>all caught up</>
+          kpis ? (
+            <>
+              {kpis.awaitingApprovalCount > 0
+                ? <><b>{kpis.awaitingApprovalCount === 1 ? 'session' : 'sessions'}</b> in queue</>
+                : <>all caught up</>}
+              {/* Batches are a separate line, not folded into the count: nothing
+                  can be approved until they are sorted into invoices. */}
+              {(kpis.unsortedBatchCount ?? 0) > 0 && (
+                <span className="block mt-0.5 text-blue-text"><b className="!text-blue-text">{kpis.unsortedBatchCount}</b> unsorted {kpis.unsortedBatchCount === 1 ? 'batch' : 'batches'}</span>
+              )}
+            </>
+          ) : <>—</>
         }
         tint={kpis && kpis.awaitingApprovalCount > 0 ? 'warn' : 'neutral'}
       />

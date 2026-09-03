@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   // Spend is attributed per-RC by `invoiceSpendByRc` (the single source of truth):
   // each line → its effective RC, skip/pending → default RC, invoice tax/extra →
   // the invoice's active RC. This matches what lands in the RC's expenses.
-  const [week, prevWeek, month, priceAlertCount, awaitingCount, catLines] = await Promise.all([
+  const [week, prevWeek, month, priceAlertCount, awaitingCount, unsortedBatchCount, catLines] = await Promise.all([
     invoiceSpendByRc(weekStart, weekEnd),
     invoiceSpendByRc(prevWeekStart, prevWeekEnd),
     invoiceSpendByRc(monthStart, monthEnd),
@@ -65,6 +65,11 @@ export async function GET(req: NextRequest) {
     }),
     prisma.invoiceSession.count({
       where: { AND: [{ status: 'REVIEW' }, rcWhere] },
+    }),
+    // Batches nobody has sorted into invoices yet. Reported separately — they
+    // are not "awaiting approval"; there is nothing to approve until sorted.
+    prisma.invoiceSession.count({
+      where: { AND: [{ status: 'GROUPING' }, rcWhere] },
     }),
     // Category breakdown for the month, scoped to the requested RC via the line-level
     // split (clone) mechanism — approved, non-split lines grouped by item category.
@@ -119,6 +124,7 @@ export async function GET(req: NextRequest) {
     monthInvoiceCount: pickCount(month),
     priceAlertCount,
     awaitingApprovalCount: awaitingCount,
+    unsortedBatchCount,
     exceptionsCount,
     topCategories,
   }, {

@@ -6,14 +6,17 @@ import { quickExtractMeta, PEEK_VERSION } from '@/lib/invoice-ocr'
 import { loadBuffer } from '@/lib/invoice-files'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
 import { proposeGroups, fileKind, type GroupingFile, type PeekMeta } from '@/lib/invoice-grouping'
+import { draftFromProposal, parseDraft, reconcileDraft } from '@/lib/invoice-grouping-draft'
 
 export const dynamic = 'force-dynamic'
 // 10 parallel Sonnet peeks finish in ~5-8s; 60s leaves room for slow CDN fetches.
 export const maxDuration = 60
 
-// POST /api/invoices/sessions/[id]/peek — quick-peek every file, cache the
-// metadata on InvoiceFile.peekMeta, and return a proposed invoice grouping.
-// Idempotent: files with current-version cached peekMeta are never re-peeked.
+// POST /api/invoices/sessions/[id]/peek — open the sorter for a batch.
+// Returns the session's stored grouping draft when one exists (the user's
+// edits are the truth once made); otherwise quick-peeks every file, caches the
+// metadata on InvoiceFile.peekMeta, stores the proposal as the draft, and
+// returns it. Idempotent: files with current-version peekMeta are never re-peeked.
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession() }
   catch (e) {
@@ -48,6 +51,38 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       { error: 'Scanning already started for this session — grouping is no longer available' },
       { status: 409 },
     )
+  }
+
+  const fileIds = session.files.map(f => f.id)
+  const filesOut = session.files.map(f => ({ id: f.id, fileName: f.fileName, fileType: f.fileType, fileUrl: f.fileUrl }))
+
+  // Park FIRST. >1 file is a batch; the upload routes already say so, but a
+  // session registered before that rule (or a stray PROCESSING) must be a
+  // resumable batch BEFORE the slow part runs — a peek that times out mid-way
+  // then leaves a GROUPING session, not a PROCESSING corpse for the sweeper.
+  if (session.files.length > 1 && session.status !== 'GROUPING') {
+    await prisma.invoiceSession.update({ where: { id: params.id }, data: { status: 'GROUPING' } })
+  }
+
+  // A stored draft wins outright: it holds the user's moves, discards and
+  // corrected numbers. Reconcile against the current files (defensive — the
+  // file set can't change while GROUPING, but a corrupt draft must never 500).
+  const storedParse = session.groupingDraft != null ? parseDraft(session.groupingDraft, fileIds) : null
+  if (storedParse?.ok) {
+    const draft = reconcileDraft(storedParse.draft, fileIds)
+    if (JSON.stringify(draft) !== JSON.stringify(storedParse.draft)) {
+      await prisma.invoiceSession.update({
+        where: { id: params.id },
+        data: { groupingDraft: draft as unknown as Prisma.InputJsonValue },
+      })
+    }
+    return NextResponse.json({
+      sessionId: session.id,
+      files: filesOut,
+      groups: draft.groups,
+      unassigned: draft.unassigned,
+      discarded: draft.discarded,
+    })
   }
 
   // Peek non-CSV files in parallel. allSettled: one unreadable photo must
@@ -124,18 +159,22 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       peekMeta: m && canonicalName ? { ...m, supplierName: canonicalName } : m,
     }
   })
-  const proposal = proposeGroups(groupingFiles)
+  const draft = draftFromProposal(proposeGroups(groupingFiles))
 
-  // >1 file → park in GROUPING (protects it from the PROCESSING sweeper and
-  // renders a resumable "Needs grouping" card). Single file never enters GROUPING.
-  if (session.files.length > 1 && session.status !== 'GROUPING') {
-    await prisma.invoiceSession.update({ where: { id: params.id }, data: { status: 'GROUPING' } })
+  // The proposal becomes the draft. Only batches are sortable, so a single
+  // file (never GROUPING) gets no draft — its caller processes it directly.
+  if (session.files.length > 1) {
+    await prisma.invoiceSession.update({
+      where: { id: params.id },
+      data: { groupingDraft: draft as unknown as Prisma.InputJsonValue },
+    })
   }
 
   return NextResponse.json({
     sessionId: session.id,
-    files: session.files.map(f => ({ id: f.id, fileName: f.fileName, fileType: f.fileType, fileUrl: f.fileUrl })),
-    groups: proposal.groups,
-    unassigned: proposal.unassigned,
+    files: filesOut,
+    groups: draft.groups,
+    unassigned: draft.unassigned,
+    discarded: draft.discarded,
   })
 }

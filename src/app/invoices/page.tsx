@@ -7,7 +7,8 @@ import { InvoiceListV2 } from '@/components/invoices/InvoiceListV2'
 import { InboxViewV2 } from '@/components/invoices/InboxViewV2'
 import { InboxSubNav } from '@/components/invoices/InboxSubNav'
 import { MobileInbox } from '@/components/invoices/mobile/MobileInbox'
-import { Signal } from '@/lib/invoices/inbox-items'
+import { DiscardBatchDialog } from '@/components/invoices/DiscardBatchDialog'
+import { Signal, batchNoun } from '@/lib/invoices/inbox-items'
 import { PageHead } from '@/components/layout/PageHead'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -223,8 +224,24 @@ export default function InvoicesPage() {
     await fetchSessions()
   }, [fetchSessions])
 
+  // Discard an unsorted batch from wherever it is being looked at (queue row,
+  // mobile card). The sorter has its own copy of this dialog.
+  const [discardTarget, setDiscardTarget] = useState<SessionSummary | null>(null)
+  const [discarding, setDiscarding] = useState(false)
+  const requestDiscard = useCallback((id: string) => {
+    const s = sessionsRef.current.find(x => x.id === id)
+    if (s) setDiscardTarget(s)
+  }, [])
+  const confirmDiscard = useCallback(async () => {
+    if (!discardTarget) return
+    setDiscarding(true)
+    try { await handleDelete(discardTarget.id, discardTarget.status) }
+    finally { setDiscarding(false); setDiscardTarget(null) }
+  }, [discardTarget, handleDelete])
+
+  // A batch is in the queue too — it is work waiting on someone.
   const queueCount = sessions.filter(s =>
-    s.status === 'REVIEW' || s.status === 'PROCESSING' || s.status === 'UPLOADING' ||
+    s.status === 'REVIEW' || s.status === 'GROUPING' || s.status === 'PROCESSING' || s.status === 'UPLOADING' ||
     s.status === 'APPROVING' || s.status === 'ERROR'
   ).length
 
@@ -248,6 +265,7 @@ export default function InvoicesPage() {
           onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
           onSignalAct={handleSignalAct}
+          onDiscardBatch={requestDiscard}
         />
       </div>
 
@@ -297,6 +315,7 @@ export default function InvoicesPage() {
           onSelectSession={handleOpenSession}
           onUploadClick={handleUploadClick}
           onScanClick={isNative() ? triggerScan : undefined}
+          onDiscardBatch={requestDiscard}
         />
       ) : (
         <InvoiceListV2
@@ -352,7 +371,20 @@ export default function InvoicesPage() {
         <InvoiceGroupingModal
           sessionId={groupingSessionId}
           onClose={() => { setGroupingSessionId(null); fetchSessions() }}
-          onDone={() => { setGroupingSessionId(null); fetchSessions() }}
+          onDone={() => { setGroupingSessionId(null); fetchSessions(); setKpiRefreshKey(k => k + 1) }}
+          onDiscarded={() => {
+            setSessions(prev => prev.filter(s => s.id !== groupingSessionId))
+            setGroupingSessionId(null); fetchSessions(); setKpiRefreshKey(k => k + 1)
+          }}
+        />
+      )}
+      {discardTarget && (
+        <DiscardBatchDialog
+          photoCount={discardTarget.files.length}
+          noun={batchNoun(discardTarget, discardTarget.files.length)}
+          busy={discarding}
+          onCancel={() => setDiscardTarget(null)}
+          onConfirm={confirmDiscard}
         />
       )}
     </div>
