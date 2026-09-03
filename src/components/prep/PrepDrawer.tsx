@@ -30,8 +30,13 @@ interface PrepDrawerProps {
   onComplete: (item: PrepItemRich, qty: number) => void
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe: (recipeId: string, name: string) => void
-  /** Remove from today's list → back to Smart Prep (isOnList=false). No log written. */
-  onRemove: (item: PrepItemRich) => void
+  /**
+   * Take the item off the list this drawer was opened from. The drawer does not decide
+   * what that means — the host passes the handler matching its own context (To Do →
+   * clear the posted stamp; Smart Prep draft → isOnList=false). Omit it when the viewer
+   * may not change the list (below LEAD, read-only, or no RC picked) and the action hides.
+   */
+  onRemove?: (item: PrepItemRich) => void
 }
 
 type StateKey = 'not-started' | 'in-progress' | 'done' | 'skipped'
@@ -373,13 +378,15 @@ export default function PrepDrawer({
                     <IcCheck size={16} />
                     {doneLabel}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(item)}
-                    className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
-                  >
-                    Remove from list
-                  </button>
+                  {onRemove && (
+                    <button
+                      type="button"
+                      onClick={() => onRemove(item)}
+                      className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
+                    >
+                      Remove from list
+                    </button>
+                  )}
                 </>
               )}
 
@@ -394,7 +401,8 @@ export default function PrepDrawer({
                     {doneLabel}
                   </button>
                   {/* Stop = abandon the in-progress prep without logging any qty (back to the
-                      to-do list, still on it). Remove = take it off today's list → Smart Prep. */}
+                      to-do list, still on it). Remove = take it off whichever list this drawer
+                      was opened from; the host supplies the meaning (see `onRemove`). */}
                   <div className="flex gap-2.5">
                     <button
                       type="button"
@@ -404,13 +412,15 @@ export default function PrepDrawer({
                       <IcUndo size={16} />
                       Stop
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemove(item)}
-                      className="flex-1 h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
-                    >
-                      Remove from list
-                    </button>
+                    {onRemove && (
+                      <button
+                        type="button"
+                        onClick={() => onRemove(item)}
+                        className="flex-1 h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 text-ink-3"
+                      >
+                        Remove from list
+                      </button>
+                    )}
                   </div>
                 </>
               )}
