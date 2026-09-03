@@ -2026,7 +2026,18 @@ export default function PrepPage() {
           onStatusChange={onRowStatusChange}
           onComplete={onDrawerComplete}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
-          onRemove={(item) => { handleToggleOnList(item.id, false); closeDrawer() }}
+          /* The drawer opens from BOTH the To Do run sheet and the Smart Prep planner
+             (`plannerHandlers.onOpen`), so "Remove from list" has to mean whichever list
+             the chef is looking at — the same split `PrepBoardDrawer` makes with its
+             `view` prop. On the To Do it must clear `todayLog.postedAt` (what `todayItems`
+             filters on), not just `isOnList`, or the row stays on the kitchen's list;
+             that is `handleRemoveFromToDo`, matching the row ×, LEAD+ gate and all.
+             In the planner, removing off the draft is still plain `isOnList=false`. */
+          onRemove={
+            viewMode === 'today'
+              ? (canPlan ? (item) => { handleRemoveFromToDo(item); closeDrawer() } : undefined)
+              : (item) => { handleToggleOnList(item.id, false); closeDrawer() }
+          }
         />
       </div>
       {/* Quick yield prompt — shared by the mobile compact row and the desktop board row. */}
