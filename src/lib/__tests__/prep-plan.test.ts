@@ -4,7 +4,7 @@ import {
   suggestedDraftQty, whyLabel, applyStatusToItem, draftQty,
   batchYield, batchCount, batchesToQty, suggestedBatches, fmtBatch, batchLabel,
   planDayContext, urgencyDeadline, fmtDeadline, planSchedule, stationLoad, planGroups,
-  isLiveLog, pickLiveLogs, type LiveLogRow,
+  isLiveLog, pickLiveLogs, type LiveLogRow, undoDraftFlag,
 } from '../prep-plan'
 import { autoUrgency, normalizeUrgency, urgencyToPriority, type PrepPriority } from '../prep-utils'
 import { fmtClock } from '../prep-runsheet'
@@ -284,5 +284,33 @@ describe('the live prep log — work carries over, it never drops at midnight', 
       row({ id: 'today', status: 'NOT_STARTED' }),
     ], today)
     expect(picked.get('i1')?.id).toBe('today')
+  })
+})
+
+describe('undoDraftFlag', () => {
+  // The four reachable states. The removal always writes `false`, so `live` is
+  // false unless the chef re-added the item to the draft inside the toast window.
+
+  it('restores the prior flag when the chef has not touched the draft', () => {
+    expect(undoDraftFlag(false, true)).toBe(true)
+    expect(undoDraftFlag(false, false)).toBe(false)
+  })
+
+  it('leaves an item the chef re-added ON the draft, whatever it was before', () => {
+    // The regression: a frozen prior of `false` used to clobber the re-add.
+    expect(undoDraftFlag(true, false)).toBe(true)
+    expect(undoDraftFlag(true, true)).toBe(true)
+  })
+
+  it('does not put a never-drafted item back on the draft', () => {
+    // Posted, then taken off the draft (the post goes dirty while the item stays
+    // on the To Do). x then Undo must restore the POSTED state only.
+    expect(undoDraftFlag(false, false)).toBe(false)
+  })
+
+  it('defaults an unknown prior to true, matching the route', () => {
+    // POST /api/prep/plan/remove-item reads an omitted `isOnList` as `true`.
+    expect(undoDraftFlag(false, undefined)).toBe(true)
+    expect(undoDraftFlag(true, undefined)).toBe(true)
   })
 })

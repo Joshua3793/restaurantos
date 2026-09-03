@@ -439,3 +439,29 @@ export function pickLiveLogs<T extends LiveLogRow>(logs: T[], dayStartMs: number
   }
   return newest
 }
+
+/**
+ * The draft flag an Undo of "remove from the To Do" should write.
+ *
+ * `isOnList` is the Smart Prep DRAFT flag, not "is on the kitchen's To Do"
+ * (that is `PrepLog.postedAt`). A removal clears both, so the Undo has to put
+ * back whatever the draft flag actually was — asserting `true` puts items on a
+ * draft they were never on.
+ *
+ * But the chef can act inside the toast's window, and the Undo's arguments are
+ * frozen at removal time (the toast stores its onClick verbatim). Two facts make
+ * this decidable rather than a race:
+ *
+ *   · the removal ALWAYS writes `false`, and
+ *   · the only move available afterwards is re-adding to the draft (false ->
+ *     true) — removing is already a no-op on an item that is off it.
+ *
+ * So a live `true` can only mean the chef re-added it, and the Undo must not
+ * clobber that; a live `false` means untouched, and the Undo restores `prior`.
+ *
+ * `prior` undefined falls back to `true`, matching the default
+ * `POST /api/prep/plan/remove-item` applies to an omitted `isOnList`.
+ */
+export function undoDraftFlag(live: boolean, prior: boolean | undefined): boolean {
+  return live || (prior ?? true)
+}

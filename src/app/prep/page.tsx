@@ -28,7 +28,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, defaultDraftQty, effectivePriority } from '@/lib/prep-plan'
+import { applyStatusToItem, defaultDraftQty, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
 import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
@@ -73,6 +73,11 @@ export default function PrepPage() {
   // rebuild it on every sync, which is worse than the stomp it would fix.
   const offlineSyncingRef = useRef(false)
   useEffect(() => { offlineSyncingRef.current = offlineSyncing }, [offlineSyncing])
+  // Latest-items mirror, same pattern as offlineSyncingRef above. The Undo
+  // toast's onClick is stored verbatim, so its ARGUMENTS are frozen at removal
+  // time — but the handler body runs at click time, and this ref is how it sees
+  // what the chef has done since. See `undoDraftFlag`.
+  const itemsRef = useRef<PrepItemRich[]>([])
   const [pendingCount,   setPendingCount]   = useState(0)
   const [cacheAge,       setCacheAge]       = useState<number | null>(null)
 
@@ -426,6 +431,7 @@ export default function PrepPage() {
   // still shows the chef's draft. `savePrepCache` without `fetchedAt` preserves
   // the last SERVER fetch time, so the age stamp keeps telling the truth.
   useEffect(() => {
+    itemsRef.current = items
     if (items.length === 0) return
     savePrepCache(items)
   }, [items])
@@ -968,18 +974,17 @@ export default function PrepPage() {
     // (that is `todayLog.postedAt`). They diverge: post the list, then take the
     // item off the draft, and it stays posted with `isOnList` already false. So
     // an Undo cannot assert `true` — it has to put back whatever was there.
-    // Threaded, not recomputed, for the same reason `headerWasAdjusted` is: the
-    // Undo runs from a closure frozen at removal time (see the note below), so
-    // it is TOLD the prior value rather than reading anything at click time.
-    // Captured before the patch below, which is what overwrites it.
+    // The prior value is THREADED (the Undo's arguments are frozen at removal
+    // time, like `headerWasAdjusted`), but the live value is READ — this body
+    // runs at click time, so `itemsRef` sees anything the chef did in between.
+    // `undoDraftFlag` combines them; its doc carries the reasoning.
     //
-    // Frozen at removal time is the point, but it does mean an Undo clicked
-    // after the chef re-adds the item to the draft within the toast's 6s window
-    // writes the stale `false` back. Narrow, only self-inflicted, and strictly
-    // better than the mirror-image bug this replaced (which asserted `true`
-    // unconditionally and put an item back on a draft it was never on).
+    // `wasOnList` is captured before the patch below, which is what overwrites
+    // it. Note `item` is the frozen row from the removal, so on the Undo call
+    // `item.isOnList` is still the PRE-removal value — hence the ref.
     const wasOnList = item.isOnList
-    const nextIsOnList = restore ? priorIsOnList ?? true : false
+    const liveIsOnList = itemsRef.current.find(i => i.id === item.id)?.isOnList ?? false
+    const nextIsOnList = restore ? undoDraftFlag(liveIsOnList, priorIsOnList) : false
 
     mutationSeq.current++
     const stamp = restore ? new Date().toISOString() : null
