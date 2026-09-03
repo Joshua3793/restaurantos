@@ -30,6 +30,28 @@ function mockFetch(logId = 'srv-log-1') {
   return calls
 }
 
+type Call = { url: string; method: string; body: Record<string, unknown>; index: number }
+
+const okRes = (body: Record<string, unknown> = {}) =>
+  ({ ok: true, status: 200, json: async () => body }) as unknown as Response
+const errRes = (status: number) =>
+  ({ ok: false, status, json: async () => ({ error: `HTTP ${status}` }) }) as unknown as Response
+
+/**
+ * Like `mockFetch`, but the caller decides each response — return a Response,
+ * or throw to simulate a dead network.
+ */
+function mockFetchWith(respond: (call: Call) => Response) {
+  const calls: Call[] = []
+  const fn = vi.fn(async (url: string, init: { method: string; body: string }) => {
+    const call: Call = { url, method: init.method, body: JSON.parse(init.body), index: calls.length }
+    calls.push(call)
+    return respond(call)
+  })
+  ;(globalThis as unknown as { fetch: typeof fn }).fetch = fn
+  return calls
+}
+
 /** A draft_edit entry as the page would enqueue it. */
 function draftEdit(itemId: string, patch: Record<string, unknown>, logId: string | null = 'log-1') {
   return { type: 'draft_edit' as const, itemId, logId, revenueCenterId: 'rc-1', patch }
@@ -231,5 +253,185 @@ describe('prep caches', () => {
   it('round-trips a null post', () => {
     savePlanCache(null)
     expect(loadPlanCache()?.post).toBeNull()
+  })
+})
+
+describe('prep offline queue — a failed request is never counted as synced', () => {
+  beforeEach(() => { installLocalStorage(); clearQueue() })
+
+  it('counts a 404 from remove-item as failed, not synced', async () => {
+    // The route 404s and writes NOTHING when the item belongs to another
+    // revenue center — the case that silently left the job on the To Do.
+    mockFetchWith(() => errRes(404))
+    enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1' })
+
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+  })
+
+  it('counts a 400 from plan/post as failed', async () => {
+    mockFetchWith(() => errRes(400))   // "Nothing on the list to post"
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+  })
+
+  it('counts a 403 on the draft_edit PUT as failed', async () => {
+    mockFetchWith(() => errRes(403))   // non-LEAD editing plan fields
+    enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, 'log-real'))
+
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+  })
+
+  it('marks the mutation failed and skips the PUT when the log create fails', async () => {
+    // ensureLogId returns { id: null } — proceeding would PUT to /undefined.
+    const calls = mockFetchWith(() => errRes(400))
+    enqueueMutation({ type: 'status', itemId: 'item-1', logId: '_opt_item-1', status: 'DONE', actualQty: 3, revenueCenterId: 'rc-1' })
+
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/prep/logs')
+  })
+
+  it('marks it failed when a 2xx create comes back without an id', async () => {
+    const calls = mockFetchWith(() => okRes({}))
+    enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, null))
+
+    expect(await flushQueue()).toEqual({ synced: 0, failed: 1 })
+    expect(calls).toHaveLength(1)
+    expect(loadQueue()).toHaveLength(0)   // a bad contract will not fix itself
+  })
+})
+
+describe('prep offline queue — retry vs drop', () => {
+  beforeEach(() => { installLocalStorage(); clearQueue() })
+
+  it('drops a 4xx from the queue rather than retrying it forever', async () => {
+    mockFetchWith(() => errRes(403))
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+
+    await flushQueue()
+
+    expect(loadQueue()).toHaveLength(0)
+  })
+
+  it('keeps a 5xx for the next flush', async () => {
+    mockFetchWith(() => errRes(503))
+    enqueueMutation({ type: 'remove_item', itemId: 'item-1', revenueCenterId: 'rc-1' })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 1 })
+    const left = loadQueue()
+    expect(left).toHaveLength(1)
+    expect(left[0].type).toBe('remove_item')
+  })
+
+  it('keeps the un-attempted remainder when the network drops mid-flush', async () => {
+    // First mutation lands, then the connection dies. The two behind it were
+    // never attempted and must not be wiped.
+    mockFetchWith(call => {
+      if (call.index === 0) return okRes({ id: 'srv-1' })
+      throw new TypeError('Failed to fetch')
+    })
+    enqueueMutation({ type: 'priority', itemId: 'a', priority: 'PASS' })
+    enqueueMutation({ type: 'remove_item', itemId: 'b', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+
+    const res = await flushQueue()
+
+    expect(res.synced).toBe(1)
+    expect(loadQueue().map(m => m.type)).toEqual(['remove_item', 'post'])
+  })
+
+  it('retries the merged survivor, not the individual edits it came from', async () => {
+    mockFetchWith(() => { throw new TypeError('Failed to fetch') })
+    enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, 'log-real'))
+    enqueueMutation(draftEdit('item-1', { note: 'double batch' }, 'log-real'))
+
+    await flushQueue()
+
+    const left = loadQueue()
+    expect(left).toHaveLength(1)
+    expect(left[0].patch).toEqual({ requiredQty: 4, note: 'double batch' })
+  })
+
+  it('keeps flushing past a permanent failure', async () => {
+    const calls = mockFetchWith(call => (call.index === 0 ? errRes(404) : okRes({ id: 'srv-1' })))
+    enqueueMutation({ type: 'remove_item', itemId: 'a', revenueCenterId: 'rc-1' })
+    enqueueMutation({ type: 'post', itemId: '', revenueCenterId: 'rc-1' })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 1, failed: 1 })
+    expect(calls).toHaveLength(2)
+    expect(loadQueue()).toHaveLength(0)
+  })
+})
+
+describe('prep offline queue — work enqueued during a flush', () => {
+  beforeEach(() => { installLocalStorage(); clearQueue() })
+
+  it('does not wipe a mutation the chef enqueued while the flush was in flight', async () => {
+    mockFetchWith(call => {
+      // The planner enqueues a draft_edit while the first request is awaiting.
+      if (call.index === 0) enqueueMutation(draftEdit('item-2', { requiredQty: 7 }, 'log-2'))
+      return okRes({ id: 'srv-1' })
+    })
+    enqueueMutation({ type: 'priority', itemId: 'a', priority: 'PASS' })
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 1, failed: 0 })
+    const left = loadQueue()
+    expect(left).toHaveLength(1)
+    expect(left[0].itemId).toBe('item-2')
+    expect(left[0].patch).toEqual({ requiredQty: 7 })
+  })
+
+  it('keeps both the retryable survivor and the mid-flush addition', async () => {
+    mockFetchWith(call => {
+      if (call.index === 0) {
+        enqueueMutation(draftEdit('item-2', { note: 'later' }, 'log-2'))
+        return errRes(500)
+      }
+      return okRes({ id: 'srv-1' })
+    })
+    enqueueMutation({ type: 'remove_item', itemId: 'a', revenueCenterId: 'rc-1' })
+
+    await flushQueue()
+
+    expect(loadQueue().map(m => m.itemId)).toEqual(['a', 'item-2'])
+  })
+})
+
+describe('prep offline queue — merged draft_edit identity fields', () => {
+  beforeEach(() => { installLocalStorage(); clearQueue() })
+
+  it('inherits the LAST edit’s logId and revenueCenterId', () => {
+    enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, 'log-real'))
+    enqueueMutation({ ...draftEdit('item-1', { note: 'n' }, null), revenueCenterId: 'rc-9' })
+
+    const out = deduplicateQueue(loadQueue())
+
+    expect(out).toHaveLength(1)
+    expect(out[0].logId).toBeNull()
+    expect(out[0].revenueCenterId).toBe('rc-9')
+  })
+
+  it('so a real-id-then-null pair takes the create path — POST /api/prep/logs upserts', async () => {
+    const calls = mockFetchWith(() => okRes({ id: 'srv-77' }))
+    enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, 'log-real'))
+    enqueueMutation(draftEdit('item-1', { note: 'double batch' }, null))
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 1, failed: 0 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/prep/logs')
+    expect(calls[0].method).toBe('POST')
+    expect(calls[0].body).toEqual({
+      prepItemId: 'item-1', revenueCenterId: 'rc-1',
+      requiredQty: 4, note: 'double batch',
+    })
   })
 })
