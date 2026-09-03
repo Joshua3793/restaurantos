@@ -244,15 +244,27 @@ describe('prep caches', () => {
     expect(cached?.items).toHaveLength(2)
   })
 
-  it('round-trips the plan post header', () => {
+  it('round-trips the plan post header alongside the revenue center it belongs to', () => {
     const post = { id: 'p1', postedAt: '2026-09-02T10:00:00.000Z', postedByName: 'Chef', itemCount: 3, activeMinutes: 90, dirty: false } as PrepPostInfo
-    savePlanCache(post)
-    expect(loadPlanCache()?.post).toEqual(post)
+    savePlanCache(post, 'rc-1')
+    const cached = loadPlanCache()
+    expect(cached?.post).toEqual(post)
+    expect(cached?.revenueCenterId).toBe('rc-1')
   })
 
   it('round-trips a null post', () => {
-    savePlanCache(null)
+    savePlanCache(null, 'rc-1')
     expect(loadPlanCache()?.post).toBeNull()
+  })
+
+  it('round-trips a null revenue center (no RC active)', () => {
+    savePlanCache(null, null)
+    expect(loadPlanCache()?.revenueCenterId).toBeNull()
+  })
+
+  it('normalizes a pre-upgrade cache entry with no revenueCenterId field to null, not a match for any RC', () => {
+    localStorage.setItem('prep_plan_v1', JSON.stringify({ post: null, ts: Date.now() }))
+    expect(loadPlanCache()?.revenueCenterId).toBeNull()
   })
 })
 

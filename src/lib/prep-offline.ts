@@ -70,20 +70,37 @@ export function loadPrepCache(): { items: PrepItemRich[]; ts: number } | null {
   } catch { return null }
 }
 
-/** The posted-list header, so PostedBand and the dirty pill render offline. */
-export function savePlanCache(post: PrepPostInfo | null): void {
+/**
+ * The posted-list header, so PostedBand and the dirty pill render offline.
+ *
+ * `PLAN_KEY` is a SINGLE slot, not one per revenue center — so the header is
+ * stamped with the RC it belongs to. `PrepPostInfo` itself carries no RC
+ * field, so a reader who forgets to check `revenueCenterId` against the
+ * currently active RC would paint a header posted for a DIFFERENT revenue
+ * center: a band claiming a list that was never posted here. Always compare
+ * `revenueCenterId` to the active RC before displaying `post` from a loaded
+ * cache entry.
+ */
+export function savePlanCache(post: PrepPostInfo | null, revenueCenterId: string | null): void {
   try {
-    localStorage.setItem(PLAN_KEY, JSON.stringify({ post, ts: Date.now() }))
+    localStorage.setItem(PLAN_KEY, JSON.stringify({ post, revenueCenterId, ts: Date.now() }))
   } catch { /* graceful degradation */ }
 }
 
-export function loadPlanCache(): { post: PrepPostInfo | null; ts: number } | null {
+export function loadPlanCache(): { post: PrepPostInfo | null; revenueCenterId: string | null; ts: number } | null {
   try {
     const raw = localStorage.getItem(PLAN_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!('post' in parsed)) return null
-    return parsed as { post: PrepPostInfo | null; ts: number }
+    // A cache written before this field existed has no `revenueCenterId` — treat
+    // it as unknown (`undefined` -> normalized to null) rather than a match for
+    // any RC, so a stale pre-upgrade entry never gets painted against the wrong one.
+    return {
+      post: parsed.post,
+      revenueCenterId: parsed.revenueCenterId ?? null,
+      ts: parsed.ts,
+    } as { post: PrepPostInfo | null; revenueCenterId: string | null; ts: number }
   } catch { return null }
 }
 

@@ -130,6 +130,10 @@ export default function PrepPage() {
   // and after its fetch and discards its result if any mutation happened meanwhile.
   const mutationSeq = useRef(0)
 
+  // Set once the cache has painted, so `load` does not slam the full-screen
+  // spinner over a list the cook is already reading.
+  const hydratedFromCache = useRef(false)
+
   // ── Prep tasks (checklist) ─────────────────────────────────────────────────
   const [taskLibrary, setTaskLibrary] = useState<PrepTask[]>([])
   const [taskTodayIds, setTaskTodayIds] = useState<Set<string>>(new Set())
@@ -218,10 +222,9 @@ export default function PrepPage() {
   // `silent` = background refresh (auto-poll): update data in place without the
   // full-screen loading state or wiping the list on a transient failure.
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
+    if (!silent && !hydratedFromCache.current) setLoading(true)
     const seqAtStart = mutationSeq.current
     try {
-      if (!navigator.onLine) throw new Error('offline')
       const res  = await fetch(`/api/prep/items?active=${activeOnly}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
@@ -234,21 +237,28 @@ export default function PrepPage() {
       if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
       savePrepCache(fetched, { fetchedAt: Date.now() })
+      hydratedFromCache.current = true
       setIsOffline(false)
       setCacheAge(null)
     } catch (e) {
-      if (!navigator.onLine) {
-        const cached = loadPrepCache()
-        if (cached) {
-          setItems(cached.items)
-          setCacheAge(Math.round((Date.now() - cached.ts) / 60000))
-          setIsOffline(true)
-          return
-        }
-        setIsOffline(true)
+      // ANY failure falls back to the cache — not just navigator.onLine === false.
+      // A flaky signal fails the fetch while the browser still calls itself online,
+      // and blanking the list mid-shift is the worst possible answer. The list is
+      // never empty because of the network.
+      const cached = loadPrepCache()
+      if (cached && cached.items.length > 0) {
+        // Only fills an empty list — never clobbers what is already on screen
+        // (including an optimistic edit made while this fetch was in flight).
+        // The check lives in the updater, but nothing is ASSIGNED inside it:
+        // a state updater must stay pure or StrictMode's double-invoke makes it lie.
+        setItems(prev => (prev.length === 0 ? cached.items : prev))
+        hydratedFromCache.current = true
+        setCacheAge(Math.round((Date.now() - cached.ts) / 60000))
+      } else if (!silent) {
+        setItems([])
       }
+      setIsOffline(!navigator.onLine)
       console.error('Failed to load prep items', e)
-      if (!silent) setItems([])
     } finally {
       if (!silent) setLoading(false)
     }
@@ -279,13 +289,25 @@ export default function PrepPage() {
   // Today's PrepPost header for the active RC — drives the planner footer, the
   // To Do provenance band, and the "unposted changes" pill.
   const loadPlan = useCallback(async () => {
+    // No active RC (Location/"All" lens, or the RC context hasn't hydrated yet):
+    // there is no RC-scoped post to show locally. Deliberately NOT writing this
+    // to the plan cache — that cache is a SINGLE slot keyed by whichever RC last
+    // wrote it (see savePlanCache), and `activeRcId` is transiently null on
+    // every mount before RevenueCenterContext resolves the persisted selection.
+    // Writing `{ post: null, revenueCenterId: null }` here would win that race
+    // on nearly every load and permanently blank a real RC's cached header
+    // before the cache-first paint effect ever got to read it. Leaving the slot
+    // untouched is safe: the paint effect below only matches a cache entry
+    // against a REAL active RC id, so a stale entry from a different RC is
+    // simply ignored, not misattributed — and it lets the chef switch back to
+    // that RC (even offline) and still see its real cached post.
     if (!activeRcId) { setPlan({ post: null }); return }
     try {
       const res = await fetch(`/api/prep/plan?rcId=${encodeURIComponent(activeRcId)}`, { cache: 'no-store' })
       if (res.ok) {
         const data = await res.json()
         setPlan(data)
-        savePlanCache(data.post ?? null)
+        savePlanCache(data.post ?? null, activeRcId)
       }
     } catch { /* keep the last known post */ }
   }, [activeRcId])
@@ -297,9 +319,22 @@ export default function PrepPage() {
 
   // Optimistic mirror of the server-side dirty flag: any draft edit after a
   // post means the kitchen is on a stale list until the chef re-posts.
+  //
+  // Reads `plan` via closure rather than the setState-updater form the flag
+  // flip itself uses, specifically so the cache write below happens exactly
+  // once per call with the actual next value in hand (writing inside a state
+  // updater is a side effect, and React 18 Strict Mode double-invokes updaters
+  // in dev — see the `load()` catch branch for the same rule). The trade-off:
+  // several `markPlanDirtyLocal()` calls in the same synchronous burst (e.g.
+  // `handleAssignStation` looping over items) can each re-write the same
+  // already-dirty value to the cache instead of writing once — harmless
+  // (idempotent), just a few redundant localStorage writes.
   const markPlanDirtyLocal = useCallback(() => {
-    setPlan(p => (p.post && !p.post.dirty ? { post: { ...p.post, dirty: true } } : p))
-  }, [])
+    if (!plan.post || plan.post.dirty) return
+    const next = { ...plan.post, dirty: true }
+    setPlan({ post: next })
+    savePlanCache(next, activeRcId)
+  }, [plan, activeRcId])
 
   useEffect(() => {
     setIsOffline(!navigator.onLine)
@@ -308,6 +343,44 @@ export default function PrepPage() {
     loadCooks()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSettings, loadCooks])
+
+  // Cache-first paint: the list a cook had a moment ago beats a spinner. The
+  // fetch below replaces it as soon as it lands.
+  useEffect(() => {
+    const cached = loadPrepCache()
+    if (cached && cached.items.length > 0) {
+      hydratedFromCache.current = true
+      setItems(cached.items)
+      setCacheAge(Math.round((Date.now() - cached.ts) / 60000))
+      setLoading(false)
+    }
+  }, [])
+
+  // Paint the posted-band header from cache too — but only once we know which
+  // RC is active, and only when the cached header actually belongs to it.
+  // Deliberately depends on `activeRcId` rather than running mount-only ([]):
+  // RevenueCenterContext resolves the persisted active RC asynchronously
+  // (`activeRcId` starts null on every mount), so a `[]` effect would run
+  // before there's anything to match the cache against and could never paint
+  // anything. Re-running on every RC change is also a genuine feature, not
+  // just a workaround: it means switching back to a previously-visited RC
+  // while offline repaints that RC's own cached header instead of leaving
+  // whatever the last RC's post happened to be on screen.
+  useEffect(() => {
+    if (!activeRcId) return
+    const cachedPlan = loadPlanCache()
+    if (cachedPlan && cachedPlan.revenueCenterId === activeRcId) {
+      setPlan({ post: cachedPlan.post })
+    }
+  }, [activeRcId])
+
+  // Every optimistic mutation reaches the cache, so a reload in a dead zone
+  // still shows the chef's draft. `savePrepCache` without `fetchedAt` preserves
+  // the last SERVER fetch time, so the age stamp keeps telling the truth.
+  useEffect(() => {
+    if (items.length === 0) return
+    savePrepCache(items)
+  }, [items])
 
   // The single source of the initial prep-items load (and the activeOnly-change reload).
   // Deliberately NOT also called in the effect above — doing so fired a second identical
@@ -365,10 +438,31 @@ export default function PrepPage() {
       .catch(() => setHistoryLoading(false))
   }, [viewMode, historyDate])
 
-  // Auto-refresh every 60 seconds (paused while offline)
+  // Auto-refresh every 60 seconds (paused while offline). Also flushes the
+  // offline queue when there's something pending: `flushQueue` previously had
+  // only two triggers — the `online` event and the manual "Sync now" button —
+  // so a mutation KEPT after a post-reconnect 5xx/401/408/429 (see THE RETRY
+  // RULE in prep-offline.ts) would not retry again until the next
+  // offline→online transition or a manual tap. `flushQueue` has its own
+  // re-entrancy guard, so an overlapping trigger (e.g. a manual "Sync now"
+  // mid-interval) is safe. Gated on a non-empty queue so this never fires an
+  // empty flush every minute.
   useEffect(() => {
     if (isOffline) return
-    const id = setInterval(() => { load(true); loadPlan() }, 60_000)
+    const id = setInterval(() => {
+      load(true)
+      loadPlan()
+      if (loadQueue().length > 0) {
+        setOfflineSyncing(true)
+        flushQueue().then(result => {
+          setPendingCount(loadQueue().length)
+          setOfflineSyncing(false)
+          if (result.failed > 0) {
+            setActionError(`Synced ${result.synced} change${result.synced !== 1 ? 's' : ''}, but ${result.failed} failed — please refresh.`)
+          }
+        })
+      }
+    }, 60_000)
     return () => clearInterval(id)
   }, [load, loadPlan, isOffline])
 
@@ -1062,7 +1156,7 @@ export default function PrepPage() {
         listDate: `${prepDayKey()}T00:00:00.000Z`,
       }
       setPlan({ post: localPost })
-      savePlanCache(localPost)
+      savePlanCache(localPost, activeRcId)
       enqueueMutation({ type: 'post', itemId: '', revenueCenterId: activeRcId })
       setPendingCount(n => n + 1)
       toast('Posted — will sync when back online')
@@ -1077,7 +1171,7 @@ export default function PrepPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Post failed — try again.')
       setPlan({ post: data.post })
-      savePlanCache(data.post)
+      savePlanCache(data.post, activeRcId)
       // Stamp postedAt locally so the To Do fills without waiting for a reload.
       mutationSeq.current++
       const stamp: string = data.post.postedAt
@@ -1103,7 +1197,7 @@ export default function PrepPage() {
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Recall failed — try again.')
       setPlan({ post: null })
-      savePlanCache(null)
+      savePlanCache(null, activeRcId)
       mutationSeq.current++
       setItems(prev => prev.map(i => (i.todayLog?.postedAt ? { ...i, todayLog: { ...i.todayLog, postedAt: null } } : i)))
       toast('Recalled to draft')
@@ -1428,14 +1522,21 @@ export default function PrepPage() {
         </div>
       )}
 
-      {(isOffline || pendingCount > 0) && (
+      {(isOffline || pendingCount > 0 || cacheAge !== null) && (
         <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm border ${
           isOffline ? 'bg-gold-soft border-gold-soft text-gold-2' : 'bg-gold/10 border-gold/30 text-blue-text'
         }`}>
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff size={14} className="shrink-0" />
             <span className="truncate">
-              {offlineSyncing ? 'Syncing changes…' : isOffline ? `Offline${cacheAge !== null ? ` — data from ${cacheAge < 1 ? 'just now' : `${cacheAge}m ago`}` : ''}` : 'Back online'}
+              {offlineSyncing
+                ? 'Syncing changes…'
+                : isOffline
+                  ? `Offline${cacheAge !== null ? ` — data from ${cacheAge < 1 ? 'just now' : `${cacheAge}m ago`}` : ''}`
+                  : cacheAge !== null
+                    // Online by the browser's reckoning, but the fetch did not land.
+                    ? `Showing the saved list — data from ${cacheAge < 1 ? 'just now' : `${cacheAge}m ago`}`
+                    : 'Back online'}
             </span>
             {pendingCount > 0 && !offlineSyncing && (
               <span className="font-semibold shrink-0">· {pendingCount} change{pendingCount !== 1 ? 's' : ''} pending</span>
