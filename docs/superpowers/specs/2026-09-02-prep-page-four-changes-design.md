@@ -107,12 +107,25 @@ body: { revenueCenterId, prepItemId, restore?: boolean }
 - `requireSession('LEAD')` then `assertRcWritable(user, revenueCenterId)`. Removing an
   item from the kitchen's list is a plan edit, the same class as posting and as the
   `editsPlan` fields in `PUT /api/prep/logs/[id]`.
-- Default (`restore` absent/false): in one transaction, clear `postedAt` on that
-  item's open posted logs for the RC (`postedOpenWhere` scoped to `prepItemId`), and
-  set `isOnList: false` on the `PrepItem`. That is the exact end state the
-  remove-then-re-post round trip produces today.
-- `restore: true`: stamp a fresh `postedAt` on the item's newest open log for the RC
-  and set `isOnList: true`.
+- Default (`restore` absent/false): in one transaction, clear `postedAt` on
+  `{ revenueCenterId, prepItemId, ...postedOpenWhere }`, and set `isOnList: false` on
+  the `PrepItem`. That is the exact end state the remove-then-re-post round trip
+  produces today — and it matches what `POST /api/prep/plan/post` already does to
+  items `notIn draftIds`.
+- `restore: true`: resolve the item's live log with
+  `ensureLiveLogs([prepItemId], revenueCenterId)` and stamp `postedAt: new Date()` on
+  it, then set `isOnList: true`. **Not** `postedOpenWhere` — that fragment requires
+  `postedAt: { not: null }` and so cannot find the row the removal just cleared.
+  `ensureLiveLogs` is also what keeps the one-live-log-per-item invariant, and is the
+  same primitive the post route uses.
+- **Keeps the `PrepPost` header honest.** `PostedBand` renders
+  `{itemCount} items · {activeMinutes} hands-on`, so a removal that left them alone
+  would make the band lie. Look up the header with `livePost(revenueCenterId)`; when
+  one exists, decrement `itemCount` by 1 and subtract this item's minutes
+  (`resolveActive(item) ?? estimatedPrepTime ?? 0` — the same expression the post
+  route sums), both floored at 0. `restore` adds them back. The header row is never
+  deleted: other items are still posted, and emptying the list entirely is what
+  Recall is for.
 - **Does not** call `markPlanDirty`. The removal is already reflected on the line —
   flagging the post as stale would be wrong.
 - **No inventory write.** No `PrepLog` status change, no theoretical-stock
@@ -138,7 +151,8 @@ single-argument callers are unaffected.
 - A toast offers Undo; taking it puts the row back where it was.
 - The item is back in Smart Prep's suggestions pane, re-addable, with no log status
   change and no stock movement.
-- The posted band does not gain a "dirty / unposted changes" flag from a removal.
+- The posted band does not gain a "dirty / unposted changes" flag from a removal, and
+  its item count and hands-on total drop to match the shortened list.
 - A STAFF session sees no `×`.
 
 ---
