@@ -31,9 +31,13 @@ export interface OfflineMutation {
   /**
    * How many times this mutation has already been sent and gotten a
    * `transient` outcome back. Absent/undefined means zero. Survives
-   * write-back into the queue (and survives `deduplicateQueue`, which always
-   * spreads the winning/anchor mutation) so repeated flush cycles accumulate
-   * it rather than resetting it — see `MAX_ATTEMPTS` in `flushQueue`.
+   * write-back into the queue, and `deduplicateQueue` carries forward the
+   * MAXIMUM `attempts` seen across every raw entry collapsing into a given
+   * key — not just whichever raw entry happens to be the winner/anchor — so
+   * a fresh enqueue for an already-retried item (e.g. the chef edits the
+   * note on an item whose qty edit already failed twice) does not hand it a
+   * new budget. Repeated flush cycles accumulate the count rather than
+   * resetting it — see `MAX_ATTEMPTS` in `flushQueue`.
    */
   attempts?: number
 }
@@ -153,8 +157,15 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
   const winner = new Map<string, OfflineMutation>()
   const merged = new Map<string, DraftPatch>()
   const anchor = new Map<string, OfflineMutation>()
+  // The retry budget already spent on this key, across every raw entry that
+  // collapses into it — a new enqueue for an item that already failed a few
+  // times must not hand it a fresh budget. Max, not last: more than two raw
+  // entries can share a key, and whichever attempted-and-failed the most is
+  // the count that must survive.
+  const maxAttempts = new Map<string, number>()
   for (const m of queue) {
     const k = keyOf(m)
+    maxAttempts.set(k, Math.max(maxAttempts.get(k) ?? 0, m.attempts ?? 0))
     if (m.type === 'draft_edit') {
       // The merged entry takes the position of the segment's FIRST edit for this
       // item, so it lands before any post that follows it.
@@ -184,13 +195,14 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
       if (anchor.get(k) !== m) continue
       const last = winner.get(k) as OfflineMutation
       emitted.add(k)
-      // Fields from the LAST edit (freshest logId / RC), patch from the merge.
-      result.push({ ...last, id: m.id, ts: m.ts, patch: merged.get(k) })
+      // Fields from the LAST edit (freshest logId / RC), patch from the merge,
+      // attempts from whichever raw entry for this key was retried the most.
+      result.push({ ...last, id: m.id, ts: m.ts, patch: merged.get(k), attempts: maxAttempts.get(k) })
       continue
     }
     if (winner.get(k) !== m) continue
     emitted.add(k)
-    result.push(m)
+    result.push({ ...m, attempts: maxAttempts.get(k) })
   }
 
   return result

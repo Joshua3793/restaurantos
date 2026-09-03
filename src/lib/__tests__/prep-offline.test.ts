@@ -401,6 +401,46 @@ describe('prep offline queue — retry vs drop', () => {
     expect(loadQueue()).toHaveLength(0)   // a dead endpoint no longer blocks the queue forever
   })
 
+  it('carries the accumulated attempt count into a merged draft_edit survivor, so a new same-item edit does not reset the cap', async () => {
+    // Flush 1: the edit fails transiently 4 times, so attempts climbs to 4
+    // (one below MAX_ATTEMPTS) and is written back into the queue.
+    mockFetchWith(() => errRes(503))
+    enqueueMutation(draftEdit('item-1', { requiredQty: 4 }, 'log-real'))
+    for (let i = 0; i < 4; i++) await flushQueue()
+    expect(loadQueue()).toHaveLength(1)
+    expect(loadQueue()[0].attempts).toBe(4)
+
+    // Still offline, the chef edits the note on the SAME item — a brand new
+    // raw entry with no attempts of its own is appended.
+    enqueueMutation(draftEdit('item-1', { note: 'x' }, 'log-real'))
+    expect(loadQueue()).toHaveLength(2)
+
+    // Flush 5: dedup merges the patch, but the survivor must still carry the
+    // accumulated attempts forward (4 -> 5) and hit the cap, dropping it —
+    // not silently resetting to 1 and retrying forever.
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 1, kept: 0 })
+    expect(loadQueue()).toHaveLength(0)
+  })
+
+  it('carries the accumulated attempt count into a last-wins survivor (isOnList_toggle), so a repeat toggle does not reset the cap', async () => {
+    mockFetchWith(() => errRes(503))
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'item-1', isOnList: true })
+    for (let i = 0; i < 4; i++) await flushQueue()
+    expect(loadQueue()).toHaveLength(1)
+    expect(loadQueue()[0].attempts).toBe(4)
+
+    // A new raw entry for the same item, still offline.
+    enqueueMutation({ type: 'isOnList_toggle', itemId: 'item-1', isOnList: false })
+    expect(loadQueue()).toHaveLength(2)
+
+    const res = await flushQueue()
+
+    expect(res).toEqual({ synced: 0, failed: 1, kept: 0 })
+    expect(loadQueue()).toHaveLength(0)
+  })
+
   it('does not run a second flush while one is already in flight', async () => {
     let resolveFirst!: (r: Response) => void
     const fn = vi.fn(() => new Promise<Response>(resolve => { resolveFirst = resolve }))
