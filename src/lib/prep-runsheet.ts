@@ -91,3 +91,17 @@ export function scaleQtyLabel(qty: number, scale: number, unit: string): string 
     : String(v)
   return `${s} ${unit}`
 }
+
+/**
+ * Quantity for a run-sheet row: kg/L show one decimal only when fractional,
+ * every other unit rounds to a whole number.
+ *
+ * Distinct from `formatQtyUnit` in prep-utils.ts, which up-converts g→kg — a
+ * run-sheet row must show the qty in the unit the cook will actually measure.
+ * This lived as seven byte-identical local copies across the runsheet
+ * components before it was hoisted here.
+ */
+export function fmtQty(q: number, u: string): string {
+  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
+  return `${v} ${u}`
+}

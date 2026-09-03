@@ -9,17 +9,8 @@ import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
 import { StationTag, NeedChip, RunwayBar, UrgencyDot } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
-import { fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
-
-// Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
-// fractional, everything else rounds to a whole number. No existing helper in
-// prep-utils.ts/utils.ts matches this exact rule (formatQtyUnit up-converts
-// g→kg instead), so it stays a tiny local function rather than a shared export.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
   blocked: 'border-l-gold',

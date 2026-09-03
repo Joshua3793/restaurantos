@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   resolveActive, resolvePassive, resolvePassiveNote, startByMinutes,
   runState, minutesBetween, fmtClock, fmtMins, stepFor, scaleRound, scaleQtyLabel,
-  dayOffset, fmtStartBy,
+  dayOffset, fmtStartBy, fmtQty,
 } from '../prep-runsheet'
 
 const rec = (a: number|null, p: number|null, n: string|null) => ({ activeMinutes: a, passiveMinutes: p, passiveNote: n })
@@ -94,4 +94,22 @@ describe('batch scaling', () => {
   it('scaleRound g <100 → integer', () => { expect(scaleRound(61.4, 'g')).toBe(61) })
   it('scaleQtyLabel trims trailing zero for kg', () => { expect(scaleQtyLabel(1.2, 2, 'kg')).toBe('2.4 kg') })
   it('scaleQtyLabel integer units', () => { expect(scaleQtyLabel(60, 2, 'g')).toBe('120 g') })
+})
+
+describe('fmtQty', () => {
+  it('shows one decimal for a fractional kg or L', () => {
+    expect(fmtQty(2.5, 'kg')).toBe('2.5 kg')
+    expect(fmtQty(1.25, 'L')).toBe('1.3 L')
+  })
+
+  it('drops the decimal for a whole kg or L', () => {
+    expect(fmtQty(3, 'kg')).toBe('3 kg')
+    expect(fmtQty(4, 'L')).toBe('4 L')
+  })
+
+  it('rounds every other unit to a whole number', () => {
+    expect(fmtQty(2.5, 'each')).toBe('3 each')
+    expect(fmtQty(2.4, 'each')).toBe('2 each')
+    expect(fmtQty(1250.7, 'g')).toBe('1251 g')
+  })
 })

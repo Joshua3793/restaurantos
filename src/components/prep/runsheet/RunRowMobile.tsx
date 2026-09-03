@@ -9,15 +9,7 @@ import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
 import { UrgencyDot } from './atoms'
-import { fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
-
-// Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
-// fractional, everything else rounds to a whole number. Same rule as
-// RunRow.tsx/InProgressRail.tsx; kept local since no shared helper matches it.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
+import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
   blocked: 'border-l-gold',

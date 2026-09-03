@@ -17,18 +17,11 @@ import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
-import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
 type Group = 'time' | 'station' | 'priority'
-
-// Local port of the prototype's `ptFmtQ` (same rule as RunRow/InProgressRail):
-// kg/L show one decimal only when fractional, everything else rounds to a whole.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
 
 // Minutes-since-midnight for a done item's completion timestamp — the Done
 // section shows a wall-clock stamp the same way CrewStrip derives elapsed.

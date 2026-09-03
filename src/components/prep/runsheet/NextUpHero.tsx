@@ -6,14 +6,7 @@
 import { AlertTriangle, Zap, BookOpen } from 'lucide-react'
 import { draftQty } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
-import { fmtClock, fmtStartBy, fmtMins, runState } from '@/lib/prep-runsheet'
-
-// Local port of the prototype's `ptFmtQ` — same rule as RunRowMobile.tsx /
-// RunRow.tsx / InProgressRail.tsx.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
+import { fmtClock, fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 
 export function NextUpHero({
   item,

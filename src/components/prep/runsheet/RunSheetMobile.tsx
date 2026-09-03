@@ -18,7 +18,7 @@ import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
-import { fmtClock, fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
@@ -33,13 +33,6 @@ const PRIORITY_GROUPS: { key: PrepPriority; dot: string; title: string; sub: str
   { key: 'NEEDED_TODAY',  dot: 'bg-gold',  title: 'Needed today', sub: 'below par before service' },
   { key: 'LATER',         dot: 'bg-ink-4', title: 'Later',        sub: 'can slip to the afternoon' },
 ]
-
-// Local port of the prototype's `ptFmtQ` — kg/L show one decimal only when
-// fractional, everything else rounds to a whole. Same rule as the row/hero/rail.
-function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
-  return `${v} ${u}`
-}
 
 // PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
 // treat it as todo.
