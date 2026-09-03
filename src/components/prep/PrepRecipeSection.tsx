@@ -5,6 +5,7 @@ import { Minus, Plus } from 'lucide-react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
 import { convertQty } from '@/lib/uom'
+import { stepFactor } from '@/lib/prep-runsheet'
 import { computeBakersPercents } from '@/lib/bakers-percent'
 
 /**
@@ -35,21 +36,6 @@ const SLIDER_MAX = 5
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n))
-}
-
-/**
- * Next/previous 0.25 step for an off-grid factor.
- *
- * `factor` is derived (makeQty / baseInUnit), so it is frequently NOT a
- * multiple of 0.25 — a plain `f + 0.25` would keep an off-grid value off-grid
- * forever. Floor/ceil onto the quarter grid instead: from 1.13, `+` lands on
- * 1.25 and `-` on 1.00, and from an on-grid 1.25 they land on 1.5 and 1.0.
- * Always moves, always lands on a quarter.
- */
-function stepFactor(factor: number, dir: 1 | -1): number {
-  const q = factor * 4
-  const next = dir === 1 ? Math.floor(q + 1) : Math.ceil(q - 1)
-  return clamp(next / 4, SLIDER_MIN, SLIDER_MAX)
 }
 
 function fmtAmt(n: number): string {
@@ -278,7 +264,7 @@ export default function PrepRecipeSection({
         </div>
         <button
           type="button"
-          onClick={() => onMakeQtyChange(stepFactor(factor, -1) * baseInUnit)}
+          onClick={() => onMakeQtyChange(stepFactor(factor, -1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
           disabled={sliderValue <= SLIDER_MIN}
           aria-label="Decrease batch by a quarter"
           className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -296,7 +282,7 @@ export default function PrepRecipeSection({
         />
         <button
           type="button"
-          onClick={() => onMakeQtyChange(stepFactor(factor, 1) * baseInUnit)}
+          onClick={() => onMakeQtyChange(stepFactor(factor, 1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
           disabled={sliderValue >= SLIDER_MAX}
           aria-label="Increase batch by a quarter"
           className="w-8 h-8 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"

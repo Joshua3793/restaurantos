@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   resolveActive, resolvePassive, resolvePassiveNote, startByMinutes,
   runState, minutesBetween, fmtClock, fmtMins, stepFor, scaleRound, scaleQtyLabel,
-  dayOffset, fmtStartBy, fmtQty,
+  dayOffset, fmtStartBy, fmtQty, stepFactor,
 } from '../prep-runsheet'
 
 const rec = (a: number|null, p: number|null, n: string|null) => ({ activeMinutes: a, passiveMinutes: p, passiveNote: n })
@@ -111,5 +111,43 @@ describe('fmtQty', () => {
     expect(fmtQty(2.5, 'each')).toBe('3 each')
     expect(fmtQty(2.4, 'each')).toBe('2 each')
     expect(fmtQty(1250.7, 'g')).toBe('1251 g')
+  })
+})
+
+describe('stepFactor', () => {
+  it('regression: a noisy float just above 0.75 still steps down to 0.5', () => {
+    expect(stepFactor(0.7500000000000001, -1, 0.25, 5)).toBe(0.5)
+  })
+
+  it('regression: a noisy float still steps up from its snapped grid point', () => {
+    // 0.7500000000000001 snaps to 0.75, so `+` must land on the NEXT quarter, 1.0 —
+    // not stay stuck at 0.75 the way the buggy floor/ceil-without-snap did.
+    expect(stepFactor(0.7500000000000001, 1, 0.25, 5)).toBe(1)
+  })
+
+  it('on-grid stepping up', () => {
+    expect(stepFactor(1.25, 1, 0.25, 5)).toBe(1.5)
+  })
+
+  it('on-grid stepping down', () => {
+    expect(stepFactor(1.25, -1, 0.25, 5)).toBe(1)
+  })
+
+  it('genuinely off-grid: + lands on the neighbouring quarter, not round-then-step', () => {
+    // From 1.13, the correct neighbour is 1.25. A round-then-step implementation
+    // would first round 1.13 to 1.25 and then add a further 0.25, landing on 1.5 — wrong.
+    expect(stepFactor(1.13, 1, 0.25, 5)).toBe(1.25)
+  })
+
+  it('genuinely off-grid: - lands on the neighbouring quarter below', () => {
+    expect(stepFactor(1.13, -1, 0.25, 5)).toBe(1)
+  })
+
+  it('clamps at the max bound', () => {
+    expect(stepFactor(5, 1, 0.25, 5)).toBe(5)
+  })
+
+  it('clamps at the min bound', () => {
+    expect(stepFactor(0.25, -1, 0.25, 5)).toBe(0.25)
   })
 })
