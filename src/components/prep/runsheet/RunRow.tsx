@@ -3,7 +3,7 @@
 // Ported from desktop.jsx's DRow (+ its inline claim popover, now the shared
 // ClaimPopover atom). Grid: 64px start-by | 1fr task | auto assignee | auto action.
 import { useRef, useState } from 'react'
-import { Zap } from 'lucide-react'
+import { Zap, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
@@ -26,6 +26,7 @@ export function RunRow({
   onStart,
   onOpenRecipe,
   onClaim,
+  onRemove,
   dense = false,
 }: {
   item: PrepItemRich
@@ -34,6 +35,9 @@ export function RunRow({
   onStart: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
+  /** Take this item straight off the kitchen's list. Omitted (not just
+   *  disabled) for anyone who cannot plan — that is what hides the button. */
+  onRemove?: (item: PrepItemRich) => void
   dense?: boolean
 }) {
   const [claimOpen, setClaimOpen] = useState(false)
@@ -127,6 +131,16 @@ export function RunRow({
             />
           )}
         </div>
+        {onRemove && (
+          <button
+            onClick={() => onRemove(item)}
+            title="Remove from the list"
+            aria-label={`Remove ${item.name} from the list`}
+            className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-line-2 grid place-items-center cursor-pointer shrink-0 text-ink-4 hover:text-red hover:border-red"
+          >
+            <X size={15} />
+          </button>
+        )}
         <button
           onClick={() => onOpenRecipe(item)}
           title="Recipe"

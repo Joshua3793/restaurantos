@@ -50,6 +50,7 @@ export function RunSheet({
   onStop,
   onClaim,
   onOpenRecipe,
+  onRemove,
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
@@ -66,6 +67,8 @@ export function RunSheet({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
+  onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('kitchen')
   const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
@@ -138,7 +141,7 @@ export function RunSheet({
 
   const handsOn = (list: PrepItemRich[]) => fmtMins(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
 
-  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim }
+  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
   const rows = (list: PrepItemRich[]) => (
     <div className="flex flex-col gap-2">
       {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}

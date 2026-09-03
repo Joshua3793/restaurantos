@@ -68,6 +68,7 @@ export function RunSheetMobile({
   onStop,
   onClaim,
   onOpenRecipe,
+  onRemove,
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
@@ -83,6 +84,8 @@ export function RunSheetMobile({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
+  onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('station')
   const [group, setGroup] = useState<Group>('time')
@@ -158,6 +161,7 @@ export function RunSheetMobile({
           onClaim={claimTap}
           onOpenRecipe={onOpenRecipe}
           onStart={onStart}
+          onRemove={onRemove}
         />
       ))}
     </div>

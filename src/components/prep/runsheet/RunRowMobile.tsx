@@ -3,7 +3,7 @@
 // Ported from mobile.jsx's MRow. Compact layout vs. the desktop RunRow.tsx
 // ladder: 44px start-by column | task (name+qty, single meta line) | assignee
 // chip (kitchen mode only) | Start/Lock action button.
-import { Zap } from 'lucide-react'
+import { Zap, X } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
@@ -27,6 +27,7 @@ export function RunRowMobile({
   onClaim,
   onOpenRecipe,
   onStart,
+  onRemove,
 }: {
   item: PrepItemRich
   nowMin: number
@@ -39,6 +40,8 @@ export function RunRowMobile({
   onClaim: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
   onStart: (item: PrepItemRich) => void
+  /** Take this item straight off the kitchen's list. Omitted for non-planners. */
+  onRemove?: (item: PrepItemRich) => void
 }) {
   const sb = item.startByMinutes
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
@@ -116,6 +119,15 @@ export function RunRowMobile({
       {/* Stock-out / blocked items are NOT gated — the urgency dot flags the risk and the
           drawer spells it out, but the cook can still start (uncounted stock, or prepping
           toward a restock). */}
+      {onRemove && (
+        <button
+          onClick={() => onRemove(item)}
+          aria-label={`Remove ${item.name} from the list`}
+          className="w-9 h-11 grid place-items-center cursor-pointer shrink-0 text-ink-4 bg-transparent border-none"
+        >
+          <X size={16} />
+        </button>
+      )}
       <button
         onClick={() => onStart(item)}
         className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"

@@ -792,6 +792,43 @@ export default function PrepPage() {
     }
   }
 
+  // Take one item straight off the kitchen's To Do — no Smart Prep round trip,
+  // no inventory write. `restore` is the Undo. The optimistic patch mirrors what
+  // the route does: postedAt cleared (that is what todayItems filters on — see
+  // `todayItems`) AND isOnList false.
+  async function handleRemoveFromToDo(item: PrepItemRich, restore = false) {
+    const rcId = item.revenueCenterId ?? activeRcId
+    if (!rcId) { setActionError('Select a revenue center (not "All") to change the list.'); return }
+
+    mutationSeq.current++
+    const stamp = restore ? new Date().toISOString() : null
+    setItems(prev => prev.map(i => (
+      i.id === item.id
+        ? {
+            ...i,
+            isOnList: restore,
+            todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp } : i.todayLog,
+          }
+        : i
+    )))
+
+    try {
+      const res = await fetch('/api/prep/plan/remove-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revenueCenterId: rcId, prepItemId: item.id, restore }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not update the list — try again.')
+      if (!restore) {
+        toast(`${item.name} removed`, { label: 'Undo', onClick: () => { handleRemoveFromToDo(item, true) } })
+      }
+      loadPlan()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Could not update the list — try again.')
+      load()
+    }
+  }
+
   // ── Smart Prep v2 planner handlers ────────────────────────────────────────
 
   // Seed for an optimistic todayLog created by a draft edit (no log yet).
@@ -1383,6 +1420,7 @@ export default function PrepPage() {
               onLog={setDoneSheetItem}
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
               onClaim={handleClaim}
+              onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
             </>
           )}
@@ -1482,6 +1520,7 @@ export default function PrepPage() {
                 onLog={setDoneSheetItem}
                 onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
                 onClaim={handleClaim}
+                onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
               />
             </div>
           )}
