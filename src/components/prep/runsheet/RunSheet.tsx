@@ -12,7 +12,7 @@ import { RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
-import { InProgressRail } from './InProgressRail'
+import { WorkingRow } from './WorkingRow'
 import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
@@ -333,11 +333,25 @@ export function RunSheet({
         </div>
       </div>
 
-      {/* in-progress rail */}
+      {/* Working On — full-width rows on the ladder's own grid, above every
+          ladder group in all three groupings. */}
       {doing.length > 0 && (
         <>
           <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
-          <InProgressRail items={doing} nowMs={nowMs} cooks={cooks} onClaim={onClaim} onLog={onLog} onStop={onStop} onOpenRecipe={onOpenRecipe} />
+          <div className="flex flex-col gap-2">
+            {doing.map(i => (
+              <WorkingRow
+                key={i.id}
+                item={i}
+                nowMs={nowMs}
+                cooks={cooks}
+                onClaim={onClaim}
+                onLog={onLog}
+                onStop={onStop}
+                onOpenRecipe={onOpenRecipe}
+              />
+            ))}
+          </div>
         </>
       )}
 
