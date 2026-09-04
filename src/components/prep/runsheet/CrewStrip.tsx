@@ -5,7 +5,7 @@
 // elapsed, queued count, hands-on load, and late-to-start count.
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
-import { fmtMins, runState } from '@/lib/prep-runsheet'
+import { fmtMins } from '@/lib/prep-runsheet'
 
 // `nowMin` (like the rest of the run sheet's clock math — see RunRow.tsx,
 // prep-runsheet.ts) is minutes-since-midnight, not an epoch timestamp. A
@@ -44,9 +44,9 @@ function CrewCard({ cook, items, nowMin }: { cook: Cook; items: PrepItemRich[]; 
     i => i.assignedCook?.id === cook.id && i.todayLog?.status !== 'IN_PROGRESS' && i.todayLog?.status !== 'DONE'
   )
   const load = queue.reduce((a, i) => a + (i.activeMinutes ?? 0), 0)
-  const lateN = queue.filter(
-    i => runState({ startBy: i.startByMinutes, blockedReason: i.blockedReason }, nowMin) === 'overdue'
-  ).length
+  // Same lateness test as the ladder's "Late to start" section (a low-stock
+  // flag does not stop a job being late).
+  const lateN = queue.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin).length
 
   const doingElapsed = doing?.todayLog?.startedAt ? Math.max(0, nowMin - minuteOfDay(doing.todayLog.startedAt)) : 0
 

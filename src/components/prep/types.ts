@@ -88,6 +88,9 @@ export interface PrepItemRich {
    *  `startByMinutes` still anchors on the stored time either way. */
   service: { id: string; name: string; timeMinutes: number; endMinutes: number | null } | null
   startByMinutes: number | null
+  /** The step's deadline for the day (minute-of-day, ≥1440 ⇒ tomorrow). Attached
+   *  on the run sheet by `withLadderTimes`; absent on API payloads. */
+  deadlineMinutes?: number | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
   /** RAW item-level overrides — what the edit form binds to. Distinct from the
    *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back

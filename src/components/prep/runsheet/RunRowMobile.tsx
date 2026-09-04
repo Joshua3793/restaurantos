@@ -9,7 +9,8 @@ import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
 import { UrgencyDot } from './atoms'
-import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
+import { fmtStartBy, fmtMins, fmtQty, fmtClock, runState } from '@/lib/prep-runsheet'
+import { fmtDeadline } from '@/lib/prep-plan'
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
   blocked: 'border-l-gold',
@@ -55,10 +56,15 @@ export function RunRowMobile({
   // line whenever the item was blocked; it now lives in the item drawer (the
   // urgency dot beside the name carries it as a tooltip), so the row keeps its
   // one useful meta line and the name keeps its width.
+  const dl = item.deadlineMinutes
+  const liveBy = dl != null ? fmtDeadline(dl, fmtClock) : null
+  const postedBy = item.todayLog?.dueTime ?? null
   const metaText = [
     `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}`,
     kitchen && item.station ? item.station : null,
     item.service ? `for ${item.service.name}` : null,
+    // the step's deadline; the posted one stays visible if the step has since moved
+    liveBy ? `by ${liveBy}${postedBy && postedBy !== liveBy ? ` (posted ${postedBy})` : ''}` : null,
   ]
     .filter(Boolean)
     .join(' · ')

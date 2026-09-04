@@ -2,8 +2,16 @@
 // Prep run-sheet — desktop frame.
 // Ported from the prototype's PTDesktop (scratchpad/prototype-ref/desktop.jsx):
 // status band, Kitchen/My-station segmented, crew strip / cook picker, station
-// filter, the grouped ladder (renderLadder: time / station / priority), the NOW
-// divider, and the collapsible Done section. The prototype's DSidebar (the app
+// filter, the ladder (renderLadder: steps / station), the NOW divider, and the
+// collapsible Done section.
+//
+// The ladder is ONE ordering, derived from the step the chef dialled in Smart
+// Prep: every posted row gets its step deadline for the day and a start-by
+// counted back from THAT (withLadderTimes), sections are "Late to start" plus
+// the four steps (runSheetGroups), and rows inside a section follow deadline →
+// start-by → the chef's listOrder. The old Time / Priority toggle ordered by
+// `service − times` and by the 3-level priority — two numbers the planner never
+// used, which is why the To Do could not show the plan that was posted. The prototype's DSidebar (the app
 // has its own nav), tweaks slider, and clock slider are dropped — real props
 // drive everything instead. The prototype's horizontal-scrolling in-progress
 // rail is gone too: an item being worked on stays in the ladder as a WorkingRow. Flat Tailwind tokens replace
@@ -18,11 +26,12 @@ import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
-import { fmtClock, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, PLAN_URG_META } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
-type Group = 'time' | 'station' | 'priority'
+type Group = 'ladder' | 'station'
 
 // Minutes-since-midnight for a done item's completion timestamp — the Done
 // section shows a wall-clock stamp the same way CrewStrip derives elapsed.
@@ -42,10 +51,9 @@ const RUN_GUTTER = 'pr-[30px]'
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
-const sbOr = (i: PrepItemRich) => i.startByMinutes ?? Infinity
 
 export function RunSheet({
-  items,
+  items: rawItems,
   cooks,
   services,
   leadMinutes,
@@ -79,7 +87,7 @@ export function RunSheet({
 }) {
   const [mode, setMode] = useState<Mode>('kitchen')
   const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
-  const [group, setGroup] = useState<Group>('time')
+  const [group, setGroup] = useState<Group>('ladder')
   const [stFilter, setStFilter] = useState<string>('all')
   const [showDone, setShowDone] = useState(false)
 
@@ -90,6 +98,12 @@ export function RunSheet({
     if (cook == null && cooks.length > 0) setCook(cooks[0].id)
   }, [cooks, cook])
 
+  // The day's anchors from the RC's services, and every row re-timed against
+  // its STEP. From here on `items` carries the step-aware start-by + deadline,
+  // so the counts, the crew strip and the rows all read the same number.
+  const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
+  const items = useMemo(() => withLadderTimes(rawItems, ctx), [rawItems, ctx])
+
   // Stations present in the current dataset (the prototype's static PT_STATIONS).
   const stations = useMemo(
     () => [...new Set(items.map(i => i.station).filter((s): s is string => !!s))].sort(),
@@ -97,22 +111,29 @@ export function RunSheet({
   )
 
   const member = cook ? cooks.find(c => c.id === cook) ?? null : null
+  // Assigned to the cook, or unassigned on the cook's home station. The station
+  // match needs a REAL station on both sides: a cook with no home station used
+  // to "match" every item with no station (null === null), so My station opened
+  // to the one unstationed item on the list for every cook.
   const isMine = (i: PrepItemRich) =>
-    i.assignedCook?.id === cook || (!i.assignedCook && !!member && i.station === member.homeStation)
+    i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && i.station === member.homeStation)
   const inScope = (i: PrepItemRich) =>
     mode === 'station' ? isMine(i) : stFilter === 'all' || i.station === stFilter
 
   const doing = useMemo(() => items.filter(i => isDoing(i) && inScope(i)), [items, mode, cook, stFilter, member])
   const done = useMemo(() => items.filter(isDone), [items])
   const todo = useMemo(
-    () => items.filter(i => isTodo(i) && inScope(i)).sort((a, b) => sbOr(a) - sbOr(b)),
+    () => items.filter(i => isTodo(i) && inScope(i)).sort(ladderOrder),
     [items, mode, cook, stFilter, member],
   )
 
   // Kitchen-mode badge = everything not yet done.
   const notDone = useMemo(() => items.filter(i => !isDone(i)), [items])
+  // Same test the ladder's "Late to start" section uses — NOT runState, whose
+  // 'blocked' wins over 'overdue', which had the band saying "3 late" above a
+  // section holding 5.
   const lateN = useMemo(
-    () => items.filter(i => isTodo(i) && runState({ startBy: i.startByMinutes, blockedReason: i.blockedReason }, nowMin) === 'overdue').length,
+    () => items.filter(i => isTodo(i) && i.startByMinutes != null && i.startByMinutes < nowMin).length,
     [items, nowMin],
   )
   const blockedN = todo.filter(i => i.isBlocked || !!i.blockedReason).length
@@ -160,7 +181,7 @@ export function RunSheet({
       return stations.map(s => {
         const grp = todo.filter(i => i.station === s)
         if (!grp.length) return null
-        const late = grp.filter(i => runState({ startBy: i.startByMinutes, blockedReason: i.blockedReason }, nowMin) === 'overdue').length
+        const late = grp.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin).length
         return (
           <div key={s}>
             <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={late ? `${late} late to start` : null} />
@@ -169,58 +190,31 @@ export function RunSheet({
         )
       })
     }
-    if (group === 'priority') {
-      // Stepped labels (Smart Prep v2): 911 = the Critical-Start Service step;
-      // NEEDED_TODAY collapses the Mid-service + Before-close steps; LATER = Tomorrow.
-      const defs: [string, string, string, string][] = [
-        ['911', 'bg-red', 'Critical-Start Service', 'out, or under today’s target'],
-        ['NEEDED_TODAY', 'bg-gold', 'Needed today', 'dies mid-service · before close'],
-        ['LATER', 'bg-ink-4', 'Tomorrow', 'at par — building ahead'],
-      ]
-      return defs.map(([k, dot, title, sub]) => {
-        const grp = todo.filter(i => i.priority === k)
-        if (!grp.length) return null
-        return (
-          <div key={k}>
-            <GroupHead dot={dot} title={title} count={grp.length} sub={sub} />
-            {rows(grp)}
-          </div>
-        )
-      })
-    }
-    // time (default): overdue → NOW line → within the hour → later this morning → afternoon
-    const overdue = todo.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin)
-    const soon = todo.filter(i => i.startByMinutes != null && i.startByMinutes >= nowMin && i.startByMinutes < nowMin + 60)
-    const morning = todo.filter(i => i.startByMinutes != null && i.startByMinutes >= nowMin + 60 && i.startByMinutes < 720)
-    const aftThreshold = Math.max(nowMin + 60, 720)
-    const aft = todo.filter(i => i.startByMinutes == null || i.startByMinutes >= aftThreshold)
+    // steps (default): late to start → NOW line → the four steps, each captioned
+    // with its deadline for the day. Rows inside follow ladderOrder.
+    const groups = runSheetGroups(todo, ctx, nowMin)
+    const lateG = groups.find(g => g.late)
+    const stepG = groups.filter(g => !g.late)
     return (
       <>
-        {overdue.length > 0 && (
+        {lateG && (
           <div>
-            <GroupHead dot="bg-red" title="Late to start" count={overdue.length} sub="won't be ready for service unless started now" />
-            {rows(overdue)}
+            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub="won't make its step unless started now" />
+            {rows(lateG.rows)}
           </div>
         )}
         <div className="my-[18px]"><NowLine nowMin={nowMin} /></div>
-        {soon.length > 0 && (
-          <div>
-            <GroupHead dot="bg-ink" title="Start within the hour" count={soon.length} sub={`${handsOn(soon)} hands-on`} />
-            {rows(soon)}
+        {stepG.map(g => (
+          <div key={g.key}>
+            <GroupHead
+              dot={PLAN_URG_META[g.urg!].dotClass}
+              title={g.label}
+              count={g.rows.length}
+              sub={[g.sub, `${handsOn(g.rows)} hands-on`].filter(Boolean).join(' · ')}
+            />
+            {rows(g.rows)}
           </div>
-        )}
-        {morning.length > 0 && (
-          <div>
-            <GroupHead dot="bg-ink-3" title="Later this morning" count={morning.length} sub={`${handsOn(morning)} hands-on`} />
-            {rows(morning)}
-          </div>
-        )}
-        {aft.length > 0 && (
-          <div>
-            <GroupHead dot="bg-ink-4" title="Afternoon" count={aft.length} sub={`${handsOn(aft)} hands-on`} />
-            {rows(aft)}
-          </div>
-        )}
+        ))}
         {!todo.length && (
           <div className="font-mono text-[11px] text-ink-4 text-center py-9">
             LIST CLEAR — EVERYTHING STARTED OR DONE
@@ -240,11 +234,9 @@ export function RunSheet({
           what's unique to it: the ordering rationale + the Kitchen / My-station toggle. */}
       <div className="flex items-center justify-between gap-4 mb-3.5">
         <p className="text-[12.5px] text-ink-3 tracking-[-0.005em] min-w-0">
-          {group === 'time'
-            ? <>Ordered by <b className="text-ink font-medium">start-by time</b> — hands-on + oven/rest, counted back from service</>
-            : group === 'station'
-              ? <>Grouped by <b className="text-ink font-medium">station</b> — within each, earliest start-by first</>
-              : <>Grouped by <b className="text-ink font-medium">priority</b> — critical first</>}
+          {group === 'ladder'
+            ? <>Ordered by <b className="text-ink font-medium">step</b> — critical first; within a step, earliest start-by, then the chef&apos;s order</>
+            : <>Grouped by <b className="text-ink font-medium">station</b> — within each, the same step order</>}
         </p>
         <Segmented<Mode>
           value={mode}
@@ -335,9 +327,8 @@ export function RunSheet({
             value={group}
             onPick={setGroup}
             options={[
-              { id: 'time', label: 'Time' },
+              { id: 'ladder', label: 'Steps' },
               { id: 'station', label: 'Station' },
-              { id: 'priority', label: 'Priority' },
             ]}
           />
         </div>

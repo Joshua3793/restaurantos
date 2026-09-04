@@ -17,7 +17,7 @@ import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 import { GroupHead, Popover, popItemCls, popHeadCls } from './atoms'
 import { SuggestionRow } from './SuggestionRow'
 import { DraftRow } from './DraftRow'
-import { PostDialog } from './PostDialog'
+import { PostDialog, type PostDue } from './PostDialog'
 
 export type PlanGroupBy = 'urgency' | 'station'
 
@@ -34,7 +34,7 @@ export interface PlannerHandlers {
   onAcceptSuggested: () => void
   onAddAllCritical: () => void
   onClearDraft: () => void
-  onPost: () => void
+  onPost: (dues: PostDue[]) => void
   onRecall: () => void
 }
 
@@ -328,7 +328,7 @@ export function PlannerDesktop({
 
       {dlg && (
         <PostDialog draft={draft} cooks={cooks} stations={stations} ctx={ctx} reposting={!!post}
-          onClose={() => setDlg(false)} onConfirm={() => { handlers.onPost(); setDlg(false) }} />
+          onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
     </div>
   )

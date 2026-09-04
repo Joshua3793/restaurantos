@@ -246,7 +246,7 @@ export function PlannerMobile({ items, allItems, cooks, stations, services, nowM
 
       {dlg && (
         <PostDialog draft={draft} cooks={cooks} stations={stations} ctx={ctx} reposting={!!post}
-          onClose={() => setDlg(false)} onConfirm={() => { handlers.onPost(); setDlg(false) }} />
+          onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
     </div>
   )

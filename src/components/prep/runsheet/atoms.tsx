@@ -4,7 +4,7 @@
 // tokens replace the prototype's hex palette; mono via `font-mono`.
 import { AlertTriangle } from 'lucide-react'
 import { fmtMins, fmtClock } from '@/lib/prep-runsheet'
-import { effectiveUrgency, whyLabel } from '@/lib/prep-plan'
+import { effectiveUrgency, whyLabel, fmtDeadline } from '@/lib/prep-plan'
 
 // ─── StationTag ──────────────────────────────────────────────────────────
 // Small neutral "STATION" chip (PTTag).
@@ -23,6 +23,25 @@ export function NeedChip({ service }: { service: { name: string; timeMinutes: nu
   return (
     <span className="font-mono text-[10px] text-ink-2 whitespace-nowrap">
       → <b className="font-semibold uppercase">{service.name}</b> {fmtClock(service.timeMinutes)}
+    </span>
+  )
+}
+
+// ─── DeadlineChip ────────────────────────────────────────────────────────
+// "by 11:00" — the step's deadline for the day (the same number the planner's
+// DraftRow showed the chef). When the live step no longer matches what was
+// posted (`todayLog.dueTime`, stamped at post), the posted deadline stays
+// visible so the row does not silently move under the cook.
+export function DeadlineChip({ item }: { item: import('@/components/prep/types').PrepItemRich }) {
+  const dl = item.deadlineMinutes
+  if (dl == null) return null
+  const live = fmtDeadline(dl, fmtClock)
+  const posted = item.todayLog?.dueTime ?? null
+  const moved = posted != null && posted !== live
+  return (
+    <span className="font-mono text-[10px] text-ink-3 whitespace-nowrap">
+      by <b className="font-semibold text-ink-2">{live}</b>
+      {moved && <span className="text-gold-2"> · posted by {posted}</span>}
     </span>
   )
 }
