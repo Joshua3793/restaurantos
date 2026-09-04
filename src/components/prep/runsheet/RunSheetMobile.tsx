@@ -3,15 +3,20 @@
 // Ported from the prototype's PTMobile (scratchpad/prototype-ref/mobile.jsx):
 // header (date / now / next-service), My-station|Kitchen segmented (default
 // station), horizontal cook picker, station mode = NextUpHero + "Coming up"
-// queue, kitchen mode = time sections, and a collapsible Done. The prototype's
+// queue, kitchen mode = the step ladder, and a collapsible Done.
+//
+// Same ordering as the desktop RunSheet: every row is re-timed against its
+// STEP (withLadderTimes) and the kitchen ladder is runSheetGroups — late to
+// start, then the four steps. There is no Time / Priority toggle any more; the
+// hero is simply the first row of that order for the picked cook. The prototype's
 // horizontal-scrolling in-progress rail is gone: an item being worked on stays
 // in the queue as a WorkingRowMobile.
 // The prototype's recipe/log bottom-sheets are dropped — the fused PrepDrawer
 // (onOpenRecipe) and PrepDoneSheet (onLog) are the real surfaces, opened via
 // props. Flat Tailwind tokens replace the hex palette; mono via `font-mono`.
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
-import type { PrepItemRich, PrepPriority } from '@/components/prep/types'
+import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
 import { WorkingRowMobile } from './WorkingRowMobile'
@@ -20,13 +25,11 @@ import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
-import { fmtClock, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, PLAN_URG_META } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
-// Mobile ladder grouping. The desktop RunSheet also offers 'station', which is
-// redundant here — My-station mode already IS the station filter.
-type Group = 'time' | 'priority'
 
 // Right gutter every mobile row container reserves, so Remove can hang OUTSIDE
 // the card instead of pressing against the 44px Start button. Narrower than the
@@ -34,20 +37,11 @@ type Group = 'time' | 'priority'
 // Done too so every card ends at the same x.
 const MOBILE_GUTTER = 'pr-[22px]'
 
-// Same buckets and copy the desktop priority ladder uses, kept in one place so
-// the two frames can't drift apart.
-const PRIORITY_GROUPS: { key: PrepPriority; dot: string; title: string; sub: string }[] = [
-  { key: '911',           dot: 'bg-red',   title: 'Critical',     sub: 'stock out — make first' },
-  { key: 'NEEDED_TODAY',  dot: 'bg-gold',  title: 'Needed today', sub: 'below par before service' },
-  { key: 'LATER',         dot: 'bg-ink-4', title: 'Later',        sub: 'can slip to the afternoon' },
-]
-
 // PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
 // treat it as todo.
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
-const sbOr = (i: PrepItemRich) => i.startByMinutes ?? Infinity
 
 // Empty state for My-station mode. Module scope (not inline) so it doesn't
 // remount on every render — see CLAUDE.md's client-component note.
@@ -64,7 +58,7 @@ function StationClear() {
 }
 
 export function RunSheetMobile({
-  items,
+  items: rawItems,
   cooks,
   services,
   leadMinutes,
@@ -96,9 +90,14 @@ export function RunSheetMobile({
   onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('station')
-  const [group, setGroup] = useState<Group>('time')
   const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
   const [showDone, setShowDone] = useState(false)
+  // A mode the cook picked by hand is never overridden by the fallback below.
+  const modeTouched = useRef(false)
+  const pickMode = (m: Mode) => { modeTouched.current = true; setMode(m) }
+
+  const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
+  const items = useMemo(() => withLadderTimes(rawItems, ctx), [rawItems, ctx])
 
   // `cooks` can arrive after mount (async fetch) — same null-guard the desktop
   // RunSheet uses so My-station isn't stuck with cook === null forever.
@@ -107,13 +106,14 @@ export function RunSheetMobile({
   }, [cooks, cook])
 
   const member = cook ? cooks.find(c => c.id === cook) ?? null : null
+  // Assigned to the cook, or unassigned on the cook's home station. The station
+  // match needs a REAL station on both sides: a cook with no home station used
+  // to "match" every item with no station (null === null), so My station opened
+  // to the one unstationed item on the list for every cook.
   const isMine = (i: PrepItemRich) =>
-    i.assignedCook?.id === cook || (!i.assignedCook && !!member && i.station === member.homeStation)
+    i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && i.station === member.homeStation)
 
-  const todoAll = useMemo(
-    () => items.filter(isTodo).sort((a, b) => sbOr(a) - sbOr(b)),
-    [items],
-  )
+  const todoAll = useMemo(() => items.filter(isTodo).sort(ladderOrder), [items])
   const doingAll = useMemo(() => items.filter(isDoing), [items])
   const done = useMemo(() => items.filter(isDone), [items])
 
@@ -122,9 +122,19 @@ export function RunSheetMobile({
   const hero = myTodo[0]
   const queue = myTodo.slice(1)
 
+  // My station is empty for a cook with no home station and nothing assigned
+  // (the live roster: 23 cooks, none homed, 0 assignments — every cook opened
+  // the app to one unstationed item). Fall back to Kitchen until the cook
+  // picks a mode themselves.
+  useEffect(() => {
+    if (modeTouched.current || cooks.length === 0) return
+    if (!member?.homeStation && myTodo.length === 0 && todoAll.length > 0) setMode('kitchen')
+  }, [cooks.length, member, myTodo.length, todoAll.length])
+
   // Kitchen-mode badge = late-to-start count across the whole brigade.
+  // Same test as the ladder's "Late to start" section (see RunSheet.lateN).
   const lateN = useMemo(
-    () => todoAll.filter(i => runState({ startBy: i.startByMinutes, blockedReason: i.blockedReason }, nowMin) === 'overdue').length,
+    () => todoAll.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin).length,
     [todoAll, nowMin],
   )
 
@@ -175,54 +185,27 @@ export function RunSheetMobile({
     </div>
   )
 
-  // Priority ladder — critical → needed today → later. Shared by both modes;
-  // `kitchen` only drives the row meta line, exactly as in the time ladder.
-  const renderPriority = (list: PrepItemRich[], kitchen: boolean) => (
-    <>
-      {PRIORITY_GROUPS.map(({ key, dot, title, sub }) => {
-        const grp = list.filter(i => i.priority === key)
-        if (!grp.length) return null
-        return (
-          <div key={key}>
-            <GroupHead dot={dot} title={title} count={grp.length} sub={sub} />
-            {rows(grp, kitchen)}
-          </div>
-        )
-      })}
-      {!list.length && (
-        <div className="font-mono text-[11px] text-ink-4 text-center py-9">
-          LIST CLEAR — EVERYTHING STARTED OR DONE
-        </div>
-      )}
-    </>
-  )
-
-  // kitchen mode: time sections across the whole brigade.
+  // kitchen mode: the step ladder across the whole brigade — late to start,
+  // NOW line, then the four steps captioned with their deadline for the day.
   const renderKitchen = () => {
-    const overdue = todoAll.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin)
-    const soon = todoAll.filter(i => i.startByMinutes != null && i.startByMinutes >= nowMin && i.startByMinutes < nowMin + 60)
-    const rest = todoAll.filter(i => i.startByMinutes == null || i.startByMinutes >= nowMin + 60)
+    const groups = runSheetGroups(todoAll, ctx, nowMin)
+    const lateG = groups.find(g => g.late)
+    const stepG = groups.filter(g => !g.late)
     return (
       <>
-        {overdue.length > 0 && (
+        {lateG && (
           <>
-            <GroupHead dot="bg-red" title="Late to start" count={overdue.length} />
-            {rows(overdue, true)}
+            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} />
+            {rows(lateG.rows, true)}
           </>
         )}
         <div className="my-3.5"><NowLine nowMin={nowMin} /></div>
-        {soon.length > 0 && (
-          <>
-            <GroupHead dot="bg-ink" title="Start within the hour" count={soon.length} />
-            {rows(soon, true)}
-          </>
-        )}
-        {rest.length > 0 && (
-          <>
-            <GroupHead dot="bg-ink-3" title="Later today" count={rest.length} />
-            {rows(rest, true)}
-          </>
-        )}
+        {stepG.map(g => (
+          <div key={g.key}>
+            <GroupHead dot={PLAN_URG_META[g.urg!].dotClass} title={g.label} count={g.rows.length} sub={g.sub} />
+            {rows(g.rows, true)}
+          </div>
+        ))}
         {!todoAll.length && (
           <div className="font-mono text-[11px] text-ink-4 text-center py-9">
             LIST CLEAR — EVERYTHING STARTED OR DONE
@@ -243,7 +226,7 @@ export function RunSheetMobile({
 
       <Segmented<Mode>
         value={mode}
-        onPick={setMode}
+        onPick={pickMode}
         options={[
           { id: 'station', label: 'My station' },
           { id: 'kitchen', label: 'Kitchen', badge: lateN || null, badgeTone: lateN ? 'red' : undefined },
@@ -292,47 +275,20 @@ export function RunSheetMobile({
         </>
       )}
 
-      {/* ladder grouping — the desktop run sheet's Time/Priority control, sized for
-          mobile. Hidden when there is nothing left to order. */}
-      {(mode === 'kitchen' ? todoAll.length : myTodo.length) > 0 && (
-        <div className="flex items-center gap-2 mt-4">
-          <span className="font-mono text-[9.5px] font-medium tracking-[0.06em] uppercase text-ink-4 shrink-0">
-            GROUP
-          </span>
-          <Segmented<Group>
-            value={group}
-            onPick={setGroup}
-            className="ml-auto"
-            options={[
-              { id: 'time', label: 'Time' },
-              { id: 'priority', label: 'Priority' },
-            ]}
-          />
-        </div>
-      )}
-
       {mode === 'station' ? (
-        group === 'priority' ? (
-          // Priority mode drops the NextUpHero: the hero answers "what's next by the
-          // clock", which contradicts a list ordered by urgency instead.
-          myTodo.length > 0 ? renderPriority(myTodo, false) : <StationClear />
-        ) : (
-          <>
-            {hero ? (
-              <NextUpHero item={hero} nowMin={nowMin} onStart={onStart} onOpenRecipe={onOpenRecipe} />
-            ) : (
-              <StationClear />
-            )}
-            {queue.length > 0 && (
-              <>
-                <GroupHead dot="bg-ink-3" title="Coming up" count={queue.length} sub={`${handsOn(queue)} hands-on`} />
-                {rows(queue, false)}
-              </>
-            )}
-          </>
-        )
-      ) : group === 'priority' ? (
-        renderPriority(todoAll, true)
+        <>
+          {hero ? (
+            <NextUpHero item={hero} nowMin={nowMin} onStart={onStart} onOpenRecipe={onOpenRecipe} />
+          ) : (
+            <StationClear />
+          )}
+          {queue.length > 0 && (
+            <>
+              <GroupHead dot="bg-ink-3" title="Coming up" count={queue.length} sub={`${handsOn(queue)} hands-on`} />
+              {rows(queue, false)}
+            </>
+          )}
+        </>
       ) : (
         renderKitchen()
       )}

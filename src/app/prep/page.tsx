@@ -35,6 +35,7 @@ import { atLeast } from '@/lib/roles'
 import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
 import { PlannerMobile } from '@/components/prep/planner/PlannerMobile'
 import type { PlannerHandlers } from '@/components/prep/planner/PlannerDesktop'
+import type { PostDue } from '@/components/prep/planner/PostDialog'
 import { PostedBand } from '@/components/prep/runsheet/PostedBand'
 import type { PrepPostInfo } from '@/components/prep/types'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
@@ -1266,7 +1267,7 @@ export default function PrepPage() {
   }
 
   // Post the draft: the kitchen's To Do switches to exactly what's on the list.
-  async function handlePost() {
+  async function handlePost(dues: PostDue[] = []) {
     if (!activeRcId) { setActionError('Select a revenue center (not "All") to post the list.'); return }
 
     // Offline: stamp the post locally and queue it. The queued draft edits that
@@ -1276,12 +1277,16 @@ export default function PrepPage() {
     // Known and accepted: a post queued at 06:00 and replayed at 14:00 posts a
     // list whose quantities are the chef's, but whose stock evidence is as old
     // as the queue.
+    // The step deadline per item, stamped on the log as PrepLog.dueTime. Local
+    // only in the offline branch: the queued `post` mutation carries no dues, so
+    // the server leaves dueTime as it was until the next online post.
+    const dueOf = new Map(dues.map(d => [d.prepItemId, d.dueTime]))
     if (!navigator.onLine) {
       const stamp = new Date().toISOString()
       const drafted = items.filter(i => i.isOnList)
       mutationSeq.current++
       setItems(prev => prev.map(i => {
-        if (i.isOnList) return { ...i, todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp } : seedLog(i, { postedAt: stamp }) }
+        if (i.isOnList) return { ...i, todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp, dueTime: dueOf.get(i.id) ?? i.todayLog.dueTime } : seedLog(i, { postedAt: stamp, dueTime: dueOf.get(i.id) ?? null }) }
         if (i.todayLog?.postedAt) return { ...i, todayLog: { ...i.todayLog, postedAt: null } }
         return i
       }))
@@ -1310,17 +1315,18 @@ export default function PrepPage() {
       const res = await fetch('/api/prep/plan/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revenueCenterId: activeRcId }),
+        body: JSON.stringify({ revenueCenterId: activeRcId, dues }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Post failed — try again.')
       setPlan({ post: data.post })
       savePlanCache(data.post, activeRcId)
-      // Stamp postedAt locally so the To Do fills without waiting for a reload.
+      // Stamp postedAt (+ the posted deadline) locally so the To Do fills without
+      // waiting for a reload.
       mutationSeq.current++
       const stamp: string = data.post.postedAt
       setItems(prev => prev.map(i => {
-        if (i.isOnList) return { ...i, todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp } : seedLog(i, { postedAt: stamp }) }
+        if (i.isOnList) return { ...i, todayLog: i.todayLog ? { ...i.todayLog, postedAt: stamp, dueTime: dueOf.get(i.id) ?? i.todayLog.dueTime } : seedLog(i, { postedAt: stamp, dueTime: dueOf.get(i.id) ?? null }) }
         if (i.todayLog?.postedAt) return { ...i, todayLog: { ...i.todayLog, postedAt: null } }
         return i
       }))

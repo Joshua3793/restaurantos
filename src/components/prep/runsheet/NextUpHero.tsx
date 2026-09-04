@@ -4,7 +4,7 @@
 // queue: start-by countdown, name, make/hands-on/ready-for line, then either
 // a gold Start-now button or a BLOCKED notice, plus a Recipe/scale-batch link.
 import { AlertTriangle, Zap, BookOpen } from 'lucide-react'
-import { draftQty } from '@/lib/prep-plan'
+import { draftQty, fmtDeadline } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { fmtClock, fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 
@@ -60,6 +60,7 @@ export function NextUpHero({
         make <b className="text-gold font-semibold">{fmtQty(qty, item.unit)}</b> · {fmtMins(active)} hands-on
         {passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}
         {item.service ? ` · ready for ${item.service.name} ${fmtClock(item.service.timeMinutes)}` : ''}
+        {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
 
       {/* Low-stock is advisory, not a blocker — surface the warning but still let the

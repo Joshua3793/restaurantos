@@ -4,6 +4,7 @@ import {
   suggestedDraftQty, whyLabel, applyStatusToItem, draftQty,
   batchYield, batchCount, batchesToQty, suggestedBatches, fmtBatch, batchLabel,
   planDayContext, urgencyDeadline, fmtDeadline, planSchedule, stationLoad, planGroups,
+  ladderTimes, withLadderTimes, ladderOrder, runSheetGroups,
   isLiveLog, pickLiveLogs, type LiveLogRow, undoDraftFlag,
 } from '../prep-plan'
 import { autoUrgency, normalizeUrgency, urgencyToPriority, type PrepPriority } from '../prep-utils'
@@ -156,28 +157,59 @@ describe('batches', () => {
 describe('deadlines + schedule', () => {
   const svcs = [{ timeMinutes: 690, endMinutes: 840 }, { timeMinutes: 1020, endMinutes: 1290 }]
   const ctx = planDayContext(svcs, 420)!
-  it('day context anchors on the next doors-open and the last close', () => {
+  it('day context anchors on the next doors-open and the last service end', () => {
     expect(ctx.doorsOpen).toBe(690)
-    expect(ctx.close).toBe(1320) // never earlier than 22:00
+    // close is the LAST SERVICE END. The old 22:00 floor made "before close"
+    // mean 22:00 in a kitchen whose only service ends at 16:00 — and kept the
+    // planning day from rolling until 22:00, so a list posted at 17:00 for the
+    // next morning deadlined against a day already over.
+    expect(ctx.close).toBe(1290)
+    expect(ctx.roll).toBe(0)
     expect(planDayContext([], 420)).toBeNull()
   })
+  it('a service with no end falls back to the 22:00 close', () => {
+    const c = planDayContext([{ timeMinutes: 540, endMinutes: null }], 420)!
+    expect(c.close).toBe(1320)
+  })
   it('evening planning rolls the anchors to tomorrow instead of flagging everything late', () => {
-    const night = planDayContext(svcs, 1350)! // 22:30 — all services started, kitchen closed
+    const night = planDayContext(svcs, 1350)! // 22:30 — all services over, kitchen closed
+    expect(night.roll).toBe(1440)
     expect(night.doorsOpen).toBe(690 + 1440)  // TMRW 11:30
-    expect(night.close).toBe(1320 + 1440)
+    expect(night.close).toBe(1290 + 1440)
     expect(urgencyDeadline('PASS', night)).toBe(690 + 1440)
-    // an item's OWN service start rolls too once it has passed…
+    // an item's OWN service start rolls with the day…
     expect(urgencyDeadline('PASS', night, 540)).toBe(540 + 1440)
     // …and TMRW doesn't double-roll past tomorrow's doors
     expect(urgencyDeadline('TMRW', night)).toBe(690 + 1440)
   })
+  it('the live kitchen: Brunch 09:00–16:00, chef posts at 17:21 — close rolls WITH doors', () => {
+    // Before this, doors rolled to tomorrow but close stayed tonight 22:00, so a
+    // Before-close item deadlined BEFORE a Critical one and the schedule
+    // sequenced it first.
+    const evening = planDayContext([{ timeMinutes: 540, endMinutes: 960 }], 1041)!
+    expect(evening.doorsOpen).toBe(540 + 1440)
+    expect(evening.close).toBe(960 + 1440)
+    expect(urgencyDeadline('CLOSE', evening)).toBeGreaterThan(urgencyDeadline('PASS', evening))
+    expect(urgencyDeadline('MID', evening)).toBe(540 + 1440 + 120)
+    expect(fmtDeadline(urgencyDeadline('CLOSE', evening), fmtClock)).toBe('TMRW 16:00')
+  })
+  it('mid-service the day has NOT rolled: doors are behind us and close is tonight', () => {
+    const noon = planDayContext([{ timeMinutes: 540, endMinutes: 960 }], 720)!
+    expect(noon.roll).toBe(0)
+    expect(noon.doorsOpen).toBe(540)          // already open — a Critical item is late, not for tomorrow
+    expect(noon.close).toBe(960)
+    expect(urgencyDeadline('PASS', noon, 540)).toBe(540)
+    expect(urgencyDeadline('CLOSE', noon)).toBe(960)
+    expect(urgencyDeadline('TMRW', noon)).toBe(540 + 1440)
+  })
   it('each step carries its deadline', () => {
     expect(urgencyDeadline('PASS', ctx)).toBe(690)
     expect(urgencyDeadline('MID', ctx)).toBe(810)
-    expect(urgencyDeadline('CLOSE', ctx)).toBe(1320)
+    expect(urgencyDeadline('CLOSE', ctx)).toBe(1290)
     expect(urgencyDeadline('TMRW', ctx)).toBe(690 + 1440)
     expect(urgencyDeadline('PASS', ctx, 1020)).toBe(1020) // item's own service wins
     expect(fmtDeadline(690 + 1440, fmtClock)).toBe('TMRW 11:30')
+    expect(fmtDeadline(690 + 2880, fmtClock)).toBe('+2d 11:30')
   })
   it('planSchedule sequences a station through its crew and flags what won’t fit', () => {
     const mk = (id: string, active: number, onHand = 0) => ({
@@ -217,6 +249,75 @@ describe('planGroups', () => {
   it('groups by station (known order first) and category', () => {
     expect(planGroups(rows, 'station', { stations: ['Larder', 'Sauces'] }).map(g => g.key)).toEqual(['Larder', 'Sauces'])
     expect(planGroups(rows, 'category').map(g => g.key)).toEqual(['GARNISH', 'SAUCE'])
+  })
+})
+
+describe('the unified ladder — the To Do reads the plan the chef posted', () => {
+  // Brunch 09:00–16:00, the cook opens the To Do at 07:30.
+  const brunch = [{ timeMinutes: 540, endMinutes: 960 }]
+  const ctx = planDayContext(brunch, 450)!
+  const svc = { timeMinutes: 540 }
+  const mk = (id: string, name: string, over: string | null, active: number, extra: object = {}) => ({
+    ...base, id, name, station: 'Prep', category: 'MISC', onHand: 0,
+    manualPriorityOverride: over, activeMinutes: active, passiveMinutes: 0, estimatedPrepTime: null,
+    service: svc, todayLog: null, startByMinutes: null as number | null, ...extra,
+  })
+
+  it('start-by counts back from the STEP deadline, not the service', () => {
+    // Before-close aioli, 45 min: by 16:00 → start by 15:15 (the old model said 08:15)
+    expect(ladderTimes(mk('a', 'Aioli', 'CLOSE', 45), ctx)).toEqual({ deadline: 960, startBy: 915 })
+    // Mid-service salsa, 120 min: by 11:00 → start by 09:00
+    expect(ladderTimes(mk('b', 'Corn Salsa', 'MID', 120), ctx)).toEqual({ deadline: 660, startBy: 540 })
+    // passive time counts too
+    expect(ladderTimes(mk('c', 'Stock', 'PASS', 30, { passiveMinutes: 90 }), ctx)).toEqual({ deadline: 540, startBy: 420 })
+    // no day context (on-demand RC) → no times
+    expect(ladderTimes(mk('d', 'X', 'PASS', 30), null)).toEqual({ deadline: null, startBy: null })
+  })
+
+  it('withLadderTimes overwrites startByMinutes so every row/strip reads one number', () => {
+    const [row] = withLadderTimes([{ ...mk('a', 'Aioli', 'CLOSE', 45), startByMinutes: 495 }], ctx)
+    expect(row.startByMinutes).toBe(915)
+    expect(row.deadlineMinutes).toBe(960)
+  })
+
+  it('orders by deadline, then start-by, then the chef’s listOrder, then name', () => {
+    const rows = withLadderTimes([
+      mk('z', 'Zucchini', 'MID', 0, { service: null }),                       // MID, no service → deadline 660, startBy 660
+      mk('p', 'Pickle Apples', 'MID', 120, { todayLog: { listOrder: 1 } }),   // startBy 540
+      mk('s', 'Corn Salsa', 'MID', 120, { todayLog: { listOrder: 0 } }),      // startBy 540 — chef put it first
+      mk('a', 'Aioli', 'CLOSE', 45),                                          // CLOSE, deadline 960
+    ], ctx)
+    expect([...rows].sort(ladderOrder).map(r => r.id)).toEqual(['s', 'p', 'z', 'a'])
+  })
+
+  it('sections are the steps, with the late rows lifted above the NOW line', () => {
+    const rows = withLadderTimes([
+      mk('brisket', 'Smoked Brisket', 'CLOSE', 2880),   // startBy 960−2880 → 2 days ago: late
+      mk('salsa', 'Corn Salsa', 'MID', 120),            // startBy 540 — in 1h30
+      mk('aioli', 'Aioli', 'CLOSE', 45),                // startBy 915
+      mk('out', 'Stock out', null, 30),                 // onHand 0 → PASS, startBy 510
+      mk('ahead', 'Building ahead', null, 30, { onHand: 8 }), // TMRW
+    ], ctx)
+    const gs = runSheetGroups(rows, ctx, 450)
+    expect(gs.map(g => [g.key, g.rows.map(r => r.id)])).toEqual([
+      ['LATE',  ['brisket']],
+      ['PASS',  ['out']],
+      ['MID',   ['salsa']],
+      ['CLOSE', ['aioli']],
+      ['TMRW',  ['ahead']],
+    ])
+    expect(gs[0].late).toBe(true)
+    expect(gs[1].sub).toBe('by 09:00')
+    expect(gs[2].sub).toBe('by 11:00')
+    expect(gs[3].sub).toBe('by 16:00')
+    expect(gs[4].sub).toBe('by TMRW 09:00')
+  })
+
+  it('without a day context there is no late section and no deadlines — just the steps', () => {
+    const rows = withLadderTimes([mk('a', 'A', 'CLOSE', 45), mk('b', 'B', 'PASS', 30)], null)
+    const gs = runSheetGroups(rows, null, 450)
+    expect(gs.map(g => g.key)).toEqual(['PASS', 'CLOSE'])
+    expect(gs[0].sub).toBeUndefined()
   })
 })
 

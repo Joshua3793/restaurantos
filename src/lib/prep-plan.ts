@@ -10,6 +10,7 @@ import {
   type PrepPriority, type PrepUrgency,
 } from './prep-utils'
 import { convertQty, sameDimension } from './uom'
+import { fmtClock } from './prep-runsheet'
 
 export type { PrepUrgency }
 export { urgencyToPriority }
@@ -190,55 +191,76 @@ export function batchLabel(t: BatchFields, qty: number): string | null {
 // ─── deadlines + schedule ──────────────────────────────────────────────────
 
 export interface PlanDayContext {
-  /** first doors-open of the remaining day, minute-of-day */
+  /** doors-open the plan is for, minute-of-day (≥1440 ⇒ tomorrow) */
   doorsOpen: number
-  /** kitchen close, minute-of-day */
+  /** kitchen close — the last service's end, minute-of-day (≥1440 ⇒ tomorrow) */
   close: number
   /** when prep hands become available — schedule cursors start here */
   shiftStart: number
+  /** 0 while the day is still on, 1440 once it has rolled to tomorrow — added to
+   *  an item's OWN service start so its deadline rolls with the day */
+  roll: number
 }
 
 const DEFAULT_CLOSE = 22 * 60
 
-/** Derive the day's anchors from the RC's active services. Null when the RC has
- *  no timed services (on-demand) — schedule/deadlines don't apply. */
+/**
+ * Derive the day's anchors from the RC's active services. Null when the RC has
+ * no timed services (on-demand) — schedule/deadlines don't apply.
+ *
+ * The planning day ROLLS to tomorrow once the last service has ended: at that
+ * point the chef is building tomorrow's list, and every anchor — doors, close,
+ * an item's own service — moves together. Before that, the day is still on:
+ * doors already open are behind us (a Critical item is late, not for tomorrow)
+ * and close is tonight. The old rule rolled doors as soon as the last service
+ * had STARTED but left close in place, so during evening planning "before
+ * close" deadlined tonight while "critical" deadlined tomorrow morning, and the
+ * schedule sequenced the close items first.
+ *
+ * Close is the last service's end, not a fixed 22:00: a kitchen whose only
+ * service ends at 16:00 closes at 16:00. The 22:00 floor only applies when no
+ * service carries an end time.
+ */
 export function planDayContext(
   services: Array<{ timeMinutes: number; endMinutes: number | null }>,
   nowMin: number,
 ): PlanDayContext | null {
   if (!services.length) return null
   const starts = services.map(s => s.timeMinutes).sort((a, b) => a - b)
-  // After the day's last doors-open, planning is for TOMORROW — roll the anchor
-  // forward instead of deadlining everything against a service already started
-  // (which painted every card "WON'T FIT" during evening planning).
-  const doorsOpen = starts.find(s => s >= nowMin) ?? starts[0] + 1440
   const ends = services.map(s => {
     if (s.endMinutes == null) return s.timeMinutes + 120
     // an end before its start crosses midnight
     return s.endMinutes < s.timeMinutes ? s.endMinutes + 1440 : s.endMinutes
   })
-  let close = Math.max(DEFAULT_CLOSE, ...ends)
-  if (close <= nowMin) close += 1440
-  return { doorsOpen, close, shiftStart: nowMin }
+  const hasEnd = services.some(s => s.endMinutes != null)
+  let close = hasEnd ? Math.max(...ends) : Math.max(DEFAULT_CLOSE, ...ends)
+  const roll = nowMin >= close ? 1440 : 0
+  close += roll
+  const doorsOpen = roll
+    ? starts[0] + roll
+    : (starts.find(s => s >= nowMin) ?? starts[0])
+  return { doorsOpen, close, shiftStart: nowMin, roll }
 }
 
 const MID_OFFSET = 120
 
 /** The step's deadline, minute-of-day (≥1440 ⇒ tomorrow). `svcStart` is the
- *  item's own target-service start when it has one. */
+ *  item's own target-service start when it has one; it rolls with the day. */
 export function urgencyDeadline(u: PrepUrgency, ctx: PlanDayContext, svcStart?: number | null): number {
-  // An item's own service start also rolls to tomorrow once it has passed —
-  // otherwise evening planning deadlines against a service already underway.
-  const rawDoors = svcStart ?? ctx.doorsOpen
-  const doors = rawDoors >= ctx.shiftStart ? rawDoors : rawDoors + 1440
+  const doors = svcStart != null ? svcStart + ctx.roll : ctx.doorsOpen
   if (u === 'PASS') return doors
   if (u === 'MID') return doors + MID_OFFSET
   if (u === 'CLOSE') return ctx.close
+  // "Tomorrow" is relative to the chef's now: once the day has rolled, tomorrow
+  // IS the planned doors — don't double-roll past them.
   return ctx.doorsOpen >= 1440 ? ctx.doorsOpen : ctx.doorsOpen + 1440
 }
 
 export function fmtDeadline(m: number, fmtClock: (min: number) => string): string {
-  return m >= 1440 ? `TMRW ${fmtClock(m % 1440)}` : fmtClock(m)
+  const d = Math.floor(m / 1440)
+  if (d <= 0) return fmtClock(m)
+  if (d === 1) return `TMRW ${fmtClock(m % 1440)}`
+  return `+${d}d ${fmtClock(m % 1440)}`
 }
 
 export interface PlanSlot {
@@ -375,6 +397,81 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
       rows: rows.filter(t => effectiveUrgency(t) === u).sort((a, b) => ord(a) - ord(b)),
     }))
     .filter(g => g.rows.length)
+}
+
+// ─── the unified ladder (the To Do reads the plan the chef posted) ─────────
+// One number per item, derived from its STEP: the step's deadline for this day,
+// and start-by = deadline − hands-on − unattended. The planner and the run
+// sheet both read these, so a Before-close smoke counts back from close, not
+// from doors, and an evening-posted list is not "late" until the day is.
+
+export interface LadderTimes { deadline: number | null; startBy: number | null }
+
+export function ladderTimes<T extends SchedulableItem>(t: T, ctx: PlanDayContext | null): LadderTimes {
+  if (!ctx) return { deadline: null, startBy: null }
+  const deadline = urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null)
+  return { deadline, startBy: deadline - activeMin(t) - passiveMin(t) }
+}
+
+export interface LadderItem extends SchedulableItem {
+  name: string
+  startByMinutes: number | null
+  deadlineMinutes?: number | null
+  todayLog?: { listOrder?: number | null } | null
+}
+
+/**
+ * Overwrite `startByMinutes` with the step-aware value (and attach the deadline)
+ * so every row, strip and count on the run sheet reads ONE number. Without a
+ * day context (on-demand RC) the API's own value is kept.
+ */
+export function withLadderTimes<T extends LadderItem>(items: T[], ctx: PlanDayContext | null): Array<T & { deadlineMinutes: number | null }> {
+  return items.map(t => {
+    const { deadline, startBy } = ladderTimes(t, ctx)
+    return { ...t, startByMinutes: ctx ? startBy : t.startByMinutes, deadlineMinutes: deadline }
+  })
+}
+
+const orInf = (v: number | null | undefined) => (v == null ? Infinity : v)
+const cmpNum = (a: number, b: number) => (a === b ? 0 : a < b ? -1 : 1)
+
+/** Deadline → start-by → the chef's listOrder → name. Nulls sink. */
+export function ladderOrder(a: LadderItem, b: LadderItem): number {
+  return cmpNum(orInf(a.deadlineMinutes), orInf(b.deadlineMinutes))
+    || cmpNum(orInf(a.startByMinutes), orInf(b.startByMinutes))
+    || cmpNum(draftListOrder(a), draftListOrder(b))
+    || a.name.localeCompare(b.name)
+}
+
+export interface LadderGroup<T> extends PlanGroup<T> { late?: boolean }
+
+/**
+ * The run sheet's sections: rows already late to start (any step) lifted above
+ * the NOW line, then the four steps in order, each captioned with its deadline
+ * for the day. Rows inside a section follow `ladderOrder`.
+ */
+export function runSheetGroups<T extends LadderItem>(
+  rows: T[],
+  ctx: PlanDayContext | null,
+  nowMin: number,
+): Array<LadderGroup<T>> {
+  const isLate = (t: T) => ctx != null && t.startByMinutes != null && t.startByMinutes < nowMin
+  const late = rows.filter(isLate).sort(ladderOrder)
+  const rest = rows.filter(t => !isLate(t))
+  const groups: Array<LadderGroup<T>> = []
+  if (late.length) groups.push({ key: 'LATE', label: 'Late to start', late: true, rows: late })
+  for (const u of PLAN_URG_ORDER_LOCAL) {
+    const g = rest.filter(t => effectiveUrgency(t) === u).sort(ladderOrder)
+    if (!g.length) continue
+    groups.push({
+      key: u,
+      label: PLAN_URG_META[u].label,
+      sub: ctx ? `by ${fmtDeadline(urgencyDeadline(u, ctx), fmtClock)}` : undefined,
+      urg: u,
+      rows: g,
+    })
+  }
+  return groups
 }
 
 // ── The live prep log ──────────────────────────────────────────────────────

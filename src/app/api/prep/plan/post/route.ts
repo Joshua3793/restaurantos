@@ -20,6 +20,17 @@ export async function POST(req: NextRequest) {
   }
   const body = await req.json().catch(() => null)
   const revenueCenterId: string | undefined = body?.revenueCenterId
+  // Optional: the step deadline label per item as the chef saw it in the post
+  // dialog ("11:00", "TMRW 09:00"). Stamped on the live log as dueTime so the
+  // To Do can keep showing what was posted if the live step moves later. The
+  // client computes it (it already has the stock + service context); an
+  // offline replay sends none and leaves dueTime untouched.
+  const dues: Array<{ prepItemId: string; dueTime: string | null }> = Array.isArray(body?.dues)
+    ? body.dues.filter((d: unknown): d is { prepItemId: string; dueTime: string | null } =>
+        !!d && typeof d === 'object'
+        && typeof (d as { prepItemId?: unknown }).prepItemId === 'string'
+        && ((d as { dueTime?: unknown }).dueTime === null || typeof (d as { dueTime?: unknown }).dueTime === 'string'))
+    : []
   if (!revenueCenterId) return NextResponse.json({ error: 'revenueCenterId is required' }, { status: 400 })
   try { await assertRcWritable(user, revenueCenterId) }
   catch (e) {
@@ -53,6 +64,11 @@ export async function POST(req: NextRequest) {
   // row per calendar day would leave the carried one open behind it, and that row
   // would put the item back on the To Do as soon as the new one was completed.
   const liveLogs = await ensureLiveLogs(draftIds, revenueCenterId)
+  const draftSet = new Set(draftIds)
+  const dueWrites = dues.flatMap(d => {
+    const id = draftSet.has(d.prepItemId) ? liveLogs.get(d.prepItemId) : undefined
+    return id ? [prisma.prepLog.update({ where: { id }, data: { dueTime: d.dueTime } })] : []
+  })
 
   const [, , post] = await prisma.$transaction([
     // Items posted earlier but since removed from the draft leave the kitchen's
@@ -71,6 +87,7 @@ export async function POST(req: NextRequest) {
       update: { postedAt: now, postedByName, itemCount: draft.length, activeMinutes, dirty: false },
       create: { revenueCenterId, listDate, postedAt: now, postedByName, itemCount: draft.length, activeMinutes, dirty: false },
     }),
+    ...dueWrites,
   ])
 
   return NextResponse.json({

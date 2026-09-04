@@ -7,7 +7,7 @@ import { Zap, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, NeedChip, RunwayBar, UrgencyDot } from './atoms'
+import { StationTag, NeedChip, RunwayBar, UrgencyDot, DeadlineChip } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
 import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
@@ -111,6 +111,7 @@ export function RunRow({
             <>
               <RunwayBar activeMin={item.activeMinutes} passiveMin={item.passiveMinutes} passiveNote={item.passiveNote} />
               <NeedChip service={item.service} />
+              <DeadlineChip item={item} />
             </>
           )}
         </div>

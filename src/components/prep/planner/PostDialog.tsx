@@ -8,12 +8,16 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { PrepUrgency } from '@/lib/prep-utils'
 import {
   PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, planSchedule,
+  urgencyDeadline, fmtDeadline,
   draftListOrder as draftOrd,
   type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
+
+/** What the post stamps on each item's live log: the step deadline the chef saw. */
+export interface PostDue { prepItemId: string; dueTime: string | null }
 
 export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, onConfirm }: {
   draft: PrepItemRich[]
@@ -22,9 +26,16 @@ export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, on
   ctx: PlanDayContext | null
   reposting: boolean
   onClose: () => void
-  onConfirm: () => void
+  onConfirm: (dues: PostDue[]) => void
 }) {
   const sched = ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map<string, PlanSlot>()
+  // The deadline label per row — the same string the DraftRow showed ("11:00",
+  // "TMRW 09:00") — goes to the kitchen as PrepLog.dueTime so the To Do can show
+  // what was posted even if the live step moves later.
+  const dues: PostDue[] = draft.map(t => ({
+    prepItemId: t.id,
+    dueTime: ctx ? fmtDeadline(urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null), fmtClock) : null,
+  }))
   const byUrg = PLAN_URG_ORDER
     .map(u => [u, draft.filter(t => effectiveUrgency(t) === u).length] as [PrepUrgency, number])
     .filter(([, n]) => n > 0)
@@ -105,7 +116,7 @@ export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, on
         <div className="shrink-0 flex items-center gap-2 px-5 py-4">
           <span className="flex-1" />
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-[9px] border border-line-2 bg-paper text-ink-2 text-[12.5px] font-semibold">Keep editing</button>
-          <button type="button" onClick={onConfirm} className="inline-flex items-center gap-2 bg-ink text-paper rounded-[10px] px-[18px] py-[11px] text-[13.5px] font-semibold">
+          <button type="button" onClick={() => onConfirm(dues)} className="inline-flex items-center gap-2 bg-ink text-paper rounded-[10px] px-[18px] py-[11px] text-[13.5px] font-semibold">
             <Check size={14} className="text-gold" /> {reposting ? 'Update To Do' : `Post ${draft.length} item${draft.length !== 1 ? 's' : ''}`}
           </button>
         </div>
