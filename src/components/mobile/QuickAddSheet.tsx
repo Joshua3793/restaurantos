@@ -1,6 +1,8 @@
 'use client'
 import { useRouter } from 'next/navigation'
 import { Flame, Camera, Barcode, ClipboardList, ChevronRight } from 'lucide-react'
+import { useUser } from '@/contexts/UserContext'
+import { canAccess } from '@/lib/route-access'
 
 // Center-＋ launcher. Until later phases land, actions route to the closest
 // existing screen (waste→/wastage, capture→/invoices, scan→/inventory, count→/count).
@@ -13,8 +15,12 @@ const ACTIONS = [
 
 export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter()
+  const { role } = useUser()
   if (!open) return null
   const run = (href: string) => { onClose(); router.push(href) }
+  // Same table the middleware enforces: never offer a launcher STAFF would
+  // only be bounced from (capture -> /invoices, scan -> /inventory).
+  const actions = ACTIONS.filter(a => role == null || canAccess(role, a.href))
   return (
     <div className="md:hidden fixed inset-0 z-[80] flex items-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -23,7 +29,7 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
         <div className="px-5 pt-3 pb-1 text-[18px] font-semibold tracking-[-0.02em]">Quick add</div>
         <div className="font-mono text-[11px] text-ink-3 px-5 pb-3">LOG SOMETHING FAST</div>
         <div className="px-4 pb-6 flex flex-col gap-2">
-          {ACTIONS.map(a => {
+          {actions.map(a => {
             const Ico = a.icon
             return (
               <button key={a.id} onClick={() => run(a.href)} className="flex items-center gap-3 w-full text-left bg-paper border border-line rounded-[13px] px-3.5 py-3">

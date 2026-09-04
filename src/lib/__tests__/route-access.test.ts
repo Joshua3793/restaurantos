@@ -7,7 +7,6 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/prep')).toBeNull()
     expect(requiredClearance('/count')).toBeNull()
     expect(requiredClearance('/today')).toBeNull()
-    expect(requiredClearance('/inventory')).toBeNull()
     expect(requiredClearance('/temps')).toBeNull()
     expect(requiredClearance('/wastage')).toBeNull()
   })
@@ -32,6 +31,17 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/setup')).toBe('ADMIN')
     expect(requiredClearance('/settings')).toBe('ADMIN')
     expect(requiredClearance('/end-of-day')).toBe('LEAD')
+  })
+
+  it('keeps invoices, inventory and sales off STAFF but open to LEAD', () => {
+    for (const path of ['/invoices', '/inventory', '/sales']) {
+      expect(requiredClearance(path)).toBe('LEAD')
+      expect(canAccess('STAFF', path)).toBe(false)
+      expect(canAccess('LEAD', path)).toBe(true)
+    }
+    // /inventory/count is a legacy URL the middleware 308s to /count before
+    // the role check runs, so the gate on its parent never bites a counter.
+    expect(canAccess('STAFF', '/count')).toBe(true)
   })
 
   it('applies a prefix gate to that route’s children', () => {

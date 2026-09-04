@@ -30,6 +30,11 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   // the MANAGER entry above for this path only — /tips itself is untouched and
   // the manager console stays gated in middleware, not in component code.
   ['/tips/me', 'STAFF'],
+  // Purchasing and money surfaces. STAFF never sees cost (see ROLE_DESCRIPTIONS);
+  // a Shift Lead keeps read-only invoices, the item library and sales.
+  ['/invoices', 'LEAD'],
+  ['/inventory', 'LEAD'],
+  ['/sales', 'LEAD'],
   // A Lead runs the operational close (checklist, temps, sign-off) and WRITES
   // the handover note (PATCH /api/eod/close), but does not read the handover
   // money recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.

@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
-import { ClipboardList, Barcode, Flame, ChefHat, ArrowRight } from 'lucide-react'
+import { ClipboardList, Barcode, Flame, ChefHat, ArrowRight, Thermometer } from 'lucide-react'
+import { canAccess } from '@/lib/route-access'
 import { MPageHead, MCard, MSectionLabel, MQuickAction, MProgressBar } from '@/components/mobile/kit'
 
 // Shape from GET /api/count/sessions: each session row + { counts: { total, counted, skipped } }
@@ -11,7 +12,10 @@ interface PrepItem { id: string; name: string; station?: string | null; isOnList
 
 export function TodayChef() {
   const router = useRouter()
-  const { user } = useUser()
+  const { user, role } = useUser()
+  // /inventory is LEAD+ (route-access.ts). Staff get the temps log in that
+  // slot instead of a tile that the middleware would bounce them from.
+  const canScan = role != null && canAccess(role, '/inventory')
   const [session, setSession] = useState<CountSession | null>(null)
   const [prep, setPrep] = useState<PrepItem[]>([])
 
@@ -67,7 +71,9 @@ export function TodayChef() {
       <MSectionLabel>Quick actions</MSectionLabel>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
         <MQuickAction label="Start a count" icon={<ClipboardList size={20} />} onClick={() => router.push('/count')} />
-        <MQuickAction label="Scan an item" icon={<Barcode size={20} />} onClick={() => router.push('/inventory')} />
+        {canScan
+          ? <MQuickAction label="Scan an item" icon={<Barcode size={20} />} onClick={() => router.push('/inventory')} />
+          : <MQuickAction label="Log temps" icon={<Thermometer size={20} />} onClick={() => router.push('/temps')} />}
         <MQuickAction label="Log waste" icon={<Flame size={20} />} onClick={() => router.push('/wastage')} />
         <MQuickAction label="My prep list" icon={<ChefHat size={20} />} onClick={() => router.push('/prep')} />
       </div>
