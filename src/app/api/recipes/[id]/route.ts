@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma'
 import { fetchRecipeWithCost, resyncPrepRecipe, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
+import { Prisma } from '@prisma/client'
+import { validateStages } from '@/lib/prep-stages'
+import { numOrNull } from '@/lib/prep-utils'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const recipe = await fetchRecipeWithCost(params.id)
@@ -21,7 +24,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
-  const { name, categoryId, baseYieldQty, yieldUnit, portionSize, portionUnit, menuPrice, notes, isActive, baseIngredientId, steps, revenueCenterId } = body
+  const {
+    name, categoryId, baseYieldQty, yieldUnit, portionSize, portionUnit, menuPrice, notes, isActive, baseIngredientId, steps, revenueCenterId,
+    // Run-sheet timing on the recipe itself (the PrepItem overrides sit above these),
+    // and the staged-prep chain. `stages: null` / `[]` clears the chain.
+    activeMinutes, passiveMinutes, passiveNote, stages,
+  } = body
 
   // Validate + normalize units when they're being changed.
   let canonYield: string | undefined
@@ -30,6 +38,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (yieldUnit   !== undefined) canonYield   = assertKnownUnit(yieldUnit, 'yield unit')
     if (portionUnit !== undefined) canonPortion = portionUnit ? assertKnownUnit(portionUnit, 'portion unit') : null
   } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
+
+  // Stages are validated by the lib (≥1, last ACTIVE, no back-to-back PASSIVE,
+  // integer minutes, unique keys) — a chain the run sheet cannot walk never lands.
+  let stagesData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined
+  if (stages !== undefined) {
+    if (stages === null || (Array.isArray(stages) && stages.length === 0)) {
+      stagesData = Prisma.DbNull
+    } else {
+      const v = validateStages(stages)
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+      stagesData = v.stages as unknown as Prisma.InputJsonValue
+    }
+  }
 
   await prisma.recipe.update({
     where: { id: params.id },
@@ -46,6 +67,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(baseIngredientId !== undefined ? { baseIngredientId: baseIngredientId ?? null } : {}),
       ...(revenueCenterId !== undefined ? { revenueCenterId: revenueCenterId || null } : {}),
       ...(Array.isArray(steps) ? { steps: steps.filter((s: unknown) => typeof s === 'string') } : {}),
+      // `0` is meaningful ("no unattended phase") and must survive; '' clears. See numOrNull.
+      ...(activeMinutes  !== undefined ? { activeMinutes:  numOrNull(activeMinutes) }  : {}),
+      ...(passiveMinutes !== undefined ? { passiveMinutes: numOrNull(passiveMinutes) } : {}),
+      ...(passiveNote    !== undefined ? { passiveNote: passiveNote || null } : {}),
+      ...(stagesData     !== undefined ? { stages: stagesData } : {}),
     },
   })
 

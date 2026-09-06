@@ -28,7 +28,8 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, defaultDraftQty, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
@@ -124,7 +125,9 @@ export default function PrepPage() {
   const [historyLogs,    setHistoryLogs]    = useState<Array<{
     id: string; status: string; actualPrepQty: number | null
     note: string | null; assignedTo: string | null; logDate: string
-    prepItem: { id: string; name: string; unit: string }
+    /** Staged prep — the stage events this log recorded (names resolve via the recipe's chain). */
+    stageHistory?: unknown
+    prepItem: { id: string; name: string; unit: string; linkedRecipe?: { stages?: unknown } | null }
   }>>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
@@ -588,6 +591,9 @@ export default function PrepPage() {
     [activeRc],
   )
 
+  // The planner's day anchors — what "Start today for …" and the long-lead seed
+  // count back from (same derivation the planners use).
+  const dayCtx = useMemo(() => planDayContext(rcServices, nowMin, nowMs), [rcServices, nowMin, nowMs])
   const svcStatus = useMemo(
     () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
     [activeRc, rcServices, nowMin],
@@ -701,11 +707,15 @@ export default function PrepPage() {
       // Smart Prep still wearing its pre-completion Critical pill until the
       // next (often discarded) background poll.
       const recomputed = applyStatusToItem(i, newStatus, actualQty)
-      return {
+      // Staged prep: Start enters stage 0 / Stop clears it, mirroring the server
+      // (empty for an unstaged item — see stageFieldsForStatus).
+      const stageFields = stageFieldsForStatus(i, newStatus, now)
+      // `pipeline` (a job in flight, see pipelineOf) follows the status.
+      return withPipeline({
         ...recomputed,
         isOnList: nextOnList,
         todayLog: existingLog
-          ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}) }
+          ? { ...existingLog, status: newStatus as PrepLogData['status'], ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}), ...stageFields }
           : {
               id: `_opt_${itemId}`,
               prepItemId: itemId,
@@ -724,8 +734,9 @@ export default function PrepPage() {
               completedAt: null,
               listOrder: null,
               postedAt: null,
+              ...stageFields,
             },
-      }
+      })
     }))
     markSaving(itemId, true)
 
@@ -774,6 +785,73 @@ export default function PrepPage() {
       if (opChains.current.get(itemId) === runOp) {
         opChains.current.delete(itemId)
         markSaving(itemId, false)
+      }
+    })
+    return runOp
+  }
+
+  // Staged prep — move an item's live log to a stage (Next / Back). Same shape
+  // as handleStatusChange: optimistic first (applyStageToItem — status becomes
+  // IN_PROGRESS, the stage clock restarts, the move is appended to the history),
+  // the offline queue when there is no network, else the per-item op chain so a
+  // rapid Next → Done commits in tap order. Stock is never touched here.
+  async function handleStageChange(item: PrepItemRich, stageIndex: number) {
+    if (!item.revenueCenterId && !activeRcId) {
+      setActionError('Select a revenue center (not "All") to record prep.')
+      return
+    }
+    mutationSeq.current++
+    const now = new Date().toISOString()
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i
+      const seeded = i.todayLog ? i : {
+        ...i,
+        todayLog: {
+          id: `_opt_${i.id}`, prepItemId: i.id, logDate: todayDateStr, status: 'NOT_STARTED' as PrepLogData['status'],
+          requiredQty: null, actualPrepQty: null, assignedTo: null, dueTime: null, note: null, blockedReason: null,
+          inventoryAdjusted: false, createdAt: now, updatedAt: now, startedAt: null, completedAt: null, listOrder: null, postedAt: null,
+        },
+      }
+      return withPipeline({ ...applyStageToItem(seeded, stageIndex, now), isOnList: true })
+    }))
+    markSaving(item.id, true)
+
+    if (!navigator.onLine) {
+      enqueueMutation({ type: 'stage', itemId: item.id, logId: item.todayLog?.id ?? null, stageIndex, revenueCenterId: item.revenueCenterId ?? activeRcId })
+      setPendingCount(n => n + 1)
+      markSaving(item.id, false)
+      return
+    }
+
+    const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        let logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId }),
+          }).then(r => r.json())
+          logId = log.id
+          setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
+        }
+        const res = await fetch(`/api/prep/logs/${logId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stageIndex }),
+        })
+        if (!res.ok) throw new Error('stage')
+      } catch {
+        setActionError('Stage move failed — try again.')
+        load()
+      }
+    })
+    opChains.current.set(item.id, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(item.id) === runOp) {
+        opChains.current.delete(item.id)
+        markSaving(item.id, false)
       }
     })
     return runOp
@@ -1207,12 +1285,18 @@ export default function PrepPage() {
   function handleAddToDraft(item: PrepItemRich) {
     handleToggleOnList(item.id, true)
     const hasQty = item.todayLog?.requiredQty != null && Number(item.todayLog.requiredQty) > 0
-    const sugg = defaultDraftQty(item)
+    // A long-lead item (must start today for a later deadline) is seeded with
+    // the most that will keep, not the par gap — the effort is per batch.
+    const sugg = mustStartToday(item, dayCtx, nowMin) ? longLeadQty(item) : defaultDraftQty(item)
     if (!hasQty && sugg > 0) handleDraftEdit(item, { requiredQty: sugg })
   }
 
   function handleAddAllCritical() {
-    items.filter(i => effectivePriority(i) === '911' && !i.isOnList).forEach(handleAddToDraft)
+    // A job in the pipeline is being made — it is not a critical stock-out to
+    // add. A long-lead item that must start today for a later deadline is.
+    items
+      .filter(i => !i.isOnList && !i.pipeline && (effectivePriority(i) === '911' || mustStartToday(i, dayCtx, nowMin)))
+      .forEach(handleAddToDraft)
   }
 
   function handleAcceptSuggested() {
@@ -1403,6 +1487,7 @@ export default function PrepPage() {
       id: item.linkedRecipeId,
       name: item.linkedRecipe?.name ?? item.name,
       steps: [],
+      stages: item.linkedRecipe?.stages ?? null,
       baseYieldQty: Number(item.linkedRecipe?.baseYieldQty) || 0,
       yieldUnit: item.linkedRecipe?.yieldUnit ?? item.unit,
       totalCost: 0,
@@ -1431,6 +1516,7 @@ export default function PrepPage() {
       })()
       const recipe: RecipeStepsData = {
         id: r.id, name: r.name, steps: parsedSteps,
+        stages: resolveStages(r),
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
         baseIngredientId: r.baseIngredientId ?? null,
@@ -1764,6 +1850,7 @@ export default function PrepPage() {
               onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
               onLog={setDoneSheetItem}
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
+              onStage={handleStageChange}
               onClaim={handleClaim}
               onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
@@ -1787,6 +1874,7 @@ export default function PrepPage() {
               cooks={cooks}
               services={rcServices}
               nowMin={nowMin}
+              nowMs={nowMs}
               canPlan={canPlan}
               post={plan.post}
               search={search}
@@ -1864,6 +1952,7 @@ export default function PrepPage() {
                 onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
                 onLog={setDoneSheetItem}
                 onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
+                onStage={handleStageChange}
                 onClaim={handleClaim}
                 onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
               />
@@ -1901,6 +1990,7 @@ export default function PrepPage() {
                 stations={stations}
                 services={rcServices}
                 nowMin={nowMin}
+                nowMs={nowMs}
                 canPlan={canPlan}
                 post={plan.post}
                 handlers={plannerHandlers}
@@ -1989,6 +2079,14 @@ export default function PrepPage() {
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-semibold text-ink truncate">{log.prepItem.name}</div>
                             {log.note && <div className="text-xs text-ink-3 mt-0.5 truncate">{log.note}</div>}
+                            {(() => {
+                              // Staged prep: the stage trail this log recorded, named via the recipe's chain.
+                              const chain = resolveStages(log.prepItem.linkedRecipe)
+                              const events = parseStageHistory(log.stageHistory)
+                              if (!chain || events.length === 0) return null
+                              const trail = events.map(e => e.key === STAGE_DONE_KEY ? 'Done' : chain.find(s => s.key === e.key)?.name ?? '?').join(' → ')
+                              return <div className="text-[10.5px] text-ink-4 font-mono mt-0.5 truncate" title={trail}>{trail}</div>
+                            })()}
                             {log.assignedTo && <div className="text-[11px] text-ink-3 font-mono">by {log.assignedTo}</div>}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
@@ -2035,6 +2133,7 @@ export default function PrepPage() {
           onMakeQtyChange={setDrawerMakeQty}
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
+          onStage={handleStageChange}
           onComplete={onDrawerComplete}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           /* The drawer opens from BOTH the To Do run sheet and the Smart Prep planner
@@ -2075,6 +2174,7 @@ export default function PrepPage() {
           onClose={closeDrawer}
           onToggleOnList={handleToggleOnList}
           onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
+          onStage={handleStageChange}
           onPriorityChange={handlePriorityChange}
           onEdit={(item) => { closeDrawer(); setEditing(item) }}
         />

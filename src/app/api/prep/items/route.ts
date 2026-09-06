@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computePriority, computeSuggestedQty, numOrNull, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { numOrNull, urgencyToPriority, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
-import { prepDayRange } from '@/lib/prep-day'
+import { prepDayRange, prepDaysAgo } from '@/lib/prep-day'
 import { NEWEST_LOG } from '@/lib/prep-plan-server'
-import { isLiveLog } from '@/lib/prep-plan'
+import { isLiveLog, pipelineOf, effectiveUrgency, cappedSuggestedQty } from '@/lib/prep-plan'
+import { resolveStages } from '@/lib/prep-stages'
+import { cadenceStats, CADENCE_WINDOW_DAYS } from '@/lib/prep-cadence'
 
 // GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
 // read is ever refactored away, a prerendered route would serve GET only and
@@ -26,6 +28,7 @@ const recipeInclude = {
     activeMinutes: true,
     passiveMinutes: true,
     passiveNote: true,
+    stages: true,
     inventoryItem: {
       select: { id: true, stockOnHand: true, baseUnit: true },
     },
@@ -121,6 +124,25 @@ export async function GET(req: NextRequest) {
     if (g._max.logDate) lastMadeByItem.set(g.prepItemId, g._max.logDate.toISOString())
   }
 
+  // Cadence (prep-cadence.ts): the completed logs of the last 60 days, one
+  // narrow scan for every item — interval between makes, typical batch, and a
+  // usage proxy. `lastMadeAt` above stays as the all-time value.
+  const now = new Date()
+  const recentDone = await prisma.prepLog.findMany({
+    where: {
+      prepItemId: { in: prepItemIds },
+      status: { in: ['DONE', 'PARTIAL'] },
+      logDate: { gte: prepDaysAgo(CADENCE_WINDOW_DAYS, now) },
+      actualPrepQty: { gt: 0 },
+    },
+    select: { prepItemId: true, logDate: true, actualPrepQty: true },
+  })
+  const recentByItem = new Map<string, Array<{ logDate: Date; actualPrepQty: number }>>()
+  for (const r of recentDone) {
+    if (!recentByItem.has(r.prepItemId)) recentByItem.set(r.prepItemId, [])
+    recentByItem.get(r.prepItemId)!.push({ logDate: r.logDate, actualPrepQty: Number(r.actualPrepQty) })
+  }
+
   // Build theoretical stock maps grouped by revenueCenterId (batched, not per-item).
   // Prep items span multiple RCs (including null = global/shared), so we group by RC,
   // fetch one map per distinct RC, then look each item up in its RC's map.
@@ -172,8 +194,17 @@ export async function GET(req: NextRequest) {
     const minThreshold = parseFloat(String(item.minThreshold))
     const targetToday  = item.targetToday ? parseFloat(String(item.targetToday)) : null
 
-    const priority     = computePriority(onHand, parLevel, minThreshold, targetToday, item.manualPriorityOverride)
-    const suggestedQty = computeSuggestedQty(onHand, parLevel, targetToday)
+    // Step + suggestion through the same helpers the planner uses client-side,
+    // so the cadence nudge (TMRW → CLOSE when due by rhythm) and the shelf-life
+    // cap agree on both ends. Without cadence these are the old computePriority /
+    // computeSuggestedQty exactly.
+    const cadence = cadenceStats(recentByItem.get(item.id) ?? [], now)
+    const planFields = {
+      onHand, parLevel, minThreshold, targetToday, unit: item.unit,
+      manualPriorityOverride: item.manualPriorityOverride, shelfLifeDays: item.shelfLifeDays, cadence,
+    }
+    const priority     = urgencyToPriority(effectiveUrgency(planFields, now.getTime()))
+    const suggestedQty = cappedSuggestedQty(planFields)
 
     // Run-sheet fields: effective active/passive time (override > linked recipe),
     // target service, computed start-by, and the cook assigned to today's log.
@@ -182,7 +213,7 @@ export async function GET(req: NextRequest) {
       passiveMinutesOverride: item.passiveMinutesOverride,
       passiveNoteOverride: item.passiveNoteOverride,
       linkedRecipe: item.linkedRecipe
-        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote }
+        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote, stages: item.linkedRecipe.stages }
         : null,
     }
     const activeMinutes  = resolveActive(times)
@@ -234,6 +265,25 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // A job in flight is pipeline stock to the planner (evidence + exclusion;
+    // the step still reads the stock — DONE is the only credit).
+    const stages = resolveStages(item.linkedRecipe)
+    const pipeline = liveLog
+      ? pipelineOf({
+          onHand, parLevel, minThreshold, targetToday, unit: item.unit,
+          manualPriorityOverride: item.manualPriorityOverride,
+          activeMinutes, passiveMinutes, estimatedPrepTime: item.estimatedPrepTime ?? null,
+          linkedRecipe: item.linkedRecipe ? { stages, baseYieldQty: Number(item.linkedRecipe.baseYieldQty), yieldUnit: item.linkedRecipe.yieldUnit } : null,
+          todayLog: {
+            status: liveLog.status,
+            startedAt: liveLog.startedAt?.toISOString() ?? null,
+            stageIndex: liveLog.stageIndex,
+            stageEnteredAt: liveLog.stageEnteredAt?.toISOString() ?? null,
+            requiredQty: liveLog.requiredQty == null ? null : Number(liveLog.requiredQty),
+          },
+        }, Date.now())
+      : null
+
     return {
       id: item.id,
       name: item.name,
@@ -256,6 +306,9 @@ export async function GET(req: NextRequest) {
             name: item.linkedRecipe.name,
             yieldUnit: item.linkedRecipe.yieldUnit,
             baseYieldQty: parseFloat(String(item.linkedRecipe.baseYieldQty)),
+            // The resolved chain (null = unstaged) — the run sheet reads it for
+            // the stage chip, rest rows and the Next button.
+            stages: resolveStages(item.linkedRecipe),
           }
         : null,
       linkedInventoryItemId: item.linkedInventoryItemId,
@@ -267,6 +320,8 @@ export async function GET(req: NextRequest) {
       ingredientTotalCount,
       ingredientShortCount,
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
+      pipeline,
+      cadence,
       revenueCenterId: item.revenueCenterId ?? null,
       // RAW overrides, alongside the resolved activeMinutes/passiveMinutes above.
       // The edit form needs both: the resolved value is what the run sheet uses,

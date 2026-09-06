@@ -5,50 +5,50 @@
 // elapsed, queued count, hands-on load, and late-to-start count.
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
-import { fmtMins } from '@/lib/prep-runsheet'
+import { fmtMins, minutesBetween } from '@/lib/prep-runsheet'
+import { lateToStart } from '@/lib/prep-plan'
 
-// `nowMin` (like the rest of the run sheet's clock math — see RunRow.tsx,
-// prep-runsheet.ts) is minutes-since-midnight, not an epoch timestamp. A
-// task's `todayLog.startedAt` is an absolute ISO timestamp, so to get an
-// "elapsed" figure comparable to `nowMin` we reduce it to the same
-// minutes-since-midnight basis first. This mirrors the prototype, where
-// `now` and `t.startedMin` were both plain minute integers throughout.
-function minuteOfDay(iso: string): number {
-  const d = new Date(iso)
-  return d.getHours() * 60 + d.getMinutes()
-}
+// Elapsed is EPOCH MS (`startedAt` / `stageEnteredAt` against `nowMs`), never
+// minute-of-day: the old `nowMin − minuteOfDay(startedAt)` clamped at 0 read a
+// job started last evening as 0 elapsed this morning. For a staged job the
+// clock is the current stage's own.
 
 export function CrewStrip({
   cooks,
   items,
   nowMin,
+  nowMs,
 }: {
   cooks: Cook[]
   items: PrepItemRich[]
   nowMin: number
+  nowMs: number
 }) {
   // Cards grow to fill the row but never shrink below a readable width — past
   // that the strip scrolls horizontally instead of chopping names (iPad).
   return (
     <div className="flex gap-2.5 mb-[18px] overflow-x-auto">
       {cooks.map(cook => (
-        <CrewCard key={cook.id} cook={cook} items={items} nowMin={nowMin} />
+        <CrewCard key={cook.id} cook={cook} items={items} nowMin={nowMin} nowMs={nowMs} />
       ))}
     </div>
   )
 }
 
-function CrewCard({ cook, items, nowMin }: { cook: Cook; items: PrepItemRich[]; nowMin: number }) {
-  const doing = items.find(i => i.todayLog?.status === 'IN_PROGRESS' && i.assignedCook?.id === cook.id)
+function CrewCard({ cook, items, nowMin, nowMs }: { cook: Cook; items: PrepItemRich[]; nowMin: number; nowMs: number }) {
+  // A cook's "doing" is a hands-on job only — a job resting in an unattended
+  // stage (`rest`) does not hold a cook; it sits in the ladder.
+  const doing = items.find(i => i.todayLog?.status === 'IN_PROGRESS' && !i.rest && i.assignedCook?.id === cook.id)
   const queue = items.filter(
-    i => i.assignedCook?.id === cook.id && i.todayLog?.status !== 'IN_PROGRESS' && i.todayLog?.status !== 'DONE'
+    i => i.assignedCook?.id === cook.id && !(i.todayLog?.status === 'IN_PROGRESS' && !i.rest) && i.todayLog?.status !== 'DONE'
   )
   const load = queue.reduce((a, i) => a + (i.activeMinutes ?? 0), 0)
   // Same lateness test as the ladder's "Late to start" section (a low-stock
-  // flag does not stop a job being late).
-  const lateN = queue.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin).length
+  // flag does not stop a job being late; a resting job is late only past its grace).
+  const lateN = queue.filter(i => lateToStart(i, nowMin)).length
 
-  const doingElapsed = doing?.todayLog?.startedAt ? Math.max(0, nowMin - minuteOfDay(doing.todayLog.startedAt)) : 0
+  const clockFrom = doing?.todayLog?.stageEnteredAt ?? doing?.todayLog?.startedAt
+  const doingElapsed = clockFrom ? minutesBetween(new Date(clockFrom).getTime(), nowMs) : 0
 
   return (
     <div className="flex-[1_0_190px] min-w-0 flex items-center gap-2.5 bg-paper border border-line rounded-xl px-3 py-2.5">

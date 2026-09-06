@@ -16,6 +16,19 @@ export function StationTag({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ─── StageChip ───────────────────────────────────────────────────────────
+// "MIX · 1/5" — where a staged job is in its chain. Blue-grey when the stage
+// is unattended (the job is resting), ink+gold when hands-on.
+export function StageChip({ label, passive }: { label: string; passive?: boolean }) {
+  return (
+    <span className={`font-mono text-[9px] font-semibold tracking-[0.04em] uppercase px-[6px] py-[2px] rounded-[4px] whitespace-nowrap ${
+      passive ? 'bg-blue-soft text-blue-text' : 'bg-ink text-gold'
+    }`}>
+      {label}
+    </span>
+  )
+}
+
 // ─── NeedChip ────────────────────────────────────────────────────────────
 // "→ LUNCH 11:30" — which service a task must be ready for, and when (PTNeed).
 export function NeedChip({ service }: { service: { name: string; timeMinutes: number } | null }) {

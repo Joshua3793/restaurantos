@@ -10,7 +10,10 @@ import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
   Link2, Package, ExternalLink, Printer, Star, Share2,
+  Hand, Hourglass, ArrowUp, ArrowDown,
 } from 'lucide-react'
+import { validateStages, stageTotals, newStageKey, type RecipeStage } from '@/lib/prep-stages'
+import { fmtMins } from '@/lib/prep-runsheet'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
@@ -106,6 +109,12 @@ export interface Recipe {
   isActive: boolean
   notes: string | null
   steps: string[]
+  /** Run-sheet timing on the recipe (PrepItem overrides sit above these). */
+  activeMinutes?: number | null
+  passiveMinutes?: number | null
+  passiveNote?: string | null
+  /** Staged prep chain (null = unstaged). When set, the timing totals derive from it. */
+  stages?: RecipeStage[] | null
   createdAt: string
   updatedAt: string
   ingredients: IngredientWithCost[]
@@ -878,6 +887,132 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 })
 
 // ─── RecipePanel ──────────────────────────────────────────────────────────────
+// ─── Stages editor (staged prep) ─────────────────────────────────────────────
+// A chain of hands-on / unattended stages on the recipe (Recipe.stages). Held as
+// a LOCAL draft: a half-edited chain (the last stage flipped to unattended before
+// the next hands-on one is added) would be rejected by the PATCH mid-edit, so it
+// saves the moment the chain validates and says why when it does not. Rows are
+// keyed by stage key and their inputs are uncontrolled, so a reorder remounts
+// them with the right values instead of dragging stale text along.
+function StageRow({ stage, index, total, onPatch, onMove, onRemove }: {
+  stage: RecipeStage
+  index: number
+  total: number
+  onPatch: (p: Partial<RecipeStage>) => void
+  onMove: (dir: -1 | 1) => void
+  onRemove: () => void
+}) {
+  const passive = stage.kind === 'PASSIVE'
+  return (
+    <li className="border border-line rounded-lg px-2.5 py-2 bg-paper">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[11px] font-semibold text-gold-2 bg-gold-soft w-[22px] h-[22px] rounded-[7px] grid place-items-center shrink-0">{index + 1}</span>
+        <input
+          defaultValue={stage.name}
+          onBlur={e => { if (e.target.value.trim() !== stage.name) onPatch({ name: e.target.value }) }}
+          placeholder="Stage name"
+          className="flex-1 min-w-0 text-sm border border-line rounded-lg px-2.5 py-1.5 outline-none focus:border-ink-3"
+        />
+        <button
+          type="button"
+          onClick={() => onPatch({ kind: passive ? 'ACTIVE' : 'PASSIVE' })}
+          title={passive ? 'Unattended — the job rests; click for hands-on' : 'Hands-on — a cook is working; click for unattended'}
+          className={`inline-flex items-center gap-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.04em] rounded-full px-2 py-1 border shrink-0 ${
+            passive ? 'bg-blue-soft text-blue-text border-transparent' : 'bg-ink text-paper border-ink'
+          }`}
+        >
+          {passive ? <Hourglass size={11} /> : <Hand size={11} />}
+          {passive ? 'Unattended' : 'Hands-on'}
+        </button>
+        <span className="inline-flex items-center gap-1 shrink-0">
+          <input
+            type="number" min={0} step={1} inputMode="numeric"
+            defaultValue={stage.minutes}
+            onBlur={e => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n) && n !== stage.minutes) onPatch({ minutes: n }) }}
+            className="w-[64px] text-sm font-mono border border-line rounded-lg px-2 py-1.5 outline-none focus:border-ink-3 text-right"
+          />
+          <span className="font-mono text-[10px] text-ink-4">min</span>
+        </span>
+      </div>
+      <div className="flex items-center gap-2 mt-1.5 pl-[30px]">
+        <input
+          defaultValue={stage.note ?? ''}
+          onBlur={e => { if ((e.target.value.trim() || undefined) !== stage.note) onPatch({ note: e.target.value.trim() || undefined }) }}
+          placeholder={passive ? 'note — e.g. overnight in the walk-in' : 'note (optional)'}
+          className="flex-1 min-w-0 text-[12px] text-ink-2 bg-transparent border-0 border-b border-line py-1 outline-none placeholder:text-ink-4 focus:border-ink-3"
+        />
+        <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Move up"
+          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-ink disabled:opacity-30">
+          <ArrowUp size={12} />
+        </button>
+        <button type="button" onClick={() => onMove(1)} disabled={index === total - 1} aria-label="Move down"
+          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-ink disabled:opacity-30">
+          <ArrowDown size={12} />
+        </button>
+        <button type="button" onClick={onRemove} aria-label="Remove stage"
+          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-red-text">
+          <X size={13} />
+        </button>
+      </div>
+    </li>
+  )
+}
+
+function StagesEditor({ stages, onSave, onClear }: {
+  stages: RecipeStage[] | null
+  onSave: (stages: RecipeStage[]) => void
+  onClear: () => void
+}) {
+  const [draft, setDraft] = useState<RecipeStage[]>(stages ?? [])
+  const [err, setErr] = useState<string | null>(null)
+  // Re-seed only when the SERVER value changes (a reload, another save landing) —
+  // never on our own optimistic echo, which would drop an in-flight invalid edit.
+  const seeded = useRef(JSON.stringify(stages ?? []))
+  useEffect(() => {
+    const next = JSON.stringify(stages ?? [])
+    if (next !== seeded.current) { seeded.current = next; setDraft(stages ?? []); setErr(null) }
+  }, [stages])
+
+  const commit = (next: RecipeStage[]) => {
+    setDraft(next)
+    if (next.length === 0) { setErr(null); seeded.current = '[]'; onClear(); return }
+    const v = validateStages(next)
+    if (v.ok) { setErr(null); seeded.current = JSON.stringify(v.stages); onSave(v.stages) }
+    else setErr(v.error)
+  }
+  const patch = (i: number, p: Partial<RecipeStage>) => commit(draft.map((st, j) => (j === i ? { ...st, ...p } : st)))
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (j < 0 || j >= draft.length) return
+    const next = [...draft]; [next[i], next[j]] = [next[j], next[i]]
+    commit(next)
+  }
+  const remove = (i: number) => commit(draft.filter((_, j) => j !== i))
+  const add = () => commit([...draft, { key: newStageKey(), name: `Stage ${draft.length + 1}`, kind: 'ACTIVE', minutes: 0 }])
+
+  return (
+    <div>
+      {draft.length > 0 && (
+        <ol className="flex flex-col gap-2">
+          {draft.map((st, i) => (
+            <StageRow key={st.key} stage={st} index={i} total={draft.length}
+              onPatch={p => patch(i, p)} onMove={dir => move(i, dir)} onRemove={() => remove(i)} />
+          ))}
+        </ol>
+      )}
+      {err && <div className="mt-2 text-[12px] text-red-text">{err} — not saved yet.</div>}
+      <button type="button" onClick={add} className="mt-2 text-[12.5px] font-medium text-ink-2 hover:text-ink">
+        + Add stage
+      </button>
+      {draft.length === 0 && (
+        <p className="font-mono text-[10.5px] text-ink-4 mt-1 tracking-[0.01em]">
+          For a method that spans days (cure, proof, hang): each stage is hands-on or unattended. Unstaged recipes are one job carrying the timing above.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueCenters }: {
   recipeId: string
   categories: RecipeCategory[]
@@ -1431,6 +1566,54 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
               className="mt-2 text-[12.5px] font-medium text-ink-2 hover:text-ink"
             >+ Add step</button>
           </div>
+
+          {/* Timing + stages — prep recipes only. With a stage chain the hands-on /
+              unattended totals are DERIVED from it (read-only, "from stages"); without
+              one the recipe carries its own two numbers, which the run sheet counts
+              back from (PrepItem overrides sit above either). */}
+          {!isMenu && (() => {
+            const chain = recipe.stages && recipe.stages.length > 0 ? recipe.stages : null
+            const totals = chain ? stageTotals(chain) : null
+            return (
+              <div className="mt-5">
+                <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">Timing</div>
+                {totals ? (
+                  <div className="flex items-center gap-4 text-[12.5px] text-ink-2 bg-bg rounded-lg px-3 py-2">
+                    <span>Hands-on <b className="font-mono text-ink">{fmtMins(totals.active)}</b></span>
+                    <span>Unattended <b className="font-mono text-ink">{fmtMins(totals.passive)}</b></span>
+                    <span className="ml-auto font-mono text-[10px] text-ink-4 uppercase tracking-[0.04em]">from stages</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="font-mono text-[9.5px] uppercase text-ink-4">Hands-on · min</span>
+                      <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.activeMinutes ?? ''}
+                        onBlur={e => { const v = e.target.value; if (v !== String(recipe.activeMinutes ?? '')) patchRecipe({ activeMinutes: v }) }}
+                        className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended · min</span>
+                      <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.passiveMinutes ?? ''}
+                        onBlur={e => { const v = e.target.value; if (v !== String(recipe.passiveMinutes ?? '')) patchRecipe({ passiveMinutes: v }) }}
+                        className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended is…</span>
+                      <input defaultValue={recipe.passiveNote ?? ''} placeholder="rest, cool, proof…"
+                        onBlur={e => { if (e.target.value !== (recipe.passiveNote ?? '')) patchRecipe({ passiveNote: e.target.value || null }) }}
+                        className="border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ink-3" />
+                    </label>
+                  </div>
+                )}
+                <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mt-4 mb-2">Stages{chain ? ` · ${chain.length}` : ''}</div>
+                <StagesEditor
+                  stages={chain}
+                  onSave={stages => patchRecipe({ stages })}
+                  onClear={() => patchRecipe({ stages: null })}
+                />
+              </div>
+            )
+          })()}
 
           {!isMenu && (
             <div className="bg-paper border border-line rounded-[12px] p-5">

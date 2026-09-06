@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     select: {
       id: true, revenueCenterId: true, estimatedPrepTime: true,
       activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
-      linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true } },
+      linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true, stages: true } },
     },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })

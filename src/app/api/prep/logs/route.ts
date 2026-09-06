@@ -44,7 +44,8 @@ export async function GET(req: NextRequest) {
       logDate: { gte: date, lt: nextDay },
     },
     include: {
-      prepItem: { select: { id: true, name: true, unit: true } },
+      // `stages` so the History tab can name a staged log's stage events.
+      prepItem: { select: { id: true, name: true, unit: true, linkedRecipe: { select: { stages: true } } } },
     },
     orderBy: { createdAt: 'asc' },
   })

@@ -9,7 +9,7 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { RcService } from '@/lib/service-hours'
 import {
   PLAN_URG_META, effectiveUrgency, planDayContext, planSchedule, planGroups,
-  suggestedDraftQty, fmtDeadline, draftListOrder as draftOrd,
+  suggestedDraftQty, fmtDeadline, draftListOrder as draftOrd, START_TODAY_KEY,
   type PlanSlot, type PlanDayContext,
 } from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
@@ -79,13 +79,14 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
   )
 }
 
-export function PlannerMobile({ items, allItems, cooks, stations, services, nowMin, canPlan, post, handlers }: {
+export function PlannerMobile({ items, allItems, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
   items: PrepItemRich[]
   allItems: PrepItemRich[]
   cooks: Cook[]
   stations: string[]
   services: RcService[]
   nowMin: number
+  nowMs?: number
   canPlan: boolean
   post: PrepPostInfo | null
   handlers: PlannerHandlers
@@ -98,7 +99,7 @@ export function PlannerMobile({ items, allItems, cooks, stations, services, nowM
   const onToggleBatch = (item: PrepItemRich, next: boolean) =>
     setBatchToggles(prev => new Map(prev).set(item.id, next))
 
-  const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
+  const ctx = useMemo(() => planDayContext(services, nowMin, nowMs), [services, nowMin, nowMs])
   const draft = useMemo(() => allItems.filter(i => i.isOnList), [allItems])
   const sched = useMemo<Map<string, PlanSlot>>(
     () => (ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map()),
@@ -176,11 +177,11 @@ export function PlannerMobile({ items, allItems, cooks, stations, services, nowM
               </button>
             </div>
             {groupPills([['urgency', 'Step'], ['station', 'Station'], ['category', 'Category']])}
-            {planGroups(items, groupBy, groupOpts).map(g => (
+            {planGroups(items, groupBy, { ...groupOpts, startToday: { ctx, nowMin } }).map(g => (
               <div key={g.key}>
                 <GroupHead g={g} count={g.rows.length} />
                 <div className="flex flex-col gap-1.5">
-                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
+                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
                 </div>
               </div>
             ))}

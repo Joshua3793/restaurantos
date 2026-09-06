@@ -3,7 +3,9 @@ import { useEffect } from 'react'
 import type { PrepItemRich, PrepItemDetail, RecipeStepsData } from '@/components/prep/types'
 import { toBoardRow, dotClass, fmtMin, fmtQty } from './prep-board-utils'
 import { effectiveUrgency, autoUrgencyOf, whyLabel } from '@/lib/prep-plan'
+import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
+import { StageList } from '@/components/prep/StageList'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
 
@@ -26,9 +28,11 @@ export interface DrawerProps {
   onStatusChange: (item: PrepItemRich, status: string, qty?: number) => void
   onPriorityChange: (id: string, priority: string) => void
   onEdit: (item: PrepItemRich) => void
+  /** Staged prep — move the live log to a stage (Back / Next in the stage list). */
+  onStage?: (item: PrepItemRich, stageIndex: number) => void
 }
 
-export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit }: DrawerProps) {
+export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage }: DrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
@@ -39,6 +43,9 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
   const r = item ? toBoardRow(item) : null
   // Urgency step behind the "why it's on the list" tint (null while closed).
   const urgency = item ? effectiveUrgency(item) : null
+  // Staged prep: the chain and where the live log is in it (null = unstaged).
+  const stages = item ? resolveStages(item.linkedRecipe) : null
+  const stageAt = stages && item?.todayLog?.status === 'IN_PROGRESS' ? currentStage(stages, item.todayLog) : null
   const u = r?.urgency ?? 'par'
   const uLabel = u === 'critical' ? 'CRITICAL' : u === 'low' ? 'NEEDED TODAY' : 'ON PAR'
   const barColor = u === 'critical' ? 'var(--red)' : u === 'low' ? 'var(--gold)' : 'var(--green)'
@@ -65,6 +72,7 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                 <button className="dr-close" onClick={onClose}><X /></button>
               </div>
               <div className="dr-chips">
+                {stageAt && stages && <span className="tag station">{stageLabel(stageAt.index, stages.length, stageAt.stage).toUpperCase()}</span>}
                 {r.stockOut && <span className="tag out">STOCK OUT</span>}
                 {r.overridden && <span className="tag ovr">✎ CHEF OVERRIDE</span>}
                 <span className="tag station">{r.station}</span>
@@ -123,6 +131,18 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                   })}
                 </div>
               </div>
+
+              {/* Stage chain — current stage lit; Back / Next mirror the run sheet. */}
+              {stages && (
+                <div className="dr-sec">
+                  <div className="sl">Stages{stageAt ? ` · ${stageLabel(stageAt.index, stages.length, stageAt.stage)}` : ''}</div>
+                  <StageList
+                    stages={stages}
+                    log={item.todayLog ?? null}
+                    onStage={onStage && view !== 'smart' && r.status === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
+                  />
+                </div>
+              )}
 
               {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}
               {item.linkedRecipeId && (

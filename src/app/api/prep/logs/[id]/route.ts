@@ -4,6 +4,9 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { validatePrepQty } from '@/lib/prep-utils'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { markPlanDirty, prepDayStart, postedOpenWhere } from '@/lib/prep-plan-server'
+import { isOpenPrepStatus } from '@/lib/prep-plan'
+import { resolveStages, appendStageEvent, STAGE_DONE_KEY } from '@/lib/prep-stages'
+import type { Prisma } from '@prisma/client'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -22,7 +25,8 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const { status, actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder } = body
+  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex } = body
+  let { status } = body
 
   // Planner draft fields (planned qty, chef note, bucket order) are the chef's:
   // LEAD+. `assignedTo` deliberately stays session-only — cooks claim their own.
@@ -37,6 +41,51 @@ export async function PUT(
 
   const existing = await prisma.prepLog.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // ── Staged prep ─────────────────────────────────────────────────────────
+  // Stage progress rides this ONE live log. A cook's `stageIndex` (Next / Back)
+  // is validated against the recipe's resolved chain, stamps `stageEnteredAt`,
+  // appends to the history (a correction is recorded, never erased) and forces
+  // the log IN_PROGRESS when it is still open. Start enters stage 0; Stop
+  // clears the stage and keeps the history; Done appends a terminal event.
+  // Unstaged items: none of this writes anything. No LEAD gate — cooks advance
+  // their own jobs, like Start / Done.
+  const stageStamp: { stageIndex?: number | null; stageEnteredAt?: Date | null; stageHistory?: Prisma.InputJsonValue } = {}
+  if (stageIndex !== undefined || status !== undefined) {
+    const owner = await prisma.prepItem.findUnique({
+      where: { id: existing.prepItemId },
+      select: { linkedRecipe: { select: { stages: true } } },
+    })
+    const stages = resolveStages(owner?.linkedRecipe)
+    const nowIso = new Date().toISOString()
+    const enter = (index: number) => {
+      stageStamp.stageIndex = index
+      stageStamp.stageEnteredAt = new Date(nowIso)
+      stageStamp.stageHistory = appendStageEvent(existing.stageHistory, {
+        index, key: stages![index].key, enteredAt: nowIso, ...(existing.assignedTo ? { byCookId: existing.assignedTo } : {}),
+      }) as unknown as Prisma.InputJsonValue
+    }
+    if (stageIndex !== undefined) {
+      if (!stages) return NextResponse.json({ error: 'This item has no stages' }, { status: 400 })
+      const idx = Number(stageIndex)
+      if (!Number.isInteger(idx) || idx < 0 || idx >= stages.length) {
+        return NextResponse.json({ error: `stageIndex must be between 0 and ${stages.length - 1}` }, { status: 400 })
+      }
+      enter(idx)
+      if (status === undefined && isOpenPrepStatus(existing.status)) status = 'IN_PROGRESS'
+    } else if (stages && status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS') {
+      // Start (or reopen): resume the stage the job was on, else the first — with a fresh clock.
+      const resume = existing.stageIndex != null && stages[existing.stageIndex] ? existing.stageIndex : 0
+      enter(resume)
+    } else if (status === 'NOT_STARTED') {
+      stageStamp.stageIndex = null
+      stageStamp.stageEnteredAt = null
+    } else if (stages && status !== undefined && COMPLETION_STATUSES.has(status) && existing.stageIndex != null) {
+      stageStamp.stageHistory = appendStageEvent(existing.stageHistory, {
+        index: stages.length, key: STAGE_DONE_KEY, enteredAt: nowIso, ...(existing.assignedTo ? { byCookId: existing.assignedTo } : {}),
+      }) as unknown as Prisma.InputJsonValue
+    }
+  }
 
   // Require actualPrepQty when completing
   const qty =
@@ -108,6 +157,7 @@ export async function PUT(
       ...(requiredQty   !== undefined && { requiredQty: requiredQty === null ? null : parseFloat(String(requiredQty)) }),
       ...(listOrder     !== undefined && { listOrder }),
       ...stamp,
+      ...stageStamp,
     },
   })
 

@@ -221,6 +221,9 @@ model Recipe {
   activeMinutes   Int?
   passiveMinutes  Int?
   passiveNote     String?
+  // Staged prep: RecipeStage[] (see src/lib/prep-stages.ts). null = no stages —
+  // the item is one implicit hands-on job carrying activeMinutes + passiveMinutes.
+  stages          Json?
   prepItems       PrepItem[]         @relation("PrepItemRecipe")
   category        RecipeCategory     @relation(fields: [categoryId], references: [id])
   inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
@@ -620,6 +623,10 @@ model PrepLog {
   // ── Smart Prep v2 planner ──
   listOrder         Int?       // chef's order within a priority bucket (per-day draft)
   postedAt          DateTime?  // set when the chef posts the list; membership in the kitchen's To Do
+  // ── Staged prep (rides the item's ONE live log; never one log per stage) ──
+  stageIndex        Int?       // index into the recipe's resolved stage chain; null when not staged
+  stageEnteredAt    DateTime?  // when the current stage began (epoch instant, not minute-of-day)
+  stageHistory      Json?      // StageEvent[] — [{ index, key, enteredAt, byCookId? }]
   prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
   revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 

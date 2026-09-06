@@ -237,8 +237,10 @@ export function formatShortAge(iso: string | null): string {
 
 export interface ShiftSummary { total: number; done: number; inProgress: number; resolved: number; critical: number; blocked: number; onPar: number }
 
-/** Shift-band rollup. `items` are the on-list items; statuses come from todayLog. */
-export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlocked: boolean; todayLog?: { status: string } | null }>): ShiftSummary {
+/** Shift-band rollup. `items` are the on-list items; statuses come from todayLog.
+ *  A job in the pipeline (`pipeline` set — any started job) is not a critical
+ *  stock-out to the band: it is being made. */
+export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlocked: boolean; todayLog?: { status: string } | null; pipeline?: unknown }>): ShiftSummary {
   let done = 0, inProgress = 0, resolved = 0, critical = 0, blocked = 0, onPar = 0
   for (const it of items) {
     const s = it.todayLog?.status ?? 'NOT_STARTED'
@@ -246,7 +248,7 @@ export function computeShiftSummary(items: Array<{ priority: PrepPriority; isBlo
     else if (s === 'SKIPPED') resolved++
     else if (s === 'IN_PROGRESS') inProgress++
     const isResolved = s === 'DONE' || s === 'SKIPPED'
-    if (!isResolved && it.priority === '911') critical++
+    if (!isResolved && it.priority === '911' && !it.pipeline) critical++
     if (!isResolved && it.isBlocked) blocked++
     if (it.priority === 'LATER') onPar++
   }

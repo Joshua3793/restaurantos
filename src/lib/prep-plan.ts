@@ -11,6 +11,11 @@ import {
 } from './prep-utils'
 import { convertQty, sameDimension } from './uom'
 import { fmtClock } from './prep-runsheet'
+import {
+  resolveStages, currentStage, nextActiveStage, stageReadyAt, restState, appendStageEvent, remainingChain,
+  type RecipeStage, type StageAt, type RestState, type StageEvent,
+} from './prep-stages'
+import { cadenceNudge, shelfLifeCap, keepableQty, type CadenceStats } from './prep-cadence'
 
 export type { PrepUrgency }
 export { urgencyToPriority }
@@ -24,6 +29,96 @@ export interface PlanFields {
   manualPriorityOverride: string | null
   unit: string
   shelfLifeDays?: number | null
+  /** A job already in flight (see `pipelineOf`) — evidence, not a stock credit. */
+  pipeline?: PipelineInfo | null
+  /** The make history (see prep-cadence.ts) — may raise TMRW → CLOSE and cap a suggestion. */
+  cadence?: CadenceStats | null
+}
+
+// ─── the pipeline: a job in flight is not a stock-out ──────────────────────
+// Stock is credited at DONE only, so to the stock maths a curing item is still
+// out. To the PLANNER it is in the pipeline: `/api/prep/items` attaches this
+// for any live IN_PROGRESS log (staged or not), the suggestion row shows it
+// instead of the stock-out triangle, "Add all critical" and the band's
+// critical count leave it alone, and the schedule charges only the hands-on
+// minutes still to come, from the time the next hands-on stage is due.
+// `autoUrgency` itself is untouched — the step still reads the stock.
+
+export interface PipelineInfo {
+  /** the planned qty of the job in flight (the chef's requiredQty, else the suggestion) */
+  qty: number
+  /** when the whole job is expected to be done — ISO; null when the clock is unknown */
+  readyAt: string | null
+  /** the current stage's name (staged jobs), else null */
+  stageName: string | null
+  /** hands-on minutes still to come */
+  remainingActiveMinutes: number
+  /** unattended minutes still to come */
+  remainingPassiveMinutes: number
+  /** when the next hands-on work can begin — now for a hands-on stage, the rest's ready time otherwise */
+  nextActiveAt: string | null
+}
+
+const RESTAURANT_TZ = 'America/Los_Angeles'
+
+/** "07:30" today, "Thu 07:30" another day — the restaurant's clock. */
+export function fmtPipelineReady(iso: string, nowMs: number = Date.now()): string {
+  const d = new Date(iso)
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: RESTAURANT_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const clock = new Intl.DateTimeFormat('en-GB', { timeZone: RESTAURANT_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(d)
+  if (day.format(d) === day.format(new Date(nowMs))) return clock
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: RESTAURANT_TZ, weekday: 'short' }).format(d)
+  return `${wd} ${clock}`
+}
+
+export function pipelineOf(
+  t: PlanFields & {
+    activeMinutes?: number | null
+    passiveMinutes?: number | null
+    estimatedPrepTime?: number | null
+    linkedRecipe?: { stages?: RecipeStage[] | null; baseYieldQty?: number; yieldUnit?: string } | null
+    todayLog?: (StageLogShape & { requiredQty?: number | string | null; actualPrepQty?: number | null }) | null
+  },
+  nowMs: number,
+): PipelineInfo | null {
+  const log = t.todayLog
+  if (!log || log.status !== 'IN_PROGRESS') return null
+  const qty = draftQty(t) || (t.targetToday ?? t.parLevel)
+  const stages = resolveStages(t.linkedRecipe)
+  const cur = stages ? currentStage(stages, log) : null
+  if (stages && cur) {
+    const rem = remainingChain(stages, log, nowMs)!
+    const resting = cur.stage.kind === 'PASSIVE'
+    const readyAtMs = resting ? stageReadyAt(log, cur.stage) : null
+    return {
+      qty,
+      readyAt: new Date(rem.readyAtMs).toISOString(),
+      stageName: cur.stage.name,
+      remainingActiveMinutes: rem.active,
+      remainingPassiveMinutes: rem.passive,
+      nextActiveAt: resting && readyAtMs != null ? new Date(readyAtMs).toISOString() : new Date(nowMs).toISOString(),
+    }
+  }
+  // Unstaged: one hands-on job carrying active + passive from its start.
+  const active = t.activeMinutes ?? t.estimatedPrepTime ?? 0
+  const passive = t.passiveMinutes ?? 0
+  const started = log.startedAt ? new Date(log.startedAt).getTime() : NaN
+  const elapsed = Number.isFinite(started) ? Math.max(0, Math.floor((nowMs - started) / 60_000)) : 0
+  const remainingActive = Math.max(0, active - elapsed)
+  const remainingPassive = Math.max(0, active + passive - Math.max(elapsed, active))
+  return {
+    qty,
+    readyAt: Number.isFinite(started) ? new Date(started + (active + passive) * 60_000).toISOString() : null,
+    stageName: null,
+    remainingActiveMinutes: remainingActive,
+    remainingPassiveMinutes: remainingPassive,
+    nextActiveAt: new Date(nowMs).toISOString(),
+  }
+}
+
+/** Re-derive `pipeline` after an optimistic status / stage change. */
+export function withPipeline<T extends Parameters<typeof pipelineOf>[0]>(t: T, nowMs: number = Date.now()): T & { pipeline: PipelineInfo | null } {
+  return { ...t, pipeline: pipelineOf(t, nowMs) }
 }
 
 export const PLAN_URG_META: Record<PrepUrgency, {
@@ -41,17 +136,42 @@ export const PLAN_URG_META: Record<PrepUrgency, {
   TMRW:  { label: 'Tomorrow',               short: 'TMRW',  stock: 'at par — building ahead',             when: 'for tomorrow’s service',  hex: '#16a34a', dotClass: 'bg-green', softClass: 'bg-green-soft', textClass: 'text-green-text', barClass: 'bg-green' },
 }
 
-export const effectiveUrgency = (t: PlanFields): PrepUrgency =>
-  normalizeUrgency(t.manualPriorityOverride) ?? autoUrgency(t.onHand, t.parLevel, t.targetToday)
+// Cadence sits AFTER autoUrgency and only ever raises TMRW → CLOSE (see
+// cadenceNudge); a manual override is never nudged. `now` defaults to the wall
+// clock so every call site keeps its one-argument shape — pass a fixed instant
+// in tests. Without `cadence` on the item every one of these is byte-identical
+// to the pre-cadence rule.
+const nudged = (t: PlanFields, now: number) =>
+  cadenceNudge(autoUrgency(t.onHand, t.parLevel, t.targetToday), t.cadence, new Date(now))
 
-export const autoUrgencyOf = (t: PlanFields): PrepUrgency =>
-  autoUrgency(t.onHand, t.parLevel, t.targetToday)
+export const autoUrgencyOf = (t: PlanFields, now: number = Date.now()): PrepUrgency =>
+  nudged(t, now).urgency
 
-export const autoPriority = (t: PlanFields): PrepPriority =>
-  computePriority(t.onHand, t.parLevel, t.minThreshold, t.targetToday, null)
+export const effectiveUrgency = (t: PlanFields, now: number = Date.now()): PrepUrgency =>
+  normalizeUrgency(t.manualPriorityOverride) ?? autoUrgencyOf(t, now)
 
-export const effectivePriority = (t: PlanFields): PrepPriority =>
-  computePriority(t.onHand, t.parLevel, t.minThreshold, t.targetToday, t.manualPriorityOverride)
+/** The cadence sentence when it raised the step (null when it did not, or an override stands). */
+export const cadenceReason = (t: PlanFields, now: number = Date.now()): string | null =>
+  normalizeUrgency(t.manualPriorityOverride) ? null : nudged(t, now).reason
+
+export const autoPriority = (t: PlanFields, now: number = Date.now()): PrepPriority =>
+  urgencyToPriority(autoUrgencyOf(t, now))
+
+export const effectivePriority = (t: PlanFields, now: number = Date.now()): PrepPriority =>
+  urgencyToPriority(effectiveUrgency(t, now))
+
+/**
+ * The par-gap suggestion, capped at what will keep (usage × shelf life) when
+ * the cadence gives a usage estimate — never below one step. Identical to
+ * `computeSuggestedQty` without cadence.
+ */
+export function cappedSuggestedQty(t: PlanFields): number {
+  const raw = computeSuggestedQty(t.onHand, t.parLevel, t.targetToday)
+  return shelfLifeCap(raw, t.shelfLifeDays, t.cadence?.usagePerDayEst, prepStep(t.unit))
+}
+
+export const isShelfCapped = (t: PlanFields): boolean =>
+  cappedSuggestedQty(t) < computeSuggestedQty(t.onHand, t.parLevel, t.targetToday) - 1e-9
 
 /** Sensible stepper increment per unit. */
 export function prepStep(unit: string): number {
@@ -69,7 +189,7 @@ export function roundPrepQty(v: number, unit: string): number {
 
 /** Rounded make-suggestion in the item's UOM: 0 at/above par, otherwise ≥ one step. */
 export function suggestedDraftQty(t: PlanFields): number {
-  const raw = computeSuggestedQty(t.onHand, t.parLevel, t.targetToday)
+  const raw = cappedSuggestedQty(t)
   if (raw <= 0) return 0
   return Math.max(prepStep(t.unit), roundPrepQty(raw, t.unit))
 }
@@ -77,15 +197,26 @@ export function suggestedDraftQty(t: PlanFields): number {
 const fmtQ = (q: number, u: string) => `${q % 1 === 0 ? q : +q.toFixed(2)} ${u}`
 
 /** Read-only evidence: why the system put the item at its step. */
-export function whyLabel(t: PlanFields): string {
+export function whyLabel(t: PlanFields, now: number = Date.now()): string {
   const oh = t.onHand ?? 0, par = t.parLevel ?? 0
+  if (t.pipeline) {
+    const when = t.pipeline.readyAt ? ` · ready ${fmtPipelineReady(t.pipeline.readyAt)}` : ''
+    return `in the pipeline${t.pipeline.stageName ? ` (${t.pipeline.stageName.toLowerCase()})` : ''}${when}`
+  }
   const override = normalizeUrgency(t.manualPriorityOverride)
   if (override) return `chef moved it to ${PLAN_URG_META[override].label.toLowerCase()}`
-  if (par > 0 && oh <= 0) return 'stock out'
-  if (t.targetToday != null && oh < t.targetToday) return `under today's target ${fmtQ(t.targetToday, t.unit)}`
-  if (par > 0 && oh < par * 0.5) return `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
-  if (oh < par) return `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
-  return t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
+  const stock =
+    par > 0 && oh <= 0 ? 'stock out'
+    : t.targetToday != null && oh < t.targetToday ? `under today's target ${fmtQ(t.targetToday, t.unit)}`
+    : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
+    : oh < par ? `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
+    : t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
+  // Cadence evidence appends: the rhythm that raised the step, and a shelf-life cap.
+  const extras: string[] = []
+  const rhythm = cadenceReason(t, now)
+  if (rhythm) extras.push(rhythm)
+  if (isShelfCapped(t)) extras.push(`capped to ${t.shelfLifeDays}d shelf life`)
+  return extras.length ? `${stock} · ${extras.join(' · ')}` : stock
 }
 
 const COMPLETE = new Set(['DONE', 'PARTIAL'])
@@ -109,13 +240,85 @@ export function applyStatusToItem<T extends PlanFields & {
   if (completing) onHand += (actualQty ?? prevQty) - prevQty
   else onHand -= prevQty
   const manualPriorityOverride = completing ? null : item.manualPriorityOverride
+  // Just made: the cadence's "last made" is now, so it is not due again until
+  // one rhythm from now — otherwise a stale `dueByCadenceAt` would raise the
+  // item straight back to Before close.
+  const cadence = completing && item.cadence
+    ? {
+        ...item.cadence,
+        lastMadeAt: new Date().toISOString(),
+        dueByCadenceAt: item.cadence.medianIntervalDays
+          ? new Date(Date.now() + item.cadence.medianIntervalDays * 86_400_000).toISOString()
+          : null,
+      }
+    : item.cadence
+  const next = { ...item, onHand, manualPriorityOverride, ...(cadence !== undefined ? { cadence } : {}) }
   return {
-    ...item,
-    onHand,
-    manualPriorityOverride,
-    priority: computePriority(onHand, item.parLevel, item.minThreshold, item.targetToday, manualPriorityOverride),
-    suggestedQty: computeSuggestedQty(onHand, item.parLevel, item.targetToday),
+    ...next,
+    priority: effectivePriority(next),
+    suggestedQty: cappedSuggestedQty(next),
   }
+}
+
+// ─── staged prep — the live log's stage, optimistically ────────────────────
+// Stage progress rides the item's ONE live log. These mirror the server rules
+// in PUT /api/prep/logs/[id] so the row moves before the request lands.
+
+export interface StageLogShape {
+  status?: string
+  startedAt?: string | null
+  stageIndex?: number | null
+  stageEnteredAt?: string | null
+  stageHistory?: StageEvent[] | null
+}
+
+/** Just the stage columns — never `status`, so a spread cannot widen a typed log. */
+export type StageFields = Partial<Pick<StageLogShape, 'stageIndex' | 'stageEnteredAt' | 'stageHistory'>>
+
+/** The log fields a status change writes on a STAGED item (empty for an unstaged one). */
+export function stageFieldsForStatus(
+  item: { linkedRecipe?: { stages?: RecipeStage[] | null } | null; todayLog?: StageLogShape | null },
+  newStatus: string,
+  nowIso: string,
+): StageFields {
+  const stages = resolveStages(item.linkedRecipe)
+  if (!stages) return {}
+  const log = item.todayLog
+  if (newStatus === 'NOT_STARTED') return { stageIndex: null, stageEnteredAt: null }
+  if (newStatus === 'IN_PROGRESS' && log?.status !== 'IN_PROGRESS') {
+    const index = log?.stageIndex ?? 0
+    const stage = stages[index] ?? stages[0]
+    return {
+      stageIndex: stages[index] ? index : 0,
+      stageEnteredAt: nowIso,
+      stageHistory: appendStageEvent(log?.stageHistory, { index: stages[index] ? index : 0, key: stage.key, enteredAt: nowIso }),
+    }
+  }
+  return {}
+}
+
+/**
+ * Move the live log to `stageIndex` (Next / Back): status becomes IN_PROGRESS,
+ * the stage clock restarts, and the move is appended to the history. Stock is
+ * untouched — only DONE credits it.
+ */
+export function applyStageToItem<T extends { linkedRecipe?: { stages?: RecipeStage[] | null } | null; todayLog?: (StageLogShape & { id: string }) | null }>(
+  item: T,
+  stageIndex: number,
+  nowIso: string,
+): T {
+  const stages = resolveStages(item.linkedRecipe)
+  if (!stages || !stages[stageIndex] || !item.todayLog) return item
+  const log = item.todayLog
+  const todayLog = {
+    ...log,
+    status: 'IN_PROGRESS',
+    startedAt: log.startedAt ?? nowIso,
+    stageIndex,
+    stageEnteredAt: nowIso,
+    stageHistory: appendStageEvent(log.stageHistory, { index: stageIndex, key: stages[stageIndex].key, enteredAt: nowIso }),
+  } as NonNullable<T['todayLog']>
+  return { ...item, todayLog }
 }
 
 /** Chef's within-bucket order for a draft row (unordered rows sink). */
@@ -163,9 +366,23 @@ export function batchesToQty(t: BatchFields, n: number): number {
 export function suggestedBatches(t: BatchFields): number | null {
   const b = batchYield(t)
   if (!b) return null
-  const raw = computeSuggestedQty(t.onHand, t.parLevel, t.targetToday)
+  const raw = cappedSuggestedQty(t)
   if (raw <= 0) return 0
   return Math.max(0.5, Math.ceil((raw / b) * 2) / 2)
+}
+
+/**
+ * The qty for a LONG-LEAD job (one that must start today for a later
+ * deadline): the most that will keep — usage × shelf life — since the effort
+ * is per batch. Falls back to the ordinary suggestion when either is unknown.
+ * Batch items round up to the half batch, like every other seed.
+ */
+export function longLeadQty(t: BatchFields): number {
+  const keep = keepableQty(t.shelfLifeDays, t.cadence?.usagePerDayEst)
+  if (keep == null) return defaultDraftQty(t)
+  const b = batchYield(t)
+  if (b) return batchesToQty(t, Math.max(0.5, Math.ceil((keep / b) * 2) / 2))
+  return Math.max(prepStep(t.unit), roundPrepQty(keep, t.unit))
 }
 
 export const fmtBatch = (n: number) => `×${n % 1 === 0 ? n : n.toFixed(1)}`
@@ -200,6 +417,9 @@ export interface PlanDayContext {
   /** 0 while the day is still on, 1440 once it has rolled to tomorrow — added to
    *  an item's OWN service start so its deadline rolls with the day */
   roll: number
+  /** the epoch instant `shiftStart` corresponds to — lets the schedule place a
+   *  pipeline job's `nextActiveAt` on the minute axis. Absent ⇒ slot from shiftStart. */
+  nowMs?: number
 }
 
 const DEFAULT_CLOSE = 22 * 60
@@ -224,6 +444,7 @@ const DEFAULT_CLOSE = 22 * 60
 export function planDayContext(
   services: Array<{ timeMinutes: number; endMinutes: number | null }>,
   nowMin: number,
+  nowMs?: number,
 ): PlanDayContext | null {
   if (!services.length) return null
   const starts = services.map(s => s.timeMinutes).sort((a, b) => a - b)
@@ -239,7 +460,7 @@ export function planDayContext(
   const doorsOpen = roll
     ? starts[0] + roll
     : (starts.find(s => s >= nowMin) ?? starts[0])
-  return { doorsOpen, close, shiftStart: nowMin, roll }
+  return { doorsOpen, close, shiftStart: nowMin, roll, ...(nowMs != null ? { nowMs } : {}) }
 }
 
 const MID_OFFSET = 120
@@ -271,21 +492,34 @@ export interface PlanSlot {
   over: number
 }
 
-interface SchedulableItem extends PlanFields {
-  id: string
-  station: string | null
+/** What the ladder needs to time a row — the planner's row shape, minus identity. */
+export interface TimedFields extends PlanFields {
   activeMinutes?: number | null
   passiveMinutes?: number | null
   estimatedPrepTime?: number | null
   service?: { timeMinutes: number } | null
 }
 
-const activeMin = (t: SchedulableItem) => t.activeMinutes ?? t.estimatedPrepTime ?? 0
-const passiveMin = (t: SchedulableItem) => t.passiveMinutes ?? 0
+interface SchedulableItem extends TimedFields {
+  id: string
+  station: string | null
+}
+
+const activeMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingActiveMinutes : (t.activeMinutes ?? t.estimatedPrepTime ?? 0)
+const passiveMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingPassiveMinutes : (t.passiveMinutes ?? 0)
+
+/** The earliest minute a job in flight can take a cook again (shift start otherwise). */
+function earliestStart(t: SchedulableItem, ctx: PlanDayContext): number {
+  const at = t.pipeline?.nextActiveAt
+  if (!at || ctx.nowMs == null) return ctx.shiftStart
+  return Math.max(ctx.shiftStart, msToLadderMin(new Date(at).getTime(), { nowMs: ctx.nowMs, nowMin: ctx.shiftStart }))
+}
 
 /**
  * Sequence each station's draft through the crew actually on it: each item gets
- * its own slot; passive time doesn't hold a cook. Deadline-first order.
+ * its own slot; passive time doesn't hold a cook. Deadline-first order. A job
+ * already in flight is charged only its REMAINING hands-on minutes, from the
+ * time its next hands-on stage is due — not from shift start.
  */
 export function planSchedule<T extends SchedulableItem>(
   draft: T[],
@@ -304,11 +538,14 @@ export function planSchedule<T extends SchedulableItem>(
       .sort((a, b) =>
         a.dl - b.dl ||
         PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(a.t)) - PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(b.t)) ||
+        // within a deadline, what can start now goes before a job still resting
+        // (every ordinary row ties here at shift start, so their order is unchanged)
+        earliestStart(a.t, ctx) - earliestStart(b.t, ctx) ||
         ord(a.t) - ord(b.t))
       .forEach(({ t, dl }) => {
         let i = 0
         cursors.forEach((c, j) => { if (c < cursors[i]) i = j })
-        const start = cursors[i]
+        const start = Math.max(cursors[i], earliestStart(t, ctx))
         cursors[i] = start + activeMin(t)
         const end = start + activeMin(t) + passiveMin(t)
         map.set(t.id, { start, end, deadline: dl, fits: end <= dl, over: Math.max(0, end - dl) })
@@ -362,10 +599,34 @@ export interface PlanGroup<T> {
   rows: T[]
 }
 
+// ─── lead-time promotion (Layer C(1)) ──────────────────────────────────────
+// An item whose FULL lead (Σ stages, or active + passive) exceeds the runway
+// to its step deadline must start today, whatever its stock: a 3-day cure for
+// Thursday is a today job. The item's own step deadline is the anchor — for a
+// TMRW item that is tomorrow's doors — so one test covers both spec cases.
+// A job already in flight is not promoted, and a step whose deadline has
+// already passed is simply late (the ladder says so), not "start today for".
+
+export function mustStartToday(t: TimedFields, ctx: PlanDayContext | null, nowMin: number): boolean {
+  if (!ctx || t.pipeline) return false
+  const lead = activeMin(t) + passiveMin(t)
+  if (lead <= 0) return false
+  const { deadline, startBy } = ladderTimes(t, ctx)
+  return deadline != null && startBy != null && deadline > nowMin && startBy < nowMin
+}
+
+export const START_TODAY_KEY = 'START'
+
 export function planGroups<T extends PlanFields & { station: string | null; category: string }>(
   rows: T[],
   by: 'urgency' | 'station' | 'category',
-  opts: { stations?: string[]; crew?: Array<{ homeStation: string | null }>; ord?: (t: T) => number } = {},
+  opts: {
+    stations?: string[]
+    crew?: Array<{ homeStation: string | null }>
+    ord?: (t: T) => number
+    /** urgency grouping only: lift the long-lead items into a "Start today for …" group above the steps */
+    startToday?: { ctx: PlanDayContext | null; nowMin: number }
+  } = {},
 ): Array<PlanGroup<T>> {
   const ord = opts.ord ?? (() => 0)
   const byUrg = (a: T, b: T) =>
@@ -388,15 +649,39 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
       .map(c => ({ key: c, label: c, rows: rows.filter(t => t.category === c).sort(byUrg) }))
       .filter(g => g.rows.length)
   }
-  return PLAN_URG_ORDER_LOCAL
-    .map(u => ({
-      key: u,
-      label: PLAN_URG_META[u].label,
-      sub: PLAN_URG_META[u].stock,
-      urg: u,
-      rows: rows.filter(t => effectiveUrgency(t) === u).sort((a, b) => ord(a) - ord(b)),
-    }))
-    .filter(g => g.rows.length)
+  const groups: Array<PlanGroup<T>> = []
+  let pool = rows
+  if (opts.startToday) {
+    const { ctx, nowMin } = opts.startToday
+    const must = rows
+      .filter(t => mustStartToday(t as unknown as TimedFields, ctx, nowMin))
+      .map(t => ({ t, dl: ladderTimes(t as unknown as TimedFields, ctx).deadline ?? Infinity }))
+      .sort((a, b) => a.dl - b.dl || ord(a.t) - ord(b.t))
+    if (must.length) {
+      const first = must[0].dl
+      const same = must.every(m => m.dl === first)
+      groups.push({
+        key: START_TODAY_KEY,
+        label: 'Start today for …',
+        sub: Number.isFinite(first) ? `lead time runs past the runway · by ${fmtDeadline(first, fmtClock)}${same ? '' : ' and later'}` : undefined,
+        rows: must.map(m => m.t),
+      })
+      const lifted = new Set(must.map(m => m.t))
+      pool = rows.filter(t => !lifted.has(t))
+    }
+  }
+  return [
+    ...groups,
+    ...PLAN_URG_ORDER_LOCAL
+      .map(u => ({
+        key: u,
+        label: PLAN_URG_META[u].label,
+        sub: PLAN_URG_META[u].stock,
+        urg: u,
+        rows: pool.filter(t => effectiveUrgency(t) === u).sort((a, b) => ord(a) - ord(b)),
+      }))
+      .filter(g => g.rows.length),
+  ]
 }
 
 // ─── the unified ladder (the To Do reads the plan the chef posted) ─────────
@@ -407,7 +692,7 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
 
 export interface LadderTimes { deadline: number | null; startBy: number | null }
 
-export function ladderTimes<T extends SchedulableItem>(t: T, ctx: PlanDayContext | null): LadderTimes {
+export function ladderTimes(t: TimedFields, ctx: PlanDayContext | null): LadderTimes {
   if (!ctx) return { deadline: null, startBy: null }
   const deadline = urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null)
   return { deadline, startBy: deadline - activeMin(t) - passiveMin(t) }
@@ -417,19 +702,92 @@ export interface LadderItem extends SchedulableItem {
   name: string
   startByMinutes: number | null
   deadlineMinutes?: number | null
-  todayLog?: { listOrder?: number | null } | null
+  todayLog?: { listOrder?: number | null; status?: string; stageIndex?: number | null; stageEnteredAt?: string | null } | null
+  linkedRecipe?: { stages?: RecipeStage[] | null } | null
+  /** Attached by `withLadderTimes` when the job is resting in a PASSIVE stage. */
+  rest?: RestInfo | null
+}
+
+// ─── rest rows ─────────────────────────────────────────────────────────────
+// A staged job whose CURRENT stage is unattended leaves Working On and sits in
+// the ladder at the time its next hands-on stage is due. The clock is EPOCH
+// MS (a proof entered last evening is ready this morning); `readyAtMin` is
+// that instant on the run sheet's minute-of-day axis, so it sorts against
+// ordinary start-by values and formats through fmtStartBy with a day offset.
+
+export interface RestInfo {
+  index: number
+  stage: RecipeStage
+  total: number
+  /** the stage the cook advances to (null only for a malformed chain) */
+  next: StageAt | null
+  readyAtMs: number
+  readyAtMin: number
+  state: RestState
+}
+
+/** The run sheet's "now" — both bases, so epoch instants can sit on the minute axis. */
+export interface LadderNow { nowMs: number; nowMin: number }
+
+export const msToLadderMin = (ms: number, now: LadderNow): number =>
+  Math.round(now.nowMin + (ms - now.nowMs) / 60_000)
+
+export function restInfo(t: LadderItem, now: LadderNow): RestInfo | null {
+  const log = t.todayLog
+  if (!log || log.status !== 'IN_PROGRESS') return null
+  const stages = resolveStages(t.linkedRecipe)
+  if (!stages) return null
+  const cur = currentStage(stages, log)
+  if (!cur || cur.stage.kind !== 'PASSIVE') return null
+  const readyAtMs = stageReadyAt(log, cur.stage)
+  if (readyAtMs == null) return null
+  return {
+    index: cur.index,
+    stage: cur.stage,
+    total: stages.length,
+    next: nextActiveStage(stages, cur.index),
+    readyAtMs,
+    readyAtMin: msToLadderMin(readyAtMs, now),
+    state: restState(readyAtMs, now.nowMs),
+  }
 }
 
 /**
  * Overwrite `startByMinutes` with the step-aware value (and attach the deadline)
  * so every row, strip and count on the run sheet reads ONE number. Without a
  * day context (on-demand RC) the API's own value is kept.
+ *
+ * With `now`, a resting job gets `rest` attached and its `startByMinutes`
+ * becomes the rest's ready time, so `ladderOrder` places it without a second
+ * rule. Callers that pass no `now` get the pre-stages behaviour exactly.
  */
-export function withLadderTimes<T extends LadderItem>(items: T[], ctx: PlanDayContext | null): Array<T & { deadlineMinutes: number | null }> {
+export function withLadderTimes<T extends LadderItem>(
+  items: T[],
+  ctx: PlanDayContext | null,
+  now?: LadderNow,
+): Array<T & { deadlineMinutes: number | null; rest?: RestInfo | null }> {
   return items.map(t => {
     const { deadline, startBy } = ladderTimes(t, ctx)
-    return { ...t, startByMinutes: ctx ? startBy : t.startByMinutes, deadlineMinutes: deadline }
+    const base = { ...t, startByMinutes: ctx ? startBy : t.startByMinutes, deadlineMinutes: deadline }
+    if (!now) return base
+    const rest = restInfo(t, now)
+    return rest ? { ...base, startByMinutes: rest.readyAtMin, rest } : { ...base, rest: null }
   })
+}
+
+/**
+ * Late to start — the ONE test the ladder's section, the status band and the
+ * crew strip share. A rest row is late only once it is `overdue` (past
+ * readyAt + REST_GRACE_MINUTES); merely ready is not late.
+ */
+export function lateToStart(t: LadderItem, nowMin: number): boolean {
+  if (t.rest) return t.rest.state === 'overdue'
+  return t.startByMinutes != null && t.startByMinutes < nowMin
+}
+
+/** `lateToStart` gated on a day context — without one there is no "Late to start" section. */
+export function isLateToStart(t: LadderItem, nowMin: number, ctx: PlanDayContext | null): boolean {
+  return ctx != null && lateToStart(t, nowMin)
 }
 
 const orInf = (v: number | null | undefined) => (v == null ? Infinity : v)
@@ -455,7 +813,7 @@ export function runSheetGroups<T extends LadderItem>(
   ctx: PlanDayContext | null,
   nowMin: number,
 ): Array<LadderGroup<T>> {
-  const isLate = (t: T) => ctx != null && t.startByMinutes != null && t.startByMinutes < nowMin
+  const isLate = (t: T) => isLateToStart(t, nowMin, ctx)
   const late = rows.filter(isLate).sort(ladderOrder)
   const rest = rows.filter(t => !isLate(t))
   const groups: Array<LadderGroup<T>> = []

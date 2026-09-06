@@ -12,7 +12,9 @@ import {
 import { PrepItemRich, PrepItemDetail, PrepStatus, RecipeStepsData } from '@/components/prep/types'
 import { PREP_STATE_META, formatShortAge, PrepCountdown } from '@/lib/prep-utils'
 import { whyLabel, effectiveUrgency } from '@/lib/prep-plan'
+import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
+import { StageList } from '@/components/prep/StageList'
 
 interface PrepDrawerProps {
   item: PrepItemRich | null
@@ -37,6 +39,8 @@ interface PrepDrawerProps {
    * may not change the list (below LEAD, read-only, or no RC picked) and the action hides.
    */
   onRemove?: (item: PrepItemRich) => void
+  /** Staged prep — move the live log to a stage (Back / Next in the stage list). */
+  onStage?: (item: PrepItemRich, stageIndex: number) => void
 }
 
 type StateKey = 'not-started' | 'in-progress' | 'done' | 'skipped'
@@ -152,6 +156,7 @@ export default function PrepDrawer({
   onComplete,
   onOpenSubRecipe,
   onRemove,
+  onStage,
 }: PrepDrawerProps) {
   const open = item !== null
 
@@ -170,6 +175,9 @@ export default function PrepDrawer({
   // Urgency step for the "why it's on the list" tint. Hooks/derivations run on
   // every render, so it has to tolerate the closed (item === null) state.
   const urgency = item ? effectiveUrgency(item) : null
+  // Staged prep: the chain and where the live log is in it (null = unstaged).
+  const stages = item ? resolveStages(item.linkedRecipe) : null
+  const stageAt = stages && item?.todayLog?.status === 'IN_PROGRESS' ? currentStage(stages, item.todayLog) : null
 
   const shortCount = detail?.ingredientShortCount ?? item?.ingredientShortCount ?? 0
   const totalCount =
@@ -221,8 +229,13 @@ export default function PrepDrawer({
                 <IcX size={15} />
               </button>
               <div className="flex-1 min-w-0">
-                {(item.priority === '911' || item.isBlocked) && (
+                {(item.priority === '911' || item.isBlocked || stageAt) && (
                   <div className="flex items-center gap-[7px] mb-2 flex-wrap">
+                    {stageAt && stages && (
+                      <Pill className={stageAt.stage.kind === 'PASSIVE' ? 'bg-blue-soft text-blue-text' : 'bg-ink text-gold'}>
+                        {stageLabel(stageAt.index, stages.length, stageAt.stage)}
+                      </Pill>
+                    )}
                     {item.priority === '911' && (
                       <Pill className="bg-red-soft text-red-text">
                         <span className="w-1.5 h-1.5 rounded-full bg-red" />
@@ -283,6 +296,16 @@ export default function PrepDrawer({
                     </div>
                   )}
                 </div>
+                {/* Stage chain — current stage lit, Back / Next mirror the run sheet. */}
+                {stages && (
+                  <div className="mt-2.5">
+                    <StageList
+                      stages={stages}
+                      log={item.todayLog ?? null}
+                      onStage={onStage && stateKey === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}

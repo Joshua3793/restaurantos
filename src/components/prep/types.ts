@@ -1,4 +1,7 @@
 import type { PrepPriority } from '@/lib/prep-utils'
+import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
+import type { RestInfo, PipelineInfo } from '@/lib/prep-plan'
+import type { CadenceStats } from '@/lib/prep-cadence'
 
 export type { PrepPriority }
 
@@ -30,6 +33,12 @@ export interface PrepLogData {
   listOrder: number | null
   /** Set when the chef posts the list — membership in the kitchen's To Do. */
   postedAt: string | null
+  /** Staged prep — index into the recipe's chain; null/undefined when not staged. */
+  stageIndex?: number | null
+  /** When the current stage began (ISO instant). */
+  stageEnteredAt?: string | null
+  /** Append-only StageEvent[] (a correction is recorded, not erased). */
+  stageHistory?: StageEvent[] | null
 }
 
 /** Header row for a posted prep list (PrepPost) — the To Do provenance band. */
@@ -66,6 +75,8 @@ export interface PrepItemRich {
     name: string
     yieldUnit: string
     baseYieldQty: number
+    /** The resolved stage chain, or null when the recipe is unstaged. */
+    stages?: RecipeStage[] | null
   } | null
   linkedInventoryItemId: string | null
   onHand: number
@@ -91,6 +102,13 @@ export interface PrepItemRich {
   /** The step's deadline for the day (minute-of-day, ≥1440 ⇒ tomorrow). Attached
    *  on the run sheet by `withLadderTimes`; absent on API payloads. */
   deadlineMinutes?: number | null
+  /** A staged job resting in an unattended stage — attached by `withLadderTimes`
+   *  on the run sheet (null = hands-on or unstaged); absent on API payloads. */
+  rest?: RestInfo | null
+  /** A job in flight (any live IN_PROGRESS log) — planner evidence, never a stock credit. */
+  pipeline?: PipelineInfo | null
+  /** The make history over the last 60 days (see prep-cadence.ts). */
+  cadence?: CadenceStats | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
   /** RAW item-level overrides — what the edit form binds to. Distinct from the
    *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back
@@ -117,6 +135,8 @@ export interface RecipeStepsData {
   id: string
   name: string
   steps: string[]
+  /** Staged prep chain (null/undefined = unstaged) — the drawer lists it with the current stage lit. */
+  stages?: RecipeStage[] | null
   baseYieldQty: number
   yieldUnit: string
   totalCost: number
