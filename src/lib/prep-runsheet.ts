@@ -1,16 +1,33 @@
 // Pure time + batch-scaling math for the prep run sheet.
+import { resolveStages, stageTotals } from './prep-stages'
+
 export type RunItemTimes = {
   activeMinutesOverride: number | null
   passiveMinutesOverride: number | null
   passiveNoteOverride: string | null
-  linkedRecipe: { activeMinutes: number | null; passiveMinutes: number | null; passiveNote: string | null } | null
+  linkedRecipe: {
+    activeMinutes: number | null
+    passiveMinutes: number | null
+    passiveNote: string | null
+    /** `Recipe.stages` (Json) — when it resolves to a chain, the totals derive from it. */
+    stages?: unknown
+  } | null
 }
 
+// Override > stage chain (Σ ACTIVE / Σ PASSIVE) > recipe minute columns > null.
+// A staged recipe's minute columns are ignored on purpose: the chain IS the
+// method, and start-by must count back the whole of it.
 export function resolveActive(i: RunItemTimes): number | null {
-  return i.activeMinutesOverride ?? i.linkedRecipe?.activeMinutes ?? null
+  if (i.activeMinutesOverride != null) return i.activeMinutesOverride
+  const stages = resolveStages(i.linkedRecipe)
+  if (stages) return stageTotals(stages).active
+  return i.linkedRecipe?.activeMinutes ?? null
 }
 export function resolvePassive(i: RunItemTimes): number | null {
-  return i.passiveMinutesOverride ?? i.linkedRecipe?.passiveMinutes ?? null
+  if (i.passiveMinutesOverride != null) return i.passiveMinutesOverride
+  const stages = resolveStages(i.linkedRecipe)
+  if (stages) return stageTotals(stages).passive
+  return i.linkedRecipe?.passiveMinutes ?? null
 }
 export function resolvePassiveNote(i: RunItemTimes): string | null {
   return i.passiveNoteOverride ?? i.linkedRecipe?.passiveNote ?? null

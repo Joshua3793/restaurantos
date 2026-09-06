@@ -10,6 +10,7 @@ import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } fro
 import { prepDayRange } from '@/lib/prep-day'
 import { NEWEST_LOG } from '@/lib/prep-plan-server'
 import { isLiveLog } from '@/lib/prep-plan'
+import { resolveStages } from '@/lib/prep-stages'
 
 // GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
 // read is ever refactored away, a prerendered route would serve GET only and
@@ -26,6 +27,7 @@ const recipeInclude = {
     activeMinutes: true,
     passiveMinutes: true,
     passiveNote: true,
+    stages: true,
     inventoryItem: {
       select: { id: true, stockOnHand: true, baseUnit: true },
     },
@@ -182,7 +184,7 @@ export async function GET(req: NextRequest) {
       passiveMinutesOverride: item.passiveMinutesOverride,
       passiveNoteOverride: item.passiveNoteOverride,
       linkedRecipe: item.linkedRecipe
-        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote }
+        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote, stages: item.linkedRecipe.stages }
         : null,
     }
     const activeMinutes  = resolveActive(times)
@@ -256,6 +258,9 @@ export async function GET(req: NextRequest) {
             name: item.linkedRecipe.name,
             yieldUnit: item.linkedRecipe.yieldUnit,
             baseYieldQty: parseFloat(String(item.linkedRecipe.baseYieldQty)),
+            // The resolved chain (null = unstaged) — the run sheet reads it for
+            // the stage chip, rest rows and the Next button.
+            stages: resolveStages(item.linkedRecipe),
           }
         : null,
       linkedInventoryItemId: item.linkedInventoryItemId,

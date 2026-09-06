@@ -1,4 +1,5 @@
 import type { PrepPriority } from '@/lib/prep-utils'
+import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
 
 export type { PrepPriority }
 
@@ -30,6 +31,12 @@ export interface PrepLogData {
   listOrder: number | null
   /** Set when the chef posts the list — membership in the kitchen's To Do. */
   postedAt: string | null
+  /** Staged prep — index into the recipe's chain; null/undefined when not staged. */
+  stageIndex?: number | null
+  /** When the current stage began (ISO instant). */
+  stageEnteredAt?: string | null
+  /** Append-only StageEvent[] (a correction is recorded, not erased). */
+  stageHistory?: StageEvent[] | null
 }
 
 /** Header row for a posted prep list (PrepPost) — the To Do provenance band. */
@@ -66,6 +73,8 @@ export interface PrepItemRich {
     name: string
     yieldUnit: string
     baseYieldQty: number
+    /** The resolved stage chain, or null when the recipe is unstaged. */
+    stages?: RecipeStage[] | null
   } | null
   linkedInventoryItemId: string | null
   onHand: number
@@ -117,6 +126,8 @@ export interface RecipeStepsData {
   id: string
   name: string
   steps: string[]
+  /** Staged prep chain (null/undefined = unstaged) — the drawer lists it with the current stage lit. */
+  stages?: RecipeStage[] | null
   baseYieldQty: number
   yieldUnit: string
   totalCost: number
